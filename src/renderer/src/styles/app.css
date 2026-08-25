@@ -75,8 +75,19 @@ h2 {
    ===================================================================== */
 .app-shell {
   display: flex;
+  flex-direction: column;
   height: 100vh;
   overflow: hidden;
+}
+.app-shell > .sidebar,
+.app-shell > .content-row {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.app-main-row {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .content {
@@ -2060,3 +2071,59 @@ kbd {
 .sg5-village { margin-bottom: 16px; }
 .sg5-village-title { font-family: var(--font-display, Cinzel, serif); font-size: 1rem; letter-spacing: 0.05em; margin: 0 0 8px; }
 .sg2-memory-summary { font-size: 0.95rem; }
+
+/* ===== Titlebar personalizada (frame:false) ===== */
+.titlebar {
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  padding: 0 0 0 12px;
+  background: #e7dbbd;
+  border-bottom: 1px solid #d8c9a4;
+  flex: none;
+}
+.titlebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.titlebar-title {
+  font-family: var(--font-display, Cinzel, serif);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #4a3a26;
+}
+.titlebar-actions {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  display: flex;
+  height: 100%;
+}
+.titlebar-btn {
+  width: 44px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: #6f6049;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.titlebar-btn:hover {
+  background: #ddd0ab;
+  color: #3d2e1c;
+}
+.titlebar-btn--close:hover {
+  background: #c0392b;
+  color: #fff;
+}
+.titlebar-btn:focus-visible {
+  outline: 2px solid #8b5e3c;
+  outline-offset: -2px;
+}

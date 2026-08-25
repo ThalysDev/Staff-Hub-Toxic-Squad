@@ -210,9 +210,18 @@ export interface StaffHubApi {
     /** MPs personalizadas (#alvos#) — MUTAÇÃO: confirmação dupla + journal + dry-run. */
     sendMps(input: { subject: string; body: string; entries: { playerName: string; coords: string[] }[] }, confirm: boolean): Promise<Sg6MutationOutcome[]>;
   };
+  window: {
+    /** Titlebar personalizada (frame:false). */
+    minimize(): Promise<void>;
+    toggleMaximize(): Promise<boolean>;
+    close(): Promise<void>;
+    isMaximized(): Promise<boolean>;
+  };
   events: {
     onQueueProgress(cb: (progress: QueueProgress) => void): () => void;
     onSessionChanged(cb: (status: SessionStatus) => void): () => void;
+    /** Estado maximizado da janela (titlebar). */
+    onWindowMaxChanged(cb: (maximized: boolean) => void): () => void;
   };
 }
 

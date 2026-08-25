@@ -70,11 +70,22 @@ const api = {
     totals: (coords: string[]) =>
       ipcRenderer.invoke('sg5:totals', coords) as Promise<import('@shared/ipc-types').Sg5TotalsResult>,
   },
+  window: {
+    minimize: () => ipcRenderer.invoke('win:min'),
+    toggleMaximize: () => ipcRenderer.invoke('win:max-toggle') as Promise<boolean>,
+    close: () => ipcRenderer.invoke('win:close'),
+    isMaximized: () => ipcRenderer.invoke('win:is-max') as Promise<boolean>,
+  },
   events: {
     onQueueProgress: (cb: (progress: QueueProgress) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, progress: QueueProgress) => cb(progress);
       ipcRenderer.on('queue:progress', listener);
       return () => ipcRenderer.removeListener('queue:progress', listener);
+    },
+    onWindowMaxChanged: (cb: (maximized: boolean) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, maximized: boolean) => cb(maximized);
+      ipcRenderer.on('win:max-changed', listener);
+      return () => ipcRenderer.removeListener('win:max-changed', listener);
     },
     onSessionChanged: (cb: (status: SessionStatus) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, status: SessionStatus) => cb(status);

@@ -55,6 +55,9 @@ function createMainWindow(): void {
     minHeight: 680,
     title: 'Staff Hub Toxic Squad',
     backgroundColor: '#12100e',
+    icon: join(__dirname, '../../build/icon.ico'),
+    frame: false,
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -62,6 +65,18 @@ function createMainWindow(): void {
       sandbox: true,
     },
   });
+  // Taskbar do Windows: agrupamento + ícone de relançamento pela própria janela
+  // (docs: appId é obrigatório para as demais opções do setAppDetails).
+  mainWindow.setAppDetails({
+    appId: 'com.toxicsquad.staffhub',
+    appIconPath: join(__dirname, '../../build/icon.ico'),
+    appIconIndex: 0,
+  });
+  const emitMaxState = (): void => {
+    mainWindow?.webContents.send('win:max-changed', mainWindow.isMaximized());
+  };
+  mainWindow.on('maximize', emitMaxState);
+  mainWindow.on('unmaximize', emitMaxState);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: 'deny' };
@@ -161,6 +176,17 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('queue:cancel', () => queue?.cancel());
+
+  // Titlebar personalizada (frame:false): controles de janela via IPC.
+  ipcMain.handle('win:min', () => mainWindow?.minimize());
+  ipcMain.handle('win:max-toggle', () => {
+    if (mainWindow === null) return false;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+    return mainWindow.isMaximized();
+  });
+  ipcMain.handle('win:close', () => mainWindow?.close());
+  ipcMain.handle('win:is-max', () => mainWindow?.isMaximized() ?? false);
 }
 
 function wireEvents(): void {

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Camera, History, LayoutDashboard, LogIn, Settings2 } from 'lucide-react';
+import TitleBar from './components/TitleBar';
 import Sidebar, { type SidebarGroup, type SidebarItem } from './components/Sidebar';
 import CapturesPage from './pages/CapturesPage';
 import DashboardPage from './pages/DashboardPage';
@@ -77,8 +78,11 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar groups={NAV_GROUPS} active={page} onNavigate={setPage} />
-      <main className="content">{renderPage(page, setPage)}</main>
+      <TitleBar />
+      <div className="app-main-row">
+        <Sidebar groups={NAV_GROUPS} active={page} onNavigate={setPage} />
+        <main className="content">{renderPage(page, setPage)}</main>
+      </div>
     </div>
   );
 }
