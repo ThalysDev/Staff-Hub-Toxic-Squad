@@ -1,0 +1,29 @@
+/* tokens.css — Design tokens do tema Toxic Squad. Única fonte de cores/medidas do renderer. */
+
+:root {
+  /* Cores base */
+  --bg-obsidian: #12100e;
+  --panel-graphite: #1c1916;
+  --border-gold-soft: #8a6d2f;
+  --border-gold: #c8a24a;
+  --text-parchment: #e8ddc0;
+  --text-muted: #9a8f78;
+
+  /* Semânticas */
+  --ok-green: #4f8a5b;
+  --alert-red: #a34141;
+  --info-blue: #3f6f8f;
+
+  /* Derivados (bordas/superfícies em tons dourados) */
+  --border-subtle: rgba(138, 109, 47, 0.35);
+  --bg-hover-gold: rgba(200, 162, 74, 0.1);
+  --bg-active-gold: rgba(200, 162, 74, 0.16);
+
+  /* Tipografia — stack local, sem fontes remotas */
+  --font-family: 'Segoe UI', 'Segoe UI Variable Text', 'Trebuchet MS',
+    'Lucida Sans Unicode', system-ui, sans-serif;
+
+  /* Layout */
+  --sidebar-width: 220px;
+  --radius: 8px;
+}

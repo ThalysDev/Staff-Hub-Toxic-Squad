@@ -1,0 +1,85 @@
+// Contrato IPC entre renderer e processo principal do Staff Hub Toxic Squad.
+// Toda evolução da ponte começa aqui — preload e main implementam, renderer consome.
+
+export type SessionState = 'logged-out' | 'logging-in' | 'logged-in' | 'unknown';
+
+export interface SessionStatus {
+  state: SessionState;
+  /** Mundo ativo, ex.: "br142". */
+  world: string | null;
+  /** Nick do jogador logado (se conhecido). */
+  player: string | null;
+  /** Hora da última verificação bem-sucedida da sessão. */
+  checkedAt: string | null;
+}
+
+export interface AppSettings {
+  /** Intervalo mínimo entre requisições ao jogo, em ms. */
+  requestMinIntervalMs: number;
+  /** Jitter máximo adicional por requisição, em ms. */
+  requestJitterMs: number;
+  /** Teto de requisições por operação de coleta. */
+  requestCeiling: number;
+  /** Modo DRY-RUN global: mutações são apenas registradas, nunca enviadas. */
+  dryRun: boolean;
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  requestMinIntervalMs: 350,
+  requestJitterMs: 250,
+  requestCeiling: 400,
+  dryRun: true,
+};
+
+export interface JournalEntry {
+  id: string;
+  ts: string;
+  kind: 'read' | 'mutation' | 'session' | 'system';
+  action: string;
+  detail: string;
+  dryRun: boolean;
+}
+
+export interface QueueProgress {
+  operationId: string;
+  label: string;
+  done: number;
+  total: number;
+}
+
+export type FixtureCaptureResult =
+  | { ok: true; name: string; bytes: number; path: string }
+  | { ok: false; name: string; error: string };
+
+export interface StaffHubApi {
+  session: {
+    openLogin(): Promise<void>;
+    logout(): Promise<void>;
+    status(): Promise<SessionStatus>;
+  };
+  settings: {
+    get(): Promise<AppSettings>;
+    update(patch: Partial<AppSettings>): Promise<AppSettings>;
+  };
+  journal: {
+    list(limit: number): Promise<JournalEntry[]>;
+    clear(): Promise<void>;
+  };
+  app: {
+    getVersion(): Promise<string>;
+  };
+  dev: {
+    /** Baixa uma URL do jogo com a sessão atual e salva como fixture em userData/fixtures. */
+    captureFixture(name: string, url: string): Promise<FixtureCaptureResult>;
+  };
+  events: {
+    onQueueProgress(cb: (progress: QueueProgress) => void): () => void;
+    onSessionChanged(cb: (status: SessionStatus) => void): () => void;
+  };
+}
+
+declare global {
+  interface Window {
+    staffhub: StaffHubApi;
+  }
+}
