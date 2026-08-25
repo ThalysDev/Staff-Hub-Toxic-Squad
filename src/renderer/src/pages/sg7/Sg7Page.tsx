@@ -1,0 +1,162 @@
+import { useState } from 'react';
+import { ClipboardCopy, ScrollText, ShieldAlert } from 'lucide-react';
+import type { ForumConferenceResult } from '@shared/ipc-types';
+import { useToast } from '../../hooks/useToast';
+import ToastViewport from '../../components/Toast';
+
+export default function Sg7Page() {
+  const { toasts, push, dismiss } = useToast();
+  const [threadUrl, setThreadUrl] = useState('');
+  const [conference, setConference] = useState<ForumConferenceResult | null>(null);
+  const [adjustResult, setAdjustResult] = useState<{ dryRun: boolean; ok: boolean | null; detail: string } | null>(null);
+  const [pendingAdjust, setPendingAdjust] = useState(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function runConference(): Promise<void> {
+    setBusy(true);
+    setError('');
+    setConference(null);
+    setAdjustResult(null);
+    setPendingAdjust(false);
+    try {
+      if (!/thread_id=\d+/.test(threadUrl)) throw new Error('Cole a URL completa do tópico (com thread_id).');
+      const result = await window.staffhub.sg7.conference(threadUrl.trim());
+      setConference(result);
+      push('ok', result.changed ? 'Conferência pronta — há ajustes a aplicar.' : 'Conferência pronta — nada a ajustar.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      push('error', message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runAdjust(): Promise<void> {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await window.staffhub.sg7.adjust(threadUrl.trim(), true);
+      setAdjustResult(result);
+      push(result.dryRun ? 'info' : result.ok ? 'ok' : 'error', result.detail);
+      setPendingAdjust(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      push('error', message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="col" style={{ gap: 16 }}>
+      <header className="page-header">
+        <div>
+          <p className="kicker">Atualização de Blindagem no Fórum</p>
+          <h1>Fórum — Pedidos</h1>
+        </div>
+      </header>
+
+      <div className="callout" role="note">
+        <ShieldAlert size={16} aria-hidden="true" />
+        <span>
+          Fluxo: a staff publica a tabela BBCode do SG_3 no primeiro post; os membros comentam no formato
+          rígido <strong>pedido/lanceiros/espadachins/arqueiros</strong> (ex.: <code>243/100/0/0</code> — sempre
+          as 3 unidades, 0 quando não enviar). O ajuste do post é <strong>mutação</strong> (confirmação dupla +
+          journal + DRY-RUN).
+        </span>
+      </div>
+
+      <section className="card">
+        <div className="card-header">
+          <h2 className="card-title">Conferência do Tópico</h2>
+        </div>
+        <label className="field">
+          <span className="field-label">URL do tópico de blindagem</span>
+          <input
+            className="input"
+            placeholder="https://br142.tribalwars.com.br/game.php?screen=forum&screenmode=view_thread&forum_id=597&thread_id=…"
+            value={threadUrl}
+            onChange={(event) => setThreadUrl(event.target.value)}
+          />
+        </label>
+        {error !== '' && <p className="error" role="alert">{error}</p>}
+        <button type="button" className="btn" onClick={() => void runConference()} disabled={busy}>
+          <ScrollText size={16} aria-hidden="true" />
+          {busy ? 'Lendo tópico…' : 'Realizar Conferência Posts'}
+        </button>
+      </section>
+
+      {conference !== null && (
+        <>
+          <section className="card">
+            <div className="card-header">
+              <h2 className="card-title">Pedidos Reconhecidos Somados</h2>
+              <span className="spacer" />
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  void navigator.clipboard.writeText(conference.recognized).then(() => push('ok', 'Reconhecidos copiados.'));
+                }}
+              >
+                <ClipboardCopy size={14} aria-hidden="true" />
+                Copiar
+              </button>
+            </div>
+            <pre className="sg7-code">{conference.recognized === '' ? 'Nenhum comentário no formato reconhecido.' : conference.recognized}</pre>
+          </section>
+
+          <section className="card">
+            <div className="card-header">
+              <h2 className="card-title">Tabela Atualizada (prévia)</h2>
+            </div>
+            <pre className="sg7-code">{conference.updatedMessage}</pre>
+            {!pendingAdjust ? (
+              <button
+                type="button"
+                className="btn"
+                disabled={busy || !conference.changed}
+                onClick={() => setPendingAdjust(true)}
+              >
+                Ajustar Conforme Script
+              </button>
+            ) : (
+              <div className="sg6-confirm">
+                <p>
+                  Confirmar a edição do <strong>primeiro post</strong> do tópico {conference.threadId} com a
+                  tabela atualizada? Uma única tentativa; tudo vai para o Journal.
+                </p>
+                <div className="row">
+                  <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void runAdjust()}>
+                    Confirmar Ajuste
+                  </button>
+                  <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setPendingAdjust(false)}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+        </>
+      )}
+
+      {adjustResult !== null && (
+        <section className="card">
+          <div className="card-header">
+            <h2 className="card-title">Resultado do Ajuste</h2>
+          </div>
+          <p>{adjustResult.detail}</p>
+          <p className="muted">
+            Apagar as mensagens processadas é feito pela moderação manual do fórum nesta versão (selecionar os
+            posts do tópico e usar a ação da própria tela do jogo) — automação de exclusão entra em versão futura.
+          </p>
+        </section>
+      )}
+
+      <ToastViewport toasts={toasts} onDismiss={dismiss} />
+    </div>
+  );
+}

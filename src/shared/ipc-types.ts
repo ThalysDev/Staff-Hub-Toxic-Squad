@@ -51,6 +51,14 @@ export interface Sg6MutationOutcome {
   detail: string;
 }
 
+export interface ForumConferenceResult {
+  threadId: number;
+  firstPostMessage: string;
+  recognized: string;
+  updatedMessage: string;
+  changed: boolean;
+}
+
 export type SessionState = 'logged-out' | 'logging-in' | 'logged-in' | 'unknown';
 
 export interface SessionStatus {
@@ -181,6 +189,12 @@ export interface StaffHubApi {
     verify(entries: Sg5VerifyEntry[]): Promise<Sg5VerifyResult>;
     /** Totalizador por jogador a partir de coordenadas. */
     totals(coords: string[]): Promise<Sg5TotalsResult>;
+  };
+  sg7: {
+    /** Conferência dos posts do tópico de blindagem (leitura). */
+    conference(threadUrl: string): Promise<ForumConferenceResult>;
+    /** MUTAÇÃO: aplica o BBCode atualizado no primeiro post — dupla confirmação + dry-run. */
+    adjust(threadUrl: string, confirm: boolean): Promise<{ dryRun: boolean; ok: boolean | null; detail: string }>;
   };
   sg6: {
     /** Reserva em massa no Planejador — MUTAÇÃO: confirmação dupla + journal + dry-run. */
