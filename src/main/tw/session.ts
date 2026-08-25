@@ -44,7 +44,7 @@ export function parseSidInput(input: string, world: string): { sid: string; extr
       entries = null;
     }
   }
-  if (entries) {
+    if (entries) {
     const worldHost = `${world}.tribalwars.com.br`;
     const sidEntry =
       entries.find((c) => c.name === 'sid' && c.domain.includes(worldHost)) ??
@@ -53,10 +53,14 @@ export function parseSidInput(input: string, world: string): { sid: string; extr
     const extraCookies = entries.filter(
       (c) => c !== sidEntry && c.name !== 'sid' && c.domain.includes('tribalwars.com.br'),
     );
-    return { sid: decode(sidEntry.value), extraCookies };
+    // O cookie é gravado EXATAMENTE como colado (o navegador envia o valor
+    // cruo; decodificar %3A mudaria o que vai ao servidor). O decode é só
+    // para validar o formato.
+    return { sid: sidEntry.value, extraCookies };
   }
-  const raw = decode(trimmed.replace(/^["']|["']$/g, ''));
-  const looksLikeSid = /^\d+:[a-f0-9]{32,}$/i.test(raw) || /^[a-f0-9]{32,}$/i.test(raw);
+  const raw = trimmed.replace(/^["']|["']$/g, '');
+  const decoded = decode(raw);
+  const looksLikeSid = /^\d+:[a-f0-9]{32,}$/i.test(decoded) || /^[a-f0-9]{32,}$/i.test(decoded);
   if (!looksLikeSid) return null;
   return { sid: raw, extraCookies: [] };
 }
@@ -158,9 +162,9 @@ export class TwSessionManager {
     }
     try {
       const html = await this.fetchText(`https://${world}.tribalwars.com.br/game.php?screen=overview`);
-      const player = extractPlayerName(html);
-      if (player) {
-        this.status = { state: 'logged-in', world, player, checkedAt: new Date().toISOString() };
+      if (looksLikeGamePage(html)) {
+        const player = extractPlayerName(html);
+        this.status = { state: 'logged-in', world, player: player ?? this.status.player, checkedAt: new Date().toISOString() };
       } else if (looksLikeLoginForm(html)) {
         this.status = { state: 'logged-out', world, player: null, checkedAt: new Date().toISOString() };
       }
@@ -220,11 +224,15 @@ export class TwSessionManager {
     }
     try {
       const html = await this.fetchText(`https://${normalizedWorld}.tribalwars.com.br/game.php?screen=overview`);
-      const player = extractPlayerName(html);
-      if (!player || looksLikeLoginForm(html)) {
-        return { ok: false, error: 'SID não validado — pode estar expirado. Faça login no navegador, copie o sid atual e tente de novo.' };
+      if (!looksLikeGamePage(html)) {
+        return { ok: false, error: 'SID não validado — pode estar expirado. Faça login no navegador, copie o export atual do EditThisCookie e tente de novo.' };
       }
-      this.status = { state: 'logged-in', world: normalizedWorld, player, checkedAt: new Date().toISOString() };
+      this.status = {
+        state: 'logged-in',
+        world: normalizedWorld,
+        player: extractPlayerName(html),
+        checkedAt: new Date().toISOString(),
+      };
       this.emit();
       return { ok: true, status: this.status };
     } catch (error) {
@@ -252,7 +260,7 @@ export class TwSessionManager {
 
 }
 
-/** Extrai o nick do jogador do cabeçalho do jogo (topo/visão geral). */
+/** Extrai o nick do jogador do cabeçalho do jogo (topo/visão geral) — best-effort. */
 export function extractPlayerName(html: string): string | null {
   const byTopbar = /class="topbar[^"]*"[^>]*>\s*<a[^>]*>([^<]{2,30})<\/a>/.exec(html);
   if (byTopbar?.[1]) return byTopbar[1].trim();
@@ -264,4 +272,13 @@ export function extractPlayerName(html: string): string | null {
 export function looksLikeLoginForm(html: string): boolean {
   const head = html.slice(0, 4000).toLowerCase();
   return head.includes('name="password"') || head.includes('id="login"') || head.includes('login_button');
+}
+
+/**
+ * Marcador estrutural de página de jogo autenticada (validado contra o HTML
+ * real do BR142): o corpo do jogo tem id="ds_body". O nick nem sempre é
+ * extraível da visão geral — por isso NÃO faz parte do critério de sessão.
+ */
+export function looksLikeGamePage(html: string): boolean {
+  return html.includes('id="ds_body"') && !looksLikeLoginForm(html);
 }
