@@ -175,7 +175,7 @@ export default function SessionPage() {
                 id="sid-value"
                 className="input"
                 type="text"
-                placeholder="cole o valor do cookie sid"
+                placeholder="cole o export completo do EditThisCookie ou só o valor do sid"
                 autoComplete="off"
                 spellCheck={false}
                 value={sidValue}
@@ -183,9 +183,11 @@ export default function SessionPage() {
               />
             </Field>
             <p className="hint-note">
-              No navegador logado no jogo, abra a extensão de cookies (EditThisCookie), copie o
-              valor do cookie <strong>sid</strong> de br###.tribalwars.com.br e cole aqui. O hub só
-              grava o cookie que você colar — nunca gera ou renova sid.
+              No navegador logado no jogo, abra a extensão de cookies (EditThisCookie) e use{' '}
+              <strong>Export</strong> — cole o JSON inteiro aqui (o hub extrai o{' '}
+              <strong>sid</strong> de br###.tribalwars.com.br sozinho). Também aceita só o valor
+              do sid (0%3Aabc… ou 0:abc…). O hub só grava os cookies que você colar — nunca gera
+              ou renova sid.
             </p>
             <div className="row">
               <button type="submit" className="btn" disabled={sidBusy}>

@@ -5,6 +5,62 @@ export const TW_PARTITION = 'persist:tw';
 const PORTAL_URL = 'https://www.tribalwars.com.br/';
 const GAME_URL_PATTERN = /^https:\/\/(br\d+)\.tribalwars\.com\.br\/game\.php/;
 
+interface ImportedCookie {
+  name: string;
+  value: string;
+  domain: string;
+}
+
+/**
+ * Interpreta o que o usuário colou no campo SID:
+ * 1. Export completo/parcial do EditThisCookie (JSON array de cookies) — extrai
+ *    o cookie "sid" (preferindo o domínio do mundo) + cookies da sessão;
+ * 2. Cookie único em JSON ({"name":"sid","value":...});
+ * 3. Valor puro do sid (com ou sem URL-encoding, ex.: "0%3Aabc" ou "0:abc").
+ */
+export function parseSidInput(input: string, world: string): { sid: string; extraCookies: ImportedCookie[] } | null {
+  const trimmed = input.trim();
+  const decode = (value: string): string => {
+    if (!value.includes('%')) return value;
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  };
+  let entries: ImportedCookie[] | null = null;
+  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      const list = Array.isArray(parsed) ? parsed : [parsed];
+      entries = list
+        .filter((item): item is ImportedCookie => {
+          if (typeof item !== 'object' || item === null) return false;
+          const candidate = item as Partial<ImportedCookie>;
+          return typeof candidate.name === 'string' && typeof candidate.value === 'string' && typeof candidate.domain === 'string';
+        })
+        .map((item) => ({ name: item.name, value: item.value, domain: item.domain }));
+    } catch {
+      entries = null;
+    }
+  }
+  if (entries) {
+    const worldHost = `${world}.tribalwars.com.br`;
+    const sidEntry =
+      entries.find((c) => c.name === 'sid' && c.domain.includes(worldHost)) ??
+      entries.find((c) => c.name === 'sid');
+    if (!sidEntry) return null;
+    const extraCookies = entries.filter(
+      (c) => c !== sidEntry && c.name !== 'sid' && c.domain.includes('tribalwars.com.br'),
+    );
+    return { sid: decode(sidEntry.value), extraCookies };
+  }
+  const raw = decode(trimmed.replace(/^["']|["']$/g, ''));
+  const looksLikeSid = /^\d+:[a-f0-9]{32,}$/i.test(raw) || /^[a-f0-9]{32,}$/i.test(raw);
+  if (!looksLikeSid) return null;
+  return { sid: raw, extraCookies: [] };
+}
+
 /**
  * Sessão do Tribal Wars em partição dedicada do Chromium: o usuário faz login
  * real (captcha, 2FA, o que o jogo pedir) numa janela própria e TODAS as
@@ -123,28 +179,45 @@ export class TwSessionManager {
 
   /**
    * Import de sessão via sid colado pelo próprio usuário (fluxo EditThisCookie,
-   * autorizado pelo dono — ver AGENTS.md). Grava o cookie na partição e valida
-   * com um probe real; sid inválido/expirado volta como erro limpo. O app nunca
-   * gera, renova ou rotaciona sid.
+   * autorizado pelo dono — ver AGENTS.md). Aceita o export completo da extensão
+   * ou o valor puro. Grava os cookies na partição e valida com um probe real;
+   * sid inválido/expirado volta como erro limpo. O app nunca gera, renova ou
+   * rotaciona sid.
    */
   async loginWithSid(world: string, sid: string): Promise<{ ok: true; status: SessionStatus } | { ok: false; error: string }> {
     const normalizedWorld = world.trim().toLowerCase();
-    const normalizedSid = sid.trim();
     if (!/^br\d{1,4}$/.test(normalizedWorld)) {
       return { ok: false, error: 'Mundo inválido — use o formato br142.' };
     }
-    if (normalizedSid.length < 8 || !/^[a-f0-9]+$/i.test(normalizedSid)) {
-      return { ok: false, error: 'SID inválido — copie o valor completo do cookie "sid" no navegador.' };
+    const parsed = parseSidInput(sid, normalizedWorld);
+    if (!parsed) {
+      return { ok: false, error: 'Não encontrei um cookie "sid" válido aí — cole o export completo do EditThisCookie ou o valor puro do sid (0%3Aabc… ou 0:abc…).' };
     }
     await this.ses.clearStorageData({ storages: ['cookies'] });
     await this.ses.cookies.set({
       url: `https://${normalizedWorld}.tribalwars.com.br/`,
       name: 'sid',
-      value: normalizedSid,
+      value: parsed.sid,
       path: '/',
       secure: true,
       httpOnly: true,
     });
+    // Cookies companhia do próprio export (ex.: br_auth/cid do portal, global_village_id
+    // do mundo) — só os de tribalwars.com.br, extraídos do que o usuário colou.
+    for (const cookie of parsed.extraCookies) {
+      const host = cookie.domain.replace(/^\./, '');
+      try {
+        await this.ses.cookies.set({
+          url: `https://${host}/`,
+          name: cookie.name,
+          value: cookie.value,
+          path: '/',
+          secure: host.includes('tribalwars.com.br'),
+        });
+      } catch {
+        // cookie opcional — ignora se o Chromium recusar
+      }
+    }
     try {
       const html = await this.fetchText(`https://${normalizedWorld}.tribalwars.com.br/game.php?screen=overview`);
       const player = extractPlayerName(html);
