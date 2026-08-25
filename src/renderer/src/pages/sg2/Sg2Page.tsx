@@ -95,6 +95,7 @@ export default function Sg2Page() {
 
   // Memória (persistida no processo principal; F5 não perde).
   const [troopsAt, setTroopsAt] = useState<string | null>(null);
+  const [collectFailures, setCollectFailures] = useState<{ playerName: string; reason: string }[] | null>(null);
   const [memorySummary, setMemorySummary] = useState<{ players: number; villages: number; collectedAt: string; source: string } | null>(null);
   const [snapshot, setSnapshot] = useState<TroopSnapshot | null>(null);
   const [collecting, setCollecting] = useState<'members' | 'summary' | null>(null);
@@ -159,13 +160,16 @@ export default function Sg2Page() {
       await (kind === 'members'
         ? window.staffhub.troops.collectMembers('troops')
         : window.staffhub.troops.collectSummary('troops'));
+      const snapshotAfter = await window.staffhub.troops.get('troops');
+      const failed = snapshotAfter?.failures ?? [];
       await refreshMemory();
-      push(
-        'ok',
-        kind === 'members'
-          ? 'Coleta de tropas concluída — dados em memória atualizados.'
-          : 'Resumo coletado — dados em memória atualizados.',
-      );
+      if (failed.length > 0) {
+        push('info', `Coleta concluída com ${failed.length} membro(s) com erro — lista abaixo do painel de memória.`);
+        setCollectFailures(failed);
+      } else {
+        push('ok', kind === 'members' ? 'Coleta de tropas concluída — dados em memória atualizados.' : 'Resumo coletado — dados em memória atualizados.');
+        setCollectFailures(null);
+      }
     } catch (error) {
       const message = errorMessage(error);
       setActionError(message);
@@ -291,6 +295,25 @@ export default function Sg2Page() {
               <strong>{memorySummary.villages}</strong> aldeia(s) · coleta{" "}
               {memorySummary.source} · {memorySummary.collectedAt}
             </div>
+          </div>
+        </section>
+      )}
+
+      {collectFailures !== null && (
+        <section className="page-section" aria-label="Membros com erro na coleta">
+          <div className="card">
+            <div className="card-header"><h2 className="card-title">Membros com erro na última coleta ({collectFailures.length})</h2></div>
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>Membro</th><th>Motivo</th></tr></thead>
+                <tbody>
+                  {collectFailures.map((failure) => (
+                    <tr key={failure.playerName}><td className="cell-nowrap">{failure.playerName}</td><td className="cell-detail muted">{failure.reason}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="muted">Os demais membros foram coletados normalmente — filtro e classificação usam o que veio.</p>
           </div>
         </section>
       )}

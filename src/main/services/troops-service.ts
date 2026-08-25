@@ -20,6 +20,7 @@ import {
   type MemberSelectorResult,
   type TrainedUnitsRow,
 } from '@shared/parsers/ally-parsers';
+import { isMemberSummaryPage, parseOwnUnitsTable } from '@shared/parsers/village-parsers';
 import type { DefenseSnapshot, TroopSnapshot } from '@shared/sg2-engine';
 
 /** Cache persistido das coletas — uma posição por tipo de coleta. */
@@ -151,22 +152,26 @@ export class TroopsService {
       }
       throw error;
     }
-    const { entries, defenseEntries } = this.memberEntries(kind, members, bodies);
+    const collected = await this.memberEntries(kind, members, bodies);
+    const { entries, defenseEntries } = collected;
+    const failures = collected.failures ?? [];
     const snapshot: TroopSnapshot = {
       kind,
       source: 'per-member',
       collectedAt: new Date().toISOString(),
       entries,
+      ...(failures.length > 0 ? { failures } : {}),
     };
     const defenseVillages: DefenseSnapshot | null =
       kind === 'defense'
         ? { kind: 'defense', collectedAt: snapshot.collectedAt, entries: defenseEntries }
         : null;
     await this.saveSnapshot(snapshot, defenseVillages);
+    const failuresNote = failures.length > 0 ? `, ${failures.length} membro(s) com erro (ver detalhes)` : '';
     await this.journal.append(
       'read',
       'collect-members',
-      `${KIND_LABEL[kind]} por aldeia: ${members.length} membros, ${snapshot.entries.length} aldeias`,
+      `${KIND_LABEL[kind]} por aldeia: ${members.length} membros, ${snapshot.entries.length} aldeias${failuresNote}`,
       false,
     );
     return snapshot;
@@ -222,20 +227,61 @@ export class TroopsService {
    * Para defesa devolve TAMBM defenseEntries com o trânsito ("a caminho")
    * preservado — o snapshot genérico de TroopSnapshot carrega só "Na Aldeia".
    */
-  private memberEntries(
+  private async memberEntries(
     kind: TroopKind,
     members: MemberSelectorResult['options'],
     bodies: readonly string[],
-  ): { entries: TroopSnapshot['entries']; defenseEntries: DefenseSnapshot['entries'] } {
+  ): Promise<{ entries: TroopSnapshot['entries']; defenseEntries: DefenseSnapshot['entries']; failures: TroopSnapshot['failures'] }> {
     const entries: TroopSnapshot['entries'] = [];
     const defenseEntries: DefenseSnapshot['entries'] = [];
+    const failures: NonNullable<TroopSnapshot['failures']> = [];
+    // Fallback da própria conta: quando o player_id é o da sessão, o jogo
+    // ignora o parâmetro e devolve o resumo — as tropas por aldeia da própria
+    // conta vêm de overview_villages&mode=units (uma única requisição).
+    let ownUnitsCache: ReturnType<typeof parseOwnUnitsTable> | null = null;
+    const ownUnits = async (): Promise<ReturnType<typeof parseOwnUnitsTable>> => {
+      if (ownUnitsCache === null) {
+        const world = this.world();
+        const ceiling = await this.ceiling();
+        const body = (await this.queue.run([`https://${world}.tribalwars.com.br/game.php?screen=overview_villages&mode=units`], { label: 'Tropas da própria conta', ceiling }))[0];
+        if (body === undefined) throw new Error('Falha ao ler as tropas da própria conta.');
+        ownUnitsCache = parseOwnUnitsTable(body);
+      }
+      return ownUnitsCache;
+    };
     for (let i = 0; i < members.length; i++) {
       const member = members[i];
       const body = bodies[i];
       if (member === undefined || body === undefined) {
-        throw new Error('Resposta da coleta por membro incompleta — tente de novo.');
+        failures.push({ playerName: '?', reason: 'Resposta da coleta incompleta.' });
+        continue;
       }
       try {
+        if (isMemberSummaryPage(body)) {
+          // Própria conta logada: usa a visão de unidades da conta.
+          const own = await ownUnits();
+          for (const village of own.villages) {
+            entries.push({
+              playerId: member.playerId,
+              playerName: member.name,
+              coord: village.coord,
+              villageId: village.villageId,
+              villageName: village.name,
+              units: kind === 'troops' ? village.own : village.inVillage,
+            });
+            defenseEntries.push({
+              playerId: member.playerId,
+              playerName: member.name,
+              villageId: village.villageId,
+              name: village.name,
+              coord: village.coord,
+              points: 0,
+              unitsInVillage: village.inVillage,
+              unitsInTransit: village.inTransit,
+            });
+          }
+          continue;
+        }
         const parsed = kind === 'troops' ? parseMemberVillageTroops(body) : parseMemberVillageDefense(body);
         for (const village of parsed.villages) {
           if ('units' in village) {
@@ -269,11 +315,13 @@ export class TroopsService {
           }
         }
       } catch (error) {
-        throw new Error(
-          `Coleta de ${KIND_LABEL[kind]} de "${member.name}" com formato inesperado: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        // RESILIÊNCIA: um membro com erro NÃO aborta a coleta — registra e segue.
+        failures.push({
+          playerName: member.name,
+          reason: error instanceof Error ? error.message : String(error),
+        });
       }
     }
-    return { entries, defenseEntries };
+    return { entries, defenseEntries, failures };
   }
 }

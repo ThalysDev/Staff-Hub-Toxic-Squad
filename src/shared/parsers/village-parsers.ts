@@ -1,3 +1,4 @@
+import type { UnitCounts } from '../units';
 // Parser das linhas de comandos (widget "Comandos a caminho"/"Chegando") do TW BR.
 // Validado contra tests/fixtures/br142/incomings-own.html (701 comandos reais).
 // O mesmo widget aparece na página info_village com comandos compartilhados.
@@ -113,3 +114,93 @@ export function totalsByPlayer(rows: IncomingCommandRow[]): PlayerCommandTotal[]
   }
   return [...map.values()].sort((a, b) => b.total - a.total || a.playerName.localeCompare(b.playerName, 'pt-BR'));
 }
+
+// ---------------------------------------------------------------------------
+// Visão de unidades da PRÓPRIA conta (screen=overview_villages&mode=units):
+// quando o player_id da tela de tribo é o da conta logada, o jogo ignora o
+// parâmetro e devolve o resumo por jogador — as tropas por aldeia da própria
+// conta vêm desta tabela (id=units_table), com 5 sub-linhas por aldeia:
+// "suas próprias" | "Na Aldeia" | "fora" | "em trânsito" | "total".
+// ---------------------------------------------------------------------------
+
+export interface OwnUnitsVillage {
+  villageId: number;
+  name: string;
+  coord: { x: number; y: number };
+  /** Tropas pertencentes (SG_2), onde estiverem. */
+  own: UnitCounts;
+  /** Tropas fisicamente na aldeia (SG_3). */
+  inVillage: UnitCounts;
+  /** Tropas em trânsito (SG_3, "a caminho"). */
+  inTransit: UnitCounts;
+}
+
+function parseUnitCells(cells: readonly string[], order: readonly string[]): UnitCounts {
+  const units: UnitCounts = {};
+  order.forEach((unit, index) => {
+    const cell = cells[index];
+    if (cell === undefined) throw new ParseError(`célula da unidade ${unit} ausente`);
+    const value = cell.replace(TAG_STRIP, '').replace(/\s+/g, '');
+    units[unit as keyof UnitCounts] = value === '?' ? 0 : (parseIntHtmlSafe(value) ?? 0);
+  });
+  return units;
+}
+
+function parseIntHtmlSafe(value: string): number | null {
+  if (!/^\d[\d.]*$/.test(value)) return null;
+  return Number(value.replace(/\./g, ''));
+}
+
+/** Página é o resumo por jogador (jogo ignorou o player_id = conta logada)? */
+export function isMemberSummaryPage(html: string): boolean {
+  return /mode=members_troops&order=player/.test(html);
+}
+
+export function parseOwnUnitsTable(html: string): { villages: OwnUnitsVillage[] } {
+  const start = html.indexOf('<table id="units_table"');
+  if (start === -1) throw new ParseError('Tabela de unidades da própria conta (units_table) não encontrada.');
+  const end = html.indexOf('</table>', start);
+  const table = html.slice(start, end);
+  const unitOrder = [...table.matchAll(/unit_(\w+)\.webp/g)].map((m) => UNIT_ALIAS[m[1] ?? ''] ?? (m[1] as string));
+  const uniqueOrder = [...new Set(unitOrder)];
+  if (uniqueOrder.length < 10) throw new ParseError('Cabeçalho de unidades não reconhecido na tabela própria.');
+
+  const rows = [...table.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => m[1] ?? '');
+  const villages: OwnUnitsVillage[] = [];
+  let current: OwnUnitsVillage | null = null;
+  for (const row of rows) {
+    const villageMatch = /quickedit-vn[^>]*data-id="(\d+)"[\s\S]*?quickedit-label[^>]*>([^<]*)</.exec(row);
+    if (villageMatch !== null) {
+      const name = villageMatch[2] ?? '';
+      const coord = /\((\d{1,3})\|(\d{1,3})\)/.exec(name);
+      current = {
+        villageId: Number(villageMatch[1]),
+        name: name.replace(/\s*\(\d{1,3}\|\d{1,3}\).*/, '').trim(),
+        coord: { x: Number(coord?.[1] ?? 0), y: Number(coord?.[2] ?? 0) },
+        own: {}, inVillage: {}, inTransit: {},
+      };
+      villages.push(current);
+    }
+    if (current === null) continue;
+    const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => m[1] ?? '');
+    // Rótulo por POSIÇÃO: linha da aldeia = [aldeia, rótulo, unidades…];
+    // sub-linhas = [rótulo, unidades…]. (Nome de aldeia pode conter "fora"/"em tr".)
+    const labelIndex = villageMatch !== null ? 1 : 0;
+    const labelCell = cells[labelIndex];
+    if (labelCell === undefined) continue;
+    const label = labelCell.replace(TAG_STRIP, '').trim();
+    const unitCells = cells.slice(labelIndex + 1);
+    // "em tr" (sem o â) é à prova de mojibake na leitura latin1 do fixture.
+    if (/suas pr/i.test(label)) current.own = parseUnitCells(unitCells, uniqueOrder);
+    else if (/na aldeia/i.test(label)) current.inVillage = parseUnitCells(unitCells, uniqueOrder);
+    else if (/em tr/i.test(label)) current.inTransit = parseUnitCells(unitCells, uniqueOrder);
+  }
+  if (villages.length === 0) throw new ParseError('Tabela própria sem aldeias.');
+  return { villages };
+}
+
+const UNIT_ALIAS: Record<string, string> = {
+  spear: 'spear', sword: 'sword', axe: 'axe', archer: 'archer', spy: 'spy',
+  light: 'light', marcher: 'marcher', heavy: 'heavy', ram: 'ram',
+  catapult: 'catapult', knight: 'knight', snob: 'snob', militia: 'militia',
+};

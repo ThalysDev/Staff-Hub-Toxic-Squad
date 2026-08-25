@@ -22,6 +22,8 @@ export interface TroopSnapshot {
   source: 'summary' | 'per-member';
   collectedAt: string;
   entries: TroopEntry[];
+  /** Membros que falharam na coleta — a coleta segue com os demais. */
+  failures?: { playerName: string; reason: string }[] | undefined;
 }
 
 export interface DefenseVillageEntry {
