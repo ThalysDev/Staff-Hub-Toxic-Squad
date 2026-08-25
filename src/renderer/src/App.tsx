@@ -8,6 +8,7 @@ import ModulePlaceholderPage from './pages/ModulePlaceholderPage';
 import Sg1Page from './pages/sg1/Sg1Page';
 import Sg2Page from './pages/sg2/Sg2Page';
 import Sg3Page from './pages/sg3/Sg3Page';
+import Sg4Page from './pages/sg4/Sg4Page';
 import SessionPage from './pages/SessionPage';
 import SettingsPage from './pages/SettingsPage';
 import { MODULES, type PageId } from './modules';
@@ -46,6 +47,8 @@ function renderPage(page: PageId, onNavigate: (page: PageId) => void) {
       return <Sg2Page />;
     case 'sg3':
       return <Sg3Page />;
+    case 'sg4':
+      return <Sg4Page />;
     default: {
       const moduleInfo = MODULES.find((module) => module.id === page);
       if (!moduleInfo) return <DashboardPage onNavigate={onNavigate} />; // inalcançável: PageId cobre todos os módulos

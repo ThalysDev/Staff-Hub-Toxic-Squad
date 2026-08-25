@@ -114,6 +114,19 @@ export class Sg1Service {
     };
   }
 
+  /** Minutos por campo do NOBRE no mundo ativo (efetivo, com speed/unit_speed).
+   * Reuso público do SG_4 (planilha/distribuição em horas de nobre). */
+  async nobleMinutesPerField(): Promise<number> {
+    const world = this.worldData.world();
+    const units = await this.unitInfo(world);
+    const snob = units.snob;
+    if (snob === undefined) {
+      throw new Error('get_unit_info sem dados do Nobre — configuração de unidades inesperada.');
+    }
+    const config = await this.worldConfig(world);
+    return effectiveNobleMinutesPerField(snob.speed, config.speed, config.unitSpeed);
+  }
+
   /** Unidades do mundo (interface.php?func=get_unit_info), cache 1 dia por mundo. */
   private async unitInfo(world: string): Promise<Record<string, UnitInfo>> {
     const cached = await this.unitInfoStore.load();

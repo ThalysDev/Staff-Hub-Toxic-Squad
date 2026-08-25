@@ -89,6 +89,14 @@ export function filterTroops(snapshot: TroopSnapshot, filters: Sg2Filters): Sg2F
   const coordSet = new Set(coordsFilter.map((c) => `${c.x}|${c.y}`));
   const minimums = filters.unitMinimums ?? {};
   const hasMinimumFilters = Object.keys(minimums).length > 0;
+  // Snapshots de RESUMO (por jogador, sem aldeia) não suportam consultas por
+  // aldeia nem classificação — fail-closed com orientação, nunca número errado.
+  const isSummary = snapshot.entries.some((entry) => entry.coord.x < 0);
+  if (isSummary && (!hasMinimumFilters || filters.scope === 'aldeia' || (coordsFilter.length > 0) || (filters.axesRange !== undefined))) {
+    throw new Error(
+      'A coleta em modo Resumo (1 requisição) não traz aldeias — use "Coletar Informações de Tropas" (por membro) para filtro/classificação por aldeia. O resumo só suporta filtro simples por jogador.',
+    );
+  }
 
   const byPlayer = new Map<number, { playerName: string; coords: string[] }>();
   const addPlayerVillage = (entry: TroopEntry): void => {
@@ -99,15 +107,19 @@ export function filterTroops(snapshot: TroopSnapshot, filters: Sg2Filters): Sg2F
 
   const classification = { offensive: 0, defensive: 0, empty: 0 };
 
+  /** Filtros de coordenada e eixo são COMBINÁVEIS: a aldeia precisa passar nos dois. */
+  const passesGeo = (entry: TroopEntry): boolean => {
+    if (entry.coord.x < 0) return true; // resumo: sem geo
+    if (coordSet.size > 0 && !coordSet.has(`${entry.coord.x}|${entry.coord.y}`)) return false;
+    if (filters.axesRange && !inAxesRange(entry.coord, filters.axesRange)) return false;
+    return true;
+  };
+
   if (filters.scope === 'jogador' && hasMinimumFilters) {
     // Soma por jogador primeiro.
     const sums = new Map<number, { playerName: string; units: UnitCounts; entries: TroopEntry[] }>();
     for (const entry of snapshot.entries) {
-      if (coordSet.size > 0) {
-        if (entry.coord.x < 0 || !coordSet.has(`${entry.coord.x}|${entry.coord.y}`)) continue;
-      } else if (entry.coord.x >= 0 && filters.axesRange && !inAxesRange(entry.coord, filters.axesRange)) {
-        continue;
-      }
+      if (!passesGeo(entry)) continue;
       const current = sums.get(entry.playerId) ?? { playerName: entry.playerName, units: {}, entries: [] };
       for (const [unit, count] of Object.entries(entry.units)) {
         current.units[unit as keyof UnitCounts] = (current.units[unit as keyof UnitCounts] ?? 0) + (count ?? 0);
@@ -122,10 +134,7 @@ export function filterTroops(snapshot: TroopSnapshot, filters: Sg2Filters): Sg2F
     }
   } else {
     for (const entry of snapshot.entries) {
-      if (entry.coord.x >= 0) {
-        if (coordSet.size > 0 && !coordSet.has(`${entry.coord.x}|${entry.coord.y}`)) continue;
-        if (coordSet.size === 0 && filters.axesRange && !inAxesRange(entry.coord, filters.axesRange)) continue;
-      }
+      if (!passesGeo(entry)) continue;
       if (!hasMinimumFilters) {
         const label = classifyVillage(entry.units);
         classification[label] += 1;

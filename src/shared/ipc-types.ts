@@ -7,10 +7,28 @@ import type {
   Sg1Result,
   WorldAlly,
   WorldDataStatus,
+  WorldPlayer,
   WorldVillage,
 } from './types';
 import type { Sg2FilterResult, Sg2Filters, TroopSnapshot } from './sg2-engine';
 import type { BlindCheckInput, BlindVillageResult } from './sg3-engine';
+import type { IncomingCommandRow, PlayerCommandTotal } from './parsers/village-parsers';
+
+export interface Sg5VerifyEntry {
+  playerName: string;
+  coords: string[];
+}
+
+export interface Sg5VerifyResult {
+  generatedAt: string;
+  villages: { coord: string; commands: IncomingCommandRow[] }[];
+  unknown: IncomingCommandRow[];
+}
+
+export interface Sg5TotalsResult {
+  generatedAt: string;
+  totals: PlayerCommandTotal[];
+}
 
 export type {
   DiplomacyRelations,
@@ -18,6 +36,7 @@ export type {
   Sg1Result,
   WorldAlly,
   WorldDataStatus,
+  WorldPlayer,
   WorldVillage,
 };
 export type { Sg2FilterResult, Sg2Filters, TroopSnapshot };
@@ -123,6 +142,10 @@ export interface StaffHubApi {
     tribes(): Promise<WorldAlly[]>;
     /** Aldeias do mundo (do dump village.txt) — payload do mapa mundial. */
     villages(): Promise<WorldVillage[]>;
+    /** Jogadores do mundo (do dump player.txt) — join playerId→nome/tribo. */
+    players(): Promise<WorldPlayer[]>;
+    /** Minutos por campo do NOBRE no mundo ativo (efetivo, com speeds). */
+    nobleMinutes(): Promise<number>;
     /** Relações diplomáticas da tribo do jogador (página autenticada). */
     relations(): Promise<DiplomacyRelations>;
   };
@@ -143,6 +166,12 @@ export interface StaffHubApi {
   sg3: {
     /** Verificação de blind sobre a última coleta de defesa (paradas × paradas+trânsito). */
     checkBlind(input: Omit<BlindCheckInput, 'defense'>): Promise<{ results: BlindVillageResult[]; bbcode: string }>;
+  };
+  sg5: {
+    /** Verificação alvo-a-alvo ("nick;coords") — 1 requisição por aldeia, com pacing. */
+    verify(entries: Sg5VerifyEntry[]): Promise<Sg5VerifyResult>;
+    /** Totalizador por jogador a partir de coordenadas. */
+    totals(coords: string[]): Promise<Sg5TotalsResult>;
   };
   events: {
     onQueueProgress(cb: (progress: QueueProgress) => void): () => void;

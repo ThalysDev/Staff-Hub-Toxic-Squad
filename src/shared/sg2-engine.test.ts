@@ -103,6 +103,32 @@ describe('filterTroops', () => {
     expect(result.totalVillages).toBe(0);
   });
 
+  it('coordsFilter e axesRange são COMBINÁVEIS (aldeia precisa passar nos dois)', () => {
+    const result = filterTroops(snapshot(entries), {
+      mode: 'possuem',
+      scope: 'aldeia',
+      unitMinimums: { spear: 50 },
+      coordsFilter: [{ x: 100, y: 100 }, { x: 200, y: 200 }],
+      axesRange: { minX: 150, maxX: 250 },
+    });
+    // a1 (100|100) está na lista mas fora do eixo (x<150); a2 (200|200) passa nos dois
+    expect(result.totalVillages).toBe(1);
+    expect(result.players[0]?.coords).toEqual(['200|200']);
+  });
+
+  it('resumo (sem aldeias) fail-closed em escopo aldeia/classificação — nunca número errado', () => {
+    const summary: TroopSnapshot = {
+      kind: 'troops',
+      source: 'summary',
+      collectedAt: new Date().toISOString(),
+      entries: [
+        { playerId: 1, playerName: 'ana', coord: { x: -1, y: -1 }, villageName: '', units: { spear: 9000 } },
+      ],
+    };
+    expect(() => filterTroops(summary, { mode: 'possuem', scope: 'aldeia', unitMinimums: { spear: 100 } })).toThrow(/Resumo/);
+    expect(() => filterTroops(summary, { mode: 'possuem', scope: 'aldeia' })).toThrow(/Resumo/);
+  });
+
   it('playersSummary gera nick;qtde;coords', () => {
     const result = filterTroops(snapshot(entries), { mode: 'possuem', scope: 'aldeia', unitMinimums: { spear: 9000 } });
     expect(playersSummary(result)).toBe('ana;1;100|100');

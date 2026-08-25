@@ -11,6 +11,8 @@ import { registerWorldIpc } from './ipc-world';
 import { TroopsService } from './services/troops-service';
 import { registerTroopsIpc } from './ipc-troops';
 import { registerSg3Ipc } from './ipc-sg3';
+import { Sg5Service } from './services/sg5-service';
+import { registerSg5Ipc } from './ipc-sg5';
 import { DEFAULT_SETTINGS, type AppSettings, type QueueProgress } from '@shared/ipc-types';
 
 const twSession = new TwSessionManager();
@@ -30,7 +32,7 @@ let queue: RequestQueue | null = null;
 function sanitizeSettings(value: Partial<AppSettings>): AppSettings {
   const safe = { ...DEFAULT_SETTINGS };
   const minInterval = Number(value.requestMinIntervalMs);
-  if (Number.isFinite(minInterval) && minInterval >= 200) safe.requestMinIntervalMs = Math.round(minInterval);
+  if (Number.isFinite(minInterval) && minInterval >= 350) safe.requestMinIntervalMs = Math.round(minInterval); // piso da política: 350ms (AGENTS.md)
   const jitter = Number(value.requestJitterMs);
   if (Number.isFinite(jitter) && jitter >= 0) safe.requestJitterMs = Math.round(jitter);
   const ceiling = Number(value.requestCeiling);
@@ -187,6 +189,8 @@ app.whenReady().then(() => {
   const troopsService = new TroopsService(twSession, queue as RequestQueue, journal);
   registerTroopsIpc({ twSession, queue: queue as RequestQueue, journal, troops: troopsService });
   registerSg3Ipc({ troops: troopsService, journal });
+  const sg5Service = new Sg5Service(twSession, queue as RequestQueue, journal, worldData);
+  registerSg5Ipc({ sg5: sg5Service, journal });
   createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

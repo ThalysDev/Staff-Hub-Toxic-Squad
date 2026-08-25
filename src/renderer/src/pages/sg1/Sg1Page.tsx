@@ -106,10 +106,15 @@ export default function Sg1Page() {
     return unsubscribe;
   }, []);
 
+  /** Dumps com mais de 6h são atualizados automaticamente (aldeias mudam de dono). */
   async function ensureWorldData(): Promise<void> {
     const status = await window.staffhub.world.status();
-    if (status.villageCount > 0 && status.fetchedAt !== null) return;
-    push('info', 'Baixando dados do mundo…');
+    const stale =
+      status.fetchedAt === null ||
+      status.villageCount === 0 ||
+      Date.now() - Date.parse(status.fetchedAt) > 6 * 60 * 60 * 1000;
+    if (!stale) return;
+    push('info', status.fetchedAt === null ? 'Baixando dados do mundo…' : 'Dados do mundo antigos — atualizando…');
     await window.staffhub.world.refresh();
   }
 
@@ -491,6 +496,23 @@ export default function Sg1Page() {
                     Obter Análise do Mundo
                   </>
                 )}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  void (async () => {
+                    push('info', 'Atualizando dados do mundo…');
+                    try {
+                      await window.staffhub.world.refresh();
+                      push('ok', 'Dados do mundo atualizados.');
+                    } catch (err) {
+                      push('error', err instanceof Error ? err.message : String(err));
+                    }
+                  })();
+                }}
+              >
+                Atualizar dados do mundo
               </button>
               {worldLoading && progress !== null && (
                 <ProgressBar done={progress.done} total={progress.total} label={progress.label} />

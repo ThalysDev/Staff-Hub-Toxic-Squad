@@ -36,6 +36,8 @@ const api = {
     status: () => ipcRenderer.invoke('world:status'),
     tribes: () => ipcRenderer.invoke('world:tribes'),
     villages: () => ipcRenderer.invoke('world:villages'),
+    players: () => ipcRenderer.invoke('world:players'),
+    nobleMinutes: () => ipcRenderer.invoke('world:noble-minutes'),
     relations: () => ipcRenderer.invoke('world:relations'),
   },
   sg1: {
@@ -48,8 +50,14 @@ const api = {
     get: (kind: TroopKind) => ipcRenderer.invoke('troops:get', kind),
   },
   sg3: {
-    checkBlind: (input: BlindCheckInput) =>
+    checkBlind: (input: Omit<BlindCheckInput, 'defense'>) =>
       ipcRenderer.invoke('sg3:check-blind', input) as Promise<{ results: BlindVillageResult[]; bbcode: string }>,
+  },
+  sg5: {
+    verify: (entries: import('@shared/ipc-types').Sg5VerifyEntry[]) =>
+      ipcRenderer.invoke('sg5:verify', entries) as Promise<import('@shared/ipc-types').Sg5VerifyResult>,
+    totals: (coords: string[]) =>
+      ipcRenderer.invoke('sg5:totals', coords) as Promise<import('@shared/ipc-types').Sg5TotalsResult>,
   },
   events: {
     onQueueProgress: (cb: (progress: QueueProgress) => void) => {

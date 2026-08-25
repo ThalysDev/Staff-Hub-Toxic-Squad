@@ -28,10 +28,15 @@ const EMPTY_WORLD_CACHE: WorldDataCache = {
 
 /** Relações diplomáticas cacheadas em memória (TTL de 5 minutos). */
 const RELATIONS_CACHE_MS = 5 * 60_000;
+/** Pacing humano mínimo entre QUALQUER fetch direto deste serviço (política AGENTS.md). */
+const DIRECT_FETCH_MIN_INTERVAL_MS = 350;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export class WorldDataService {
   private readonly store: JsonStore<WorldDataCache>;
   private relationsCache: { at: number; data: DiplomacyRelations } | null = null;
+  private lastDirectFetchAt = 0;
 
   constructor(private readonly twSession: TwSessionManager) {
     this.store = new JsonStore<WorldDataCache>('world-data', EMPTY_WORLD_CACHE);
@@ -46,21 +51,39 @@ export class WorldDataService {
     return world;
   }
 
-  /** Fetch autenticado pela partição persist:tw, com falha clara e sentinelas
-   * de sessão/captcha (detect-pause-notify). */
+  /** Pacing entre fetches diretos (mesmo fora da RequestQueue — política permanente). */
+  private async paceDirectFetch(): Promise<void> {
+    const elapsed = Date.now() - this.lastDirectFetchAt;
+    if (elapsed < DIRECT_FETCH_MIN_INTERVAL_MS) {
+      await sleep(DIRECT_FETCH_MIN_INTERVAL_MS - elapsed);
+    }
+    this.lastDirectFetchAt = Date.now();
+  }
+
+  /** Fetch autenticado pela partição persist:tw com pacing + retry de leitura
+   * (3 tentativas em falha transitória) + sentinelas de sessão/captcha. */
   async fetchGame(url: string): Promise<string> {
-    const result = await this.twSession.fetchForQueue(url);
-    if (!result.ok) {
-      throw new Error(`HTTP ${result.status} ao acessar ${url}`);
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await this.paceDirectFetch();
+      const result = await this.twSession.fetchForQueue(url);
+      if (result.ok) {
+        const sentinel = detectPageSentinels(result.body);
+        if (sentinel === 'session-expired') {
+          throw new Error('Sessão expirada — faça login novamente e tente de novo.');
+        }
+        if (sentinel === 'captcha-suspected') {
+          throw new Error('Captcha detectado — resolva na janela de login e tente de novo.');
+        }
+        return result.body;
+      }
+      if (result.status >= 400 && result.status < 500) {
+        throw new Error(`HTTP ${result.status} ao acessar ${url}`);
+      }
+      lastError = new Error(`HTTP ${result.status} ao acessar ${url}`);
+      await sleep(500 * (attempt + 1));
     }
-    const sentinel = detectPageSentinels(result.body);
-    if (sentinel === 'session-expired') {
-      throw new Error('Sessão expirada — faça login novamente e tente de novo.');
-    }
-    if (sentinel === 'captcha-suspected') {
-      throw new Error('Captcha detectado — resolva na janela de login e tente de novo.');
-    }
-    return result.body;
+    throw lastError ?? new Error(`Falha ao acessar ${url}`);
   }
 
   /**
@@ -74,20 +97,24 @@ export class WorldDataService {
     const base = `https://${world}.tribalwars.com.br`;
     const ses = session.fromPartition(TW_PARTITION);
 
-    const [villageResponse, playerResponse, allyResponse] = await Promise.all([
-      ses.fetch(`${base}/map/village.txt.gz`, { redirect: 'follow' }),
-      ses.fetch(`${base}/map/player.txt`, { redirect: 'follow' }),
-      ses.fetch(`${base}/map/ally.txt`, { redirect: 'follow' }),
-    ]);
-    if (!villageResponse.ok) {
-      throw new Error(`Falha ao baixar village.txt.gz: HTTP ${villageResponse.status}`);
-    }
-    if (!playerResponse.ok) {
-      throw new Error(`Falha ao baixar player.txt: HTTP ${playerResponse.status}`);
-    }
-    if (!allyResponse.ok) {
-      throw new Error(`Falha ao baixar ally.txt: HTTP ${allyResponse.status}`);
-    }
+    // Sequencial com pacing (política): dumps em paralelo disparariam 3 hits
+    // simultâneos no servidor sem intervalo humano entre eles.
+    const fetchDump = async (path: string, what: string): Promise<Response> => {
+      let lastError: Error | null = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await this.paceDirectFetch();
+        const response = await ses.fetch(`${base}${path}`, { redirect: 'follow' });
+        if (response.ok) return response;
+        lastError = new Error(`Falha ao baixar ${what}: HTTP ${response.status}`);
+        if (response.status >= 400 && response.status < 500) throw lastError;
+        await sleep(500 * (attempt + 1));
+      }
+      throw lastError ?? new Error(`Falha ao baixar ${what}`);
+    };
+
+    const villageResponse = await fetchDump('/map/village.txt.gz', 'village.txt.gz');
+    const playerResponse = await fetchDump('/map/player.txt', 'player.txt');
+    const allyResponse = await fetchDump('/map/ally.txt', 'ally.txt');
 
     let villageText: string;
     try {

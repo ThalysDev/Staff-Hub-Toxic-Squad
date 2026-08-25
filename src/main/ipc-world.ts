@@ -68,9 +68,27 @@ export function registerWorldIpc(deps: WorldIpcDeps): void {
     }
   });
 
+  ipcMain.handle('world:players', async () => {
+    try {
+      return await worldData.players();
+    } catch (error) {
+      fail('Falha ao ler os jogadores do mundo', error);
+    }
+  });
+
+  ipcMain.handle('world:noble-minutes', async () => {
+    try {
+      return await sg1.nobleMinutesPerField();
+    } catch (error) {
+      fail('Falha ao obter a velocidade do nobre', error);
+    }
+  });
+
   ipcMain.handle('world:relations', async () => {
     try {
-      return await worldData.relations();
+      const relations = await worldData.relations();
+      await journal.append('read', 'world-relations', `inimigos=${relations.enemies.length} aliados=${relations.allies.length} pna=${relations.naps.length}`, false);
+      return relations;
     } catch (error) {
       fail('Falha ao ler as relações diplomáticas', error);
     }
