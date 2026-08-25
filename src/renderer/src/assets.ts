@@ -4,6 +4,11 @@
  */
 import type { UnitId } from '@shared/units';
 
+import logoWide from '@renderer/assets/brand/logo.png';
+import logoSquare from '@renderer/assets/brand/logo-256.png';
+export const BRAND_LOGO_WIDE = logoWide;
+export const BRAND_LOGO_SQUARE = logoSquare;
+
 import spearIcon from '@renderer/assets/tw/units/unit_spear.png';
 import swordIcon from '@renderer/assets/tw/units/unit_sword.png';
 import axeIcon from '@renderer/assets/tw/units/unit_axe.png';

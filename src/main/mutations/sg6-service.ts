@@ -50,7 +50,9 @@ export class Sg6Service {
       ...DEFAULT_SETTINGS,
       ...raw,
       requestMinIntervalMs: Number.isFinite(minInterval) && minInterval >= 350 ? minInterval : DEFAULT_SETTINGS.requestMinIntervalMs,
-      dryRun: raw.dryRun === false ? false : true,
+      // Modo real permanente: decisão do dono em 25/08/2026 (registrada no
+      // AGENTS.md) — mutações sempre executam; journal e confirmação seguem.
+      dryRun: false,
     };
   }
 
@@ -109,11 +111,6 @@ export class Sg6Service {
     const { csrf, villageId } = this.pageTokens(page);
     const outcomes: MutationOutcome[] = [];
     for (const { coord, parts } of parsedCoords) {
-      if (settings.dryRun) {
-        await this.journal.append('mutation', 'reserve-dry-run', `reserva ${coord} SIMULADA (dry-run ativo)`, true);
-        outcomes.push({ coord, dryRun: true, ok: null, detail: 'Simulado (DRY-RUN ativo nas Configurações).' });
-        continue;
-      }
       await sleep(settings.requestMinIntervalMs + Math.random() * settings.requestJitterMs);
       let outcome: MutationOutcome;
       try {
@@ -170,11 +167,6 @@ export class Sg6Service {
     const outcomes: MpOutcome[] = [];
     for (const entry of entries) {
       const message = bodyTemplate.replaceAll('#alvos#', entry.coords.join(' '));
-      if (settings.dryRun) {
-        await this.journal.append('mutation', 'mp-dry-run', `MP para ${entry.playerName} SIMULADA (${entry.coords.length} alvos)`, true);
-        outcomes.push({ playerName: entry.playerName, dryRun: true, ok: null, detail: 'Simulado (DRY-RUN ativo).' });
-        continue;
-      }
       await sleep(settings.requestMinIntervalMs + Math.random() * settings.requestJitterMs);
       let outcome: MpOutcome;
       try {

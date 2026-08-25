@@ -1,4 +1,5 @@
-import { Castle, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
+import { BRAND_LOGO_SQUARE } from '../assets';
 import type { LucideIcon } from 'lucide-react';
 import type { PageId } from '../modules';
 
@@ -24,7 +25,7 @@ export default function Sidebar({ groups, active, onNavigate }: SidebarProps) {
     <aside className="sidebar">
       <div className="sidebar-brand">
         <span className="brand-mark">
-          <Castle size={20} aria-hidden="true" />
+          <img src={BRAND_LOGO_SQUARE} alt="" width={26} height={26} style={{ borderRadius: 6 }} />
         </span>
         <div className="brand-block">
           <span className="brand-title">Staff Hub</span>

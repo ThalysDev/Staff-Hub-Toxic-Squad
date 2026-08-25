@@ -43,7 +43,7 @@ export default function Sg7Page() {
     try {
       const result = await window.staffhub.sg7.adjust(threadUrl.trim(), true);
       setAdjustResult(result);
-      push(result.dryRun ? 'info' : result.ok ? 'ok' : 'error', result.detail);
+      push(result.ok === false ? 'error' : 'ok', result.detail);
       setPendingAdjust(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -60,7 +60,7 @@ export default function Sg7Page() {
     try {
       const result = await window.staffhub.sg7.deletePosts(threadUrl.trim(), selectedPosts, true);
       setDeleteResult(result);
-      push(result.dryRun ? "info" : result.ok ? "ok" : "error", result.detail);
+      push(result.ok === false ? "error" : "ok", result.detail);
       setPendingDelete(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -85,8 +85,8 @@ export default function Sg7Page() {
         <span>
           Fluxo: a staff publica a tabela BBCode do SG_3 no primeiro post; os membros comentam no formato
           rígido <strong>pedido/lanceiros/espadachins/arqueiros</strong> (ex.: <code>243/100/0/0</code> — sempre
-          as 3 unidades, 0 quando não enviar). O ajuste do post é <strong>mutação</strong> (confirmação dupla +
-          journal + DRY-RUN).
+          as 3 unidades, 0 quando não enviar). Ajuste e exclusão são <strong>mutações reais</strong> (confirmação
+          dupla + journal + verificação pós-envio).
         </span>
       </div>
 
@@ -148,7 +148,7 @@ export default function Sg7Page() {
               <div className="sg6-confirm">
                 <p>
                   Confirmar a edição do <strong>primeiro post</strong> do tópico {conference.threadId} com a
-                  tabela atualizada? Uma única tentativa; tudo vai para o Journal.
+                  tabela atualizada? Ação REAL — uma única tentativa; tudo vai para o Journal.
                 </p>
                 <div className="row">
                   <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void runAdjust()}>

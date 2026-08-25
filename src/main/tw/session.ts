@@ -1,4 +1,5 @@
 import { BrowserWindow, session, type Session as ElectronSession } from 'electron';
+import { join } from 'node:path';
 import type { SessionStatus } from '@shared/ipc-types';
 
 export const TW_PARTITION = 'persist:tw';
@@ -108,6 +109,7 @@ export class TwSessionManager {
       parent,
       modal: false,
       title: 'Login — Tribal Wars',
+      icon: join(__dirname, '../../../build/icon.ico'),
       webPreferences: {
         partition: TW_PARTITION,
         contextIsolation: true,

@@ -30,7 +30,9 @@ pnpm typecheck && pnpm test && pnpm build
 - Todas as requisições via `session.fetch` da partição (cookie jar do Chromium).
 - Padrão detect-pause-notify: sentinela de sessão/captcha interrompe a operação e avisa.
 - Leituras: até 3 tentativas em falha transitória. Mutações: 1 tentativa, confirmação dupla
-  na UI, journal obrigatório. `dryRun` padrão ON até validação na tribo.
+  na UI, journal obrigatório. **DRY-RUN DESATIVADO PERMANENTEMENTE pelo dono em
+  25/08/2026** ("tudo sempre com dados reais") — mutações executam de verdade;
+  journal e confirmação dupla seguem obrigatórios.
 - Pacing humano mínimo (default 350ms + jitter), teto por operação.
 
 ## Padrões de código

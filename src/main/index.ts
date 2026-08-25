@@ -187,6 +187,7 @@ function wireEvents(): void {
   });
 }
 
+if (process.platform === 'win32') app.setAppUserModelId('com.toxicsquad.staffhub');
 app.whenReady().then(() => {
   void journal.load();
   registerIpc();

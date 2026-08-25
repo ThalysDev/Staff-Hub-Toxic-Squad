@@ -37,8 +37,7 @@ export default function Sg6Page() {
       const results = await window.staffhub.sg6.reserveMass(coords, true);
       setReserveResults(results);
       const okCount = results.filter((r) => r.ok === true).length;
-      const dryCount = results.filter((r) => r.dryRun).length;
-      push('ok', dryCount > 0 ? `${dryCount} reserva(s) SIMULADA(S) — desligue o DRY-RUN nas Configurações para valer.` : `Reservas: ${okCount} ok, ${results.length - okCount} com aviso (veja o detalhe).`);
+      push('ok', `Reservas: ${okCount} ok, ${results.length - okCount} com aviso (veja o detalhe).`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
@@ -56,8 +55,7 @@ export default function Sg6Page() {
       const results = await window.staffhub.sg6.sendMps({ subject: mpSubject, body: mpBody, entries }, true);
       setMpResults(results);
       const sent = results.filter((r) => r.ok === true).length;
-      const dry = results.filter((r) => r.dryRun).length;
-      push('ok', dry > 0 ? `${dry} MP(s) SIMULADA(S) (dry-run).` : `MPs: ${sent} enviadas, ${results.length - sent} com problema.`);
+      push('ok', `MPs: ${sent} enviadas, ${results.length - sent} com problema.`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
@@ -80,9 +78,9 @@ export default function Sg6Page() {
       <div className="callout" role="note">
         <KeyRound size={16} aria-hidden="true" />
         <span>
-          Estas ações <strong>alteram o jogo</strong> (mutações). Cada uma exige confirmação dupla, faz
-          <strong> uma única tentativa</strong> por item, guarda tudo no Journal e respeita o <strong>DRY-RUN</strong>{' '}
-          das Configurações (ligado por padrão — nada é enviado enquanto estiver ativo).
+          Estas ações <strong>alteram o jogo de verdade</strong> (modo real permanente). Cada uma exige
+          confirmação dupla, faz <strong>uma única tentativa</strong> por item com pacing humano e guarda tudo no
+          Journal para auditoria.
         </span>
       </div>
 
@@ -123,8 +121,8 @@ export default function Sg6Page() {
         ) : (
           <div className="sg6-confirm">
             <p>
-              Confirmar reserva em massa de <strong>{reservePending.length}</strong> aldeia(s)? Cada uma faz 1
-              tentativa; “já reservada” é tolerada.
+              Confirmar reserva em massa de <strong>{reservePending.length}</strong> aldeia(s)? Ação REAL no
+              jogo — cada uma faz 1 tentativa; “já reservada” é tolerada.
             </p>
             <div className="row">
               <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void runReserve(reservePending)}>
@@ -150,7 +148,7 @@ export default function Sg6Page() {
                 {reserveResults.map((result) => (
                   <tr key={result.coord}>
                     <td className="cell-nowrap">{result.coord}</td>
-                    <td>{result.dryRun ? <span className="muted">Simulado</span> : result.ok ? <span className="ok">Enviado</span> : <span className="error">Falhou</span>}</td>
+                    <td>{result.ok ? <span className="ok">Enviado</span> : <span className="error">Falhou</span>}</td>
                     <td className="cell-detail">{result.detail}</td>
                   </tr>
                 ))}
@@ -237,7 +235,7 @@ export default function Sg6Page() {
                 {mpResults.map((result) => (
                   <tr key={result.playerName}>
                     <td className="cell-nowrap">{result.playerName}</td>
-                    <td>{result.dryRun ? <span className="muted">Simulado</span> : result.ok ? <span className="ok">Enviada</span> : <span className="error">Falhou</span>}</td>
+                    <td>{result.ok ? <span className="ok">Enviada</span> : <span className="error">Falhou</span>}</td>
                     <td className="cell-detail">{result.detail}</td>
                   </tr>
                 ))}

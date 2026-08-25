@@ -1,8 +1,6 @@
 import { session } from 'electron';
 import { TW_PARTITION, type TwSessionManager } from '../tw/session';
 import type { Journal } from '../journal';
-import { JsonStore } from '../stores/json-store';
-import { DEFAULT_SETTINGS, type AppSettings } from '@shared/ipc-types';
 import { forumTokens, parseEditForm, parseForumThread } from '@shared/parsers/forum-parsers';
 import { applyBlindUpdate, recognizeComments, recognizedSummary, sumByPedido } from '@shared/sg7-engine';
 import { detectPageSentinels } from '../tw/request-queue';
@@ -26,18 +24,15 @@ export interface ForumConferenceResult {
  * A conferência em si é leitura (1 página do tópico).
  */
 export class Sg7Service {
-  private readonly settingsStore: JsonStore<AppSettings>;
-
   constructor(
     private readonly twSession: TwSessionManager,
     private readonly journal: Journal,
   ) {
-    this.settingsStore = new JsonStore<AppSettings>('settings', DEFAULT_SETTINGS);
   }
 
+  /** Modo real permanente: decisão do dono em 25/08/2026 (AGENTS.md). */
   private async dryRun(): Promise<boolean> {
-    const raw = await this.settingsStore.load();
-    return raw.dryRun === false ? false : true;
+    return false;
   }
 
   private world(): string {
@@ -75,7 +70,8 @@ export class Sg7Service {
   /** Lê o tópico (page=last) e roda a conferência sobre os posts. */
   async conference(threadUrl: string): Promise<ForumConferenceResult> {
     const path = threadUrl.replace(/^https?:\/\/[^/]+\//, '');
-    const html = await this.getHtml(`${path}${path.includes('?') ? '&' : '?'}page=last`);
+    const pathLast = path.replace(/[?&]page=[^&]*/g, '').replace(/\?$/, '');
+    const html = await this.getHtml(`${pathLast}${pathLast.includes('?') ? '&' : '?'}page=last`);
     const thread = parseForumThread(html);
     const firstPost = thread.posts[0];
     if (firstPost === undefined) throw new Error('Tópico sem posts.');
@@ -159,14 +155,14 @@ export class Sg7Service {
     if (!confirm) throw new Error('Confirmação dupla necessária — selecione os posts e confirme na tela.');
     if (postIds.length === 0) throw new Error('Nenhum post selecionado.');
     const dryRun = await this.dryRun();
-    const path = threadUrl.replace(/^https?:\/\/[^/]+\//, '');
+    const pathLast = threadUrl.replace(/^https?:\/\/[^/]+\//, '');
     if (dryRun) {
       await this.journal.append('mutation', 'forum-delete-dry-run', `posts ${postIds.join(',')} SIMULADOS`, true);
       return { dryRun: true, ok: null, detail: 'Simulado (DRY-RUN ativo) — nada foi apagado.' };
     }
-    const html = await this.getHtml(path);
+    const html = await this.getHtml(pathLast);
     const thread = parseForumThread(html);
-    const forumId = /forum_id=(\d+)/.exec(path)?.[1] ?? '0';
+    const forumId = /forum_id=(\d+)/.exec(pathLast)?.[1] ?? '0';
     const { csrf } = forumTokens(html);
     const body = new URLSearchParams();
     for (const postId of postIds) body.append('chk_del_posts[]', String(postId));
@@ -183,7 +179,7 @@ export class Sg7Service {
     let ok = response.ok;
     let detail = ok ? 'Posts apagados (verificado).' : `HTTP ${response.status}`;
     if (ok) {
-      const after = await this.getHtml(`${path}${path.includes('?') ? '&' : '?'}page=last`);
+      const after = await this.getHtml(`${pathLast}${pathLast.includes('?') ? '&' : '?'}page=last`);
       const remaining = parseForumThread(after).posts.filter((post) => postIds.includes(post.postId));
       if (remaining.length > 0) {
         ok = false;

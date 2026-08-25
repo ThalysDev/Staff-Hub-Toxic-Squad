@@ -5,6 +5,7 @@ import StatBlock, { type StatTone } from '../components/StatBlock';
 import StatusPill from '../components/StatusPill';
 import { useSessionStatus } from '../hooks/useSessionStatus';
 import { MODULES, type PageId } from '../modules';
+import { BRAND_LOGO_WIDE } from '../assets';
 
 const SESSION_TONE: Record<SessionState, StatTone> = {
   'logged-in': 'ok',
@@ -44,6 +45,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     <section className="page">
       <div className="hero">
         <div className="hero-main">
+          <img src={BRAND_LOGO_WIDE} alt="" height={64} style={{ borderRadius: 8, marginBottom: 6 }} />
           <p className="hero-kicker">Quartel-general da liderança</p>
           <h1 className="hero-title">Staff Hub Toxic Squad</h1>
         </div>

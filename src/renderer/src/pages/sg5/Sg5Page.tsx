@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ClipboardCopy, ListChecks, Printer, ShieldQuestion } from 'lucide-react';
 import type { Sg5TotalsResult, Sg5VerifyResult } from '@shared/ipc-types';
 import { parseCoordList } from '@shared/coords';
 import { useToast } from '../../hooks/useToast';
+
+import ProgressBar from '../../components/ProgressBar';
 import ToastViewport from '../../components/Toast';
 
 function parseEntries(text: string): { playerName: string; coords: string[] }[] {
@@ -28,6 +30,12 @@ export default function Sg5Page() {
   const [totalsResult, setTotalsResult] = useState<Sg5TotalsResult | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'verify' | 'totals' | null>(null);
+  const [progress, setProgress] = useState<{ label: string; done: number; total: number } | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = window.staffhub.events.onQueueProgress(setProgress);
+    return unsubscribe;
+  }, []);
 
   async function runVerify(): Promise<void> {
     setBusy('verify');
@@ -108,7 +116,11 @@ export default function Sg5Page() {
             <ListChecks size={16} aria-hidden="true" />
             {busy === 'verify' ? <><span className="btn-spinner" aria-hidden="true" /> Verificando…</> : 'Obter Verificação'}
           </button>
-          {verifyResult !== null && (
+          {busy !== null && progress !== null && (
+          <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
+        )}
+
+        {verifyResult !== null && (
             <button type="button" className="btn btn-ghost" onClick={() => window.print()}>
               <Printer size={16} aria-hidden="true" />
               Imprimir documento
