@@ -189,6 +189,7 @@ function wireEvents(): void {
 
 if (process.platform === 'win32') app.setAppUserModelId('com.toxicsquad.staffhub');
 app.whenReady().then(() => {
+  void twSession.restoreFromPartition();
   void journal.load();
   registerIpc();
   wireEvents();

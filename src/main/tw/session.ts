@@ -95,6 +95,32 @@ export class TwSessionManager {
     return this.status;
   }
 
+  /**
+   * Restaura a sessão persistida na partição (login por SID ou janela de login
+   * anteriores): os cookies sobrevivem ao reinício do app — só falta redescobrir
+   * o mundo (domínio br### do cookie sid) e validar com um probe. Assim o app
+   * NÃO pede login de novo para quem já entrou.
+   */
+  async restoreFromPartition(): Promise<void> {
+    if (this.status.state === 'logged-in' || this.status.world !== null) {
+      await this.refreshStatus();
+      return;
+    }
+    try {
+      const cookies = await this.ses.cookies.get({});
+      const sidCookie = cookies.find(
+        (cookie) => cookie.name === 'sid' && cookie.domain !== undefined && /^br\d{1,4}\.tribalwars\.com\.br$/.test(cookie.domain),
+      );
+      if (sidCookie === undefined) return; // nada persistido: segue logged-out
+      const world = /^br\d{1,4}/.exec(sidCookie.domain ?? '')?.[0] ?? null;
+      if (world === null) return;
+      this.status = { state: 'unknown', world, player: this.status.player, checkedAt: null };
+      await this.refreshStatus();
+    } catch {
+      // sem cookies legíveis: mantém estado atual
+    }
+  }
+
   /** Janela de login: carrega o portal do jogo e observa a entrada num mundo. */
   openLogin(parent: BrowserWindow): void {
     if (this.loginWindow && !this.loginWindow.isDestroyed()) {

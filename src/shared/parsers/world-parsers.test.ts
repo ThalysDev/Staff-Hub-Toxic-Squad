@@ -34,7 +34,7 @@ describe('parseMapVillageTxt', () => {
 
   it('número de campos errado → ParseError com a linha', () => {
     expect(() => parseMapVillageTxt('1,A,0,0,0,100')).toThrow(ParseError);
-    expect(() => parseMapVillageTxt('1,A,0,0,0,100')).toThrow(/esperados 7 campos/);
+    expect(() => parseMapVillageTxt('1,A,0,0,0,100')).toThrow(/ao menos 7 campos/);
     expect(() => parseMapVillageTxt('1,A,0,0,0,100')).toThrow(/Linha 1/);
   });
 
@@ -55,7 +55,7 @@ describe('parseMapPlayerTxt', () => {
   });
 
   it('número de campos errado → ParseError com a linha', () => {
-    expect(() => parseMapPlayerTxt('1,Jogador+A,5,3,1200')).toThrow(/esperados 6 campos/);
+    expect(() => parseMapPlayerTxt('1,Jogador+A,5,3,1200')).toThrow(/ao menos 6 campos/);
   });
 });
 
@@ -67,8 +67,10 @@ describe('parseMapAllyTxt', () => {
     ]);
   });
 
-  it('número de campos errado → ParseError com a linha', () => {
-    expect(() => parseMapAllyTxt('2,Tribo+B,Toxic,15,80,25000,3,extra')).toThrow(/esperados 7 campos/);
+  it('poucos campos → ParseError; 8 campos reais (com total) → rank no fim', () => {
+    expect(() => parseMapAllyTxt('2,Tribo+B,Toxic,15,80')).toThrow(/ao menos 7 campos/);
+    const real = parseMapAllyTxt('40,Toxic+Squad+Sul,Toxic%21,57,15747,128211225,151059406,3');
+    expect(real[0]).toMatchObject({ id: 40, tag: 'Toxic!', rank: 3 });
   });
 });
 

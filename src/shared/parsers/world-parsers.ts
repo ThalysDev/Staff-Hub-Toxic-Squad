@@ -49,10 +49,10 @@ function parseRecords<T>(
     const line = (lines[i] ?? '').trim();
     if (line === '') continue; // linhas em branco (ex.: quebra final) são ignoradas
     const fields = line.split(',');
-    if (fields.length !== expectedFields) {
+    if (fields.length < expectedFields) {
       const preview = line.length > 80 ? `${line.slice(0, 80)}…` : line;
       throw new ParseError(
-        `Linha ${i + 1}: esperados ${expectedFields} campos separados por vírgula, ` +
+        `Linha ${i + 1}: esperados ao menos ${expectedFields} campos separados por vírgula, ` +
           `encontrados ${fields.length} ("${preview}")`
       );
     }
@@ -87,7 +87,8 @@ export function parseMapPlayerTxt(text: string): WorldPlayer[] {
   }));
 }
 
-/** /map/ally.txt: id,nome,tag,membros,aldeias,pontos,rank */
+/** /map/ally.txt: id,nome,tag,membros,aldeias,pontos,[total,]rank — o dump
+ * real do BR traz 8 campos (com pontos totais antes do rank); rank = último. */
 export function parseMapAllyTxt(text: string): WorldAlly[] {
   return parseRecords(text, 7, (fields, line) => ({
     id: parseFieldNumber(fields[0] ?? '', line, 'id'),
@@ -96,7 +97,7 @@ export function parseMapAllyTxt(text: string): WorldAlly[] {
     members: parseFieldNumber(fields[3] ?? '', line, 'membros'),
     villages: parseFieldNumber(fields[4] ?? '', line, 'aldeias'),
     points: parseFieldNumber(fields[5] ?? '', line, 'pontos'),
-    rank: parseFieldNumber(fields[6] ?? '', line, 'rank'),
+    rank: parseFieldNumber(fields[fields.length - 1] ?? '', line, 'rank'),
   }));
 }
 
