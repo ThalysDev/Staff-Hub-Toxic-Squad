@@ -3,8 +3,11 @@ import { TW_PARTITION, type TwSessionManager } from '../tw/session';
 import type { Journal } from '../journal';
 import { JsonStore } from '../stores/json-store';
 import { DEFAULT_SETTINGS, type AppSettings } from '@shared/ipc-types';
-import { forumTokens, parseEditForm, parseForumThread } from '@shared/parsers/forum-parsers';
+import { parseEditForm, parseForumThread } from '@shared/parsers/forum-parsers';
 import { applyBlindUpdate, recognizeComments, recognizedSummary, sumByPedido } from '@shared/sg7-engine';
+import { detectPageSentinels } from '../tw/request-queue';
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export interface ForumConferenceResult {
   threadId: number;
@@ -43,11 +46,28 @@ export class Sg7Service {
     return world;
   }
 
+  private lastFetchAt = 0;
+
+  /** GET com pacing humano + sentinela de sessão/captcha (detect-pause-notify). */
   private async getHtml(path: string): Promise<string> {
     const world = this.world();
+    const elapsed = Date.now() - this.lastFetchAt;
+    if (elapsed < 350) await sleep(350 - elapsed);
+    this.lastFetchAt = Date.now();
     const result = await this.twSession.fetchForQueue(`https://${world}.tribalwars.com.br/${path}`);
     if (!result.ok) throw new Error(`HTTP ${result.status} ao abrir ${path}`);
+    const sentinel = detectPageSentinels(result.body);
+    if (sentinel === 'session-expired') throw new Error('Sessão expirada — faça login novamente.');
+    if (sentinel === 'captcha-suspected') throw new Error('Captcha detectado — resolva na janela de login.');
     return result.body;
+  }
+
+  /** Abre o formulário de edição do primeiro post (BBCode fonte + action exata). */
+  private async openEditForm(threadId: number, postId: number, forumId: number): Promise<{ html: string; form: ReturnType<typeof parseEditForm> }> {
+    const html = await this.getHtml(
+      `game.php?screen=forum&screenmode=view_thread&thread_id=${threadId}&edit_post_id=${postId}&page=0&forum_id=${forumId}`,
+    );
+    return { html, form: parseEditForm(html) };
   }
 
   /** Lê o tópico (page=last) e roda a conferência sobre os posts. */
@@ -57,13 +77,12 @@ export class Sg7Service {
     const thread = parseForumThread(html);
     const firstPost = thread.posts[0];
     if (firstPost === undefined) throw new Error('Tópico sem posts.');
+    const forumId = /forum_id=(\d+)/.exec(path)?.[1] ?? '0';
 
     // BBCode fonte do primeiro post vem do FORMULÁRIO de edição (a leitura
-    // renderiza HTML); 1 GET extra, cacheado em memória pela chamada do adjust.
-    const { villageId } = forumTokens(html);
-    const editPath = `game.php?village=${villageId}&screen=forum&screenmode=view_thread&thread_id=${thread.threadId}&edit_post_id=${firstPost.postId}&page=0`;
-    const editHtml = await this.getHtml(editPath);
-    const firstPostMessage = parseEditForm(editHtml).message;
+    // renderiza HTML); 1 GET extra.
+    const { form } = await this.openEditForm(thread.threadId, firstPost.postId, Number(forumId));
+    const firstPostMessage = form.message;
 
     const comments = recognizeComments(thread.posts.slice(1));
     const sums = sumByPedido(comments);
@@ -90,27 +109,40 @@ export class Sg7Service {
       await this.journal.append('mutation', 'forum-adjust-dry-run', `thread=${conference.threadId} ajuste SIMULADO`, true);
       return { dryRun: true, ok: null, detail: 'Simulado (DRY-RUN ativo) — nada foi enviado ao fórum.' };
     }
-    const world = this.world();
     const path = threadUrl.replace(/^https?:\/\/[^/]+\//, '');
+    const forumId = /forum_id=(\d+)/.exec(path)?.[1] ?? '0';
+    // Recarrega o tópico para pegar o primeiro post + abre o formulário com a
+    // action EXATA que o jogo espera (edit_post_id + post_id + forum_id + h).
     const html = await this.getHtml(path);
     const thread = parseForumThread(html);
     const firstPost = thread.posts[0];
     if (firstPost === undefined) throw new Error('Tópico sem posts.');
-    const { csrf, villageId } = forumTokens(html);
+    const { form } = await this.openEditForm(thread.threadId, firstPost.postId, Number(forumId));
+    const world = this.world();
     const ses = session.fromPartition(TW_PARTITION);
+    await sleep(350 + Math.random() * 250);
     const body = new URLSearchParams({
       message: conference.updatedMessage,
-      send: 'Salvar',
-      preview: '',
-      'current_page': '0',
-      do: 'edit',
+      do: form.doValue,
+      'current_page': form.currentPage,
+      send: 'Enviar',
     }).toString();
-    const response = await ses.fetch(
-      `https://${world}.tribalwars.com.br/game.php?village=${villageId}&screen=forum&screenmode=view_thread&thread_id=${conference.threadId}&action=edit_post&edit_post_id=${firstPost.postId}&h=${csrf}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, redirect: 'follow' },
-    );
-    const ok = response.ok;
-    const detail = ok ? 'Post da tabela atualizado.' : `HTTP ${response.status}`;
+    const response = await ses.fetch(`https://${world}.tribalwars.com.br/${form.action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+      redirect: 'follow',
+    });
+    // Verificação REAL: reabre o formulário e confere o BBCode gravado.
+    let ok = response.ok;
+    let detail = ok ? 'Post da tabela atualizado (verificado).' : `HTTP ${response.status}`;
+    if (ok) {
+      const check = await this.openEditForm(thread.threadId, firstPost.postId, Number(forumId));
+      if (check.form.message.trim() !== conference.updatedMessage.trim()) {
+        ok = false;
+        detail = 'Envio aceito, mas o post NÃO refletiu o novo conteúdo — confira manualmente.';
+      }
+    }
     await this.journal.append('mutation', 'forum-adjust', `thread=${conference.threadId} → ${detail}`, false);
     return { dryRun: false, ok, detail };
   }

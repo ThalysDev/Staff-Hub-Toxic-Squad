@@ -109,7 +109,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                 <span className="module-title">{module.title}</span>
                 <span className="module-original">{module.originalLabel}</span>
                 <span className="module-foot">
-                  <span className="pill pill--muted">Fase {module.phase} · em breve</span>
+                  <span className="pill pill--ok">Fase {module.phase} · disponível</span>
                   <span className="module-open">
                     Abrir
                     <ArrowRight size={12} aria-hidden="true" />

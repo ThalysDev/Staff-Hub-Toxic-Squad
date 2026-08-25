@@ -65,9 +65,9 @@ describe('parseOriginsInput', () => {
 });
 
 describe('moraleOf', () => {
-  it('teto 100 e cresce com a razão de pontos', () => {
-    expect(moraleOf(1000, 500)).toBe(100);
-    expect(moraleOf(500, 1000)).toBeLessThan(100);
+  it('penaliza atacar alvo menor; atacar alvo maior dá 100', () => {
+    expect(moraleOf(1000, 500)).toBeLessThan(100); // alvo menor → moral baixa
+    expect(moraleOf(500, 1000)).toBe(100); // alvo maior → moral cheia
     expect(moraleOf(1000, 0)).toBe(100);
   });
 });
@@ -109,13 +109,13 @@ describe('distributeTargets', () => {
     expect(ana?.target).toBe('504|500');
   });
 
-  it('moral mínimo filtra quando pontos fornecidos', () => {
+  it('moral mínimo barra atacante forte em alvo fraco (fórmula def/att)', () => {
     const result = distributeTargets({
       origins, lines, nobleMinutesPerField: NOBLE, priority: 'nearest', minMorale: 80, maxFields: 70,
-      originPoints: new Map([['ana', 100], ['bia', 100]]),
-      targetPoints: new Map([['502|500', 10000], ['504|500', 100], ['522|500', 100]]),
+      originPoints: new Map([['ana', 10000], ['bia', 100]]),
+      targetPoints: new Map([['502|500', 100], ['504|500', 10000], ['522|500', 100]]),
     });
-    // ana vs 502|500: moral ~ (100/10000)^0.75 ≈ 6% → barrado; ana vs 504: 100% ok
+    // ana (10000) vs 502|500 (100): (100/10000)^0.75 ≈ 6% → barrado; vs 504 (10000): 100% ok
     const ana = result.assignments.find((a) => a.playerName === 'ana');
     expect(ana?.target).toBe('504|500');
   });

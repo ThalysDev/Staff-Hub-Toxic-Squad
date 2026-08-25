@@ -3,6 +3,7 @@ import { TW_PARTITION, type TwSessionManager } from '../tw/session';
 import type { Journal } from '../journal';
 import { JsonStore } from '../stores/json-store';
 import { DEFAULT_SETTINGS, type AppSettings } from '@shared/ipc-types';
+import { detectPageSentinels } from '../tw/request-queue';
 
 export interface MutationOutcome {
   coord: string;
@@ -61,14 +62,23 @@ export class Sg6Service {
     return world;
   }
 
-  /** Extrai csrf e aldeia atual dos dados embutidos da página. */
+  /** Extrai csrf e aldeia atual dos dados embutidos da página (BR142: "village":{"id":N}). */
   private pageTokens(html: string): { csrf: string; villageId: string } {
     const csrf = /"csrf":"([a-f0-9]+)"/.exec(html)?.[1];
-    const villageId = /"village":"(\d+)"/.exec(html)?.[1];
+    const villageId = /"village":\{"id":(\d+)/.exec(html)?.[1];
     if (csrf === undefined || villageId === undefined) {
       throw new Error('Página do jogo sem csrf/aldeia (formato inesperado) — abortado antes de qualquer envio.');
     }
     return { csrf, villageId };
+  }
+
+  /** Coordenada "123|456" validada na fronteira da mutação (IPC não valida). */
+  private splitCoord(coord: string): { x: string; y: string } {
+    const match = /^(\d{1,3})\|(\d{1,3})$/.exec(coord.trim());
+    if (match === null) {
+      throw new Error(`Coordenada inválida na reserva em massa: "${coord}" — abortado antes de qualquer envio.`);
+    }
+    return { x: match[1] ?? '', y: match[2] ?? '' };
   }
 
   private async postForm(url: string, params: Record<string, string>): Promise<{ ok: boolean; status: number; body: string }> {
@@ -88,30 +98,37 @@ export class Sg6Service {
     if (!confirm) throw new Error('Confirmação dupla necessária — revise o resumo e confirme na tela.');
     if (coords.length === 0) throw new Error('Nenhuma coordenada informada.');
     const settings = await this.settings();
+    if (coords.length > settings.requestCeiling) {
+      throw new Error(`Reserva em massa maior que o teto das settings (${settings.requestCeiling}) — ${coords.length} coordenadas.`);
+    }
+    const parsedCoords = coords.map((coord) => ({ coord, parts: this.splitCoord(coord) }));
     const world = this.world();
     const base = `https://${world}.tribalwars.com.br/game.php?screen=ally&mode=reservations`;
+    await sleep(settings.requestMinIntervalMs);
     const page = await this.twSession.fetchText(base);
     const { csrf, villageId } = this.pageTokens(page);
     const outcomes: MutationOutcome[] = [];
-    for (const coord of coords) {
-      const [x, y] = coord.split('|');
+    for (const { coord, parts } of parsedCoords) {
       if (settings.dryRun) {
         await this.journal.append('mutation', 'reserve-dry-run', `reserva ${coord} SIMULADA (dry-run ativo)`, true);
         outcomes.push({ coord, dryRun: true, ok: null, detail: 'Simulado (DRY-RUN ativo nas Configurações).' });
         continue;
       }
-      await sleep(settings.requestMinIntervalMs + Math.random() * 250);
+      await sleep(settings.requestMinIntervalMs + Math.random() * settings.requestJitterMs);
       let outcome: MutationOutcome;
       try {
         const response = await this.postForm(
           `${base}&village=${villageId}&action=new_reservation&group_id=all&filter=&h=${csrf}`,
           {
             'target_type': 'coord',
-            'x[]': x ?? '',
-            'y[]': y ?? '',
+            'x[]': parts.x,
+            'y[]': parts.y,
             'save_reservations': 'Reservar esta aldeia',
           },
         );
+        const sentinel = detectPageSentinels(response.body);
+        if (sentinel === 'session-expired') throw new Error('Sessão expirada no meio da cadeia — operação interrompida.');
+        if (sentinel === 'captcha-suspected') throw new Error('Captcha no meio da cadeia — operação interrompida; resolva na janela de login.');
         const already = /já reservad|already/i.test(response.body);
         const error = /class="error"|não existe tal aldeia/i.test(response.body);
         outcome = {
@@ -142,8 +159,12 @@ export class Sg6Service {
     if (!bodyTemplate.includes('#alvos#')) throw new Error('O corpo precisa conter #alvos# para inserir os alvos de cada jogador.');
     if (entries.length === 0) throw new Error('Nenhuma entrada "nick;coords" informada.');
     const settings = await this.settings();
+    if (entries.length > settings.requestCeiling) {
+      throw new Error(`Envio maior que o teto das settings (${settings.requestCeiling}) — ${entries.length} MPs.`);
+    }
     const world = this.world();
     const base = `https://${world}.tribalwars.com.br/game.php?screen=mail&mode=new`;
+    await sleep(settings.requestMinIntervalMs);
     const page = await this.twSession.fetchText(base);
     const { csrf, villageId } = this.pageTokens(page);
     const outcomes: MpOutcome[] = [];
@@ -154,7 +175,7 @@ export class Sg6Service {
         outcomes.push({ playerName: entry.playerName, dryRun: true, ok: null, detail: 'Simulado (DRY-RUN ativo).' });
         continue;
       }
-      await sleep(settings.requestMinIntervalMs + Math.random() * 250);
+      await sleep(settings.requestMinIntervalMs + Math.random() * settings.requestJitterMs);
       let outcome: MpOutcome;
       try {
         const response = await this.postForm(`${base}&village=${villageId}&action=send&h=${csrf}`, {
@@ -163,6 +184,9 @@ export class Sg6Service {
           text: message,
           send: 'Enviar',
         });
+        const sentinel = detectPageSentinels(response.body);
+        if (sentinel === "session-expired") throw new Error("Sessão expirada no meio da cadeia — operação interrompida.");
+        if (sentinel === "captcha-suspected") throw new Error("Captcha no meio da cadeia — operação interrompida.");
         const notFound = /não existe|destinatário inválido|unknown recipient/i.test(response.body);
         outcome = {
           playerName: entry.playerName,

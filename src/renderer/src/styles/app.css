@@ -2042,3 +2042,11 @@ kbd {
 
 /* SG_7 — blocos de código BBCode */
 .sg7-code { background: var(--bg-inset, #f0e6cf); border: 1px solid #e0d5b8; border-radius: 8px; padding: 12px; font-family: ui-monospace, Consolas, monospace; font-size: 0.85em; white-space: pre-wrap; overflow-x: auto; max-height: 320px; }
+
+/* Impressão (SG_5): só a área imprimível, sem sidebar */
+@media print {
+  .sidebar, .page-header, .callout, .btn, .btn-ghost, .toast-viewport, .sg5-no-print { display: none !important; }
+  .content { padding: 0 !important; }
+  .sg5-printable { break-inside: avoid; }
+  body { background: #fff; color: #000; }
+}

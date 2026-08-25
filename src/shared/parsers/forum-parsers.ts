@@ -66,21 +66,39 @@ export function parseForumThread(html: string): ForumThread {
   return { threadId: Number(threadId), posts };
 }
 
-/** Extrai o csrf e a aldeia atual dos dados embutidos da página do fórum. */
+/** Extrai o csrf e a aldeia atual dos dados embutidos da página do fórum.
+ * Validado contra fixtures reais: o BR142 embute "village":{"id":N,…}. */
 export function forumTokens(html: string): { csrf: string; villageId: string } {
   const csrf = /"csrf":"([a-f0-9]+)"/.exec(html)?.[1];
-  const villageId = /"village":"(\d+)"/.exec(html)?.[1];
+  const villageId = /"village":\{"id":(\d+)/.exec(html)?.[1];
   if (csrf === undefined || villageId === undefined) {
     throw new ParseError('Página do fórum sem csrf/aldeia — formato inesperado.');
   }
   return { csrf, villageId };
 }
 
-/** Extrai o <textarea name="message"> (BBCode) da página de edição de post. */
-export function parseEditForm(html: string): { message: string } {
+export interface EditFormDetails {
+  message: string;
+  /** action exata do formulário (com edit_post_id/post_id/forum_id/h). */
+  action: string;
+  /** Valor do input oculto "do" (send) e "current_page". */
+  doValue: string;
+  currentPage: string;
+}
+
+/** Extrai o <textarea name="message"> (BBCode) + action/campos ocultos da edição. */
+export function parseEditForm(html: string): EditFormDetails {
   const match = /<textarea[^>]*name="message"[^>]*>([\s\S]*?)<\/textarea>/.exec(html);
-  if (match === null) {
-    throw new ParseError('Formulário de edição sem o campo "message".');
+  const action = /action="([^"]*action=edit_post[^"]*)"/.exec(html)?.[1];
+  const doValue = /name="do"[^>]*value="([^"]*)"/.exec(html)?.[1];
+  const currentPage = /name="current_page"[^>]*value="([^"]*)"/.exec(html)?.[1];
+  if (match === null || action === undefined) {
+    throw new ParseError('Formulário de edição sem o campo "message"/action.');
   }
-  return { message: match[1] ?? '' };
+  return {
+    message: match[1] ?? '',
+    action: action.replace(/&amp;/g, '&').replace(/#.*$/, ''),
+    doValue: doValue ?? 'send',
+    currentPage: currentPage ?? '0',
+  };
 }

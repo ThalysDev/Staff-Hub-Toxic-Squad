@@ -130,11 +130,12 @@ export interface TargetLine {
   targets: { x: number; y: number; points?: number }[];
 }
 
-/** Moral TW por proporção de pontos (calibração fina pendente contra o jogo —
- * fórmula clássica (att/def)^0.75, teto 100%). */
+/** Moral TW: quem ataca alvo MENOR é penalizado — moral = (def/att)^0.75, teto
+ * 100. (Sentido confirmado na revisão; calibração fina contra o jogo pendente.) */
 export function moraleOf(attackerPoints: number, defenderPoints: number): number {
-  if (defenderPoints <= 0) return 100;
-  return Math.min(100, Math.round((attackerPoints / defenderPoints) ** 0.75 * 100));
+  // Sem pontos (bárbaros/dados ausentes) não há penalidade de moral.
+  if (attackerPoints <= 0 || defenderPoints <= 0) return 100;
+  return Math.min(100, Math.round((defenderPoints / attackerPoints) ** 0.75 * 100));
 }
 
 export interface DistributionInput {
@@ -183,6 +184,19 @@ export function distributeTargets(input: DistributionInput): DistributionResult 
   const flatOrigins = input.origins.flatMap((player) =>
     player.origins.map((origin) => ({ playerName: player.playerName, fulls: player.fulls, origin })),
   );
+
+  // Moral exigida sem pontos de origem/alvo → fail-closed com erro claro.
+  if (input.minMorale > 0) {
+    const missingOrigins = flatOrigins.filter((entry) => input.originPoints?.get(entry.playerName) === undefined);
+    const missingTargets = lineTargets.filter(
+      (target) => (target.points ?? input.targetPoints?.get(`${target.x}|${target.y}`)) === undefined,
+    );
+    if (missingOrigins.length > 0 || missingTargets.length > 0) {
+      throw new Error(
+        `Moral mínima exigida, mas ${missingOrigins.length} origem(ns) e ${missingTargets.length} alvo(s) sem pontos — carregue as tribos na seção "Criação de OP com Coordenada Central" antes de distribuir com moral.`,
+      );
+    }
+  }
 
   // Planilha: horas/moral de cada origem×alvo (para o heatmap).
   const matrix = flatOrigins.map((entry) => ({
