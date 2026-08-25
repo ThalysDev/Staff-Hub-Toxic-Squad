@@ -162,6 +162,16 @@ export default function Sg2Page() {
         : window.staffhub.troops.collectSummary('troops'));
       const snapshotAfter = await window.staffhub.troops.get('troops');
       const failed = snapshotAfter?.failures ?? [];
+      if (snapshotAfter) {
+        const playersSet = new Set(snapshotAfter.entries.map((e) => e.playerName));
+        const villages = snapshotAfter.entries.filter((e) => e.coord.x >= 0).length;
+        setMemorySummary({
+          players: playersSet.size,
+          villages,
+          collectedAt: new Date(snapshotAfter.collectedAt).toLocaleString('pt-BR'),
+          source: snapshotAfter.source === 'summary' ? 'resumo (por jogador)' : 'por aldeia (por membro)',
+        });
+      }
       await refreshMemory();
       if (failed.length > 0) {
         push('info', `Coleta concluída com ${failed.length} membro(s) com erro — lista abaixo do painel de memória.`);
