@@ -10,7 +10,6 @@ import type { TwSessionManager } from '../tw/session';
 import type { RequestQueue } from '../tw/request-queue';
 import { QueueError } from '../tw/request-queue';
 import { DEFAULT_SETTINGS, type AppSettings, type TroopKind, type TroopsStatus } from '@shared/ipc-types';
-import type { UnitCounts } from '@shared/units';
 import {
   parseMemberSelector,
   parseMembersDefense,
@@ -21,15 +20,17 @@ import {
   type MemberSelectorResult,
   type TrainedUnitsRow,
 } from '@shared/parsers/ally-parsers';
-import type { TroopSnapshot } from '@shared/sg2-engine';
+import type { DefenseSnapshot, TroopSnapshot } from '@shared/sg2-engine';
 
 /** Cache persistido das coletas — uma posição por tipo de coleta. */
 interface TroopsSnapshotsStore {
   troops: TroopSnapshot | null;
   defense: TroopSnapshot | null;
+  /** Defesa completa por aldeia (com trânsito) — consumido pelo SG_3 (blind). */
+  defenseVillages: DefenseSnapshot | null;
 }
 
-const EMPTY_TROOPS_STORE: TroopsSnapshotsStore = { troops: null, defense: null };
+const EMPTY_TROOPS_STORE: TroopsSnapshotsStore = { troops: null, defense: null, defenseVillages: null };
 
 const KIND_PAGE_MODE: Record<TroopKind, string> = {
   troops: 'members_troops',
@@ -40,17 +41,6 @@ const KIND_LABEL: Record<TroopKind, string> = {
   troops: 'tropas',
   defense: 'defesa',
 };
-
-/** Retorno documentado de parseMemberVillageTroops/parseMemberVillageDefense. */
-interface MemberVillageTroopsResult {
-  villages: {
-    coord: { x: number; y: number };
-    villageId: number;
-    name: string;
-    units: UnitCounts;
-    commandsCount?: number;
-  }[];
-}
 
 function assertKind(kind: unknown): asserts kind is TroopKind {
   if (kind !== 'troops' && kind !== 'defense') {
@@ -161,13 +151,18 @@ export class TroopsService {
       }
       throw error;
     }
+    const { entries, defenseEntries } = this.memberEntries(kind, members, bodies);
     const snapshot: TroopSnapshot = {
       kind,
       source: 'per-member',
       collectedAt: new Date().toISOString(),
-      entries: this.memberEntries(kind, members, bodies),
+      entries,
     };
-    await this.saveSnapshot(snapshot);
+    const defenseVillages: DefenseSnapshot | null =
+      kind === 'defense'
+        ? { kind: 'defense', collectedAt: snapshot.collectedAt, entries: defenseEntries }
+        : null;
+    await this.saveSnapshot(snapshot, defenseVillages);
     await this.journal.append(
       'read',
       'collect-members',
@@ -175,6 +170,12 @@ export class TroopsService {
       false,
     );
     return snapshot;
+  }
+
+  /** Snapshot completo de defesa por aldeia (com trânsito) para o SG_3. */
+  async getDefenseVillages(): Promise<DefenseSnapshot | null> {
+    const data = await this.store.load();
+    return data.defenseVillages;
   }
 
   /** Datas das últimas coletas salvas (sem rede). */
@@ -191,13 +192,14 @@ export class TroopsService {
   }
 
   /** Grava o snapshot na posição do tipo, preservando a outra coleta salva. */
-  private async saveSnapshot(snapshot: TroopSnapshot): Promise<void> {
+  private async saveSnapshot(snapshot: TroopSnapshot, defenseVillages?: DefenseSnapshot | null): Promise<void> {
     const current = await this.store.load();
     const next: TroopsSnapshotsStore = { ...current };
     if (snapshot.kind === 'troops') {
       next.troops = snapshot;
     } else {
       next.defense = snapshot;
+      if (defenseVillages !== undefined) next.defenseVillages = defenseVillages;
     }
     await this.store.save(next);
   }
@@ -215,45 +217,63 @@ export class TroopsService {
     };
   }
 
-  /** Entradas por aldeia de cada membro, na ordem das respostas da fila. */
+  /**
+   * Entradas por aldeia de cada membro, na ordem das respostas da fila.
+   * Para defesa devolve TAMBM defenseEntries com o trânsito ("a caminho")
+   * preservado — o snapshot genérico de TroopSnapshot carrega só "Na Aldeia".
+   */
   private memberEntries(
     kind: TroopKind,
     members: MemberSelectorResult['options'],
     bodies: readonly string[],
-  ): TroopSnapshot['entries'] {
+  ): { entries: TroopSnapshot['entries']; defenseEntries: DefenseSnapshot['entries'] } {
     const entries: TroopSnapshot['entries'] = [];
+    const defenseEntries: DefenseSnapshot['entries'] = [];
     for (let i = 0; i < members.length; i++) {
       const member = members[i];
       const body = bodies[i];
       if (member === undefined || body === undefined) {
         throw new Error('Resposta da coleta por membro incompleta — tente de novo.');
       }
-      let villages: MemberVillageTroopsResult['villages'];
       try {
         const parsed = kind === 'troops' ? parseMemberVillageTroops(body) : parseMemberVillageDefense(body);
-        // Defesa: o snapshot genérico guarda as tropas NA aldeia ("Na Aldeia");
-        // o trânsito ("a caminho") é consumido pelo SG_3 via DefenseSnapshot.
-        villages = parsed.villages.map((village) =>
-          'units' in village
-            ? village
-            : { villageId: village.villageId, name: village.name, coord: village.coord, points: village.points, units: village.unitsInVillage },
-        );
+        for (const village of parsed.villages) {
+          if ('units' in village) {
+            entries.push({
+              playerId: member.playerId,
+              playerName: member.name,
+              coord: village.coord,
+              villageId: village.villageId,
+              villageName: village.name,
+              units: village.units,
+            });
+          } else {
+            entries.push({
+              playerId: member.playerId,
+              playerName: member.name,
+              coord: village.coord,
+              villageId: village.villageId,
+              villageName: village.name,
+              units: village.unitsInVillage,
+            });
+            defenseEntries.push({
+              playerId: member.playerId,
+              playerName: member.name,
+              villageId: village.villageId,
+              name: village.name,
+              coord: village.coord,
+              points: village.points,
+              unitsInVillage: village.unitsInVillage,
+              unitsInTransit: village.unitsInTransit,
+            });
+          }
+        }
       } catch (error) {
         throw new Error(
           `Coleta de ${KIND_LABEL[kind]} de "${member.name}" com formato inesperado: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
-      for (const village of villages) {
-        entries.push({
-          playerId: member.playerId,
-          playerName: member.name,
-          coord: village.coord,
-          villageId: village.villageId,
-          villageName: village.name,
-          units: village.units,
-        });
-      }
     }
-    return entries;
+    return { entries, defenseEntries };
   }
 }

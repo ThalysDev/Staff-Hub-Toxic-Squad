@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppSettings, QueueProgress, SessionStatus, Sg1Input, StaffHubApi, TroopKind } from '@shared/ipc-types';
+import type {
+  AppSettings,
+  BlindCheckInput,
+  BlindVillageResult,
+  QueueProgress,
+  SessionStatus,
+  Sg1Input,
+  StaffHubApi,
+  TroopKind,
+} from '@shared/ipc-types';
 
 const api = {
   session: {
@@ -37,6 +46,10 @@ const api = {
     collectMembers: (kind: TroopKind) => ipcRenderer.invoke('troops:collect-members', kind),
     status: () => ipcRenderer.invoke('troops:status'),
     get: (kind: TroopKind) => ipcRenderer.invoke('troops:get', kind),
+  },
+  sg3: {
+    checkBlind: (input: BlindCheckInput) =>
+      ipcRenderer.invoke('sg3:check-blind', input) as Promise<{ results: BlindVillageResult[]; bbcode: string }>,
   },
   events: {
     onQueueProgress: (cb: (progress: QueueProgress) => void) => {

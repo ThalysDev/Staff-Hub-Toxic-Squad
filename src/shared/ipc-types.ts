@@ -10,6 +10,7 @@ import type {
   WorldVillage,
 } from './types';
 import type { Sg2FilterResult, Sg2Filters, TroopSnapshot } from './sg2-engine';
+import type { BlindCheckInput, BlindVillageResult } from './sg3-engine';
 
 export type {
   DiplomacyRelations,
@@ -20,6 +21,7 @@ export type {
   WorldVillage,
 };
 export type { Sg2FilterResult, Sg2Filters, TroopSnapshot };
+export type { BlindCheckInput, BlindVillageResult };
 
 export type SessionState = 'logged-out' | 'logging-in' | 'logged-in' | 'unknown';
 
@@ -137,6 +139,10 @@ export interface StaffHubApi {
     status(): Promise<TroopsStatus>;
     /** Snapshot guardado em memória (null = ainda não coletado; F5 não perde). */
     get(kind: TroopKind): Promise<TroopSnapshot | null>;
+  };
+  sg3: {
+    /** Verificação de blind sobre a última coleta de defesa (paradas × paradas+trânsito). */
+    checkBlind(input: Omit<BlindCheckInput, 'defense'>): Promise<{ results: BlindVillageResult[]; bbcode: string }>;
   };
   events: {
     onQueueProgress(cb: (progress: QueueProgress) => void): () => void;
