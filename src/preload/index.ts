@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppSettings, QueueProgress, SessionStatus, Sg1Input, StaffHubApi } from '@shared/ipc-types';
+import type { AppSettings, QueueProgress, SessionStatus, Sg1Input, StaffHubApi, TroopKind } from '@shared/ipc-types';
 
 const api = {
   session: {
@@ -31,6 +31,12 @@ const api = {
   },
   sg1: {
     analyze: (input: Sg1Input) => ipcRenderer.invoke('sg1:analyze', input),
+  },
+  troops: {
+    collectSummary: (kind: TroopKind) => ipcRenderer.invoke('troops:collect-summary', kind),
+    collectMembers: (kind: TroopKind) => ipcRenderer.invoke('troops:collect-members', kind),
+    status: () => ipcRenderer.invoke('troops:status'),
+    get: (kind: TroopKind) => ipcRenderer.invoke('troops:get', kind),
   },
   events: {
     onQueueProgress: (cb: (progress: QueueProgress) => void) => {

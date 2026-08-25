@@ -8,6 +8,8 @@ import { Journal } from './journal';
 import { WorldDataService } from './services/world-data-service';
 import { Sg1Service } from './services/sg1-service';
 import { registerWorldIpc } from './ipc-world';
+import { TroopsService } from './services/troops-service';
+import { registerTroopsIpc } from './ipc-troops';
 import { DEFAULT_SETTINGS, type AppSettings, type QueueProgress } from '@shared/ipc-types';
 
 const twSession = new TwSessionManager();
@@ -181,6 +183,8 @@ app.whenReady().then(() => {
   registerIpc();
   wireEvents();
   registerWorldIpc({ twSession, queue: queue as RequestQueue, journal, worldData, sg1: sg1Service });
+  const troopsService = new TroopsService(twSession, queue as RequestQueue, journal);
+  registerTroopsIpc({ twSession, queue: queue as RequestQueue, journal, troops: troopsService });
   createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

@@ -305,6 +305,136 @@ export function parseMembersDefense(html: string): AllyUnitsResult {
 }
 
 // ---------------------------------------------------------------------------
+// Visão POR ALDEIA (membro selecionado): members_troops&player_id=N / members_defense&player_id=N
+// ---------------------------------------------------------------------------
+
+export interface VillageUnitsRow {
+  villageId: number;
+  name: string;
+  coord: { x: number; y: number };
+  points: number;
+  units: UnitCounts;
+}
+
+export interface MemberVillageTroopsResult {
+  villages: VillageUnitsRow[];
+}
+
+export interface VillageDefenseRow {
+  villageId: number;
+  name: string;
+  coord: { x: number; y: number };
+  points: number;
+  /** Tropas fisicamente na aldeia (sub-linha "Na Aldeia"). */
+  unitsInVillage: UnitCounts;
+  /** Tropas a caminho (sub-linha "a caminho"). */
+  unitsInTransit: UnitCounts;
+}
+
+export interface MemberVillageDefenseResult {
+  villages: VillageDefenseRow[];
+}
+
+/** "001- REBOUÇAS - (675|488) K46" → id do link + coordenada do rótulo. */
+function parseVillageCell(cell: string, what: string): { villageId: number; name: string; coord: { x: number; y: number } } {
+  const link = /screen=info_village[^>]*id=(\d+)[^>]*>([\s\S]*?)<\/a>/.exec(cell);
+  if (link === null) {
+    throw new ParseError(`${what}: célula da aldeia sem link info_village`);
+  }
+  const name = visibleText(link[2] ?? '');
+  const coord = /\((\d{1,3})\|(\d{1,3})\)/.exec(name);
+  if (coord === null) {
+    throw new ParseError(`${what}: nome da aldeia sem coordenada "(x|y)" ("${name}")`);
+  }
+  return { villageId: Number(link[1]), name, coord: { x: Number(coord[1]), y: Number(coord[2]) } };
+}
+
+function unitsFromCells(cells: readonly string[], start: number, columns: readonly UnitsColumn[], what: string): UnitCounts {
+  const units: UnitCounts = {};
+  let cursor = start;
+  for (const column of columns) {
+    if (column.kind !== 'unit') continue;
+    const cell = cells[cursor];
+    if (cell === undefined) {
+      throw new ParseError(`${what}: célula da unidade ${column.unit} ausente`);
+    }
+    units[column.unit] = parseIntHtmlKnown(cell, `${what}: unidade ${column.unit}`) ?? 0;
+    cursor += 1;
+  }
+  return units;
+}
+
+/**
+ * members_troops&player_id=N — 1 linha por aldeia: [aldeia, pontos, ...13 unidades
+ * (mapeadas pelos ícones do cabeçalho), extras hidden no fim ignoradas].
+ * Fixtures: tests/fixtures/br142/troops-{reboucas,spartacus}-rows.html
+ */
+export function parseMemberVillageTroops(html: string): MemberVillageTroopsResult {
+  const table = findTableWith(html, 'vis w100', 'tabela de tropas por aldeia');
+  const rows = [...table.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/g)];
+  const headerIndex = rows.findIndex((row) => (row[1] ?? '').includes('<th'));
+  if (headerIndex === -1) {
+    throw new ParseError('tabela de tropas por aldeia: cabeçalho (<th>) não encontrado');
+  }
+  const columns = parseUnitsHeader(rows[headerIndex]?.[1] ?? '');
+  const villages: VillageUnitsRow[] = [];
+  for (let r = headerIndex + 1; r < rows.length; r++) {
+    const cells = extractCells(rows[r]?.[1] ?? '', 'tabela de tropas por aldeia');
+    if (cells.length < 2 + columns.filter((c) => c.kind === 'unit').length) {
+      throw new ParseError(`tabela de tropas por aldeia: linha com ${cells.length} células (mínimo esperado: ${2 + columns.filter((c) => c.kind === 'unit').length})`);
+    }
+    const head = parseVillageCell(cells[0] ?? '', 'tabela de tropas por aldeia');
+    villages.push({
+      ...head,
+      points: parseIntHtml(cells[1] ?? '', 'tabela de tropas por aldeia: pontos'),
+      units: unitsFromCells(cells, 2, columns, 'tabela de tropas por aldeia'),
+    });
+  }
+  if (villages.length === 0) {
+    throw new ParseError('tabela de tropas por aldeia sem linhas de aldeia');
+  }
+  return { villages };
+}
+
+/**
+ * members_defense&player_id=N — GRUPOS de 2 sub-linhas com rowspan=2 na célula da
+ * aldeia/pontos: sub-linha "Na Aldeia" (unidades presentes) + sub-linha
+ * "a caminho" (em trânsito). Fixtures: defense-{reboucas,spartacus}-rows.html
+ */
+export function parseMemberVillageDefense(html: string): MemberVillageDefenseResult {
+  const table = findTableWith(html, 'vis w100', 'tabela de defesa por aldeia');
+  const rows = [...table.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/g)];
+  const headerIndex = rows.findIndex((row) => (row[1] ?? '').includes('<th'));
+  if (headerIndex === -1) {
+    throw new ParseError('tabela de defesa por aldeia: cabeçalho (<th>) não encontrado');
+  }
+  const columns = parseUnitsHeader(rows[headerIndex]?.[1] ?? '');
+  const villages: VillageDefenseRow[] = [];
+  for (let r = headerIndex + 1; r < rows.length; r++) {
+    const cells = extractCells(rows[r]?.[1] ?? '', 'tabela de defesa por aldeia');
+    // Linha inicial do grupo: contém o link da aldeia + pontos + rótulo "Na Aldeia".
+    if (!/screen=info_village/.test(cells[0] ?? '')) continue;
+    const head = parseVillageCell(cells[0] ?? '', 'tabela de defesa por aldeia');
+    const points = parseIntHtml(cells[1] ?? '', 'tabela de defesa por aldeia: pontos');
+    const unitsInVillage = unitsFromCells(cells, 3, columns, 'tabela de defesa por aldeia (Na Aldeia)');
+    // Sub-linha seguinte = "a caminho" (sem célula da aldeia por causa do rowspan).
+    const transitRow = rows[r + 1];
+    const transitCells = transitRow ? extractCells(transitRow[1] ?? '', 'tabela de defesa por aldeia (trânsito)') : [];
+    const transitLabel = visibleText(transitCells[0] ?? '');
+    if (!/caminho/i.test(transitLabel)) {
+      throw new ParseError(`tabela de defesa por aldeia: esperada sub-linha "a caminho", veio "${transitLabel}"`);
+    }
+    const unitsInTransit = unitsFromCells(transitCells, 1, columns, 'tabela de defesa por aldeia (a caminho)');
+    villages.push({ ...head, points, unitsInVillage, unitsInTransit });
+    r += 1; // consome a sub-linha de trânsito
+  }
+  if (villages.length === 0) {
+    throw new ParseError('tabela de defesa por aldeia sem grupos de aldeia');
+  }
+  return { villages };
+}
+
+// ---------------------------------------------------------------------------
 // screen=ally&mode=contracts (Diplomacia)
 // ---------------------------------------------------------------------------
 

@@ -9,8 +9,17 @@ import type {
   WorldDataStatus,
   WorldVillage,
 } from './types';
+import type { Sg2FilterResult, Sg2Filters, TroopSnapshot } from './sg2-engine';
 
-export type { DiplomacyRelations, Sg1Input, Sg1Result, WorldAlly, WorldDataStatus, WorldVillage };
+export type {
+  DiplomacyRelations,
+  Sg1Input,
+  Sg1Result,
+  WorldAlly,
+  WorldDataStatus,
+  WorldVillage,
+};
+export type { Sg2FilterResult, Sg2Filters, TroopSnapshot };
 
 export type SessionState = 'logged-out' | 'logging-in' | 'logged-in' | 'unknown';
 
@@ -56,6 +65,16 @@ export interface QueueProgress {
   label: string;
   done: number;
   total: number;
+}
+
+/** Tipo de coleta de tropas: tropas recrutadas da tribo ou defesa das aldeias (SG_3). */
+export type TroopKind = 'troops' | 'defense';
+
+export interface TroopsStatus {
+  /** ISO da última coleta de tropas (null = nunca coletado). */
+  troopsAt: string | null;
+  /** ISO da última coleta de defesa (null = nunca coletado). */
+  defenseAt: string | null;
 }
 
 export type FixtureCaptureResult =
@@ -108,6 +127,16 @@ export interface StaffHubApi {
   sg1: {
     /** Análise de Aldeias e Distâncias (buckets de tempo de nobre). */
     analyze(input: Sg1Input): Promise<Sg1Result>;
+  };
+  troops: {
+    /** Coleta completa, membro a membro, com pacing humano (progresso via events.onQueueProgress). */
+    collectMembers(kind: TroopKind): Promise<TroopSnapshot>;
+    /** Coleta resumida em 1 requisição (sem detalhamento por membro). */
+    collectSummary(kind: TroopKind): Promise<TroopSnapshot>;
+    /** Momento da última coleta por tipo (sem rede). */
+    status(): Promise<TroopsStatus>;
+    /** Snapshot guardado em memória (null = ainda não coletado; F5 não perde). */
+    get(kind: TroopKind): Promise<TroopSnapshot | null>;
   };
   events: {
     onQueueProgress(cb: (progress: QueueProgress) => void): () => void;

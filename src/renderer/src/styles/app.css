@@ -1674,3 +1674,201 @@ kbd {
   width: auto;
   min-width: 140px;
 }
+
+/* =====================================================================
+   SG_2 — Análise de Tropas das Aldeias (memória, filtro e resultado)
+   ===================================================================== */
+.sg2-memory-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.sg2-memory-date {
+  margin: 0;
+  font-size: var(--fs-small);
+}
+
+.sg2-memory-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.sg2-progress {
+  margin-top: var(--sp-4);
+}
+
+.sg2-filter-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.sg2-filter-head .section-title {
+  flex: 1;
+}
+
+.sg2-chevron {
+  transition: transform var(--t-fast);
+}
+
+.sg2-chevron--open {
+  transform: rotate(180deg);
+}
+
+.sg2-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+
+.sg2-span-2 {
+  grid-column: 1 / -1;
+}
+
+.sg2-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.sg2-radio-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.sg2-units-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.sg2-unit-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  cursor: pointer;
+}
+
+.sg2-unit-row img {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.sg2-unit-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-small);
+  color: var(--text);
+}
+
+.sg2-unit-input {
+  width: 92px;
+  flex: none;
+  padding: 6px 8px;
+}
+
+.sg2-axis-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.sg2-axis-inputs {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.sg2-axis-field {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.sg2-axis-field input {
+  width: 110px;
+}
+
+.sg2-form-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.sg2-coords {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fs-small);
+}
+
+.sg2-total {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.sg2-total-value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-display);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--ok-ink);
+}
+
+.sg2-total-label {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sg2-classification {
+  border-bottom: 1px solid var(--divider);
+}
+
+.sg2-row-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-strong);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--t-fast), color var(--t-fast);
+}
+
+.sg2-row-toggle:hover {
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+
+.sg2-row-toggle svg {
+  flex: none;
+  color: var(--accent);
+}
+
+/* Linha expandida do drill-down: coordenadas do jogador em fonte mono. */
+.sg2-drilldown td {
+  background: #f6efdd;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fs-small);
+  overflow-wrap: anywhere;
+}
