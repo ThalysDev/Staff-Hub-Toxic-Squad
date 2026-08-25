@@ -95,6 +95,7 @@ export default function Sg2Page() {
 
   // Memória (persistida no processo principal; F5 não perde).
   const [troopsAt, setTroopsAt] = useState<string | null>(null);
+  const [memorySummary, setMemorySummary] = useState<{ players: number; villages: number; collectedAt: string; source: string } | null>(null);
   const [snapshot, setSnapshot] = useState<TroopSnapshot | null>(null);
   const [collecting, setCollecting] = useState<'members' | 'summary' | null>(null);
   const [progress, setProgress] = useState<QueueProgress | null>(null);
@@ -180,9 +181,18 @@ export default function Sg2Page() {
       setResult(null);
       if (stored === null) {
         push('info', 'Nada em memória — colete as informações de tropas primeiro.');
-      } else {
-        push('ok', 'Dados exibidos da memória (não se perdem no F5).');
+        setMemorySummary(null);
+        return;
       }
+      const players = new Set(stored.entries.map((entry) => entry.playerName));
+      const villages = stored.entries.filter((entry) => entry.coord.x >= 0).length;
+      setMemorySummary({
+        players: players.size,
+        villages,
+        collectedAt: new Date(stored.collectedAt).toLocaleString('pt-BR'),
+        source: stored.source === 'summary' ? 'resumo (por jogador)' : 'por aldeia (por membro)',
+      });
+      push('ok', 'Memória carregada — resumo abaixo.');
     } catch (error) {
       push('error', errorMessage(error));
     }
@@ -272,6 +282,18 @@ export default function Sg2Page() {
         title={moduleInfo?.originalLabel ?? 'Análise de Tropas das Aldeias'}
         description="Coleta as tropas recrutadas de cada aldeia da tribo (com progresso e memória local), filtra por unidade, escopo, coordenadas e eixos — e classifica ofensivas vs defensivas sem filtro de tropas."
       />
+
+      {memorySummary !== null && (
+        <section className="page-section" aria-label="Resumo dos dados em memória">
+          <div className="card">
+            <div className="card-body sg2-memory-summary">
+              <strong>{memorySummary.players}</strong> jogador(es) ·{" "}
+              <strong>{memorySummary.villages}</strong> aldeia(s) · coleta{" "}
+              {memorySummary.source} · {memorySummary.collectedAt}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ===== Painel Dados em Memória ===== */}
       <section className="page-section" aria-labelledby="sg2-memory-title">

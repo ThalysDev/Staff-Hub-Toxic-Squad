@@ -55,7 +55,7 @@ export default function Sidebar({ groups, active, onNavigate }: SidebarProps) {
         ))}
       </nav>
       {/* Assinatura visual da referência: busca rápida decorativa (sem função ainda). */}
-      <div className="sidebar-search" aria-hidden="true">
+      <div className="sidebar-search" hidden aria-hidden="true">
         <Search size={14} />
         <span className="sidebar-search-text">Busca rápida</span>
         <span className="kbd-mini">Ctrl K</span>

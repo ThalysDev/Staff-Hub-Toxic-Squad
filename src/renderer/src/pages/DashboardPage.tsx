@@ -87,7 +87,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           label="Versão do hub"
           icon={Info}
           value={version ?? '…'}
-          delta="Fase 0.5 · capturas BR142"
+          delta="7 frentes · v0.8.0"
         />
       </div>
 
@@ -109,7 +109,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                 <span className="module-title">{module.title}</span>
                 <span className="module-original">{module.originalLabel}</span>
                 <span className="module-foot">
-                  <span className="pill pill--ok">Fase {module.phase} · disponível</span>
+                  <span className="pill pill--ok">Fase {module.phase} · ativo</span>
                   <span className="module-open">
                     Abrir
                     <ArrowRight size={12} aria-hidden="true" />

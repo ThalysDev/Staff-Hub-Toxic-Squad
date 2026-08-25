@@ -57,6 +57,8 @@ export default function Sg1Page() {
   const moduleInfo = MODULES.find((module) => module.id === 'sg1');
   const [relations, setRelations] = useState<DiplomacyRelations | null>(null);
   const [relationsFailed, setRelationsFailed] = useState(false);
+  const [prefillBusy, setPrefillBusy] = useState(true);
+  const [worldRefreshBusy, setWorldRefreshBusy] = useState(false);
 
   // Formulário — análise de aldeias (rótulos originais).
   const [ownTag, setOwnTag] = useState('');
@@ -83,18 +85,29 @@ export default function Sg1Page() {
   const [showMap, setShowMap] = useState(false);
 
   // Tag da própria tribo vinda da diplomacia (não sobrescreve o que o usuário digitou).
+  // O dump é garantido ANTES: a tag verdadeira ("Toxic!") vem do ally.txt — sem o
+  // dump a página de contratos só expõe o NOME da tribo.
   useEffect(() => {
     let cancelled = false;
-    void window.staffhub.world
-      .relations()
-      .then((current) => {
+    void (async () => {
+      setPrefillBusy(true);
+      try {
+        const status = await window.staffhub.world.status();
+        const stale =
+          status.fetchedAt === null ||
+          status.villageCount === 0 ||
+          Date.now() - Date.parse(status.fetchedAt) > 6 * 60 * 60 * 1000;
+        if (stale) await window.staffhub.world.refresh();
+        const current = await window.staffhub.world.relations();
         if (cancelled) return;
         setRelations(current);
         setOwnTag((typed) => (typed.trim() === '' ? current.ownTag : typed));
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setRelationsFailed(true);
-      });
+      } finally {
+        if (!cancelled) setPrefillBusy(false);
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -175,7 +188,7 @@ export default function Sg1Page() {
 
   async function copyCoords(bucket: Sg1BucketResult): Promise<void> {
     if (bucket.coords.length === 0) {
-      push('info', 'Bucket vazio — nada para copiar.');
+      push('info', 'Faixa sem aldeias — nada para copiar.');
       return;
     }
     const separator = sepByEnter[bucket.index] === true ? '\n' : ' ';
@@ -280,7 +293,7 @@ export default function Sg1Page() {
                 void runAnalyze();
               }}
             >
-              <Field id="ownTag" label="TAG TRIBO ANALISADA (TAG)" error={errors.ownTag}>
+              <Field id="ownTag" label="TAG TRIBO ANALISADA (TAG)" error={errors.ownTag} hint={prefillBusy ? 'Carregando a tag da sua tribo (baixa os dados do mundo na 1ª vez)…' : undefined}>
                 <input
                   id="ownTag"
                   className="input"
@@ -502,17 +515,21 @@ export default function Sg1Page() {
                 className="btn btn-ghost btn-sm"
                 onClick={() => {
                   void (async () => {
+                    setWorldRefreshBusy(true);
                     push('info', 'Atualizando dados do mundo…');
                     try {
                       await window.staffhub.world.refresh();
                       push('ok', 'Dados do mundo atualizados.');
                     } catch (err) {
                       push('error', err instanceof Error ? err.message : String(err));
+                    } finally {
+                      setWorldRefreshBusy(false);
                     }
                   })();
                 }}
+                disabled={worldRefreshBusy}
               >
-                Atualizar dados do mundo
+                {worldRefreshBusy ? 'Atualizando…' : 'Atualizar dados do mundo'}
               </button>
               {worldLoading && progress !== null && (
                 <ProgressBar done={progress.done} total={progress.total} label={progress.label} />

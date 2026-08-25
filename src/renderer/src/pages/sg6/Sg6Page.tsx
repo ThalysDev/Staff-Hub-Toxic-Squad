@@ -73,7 +73,7 @@ export default function Sg6Page() {
       <header className="page-header">
         <div>
           <p className="kicker">Reservas e MPs</p>
-          <h1>Uso Geral</h1>
+          <h1>Reservas e MPs</h1>
         </div>
       </header>
 
@@ -128,7 +128,7 @@ export default function Sg6Page() {
             </p>
             <div className="row">
               <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void runReserve(reservePending)}>
-                Confirmar Reserva em Massa
+                {busy ? <><span className="btn-spinner" aria-hidden="true" /> Enviando…</> : 'Confirmar Reserva em Massa'}
               </button>
               <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setReservePending(null)}>
                 Cancelar
@@ -215,7 +215,7 @@ export default function Sg6Page() {
             </p>
             <div className="row">
               <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void runMps(mpPending)}>
-                Confirmar Envio
+                {busy ? <><span className="btn-spinner" aria-hidden="true" /> Enviando…</> : 'Confirmar Envio'}
               </button>
               <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setMpPending(null)}>
                 Cancelar

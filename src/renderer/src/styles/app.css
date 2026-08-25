@@ -2052,3 +2052,11 @@ kbd {
 }
 
 .sg5-doc-title { font-family: var(--font-display, Cinzel, serif); font-size: 1.3rem; letter-spacing: 0.06em; margin: 0 0 12px; }
+
+/* Classes usadas pelas páginas SG_3..SG_7 (auditoria UX: definidas explicitamente) */
+.kicker { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold, #7d5232); margin: 0 0 4px; }
+.sg6-confirm { border: 1px solid #c62828; border-left: 4px solid #c62828; border-radius: 8px; background: rgba(198, 40, 40, 0.06); padding: 12px 14px; margin-top: 12px; }
+.sg6-confirm p { margin: 0 0 8px; }
+.sg5-village { margin-bottom: 16px; }
+.sg5-village-title { font-family: var(--font-display, Cinzel, serif); font-size: 1rem; letter-spacing: 0.05em; margin: 0 0 8px; }
+.sg2-memory-summary { font-size: 0.95rem; }

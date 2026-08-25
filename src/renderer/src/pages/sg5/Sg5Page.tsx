@@ -90,9 +90,7 @@ export default function Sg5Page() {
         </div>
         <label className="field">
           <span className="field-label">Título do documento (impressão)</span>
-        </label>
-        <label className="field" style={{ maxWidth: 360 }}>
-          <input className="input" value={docTitle} onChange={(event) => setDocTitle(event.target.value)} />
+          <input className="input" style={{ maxWidth: 360 }} value={docTitle} onChange={(event) => setDocTitle(event.target.value)} />
         </label>
         <label className="field">
           <span className="field-label">Entradas (nick;coordenadas — uma linha por jogador)</span>
@@ -108,7 +106,7 @@ export default function Sg5Page() {
         <div className="row">
           <button type="button" className="btn" onClick={() => void runVerify()} disabled={busy !== null}>
             <ListChecks size={16} aria-hidden="true" />
-            {busy === 'verify' ? 'Verificando…' : 'Obter Verificação'}
+            {busy === 'verify' ? <><span className="btn-spinner" aria-hidden="true" /> Verificando…</> : 'Obter Verificação'}
           </button>
           {verifyResult !== null && (
             <button type="button" className="btn btn-ghost" onClick={() => window.print()}>
@@ -176,7 +174,7 @@ export default function Sg5Page() {
         </label>
         <div className="row">
           <button type="button" className="btn" onClick={() => void runTotals()} disabled={busy !== null}>
-            {busy === 'totals' ? 'Totalizando…' : 'Obter Verificação (totalizador)'}
+            {busy === 'totals' ? <><span className="btn-spinner" aria-hidden="true" /> Totalizando…</> : 'Obter Verificação (totalizador)'}
           </button>
           {totalsResult !== null && (
             <button
@@ -184,7 +182,7 @@ export default function Sg5Page() {
               className="btn btn-ghost btn-sm"
               onClick={() => {
                 const text = totalsResult.totals.map((t) => `${t.playerName};ataques=${t.attacks};suportes=${t.supports};total=${t.total}`).join('\n');
-                void navigator.clipboard.writeText(text).then(() => push('ok', 'Resumo copiado.'));
+                void navigator.clipboard.writeText(text).then(() => push('ok', 'Resumo copiado.')).catch(() => push('error', 'Não consegui copiar — selecione e use Ctrl+C.'));
               }}
             >
               <ClipboardCopy size={14} aria-hidden="true" />

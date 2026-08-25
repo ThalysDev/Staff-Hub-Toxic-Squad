@@ -50,11 +50,20 @@ export class Sg1Service {
       this.worldData.tribes(),
     ]);
 
-    // — Tribo própria (TAG TRIBO ANALISADA): tag → id da tribo → ids dos
+    // A página de contratos do BR expõe o NOME da própria tribo e o dump traz a
+    // TAG (ex.: nome "Toxic Squad Sul" ↔ tag "Toxic!") — aceitamos qualquer um
+    // dos dois, sem sensibilidade a caixa, para não travar o usuário em formato.
+    const normalize = (value: string): string => value.trim().toLowerCase();
+    const findAlly = (value: string) =>
+      allAllies.find((ally) => normalize(ally.tag) === normalize(value) || normalize(ally.name) === normalize(value));
+
+    // — Tribo própria (TAG TRIBO ANALISADA): tag/nome → id da tribo → ids dos
     // jogadores (player.txt) → aldeias daqueles jogadores (village.txt).
-    const ownAlly = allAllies.find((ally) => ally.tag === input.ownTag);
+    const ownAlly = findAlly(input.ownTag);
     if (ownAlly === undefined) {
-      throw new Error(`Tribo "${input.ownTag}" não encontrada no dump do mundo — confira a TAG TRIBO ANALISADA.`);
+      throw new Error(
+        `Tribo "${input.ownTag}" não encontrada no dump do mundo — use a TAG (ex.: ${allAllies.slice(0, 3).map((a) => a.tag).join(', ')}…) ou o nome exato.`,
+      );
     }
     const ownPlayerIds = new Set(allPlayers.filter((player) => player.allyId === ownAlly.id).map((player) => player.id));
     const ownVillages = allVillages.filter((village) => ownPlayerIds.has(village.playerId));
@@ -63,7 +72,7 @@ export class Sg1Service {
     // os consider/desconsider e monta os conjuntos finais (próprios + inimigos).
     const enemyAllyIds = new Set<number>();
     for (const tag of input.enemyTags) {
-      const ally = allAllies.find((candidate) => candidate.tag === tag);
+      const ally = findAlly(tag);
       if (ally === undefined) {
         throw new Error(`Tribo inimiga "${tag}" não encontrada no dump do mundo — confira as tags informadas.`);
       }

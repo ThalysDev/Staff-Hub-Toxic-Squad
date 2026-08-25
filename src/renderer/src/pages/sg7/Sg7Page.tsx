@@ -106,7 +106,7 @@ export default function Sg7Page() {
         {error !== '' && <p className="error" role="alert">{error}</p>}
         <button type="button" className="btn" onClick={() => void runConference()} disabled={busy}>
           <ScrollText size={16} aria-hidden="true" />
-          {busy ? 'Lendo tópico…' : 'Realizar Conferência Posts'}
+          {busy ? <><span className="btn-spinner" aria-hidden="true" /> Lendo tópico…</> : 'Realizar Conferência Posts'}
         </button>
       </section>
 
@@ -120,7 +120,7 @@ export default function Sg7Page() {
                 type="button"
                 className="btn btn-ghost btn-sm"
                 onClick={() => {
-                  void navigator.clipboard.writeText(conference.recognized).then(() => push('ok', 'Reconhecidos copiados.'));
+                  void navigator.clipboard.writeText(conference.recognized).then(() => push('ok', 'Reconhecidos copiados.')).catch(() => push('error', 'Não consegui copiar — selecione e use Ctrl+C.'));
                 }}
               >
                 <ClipboardCopy size={14} aria-hidden="true" />
@@ -152,7 +152,7 @@ export default function Sg7Page() {
                 </p>
                 <div className="row">
                   <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void runAdjust()}>
-                    Confirmar Ajuste
+                    {busy ? <><span className="btn-spinner" aria-hidden="true" /> Salvando…</> : 'Confirmar Ajuste'}
                   </button>
                   <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setPendingAdjust(false)}>
                     Cancelar
@@ -195,7 +195,7 @@ export default function Sg7Page() {
               </p>
               <div className="row">
                 <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void runDelete()}>
-                  Confirmar Exclusão
+                  {busy ? <><span className="btn-spinner" aria-hidden="true" /> Excluindo…</> : 'Confirmar Exclusão'}
                 </button>
                 <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setPendingDelete(false)}>
                   Cancelar

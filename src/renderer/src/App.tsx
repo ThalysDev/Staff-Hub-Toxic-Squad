@@ -66,8 +66,14 @@ function renderPage(page: PageId, onNavigate: (page: PageId) => void) {
   }
 }
 
+const INITIAL_PAGE = ((): PageId => {
+  const param = new URLSearchParams(window.location.search).get("page");
+  const valid = MODULES.some((m) => m.id === param) || ["dashboard", "sessao", "config", "journal", "captures"].includes(param ?? "");
+  return valid && param !== null ? (param as PageId) : "dashboard";
+})();
+
 export default function App() {
-  const [page, setPage] = useState<PageId>('dashboard');
+  const [page, setPage] = useState<PageId>(INITIAL_PAGE);
 
   return (
     <div className="app-shell">

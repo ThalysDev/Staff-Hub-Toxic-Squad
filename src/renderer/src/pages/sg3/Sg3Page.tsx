@@ -7,6 +7,8 @@ import { TW_UNIT_ICONS } from '../../assets';
 import { UNITS, type UnitCounts, type UnitId } from '@shared/units';
 import { useToast } from '../../hooks/useToast';
 import ToastViewport from '../../components/Toast';
+import EmptyState from '../../components/EmptyState';
+import ProgressBar from '../../components/ProgressBar';
 
 type CountMode = 'paradas' | 'paradas-e-transito';
 
@@ -14,6 +16,11 @@ const BLIND_UNITS: readonly UnitId[] = ['spear', 'sword', 'archer', 'heavy'];
 
 export default function Sg3Page() {
   const { toasts, push, dismiss } = useToast();
+
+  useEffect(() => {
+    const unsubscribe = window.staffhub.events.onQueueProgress(setProgress);
+    return unsubscribe;
+  }, []);
   const [defenseAt, setDefenseAt] = useState<string | null>(null);
   const [collecting, setCollecting] = useState(false);
   const [coordsText, setCoordsText] = useState('');
@@ -26,6 +33,7 @@ export default function Sg3Page() {
   const [supportersBusy, setSupportersBusy] = useState(false);
   const [supportersResult, setSupportersResult] = useState<SupportersResult | null>(null);
   const [supportersError, setSupportersError] = useState('');
+const [progress, setProgress] = useState<{ label: string; done: number; total: number } | null>(null);
 
   useEffect(() => {
     void window.staffhub.troops
@@ -117,14 +125,17 @@ export default function Sg3Page() {
           <h2 className="card-title">Dados em Memória</h2>
           <span className="spacer" />
           <span className="muted">Data da Última Atualização: {formatted}</span>
+          {(collecting || supportersBusy) && progress !== null && (
+            <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
+          )}
           <button type="button" className="btn" onClick={() => void collectDefense()} disabled={collecting}>
-            {collecting ? 'Coletando…' : 'Coletar Informações de Defesa'}
+            {collecting ? <><span className="btn-spinner" aria-hidden="true" /> Coletando…</> : 'Coletar Informações de Defesa'}
           </button>
         </div>
         <p className="muted">
           A coleta passa por todos os membros com pacing humano (1 requisição por membro). Tropas NA aldeia
-          e a caminho são guardadas. <strong>Exibir apoiadores</strong> (1 requisição por aldeia) chega em
-          breve — precisa de fixture de aldeia com comandos compartilhados.
+          e a caminho são guardadas. O botão <strong>Exibir Apoiadores</strong> abaixo consulta aldeia por
+          aldeia (1 requisição cada, com pacing).
         </p>
       </section>
 
@@ -174,7 +185,7 @@ export default function Sg3Page() {
         {error !== '' && <p className="error" role="alert">{error}</p>}
         <button type="button" className="btn" onClick={() => void runBlind()} disabled={busy}>
           <ShieldAlert size={16} aria-hidden="true" />
-          {busy ? 'Consultando…' : 'Realizar Consulta de Blind'}
+          {busy ? <><span className="btn-spinner" aria-hidden="true" /> Consultando…</> : 'Realizar Consulta de Blind'}
         </button>
       </section>
 
@@ -188,7 +199,7 @@ export default function Sg3Page() {
               className="btn btn-ghost btn-sm"
               disabled={bbcode === ''}
               onClick={() => {
-                void navigator.clipboard.writeText(bbcode).then(() => push('ok', 'Tabela BBCode copiada — cole no tópico de blindagem.'));
+                void navigator.clipboard.writeText(bbcode).then(() => push('ok', 'Tabela BBCode copiada — cole no tópico de blindagem.')).catch(() => push('error', 'Não consegui copiar — selecione o texto e use Ctrl+C.'));
               }}
             >
               <ClipboardCopy size={14} aria-hidden="true" />
@@ -196,10 +207,7 @@ export default function Sg3Page() {
             </button>
           </div>
           {results.length === 0 ? (
-            <div className="empty">
-              <ShieldCheck size={28} aria-hidden="true" />
-              <p>Todas as aldeias do filtro estão com o blind completo.</p>
-            </div>
+            <EmptyState icon={ShieldCheck} title="Blind completo" hint="Nenhuma aldeia do filtro ficou devendo tropas." />
           ) : (
             <div className="table-wrap">
               <table className="table">
@@ -244,7 +252,7 @@ export default function Sg3Page() {
         {supportersError !== '' && <p className="error" role="alert">{supportersError}</p>}
         <button type="button" className="btn" onClick={() => void runSupporters()} disabled={supportersBusy}>
           <Users size={16} aria-hidden="true" />
-          {supportersBusy ? 'Consultando…' : 'Exibir Apoiadores'}
+          {supportersBusy ? <><span className="btn-spinner" aria-hidden="true" /> Consultando…</> : 'Exibir Apoiadores'}
         </button>
         {supportersResult !== null && (
           <div className="table-wrap">
