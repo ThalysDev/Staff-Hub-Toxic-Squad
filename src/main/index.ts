@@ -11,6 +11,8 @@ import { registerWorldIpc } from './ipc-world';
 import { TroopsService } from './services/troops-service';
 import { registerTroopsIpc } from './ipc-troops';
 import { registerSg3Ipc } from './ipc-sg3';
+import { SupportersService } from './services/supporters-service';
+import { registerSupportersIpc } from './ipc-supporters';
 import { Sg5Service } from './services/sg5-service';
 import { Sg6Service } from './mutations/sg6-service';
 import { registerSg6Ipc } from './ipc-sg6';
@@ -193,6 +195,7 @@ app.whenReady().then(() => {
   const troopsService = new TroopsService(twSession, queue as RequestQueue, journal);
   registerTroopsIpc({ twSession, queue: queue as RequestQueue, journal, troops: troopsService });
   registerSg3Ipc({ troops: troopsService, journal });
+  registerSupportersIpc(new SupportersService(twSession, queue as RequestQueue, journal, worldData));
   const sg5Service = new Sg5Service(twSession, queue as RequestQueue, journal, worldData);
   registerSg5Ipc({ sg5: sg5Service, journal });
   const sg6Service = new Sg6Service(twSession, journal);

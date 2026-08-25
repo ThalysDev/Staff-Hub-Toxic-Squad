@@ -3,7 +3,7 @@ import { TW_PARTITION, type TwSessionManager } from '../tw/session';
 import type { Journal } from '../journal';
 import { JsonStore } from '../stores/json-store';
 import { DEFAULT_SETTINGS, type AppSettings } from '@shared/ipc-types';
-import { parseEditForm, parseForumThread } from '@shared/parsers/forum-parsers';
+import { forumTokens, parseEditForm, parseForumThread } from '@shared/parsers/forum-parsers';
 import { applyBlindUpdate, recognizeComments, recognizedSummary, sumByPedido } from '@shared/sg7-engine';
 import { detectPageSentinels } from '../tw/request-queue';
 
@@ -16,6 +16,8 @@ export interface ForumConferenceResult {
   recognized: string;
   updatedMessage: string;
   changed: boolean;
+  /** Posts com comentários reconhecidos (para "Apagar mensagens"). */
+  recognizedPostIds: number[];
 }
 
 /**
@@ -94,6 +96,7 @@ export class Sg7Service {
       recognized: recognizedSummary(sums),
       updatedMessage: updated,
       changed: updated !== firstPostMessage,
+      recognizedPostIds: [...new Set(comments.map((comment) => comment.postId))],
     };
   }
 
@@ -144,6 +147,50 @@ export class Sg7Service {
       }
     }
     await this.journal.append('mutation', 'forum-adjust', `thread=${conference.threadId} → ${detail}`, false);
+    return { dryRun: false, ok, detail };
+  }
+
+  /**
+   * MUTAÇÃO: apaga os posts informados (moderação "Apagar mensagens").
+   * Confirmação dupla + journal + dry-run; 1 tentativa; verificação real
+   * (relê o tópico e confere que os posts sumiram).
+   */
+  async deletePosts(threadUrl: string, postIds: number[], confirm: boolean): Promise<{ dryRun: boolean; ok: boolean | null; detail: string }> {
+    if (!confirm) throw new Error('Confirmação dupla necessária — selecione os posts e confirme na tela.');
+    if (postIds.length === 0) throw new Error('Nenhum post selecionado.');
+    const dryRun = await this.dryRun();
+    const path = threadUrl.replace(/^https?:\/\/[^/]+\//, '');
+    if (dryRun) {
+      await this.journal.append('mutation', 'forum-delete-dry-run', `posts ${postIds.join(',')} SIMULADOS`, true);
+      return { dryRun: true, ok: null, detail: 'Simulado (DRY-RUN ativo) — nada foi apagado.' };
+    }
+    const html = await this.getHtml(path);
+    const thread = parseForumThread(html);
+    const forumId = /forum_id=(\d+)/.exec(path)?.[1] ?? '0';
+    const { csrf } = forumTokens(html);
+    const body = new URLSearchParams();
+    for (const postId of postIds) body.append('chk_del_posts[]', String(postId));
+    body.append('submit_del_posts', 'Apagar mensagens');
+    const world = this.world();
+    const ses = session.fromPartition(TW_PARTITION);
+    await sleep(350 + Math.random() * 250);
+    const response = await ses.fetch(
+      `https://${world}.tribalwars.com.br/game.php?screen=forum&screenmode=view_thread&action=del_posts&thread_id=${thread.threadId}&page=0&forum_id=${forumId}&h=${csrf}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString(), redirect: 'follow' },
+    );
+    // Verificação real: os posts não podem mais aparecer no tópico.
+    await sleep(350);
+    let ok = response.ok;
+    let detail = ok ? 'Posts apagados (verificado).' : `HTTP ${response.status}`;
+    if (ok) {
+      const after = await this.getHtml(`${path}${path.includes('?') ? '&' : '?'}page=last`);
+      const remaining = parseForumThread(after).posts.filter((post) => postIds.includes(post.postId));
+      if (remaining.length > 0) {
+        ok = false;
+        detail = `${remaining.length} post(s) ainda presentes — confira manualmente.`;
+      }
+    }
+    await this.journal.append('mutation', 'forum-delete-posts', `thread=${thread.threadId} posts=${postIds.length} → ${detail}`, false);
     return { dryRun: false, ok, detail };
   }
 }

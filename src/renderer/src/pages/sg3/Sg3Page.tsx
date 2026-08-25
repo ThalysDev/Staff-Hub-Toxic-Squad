@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { ClipboardCopy, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { ClipboardCopy, ShieldAlert, ShieldCheck, Users } from 'lucide-react';
 import type { BlindVillageResult } from '@shared/ipc-types';
+import type { SupportersResult } from '@shared/types';
 import { parseCoordList } from '@shared/coords';
 import { TW_UNIT_ICONS } from '../../assets';
 import { UNITS, type UnitCounts, type UnitId } from '@shared/units';
@@ -22,6 +23,9 @@ export default function Sg3Page() {
   const [bbcode, setBbcode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [supportersBusy, setSupportersBusy] = useState(false);
+  const [supportersResult, setSupportersResult] = useState<SupportersResult | null>(null);
+  const [supportersError, setSupportersError] = useState('');
 
   useEffect(() => {
     void window.staffhub.troops
@@ -76,6 +80,24 @@ export default function Sg3Page() {
       push('error', message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function runSupporters(): Promise<void> {
+    setSupportersBusy(true);
+    setSupportersError('');
+    try {
+      const coords = parseCoordList(coordsText).map((c) => `${c.x}|${c.y}`);
+      if (coords.length === 0) throw new Error('Cole as coordenadas no campo do front acima (ou a lista que quiser consultar).');
+      const result = await window.staffhub.sg3.supporters(coords);
+      setSupportersResult(result);
+      push('ok', `Apoiadores: ${result.villages.length} aldeia(s) consultadas.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSupportersError(message);
+      push('error', message);
+    } finally {
+      setSupportersBusy(false);
     }
   }
 
@@ -209,6 +231,54 @@ export default function Sg3Page() {
           )}
         </section>
       )}
+
+      <section className="card">
+        <div className="card-header">
+          <h2 className="card-title">Exibir Apoiadores</h2>
+        </div>
+        <p className="muted">
+          Usa as coordenadas do campo de front acima. <strong>1 requisição por aldeia</strong> — para listas grandes
+          confira o teto em Configurações. Mostra quem tem suportes compartilhados chegando, totais por apoiador
+          e marca auto-apoio (dono da aldeia).
+        </p>
+        {supportersError !== '' && <p className="error" role="alert">{supportersError}</p>}
+        <button type="button" className="btn" onClick={() => void runSupporters()} disabled={supportersBusy}>
+          <Users size={16} aria-hidden="true" />
+          {supportersBusy ? 'Consultando…' : 'Exibir Apoiadores'}
+        </button>
+        {supportersResult !== null && (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Aldeia</th>
+                  <th>Apoiadores</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {supportersResult.villages.map((village) => (
+                  <tr key={village.coord}>
+                    <td className="cell-nowrap">
+                      {village.villageName} ({village.coord}){village.ownerName !== null ? <span className="muted"> · {village.ownerName}</span> : null}
+                    </td>
+                    <td className="cell-detail">
+                      {village.supporters.length === 0
+                        ? <span className="muted">Nenhum suporte compartilhado visível.</span>
+                        : village.supporters.map((sup) => (
+                            <span key={sup.playerName} className={sup.selfSupport ? 'ok' : ''} title={sup.selfSupport ? 'Auto-apoio (dono da aldeia)' : undefined}>
+                              {sup.playerName} ({sup.count}){sup.selfSupport ? ' ★' : ''}
+                            </span>
+                          )).reduce<React.ReactNode[]>((acc, item, index) => (index === 0 ? [item] : [...acc, ' · ', item]), [])}
+                    </td>
+                    <td className="cell-nowrap">{village.totalSupports}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </div>

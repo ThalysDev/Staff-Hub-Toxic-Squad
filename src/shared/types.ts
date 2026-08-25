@@ -101,3 +101,19 @@ export interface UnitInfo {
   defense: number;
   carry: number;
 }
+
+// --- SG_3: Exibir apoiadores (1 requisição por aldeia) ---
+
+export interface VillageSupportersResult {
+  coord: string;
+  villageName: string;
+  /** Dono da aldeia (para detectar auto-apoio). */
+  ownerName: string | null;
+  supporters: { playerName: string; count: number; selfSupport: boolean }[];
+  totalSupports: number;
+}
+
+export interface SupportersResult {
+  generatedAt: string;
+  villages: VillageSupportersResult[];
+}

@@ -5,6 +5,7 @@ import type {
   DiplomacyRelations,
   Sg1Input,
   Sg1Result,
+  SupportersResult,
   WorldAlly,
   WorldDataStatus,
   WorldPlayer,
@@ -34,6 +35,7 @@ export type {
   DiplomacyRelations,
   Sg1Input,
   Sg1Result,
+  SupportersResult,
   WorldAlly,
   WorldDataStatus,
   WorldPlayer,
@@ -57,6 +59,8 @@ export interface ForumConferenceResult {
   recognized: string;
   updatedMessage: string;
   changed: boolean;
+  /** Posts que contêm comentários reconhecidos (para "Apagar mensagens"). */
+  recognizedPostIds: number[];
 }
 
 export type SessionState = 'logged-out' | 'logging-in' | 'logged-in' | 'unknown';
@@ -183,6 +187,8 @@ export interface StaffHubApi {
   sg3: {
     /** Verificação de blind sobre a última coleta de defesa (paradas × paradas+trânsito). */
     checkBlind(input: Omit<BlindCheckInput, 'defense'>): Promise<{ results: BlindVillageResult[]; bbcode: string }>;
+    /** Exibir apoiadores: 1 requisição por aldeia (volume!) — via RequestQueue. */
+    supporters(coords: string[]): Promise<SupportersResult>;
   };
   sg5: {
     /** Verificação alvo-a-alvo ("nick;coords") — 1 requisição por aldeia, com pacing. */
@@ -195,6 +201,8 @@ export interface StaffHubApi {
     conference(threadUrl: string): Promise<ForumConferenceResult>;
     /** MUTAÇÃO: aplica o BBCode atualizado no primeiro post — dupla confirmação + dry-run. */
     adjust(threadUrl: string, confirm: boolean): Promise<{ dryRun: boolean; ok: boolean | null; detail: string }>;
+    /** MUTAÇÃO: apaga posts do tópico (moderação) — dupla confirmação + dry-run + verificação. */
+    deletePosts(threadUrl: string, postIds: number[], confirm: boolean): Promise<{ dryRun: boolean; ok: boolean | null; detail: string }>;
   };
   sg6: {
     /** Reserva em massa no Planejador — MUTAÇÃO: confirmação dupla + journal + dry-run. */

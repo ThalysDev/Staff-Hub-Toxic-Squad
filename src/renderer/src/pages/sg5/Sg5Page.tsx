@@ -22,6 +22,7 @@ function parseEntries(text: string): { playerName: string; coords: string[] }[] 
 export default function Sg5Page() {
   const { toasts, push, dismiss } = useToast();
   const [entriesText, setEntriesText] = useState('');
+  const [docTitle, setDocTitle] = useState(`OP do ${new Date().toLocaleDateString('pt-BR')}`);
   const [coordsText, setCoordsText] = useState('');
   const [verifyResult, setVerifyResult] = useState<Sg5VerifyResult | null>(null);
   const [totalsResult, setTotalsResult] = useState<Sg5TotalsResult | null>(null);
@@ -88,6 +89,12 @@ export default function Sg5Page() {
           <h2 className="card-title">Verificação de Comandos de OP (alvo-a-alvo)</h2>
         </div>
         <label className="field">
+          <span className="field-label">Título do documento (impressão)</span>
+        </label>
+        <label className="field" style={{ maxWidth: 360 }}>
+          <input className="input" value={docTitle} onChange={(event) => setDocTitle(event.target.value)} />
+        </label>
+        <label className="field">
           <span className="field-label">Entradas (nick;coordenadas — uma linha por jogador)</span>
           <textarea
             className="textarea"
@@ -114,6 +121,7 @@ export default function Sg5Page() {
 
       {verifyResult !== null && (
         <section className="card sg5-printable">
+          <h2 className="sg5-doc-title">{docTitle}</h2>
           {verifyResult.villages.map((village) => (
             <div key={village.coord} className="sg5-village">
               <h3 className="sg5-village-title">{village.coord} — {village.commands.length} comando(s)</h3>
@@ -135,7 +143,7 @@ export default function Sg5Page() {
                     <tbody>
                       {village.commands.map((command) => (
                         <tr key={command.commandId}>
-                          <td>{command.name}</td>
+                          <td>{command.name}{command.hasNoble ? <strong title="Com nobre"> ♛</strong> : null}{command.sizeHint === 'pequeno' && !command.hasNoble ? <span className="muted"> (fake)</span> : null}</td>
                           <td><span className={command.type === 'attack' ? 'error' : 'muted'}>{command.type === 'attack' ? 'Ataque' : 'Suporte'}</span></td>
                           <td className="cell-nowrap">{command.playerName}</td>
                           <td className="cell-nowrap">{command.origin.coord}</td>
@@ -191,7 +199,9 @@ export default function Sg5Page() {
                 <tr>
                   <th>Jogador</th>
                   <th>Ataques</th>
-                  <th>Suportes/Fakes</th>
+                  <th>Fakes</th>
+                  <th>Com nobre</th>
+                  <th>Suportes</th>
                   <th>Total</th>
                 </tr>
               </thead>
@@ -200,6 +210,8 @@ export default function Sg5Page() {
                   <tr key={total.playerName}>
                     <td>{total.playerName}</td>
                     <td className="cell-nowrap">{total.attacks}</td>
+                    <td className="cell-nowrap">{total.fakes}</td>
+                    <td className="cell-nowrap">{total.nobleAttacks}</td>
                     <td className="cell-nowrap">{total.supports}</td>
                     <td className="cell-nowrap"><strong>{total.total}</strong></td>
                   </tr>

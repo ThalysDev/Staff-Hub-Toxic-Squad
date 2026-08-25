@@ -17,6 +17,7 @@ import type { DiplomacyRelations, WorldPlayer } from '@shared/types';
 import Field from '../../components/Field';
 import PageHeader from '../../components/PageHeader';
 import ToastViewport from '../../components/Toast';
+import WorldMapCanvas from '../sg1/WorldMapCanvas';
 import { useToast } from '../../hooks/useToast';
 import { MODULES } from '../../modules';
 
@@ -849,9 +850,48 @@ export default function Sg4Page() {
             </div>
           </div>
         )}
+
+        {distribution !== null && distribution.assignments.length > 0 && <DistributionMap assignments={distribution.assignments} onError={(message) => push('error', message)} />}
       </section>
 
       <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
+  );
+}
+
+/** Visualização da Distribuição: origens (verde) × alvos (branco) sobre o mapa. */
+function DistributionMap({ assignments, onError }: { assignments: { playerName: string; origin: string; target: string }[]; onError: (message: string) => void }) {
+  const [villages, setVillages] = useState<readonly import('@shared/types').WorldVillage[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.staffhub.world
+      .villages()
+      .then((list) => {
+        if (!cancelled) setVillages(list);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) onError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onError]);
+
+  if (villages === null) {
+    return <p className="muted">Carregando mapa para a visualização da distribuição…</p>;
+  }
+  const origins = new Set(assignments.map((a) => a.origin));
+  const targets = new Set(assignments.map((a) => a.target));
+  return (
+    <div className="card sg4-mapviz">
+      <div className="card-header">
+        <h3 className="card-title">Visualização da Distribuição</h3>
+        <span className="muted">● origens (NTs) · □ alvos</span>
+      </div>
+      <div className="card-body">
+        <WorldMapCanvas villages={villages} markings={new Map()} highlights={targets} origins={origins} />
+      </div>
+    </div>
   );
 }

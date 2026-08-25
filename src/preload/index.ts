@@ -52,10 +52,12 @@ const api = {
   sg3: {
     checkBlind: (input: Omit<BlindCheckInput, 'defense'>) =>
       ipcRenderer.invoke('sg3:check-blind', input) as Promise<{ results: BlindVillageResult[]; bbcode: string }>,
+    supporters: (coords: string[]) => ipcRenderer.invoke('sg3:supporters', coords) as Promise<import('@shared/types').SupportersResult>,
   },
   sg7: {
     conference: (threadUrl: string) => ipcRenderer.invoke("sg7:conference", threadUrl),
     adjust: (threadUrl: string, confirm: boolean) => ipcRenderer.invoke("sg7:adjust", threadUrl, confirm),
+    deletePosts: (threadUrl: string, postIds: number[], confirm: boolean) => ipcRenderer.invoke("sg7:delete-posts", threadUrl, postIds, confirm),
   },
   sg6: {
     reserveMass: (coords: string[], confirm: boolean) => ipcRenderer.invoke("sg6:reserve-mass", coords, confirm),

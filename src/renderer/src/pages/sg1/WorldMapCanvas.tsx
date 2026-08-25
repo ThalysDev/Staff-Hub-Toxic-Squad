@@ -16,6 +16,8 @@ interface WorldMapCanvasProps {
   markings: ReadonlyMap<number, TribeMarking>;
   /** Coordenadas destacadas no formato "x|y". */
   highlights: ReadonlySet<string>;
+  /** Origens (NTs) no formato "x|y" — círculos verdes (Visualização da Distribuição). */
+  origins?: ReadonlySet<string>;
 }
 
 export const MARKING_COLORS: Record<TribeMarking, string> = {
@@ -50,7 +52,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-export default function WorldMapCanvas({ villages, markings, highlights }: WorldMapCanvasProps) {
+export default function WorldMapCanvas({ villages, markings, highlights, origins }: WorldMapCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const layers = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const villagesRef = useRef(villages);
@@ -85,6 +87,18 @@ export default function WorldMapCanvas({ villages, markings, highlights }: World
     }
     return map;
   }, [highlights]);
+
+  const originsByCoord = useMemo(() => {
+    const map = new Map<number, { x: number; y: number }>();
+    for (const key of origins ?? []) {
+      const [xText, yText] = key.split('|');
+      if (xText === undefined || yText === undefined) continue;
+      const x = Number(xText);
+      const y = Number(yText);
+      if (Number.isInteger(x) && Number.isInteger(y)) map.set(x * 1000 + y, { x, y });
+    }
+    return map;
+  }, [origins]);
 
   /** Camada offscreen do nível atual — desenha todas as aldeias uma única vez. */
   function getLayer(level: number): HTMLCanvasElement {
@@ -214,6 +228,21 @@ export default function WorldMapCanvas({ villages, markings, highlights }: World
       ctx.strokeStyle = '#1c1c1c';
       ctx.fillRect(px, py, hlSize, hlSize);
       ctx.strokeRect(px, py, hlSize, hlSize);
+    }
+
+    // Origens (NTs) — círculos verdes contornados (Visualização da Distribuição).
+    for (const { x, y } of originsByCoord.values()) {
+      const cx = (x + 0.5 - view.x) * z;
+      const cy = (y + 0.5 - view.y) * z;
+      const radius = Math.min(12, Math.max(4, z * 1.1));
+      if (cx + radius < 0 || cy + radius < 0 || cx - radius > w || cy - radius > h) continue;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fillStyle = '#2e8b57';
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#10331f';
+      ctx.stroke();
     }
   }
 

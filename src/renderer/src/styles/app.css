@@ -2050,3 +2050,5 @@ kbd {
   .sg5-printable { break-inside: avoid; }
   body { background: #fff; color: #000; }
 }
+
+.sg5-doc-title { font-family: var(--font-display, Cinzel, serif); font-size: 1.3rem; letter-spacing: 0.06em; margin: 0 0 12px; }

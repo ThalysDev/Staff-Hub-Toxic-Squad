@@ -10,6 +10,9 @@ export default function Sg7Page() {
   const [conference, setConference] = useState<ForumConferenceResult | null>(null);
   const [adjustResult, setAdjustResult] = useState<{ dryRun: boolean; ok: boolean | null; detail: string } | null>(null);
   const [pendingAdjust, setPendingAdjust] = useState(false);
+  const [selectedPosts, setSelectedPosts] = useState<number[]>([]);
+  const [pendingDelete, setPendingDelete] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<{ dryRun: boolean; ok: boolean | null; detail: string } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -19,6 +22,7 @@ export default function Sg7Page() {
     setConference(null);
     setAdjustResult(null);
     setPendingAdjust(false);
+    setPendingDelete(false);
     try {
       if (!/thread_id=\d+/.test(threadUrl)) throw new Error('Cole a URL completa do tópico (com thread_id).');
       const result = await window.staffhub.sg7.conference(threadUrl.trim());
@@ -45,6 +49,23 @@ export default function Sg7Page() {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
       push('error', message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runDelete(): Promise<void> {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await window.staffhub.sg7.deletePosts(threadUrl.trim(), selectedPosts, true);
+      setDeleteResult(result);
+      push(result.dryRun ? "info" : result.ok ? "ok" : "error", result.detail);
+      setPendingDelete(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      push("error", message);
     } finally {
       setBusy(false);
     }
@@ -143,16 +164,55 @@ export default function Sg7Page() {
         </>
       )}
 
+      {conference !== null && conference.recognizedPostIds.length > 0 && (
+        <section className="card">
+          <div className="card-header">
+            <h2 className="card-title">Apagar mensagens ({conference.recognizedPostIds.length} com comentários)</h2>
+          </div>
+          <p className="muted">Selecione os posts já contabilizados para excluir (moderação). Confirmação dupla + verificação real.</p>
+          <div className="col" style={{ gap: 6 }}>
+            {conference.recognizedPostIds.map((postId) => (
+              <label key={postId} className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={selectedPosts.includes(postId)}
+                  onChange={(event) => {
+                    setSelectedPosts((prev) => (event.target.checked ? [...prev, postId] : prev.filter((id) => id !== postId)));
+                  }}
+                />
+                Post #{postId}
+              </label>
+            ))}
+          </div>
+          {!pendingDelete ? (
+            <button type="button" className="btn" disabled={busy || selectedPosts.length === 0} onClick={() => setPendingDelete(true)}>
+              Apagar mensagens
+            </button>
+          ) : (
+            <div className="sg6-confirm">
+              <p>
+                Confirmar a exclusão de <strong>{selectedPosts.length}</strong> post(s)? Mutação única, tudo no Journal.
+              </p>
+              <div className="row">
+                <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void runDelete()}>
+                  Confirmar Exclusão
+                </button>
+                <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setPendingDelete(false)}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+          {deleteResult !== null && <p>{deleteResult.detail}</p>}
+        </section>
+      )}
+
       {adjustResult !== null && (
         <section className="card">
           <div className="card-header">
             <h2 className="card-title">Resultado do Ajuste</h2>
           </div>
           <p>{adjustResult.detail}</p>
-          <p className="muted">
-            Apagar as mensagens processadas é feito pela moderação manual do fórum nesta versão (selecionar os
-            posts do tópico e usar a ação da própria tela do jogo) — automação de exclusão entra em versão futura.
-          </p>
         </section>
       )}
 

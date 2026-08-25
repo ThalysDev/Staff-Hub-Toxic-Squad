@@ -23,10 +23,12 @@ describe('parseIncomingCommandRows (fixture real: 701 comandos)', () => {
     expect(first.arrivesInText).toBe('1:08:03');
   });
 
-  it('contém a linha de ataque real entre os suportes (2 marcadores attack = ícone+hover da mesma linha)', () => {
+  it('contém a linha de ataque real (pequeno + com nobre) entre os suportes', () => {
     const rows = parseIncomingCommandRows(fixture('incomings-own.html'));
     const attacks = rows.filter((r) => r.type === 'attack');
     expect(attacks).toHaveLength(1);
+    expect(attacks[0]?.hasNoble).toBe(true);
+    expect(attacks[0]?.sizeHint).toBe('pequeno');
     expect(rows.filter((r) => r.type === 'support')).toHaveLength(700);
   });
 
@@ -36,11 +38,13 @@ describe('parseIncomingCommandRows (fixture real: 701 comandos)', () => {
 });
 
 describe('totalsByPlayer', () => {
-  it('agrega ataques/suportes/total por jogador ordenado por total', () => {
+  it('agrega ataques/fakes/nobres/suportes por jogador', () => {
     const rows = parseIncomingCommandRows(fixture('incomings-own.html'));
     const totals = totalsByPlayer(rows);
     expect(totals[0]?.playerName).toBe('R O D R I G U E S');
     expect(totals[0]?.total).toBe(701);
-    expect(totals.reduce((sum, t) => sum + t.attacks, 0)).toBe(1);
+    expect(totals[0]?.attacks).toBe(1);
+    expect(totals[0]?.nobleAttacks).toBe(1);
+    expect(totals.reduce((sum, t) => sum + t.fakes, 0)).toBe(0);
   });
 });

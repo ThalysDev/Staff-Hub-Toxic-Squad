@@ -15,6 +15,12 @@ export interface IncomingCommandRow {
   name: string;
   /** Tipo pelo ícone: attack | support | ... */
   type: string;
+  /** Todos os data-icon-hint da linha (ex.: "Ataque pequeno (1-1000 tropas)", "Com nobre"). */
+  hints: string[];
+  /** true quando algum hint indica presença de nobre ("Com nobre"). */
+  hasNoble: boolean;
+  /** Classe de tamanho lida dos hints: 'pequeno' | 'médio' | 'grande' | null. */
+  sizeHint: 'pequeno' | 'médio' | 'grande' | null;
   destination: { name: string; coord: string };
   origin: { name: string; coord: string };
   playerName: string;
@@ -51,10 +57,17 @@ export function parseIncomingCommandRows(html: string): IncomingCommandRow[] {
     const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => m[1] ?? '');
     if (cells.length < 7) continue;
     const type = /data-command-type="(\w+)"/.exec(row)?.[1] ?? 'unknown';
+    const hints = [...row.matchAll(/data-icon-hint="([^"]*)"/g)].map((m) => m[1] ?? '');
+    const hasNoble = hints.some((hint) => /com nobre/i.test(hint));
+    const sizeMatch = /ataque (pequeno|m[eé]dio|grande)/i.exec(hints.join(' | '));
+    const sizeHint = sizeMatch === null ? null : (sizeMatch[1]?.toLowerCase() as 'pequeno' | 'médio' | 'grande');
     rows.push({
       commandId: Number(idMatch[1]),
       name: text(cells[0] ?? ''),
       type,
+      hints,
+      hasNoble,
+      sizeHint,
       destination: { name: text(cells[1] ?? '').replace(/\s*\(\d{1,3}\|\d{1,3}\).*/, ''), coord: coordOf(text(cells[1] ?? '')) },
       origin: { name: text(cells[2] ?? '').replace(/\s*\(\d{1,3}\|\d{1,3}\).*/, ''), coord: coordOf(text(cells[2] ?? '')) },
       playerName: text(cells[3] ?? ''),
@@ -75,14 +88,26 @@ export interface PlayerCommandTotal {
   attacks: number;
   supports: number;
   total: number;
+  /** Ataques pequenos sem nobre = fakes (classificação da ferramenta original). */
+  fakes: number;
+  /** Ataques grandes (hint "Ataque grande"). */
+  largeAttacks: number;
+  /** Ataques com nobre. */
+  nobleAttacks: number;
 }
 
 export function totalsByPlayer(rows: IncomingCommandRow[]): PlayerCommandTotal[] {
   const map = new Map<string, PlayerCommandTotal>();
   for (const row of rows) {
-    const entry = map.get(row.playerName) ?? { playerName: row.playerName, attacks: 0, supports: 0, total: 0 };
-    if (row.type === 'attack') entry.attacks += 1;
-    else entry.supports += 1;
+    const entry = map.get(row.playerName) ?? { playerName: row.playerName, attacks: 0, supports: 0, total: 0, fakes: 0, largeAttacks: 0, nobleAttacks: 0 };
+    if (row.type === 'attack') {
+      entry.attacks += 1;
+      if (row.sizeHint === 'pequeno' && !row.hasNoble) entry.fakes += 1;
+      if (row.sizeHint === 'grande') entry.largeAttacks += 1;
+      if (row.hasNoble) entry.nobleAttacks += 1;
+    } else {
+      entry.supports += 1;
+    }
     entry.total += 1;
     map.set(row.playerName, entry);
   }

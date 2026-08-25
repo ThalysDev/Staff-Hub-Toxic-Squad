@@ -16,4 +16,11 @@ export function registerSg7Ipc(sg7: Sg7Service): void {
       throw new Error(error instanceof Error ? error.message : String(error));
     }
   });
+  ipcMain.handle("sg7:delete-posts", async (_event, threadUrl: string, postIds: number[], confirm: boolean) => {
+    try {
+      return await sg7.deletePosts(threadUrl, postIds, confirm);
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : String(error));
+    }
+  });
 }
