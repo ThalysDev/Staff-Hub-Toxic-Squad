@@ -5,11 +5,16 @@ import { TwSessionManager } from './tw/session';
 import { RequestQueue, detectPageSentinels } from './tw/request-queue';
 import { JsonStore } from './stores/json-store';
 import { Journal } from './journal';
+import { WorldDataService } from './services/world-data-service';
+import { Sg1Service } from './services/sg1-service';
+import { registerWorldIpc } from './ipc-world';
 import { DEFAULT_SETTINGS, type AppSettings, type QueueProgress } from '@shared/ipc-types';
 
 const twSession = new TwSessionManager();
 const journal = new Journal();
 const settingsStore = new JsonStore<AppSettings>('settings', DEFAULT_SETTINGS);
+const worldData = new WorldDataService(twSession);
+const sg1Service = new Sg1Service(worldData);
 
 let mainWindow: BrowserWindow | null = null;
 let queue: RequestQueue | null = null;
@@ -175,6 +180,7 @@ app.whenReady().then(() => {
   void journal.load();
   registerIpc();
   wireEvents();
+  registerWorldIpc({ twSession, queue: queue as RequestQueue, journal, worldData, sg1: sg1Service });
   createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

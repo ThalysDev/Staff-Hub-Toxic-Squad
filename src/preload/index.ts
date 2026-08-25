@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppSettings, QueueProgress, SessionStatus, StaffHubApi } from '@shared/ipc-types';
+import type { AppSettings, QueueProgress, SessionStatus, Sg1Input, StaffHubApi } from '@shared/ipc-types';
 
 const api = {
   session: {
@@ -21,6 +21,16 @@ const api = {
   },
   dev: {
     captureFixture: (name: string, url: string) => ipcRenderer.invoke('dev:capture-fixture', name, url),
+  },
+  world: {
+    refresh: () => ipcRenderer.invoke('world:refresh'),
+    status: () => ipcRenderer.invoke('world:status'),
+    tribes: () => ipcRenderer.invoke('world:tribes'),
+    villages: () => ipcRenderer.invoke('world:villages'),
+    relations: () => ipcRenderer.invoke('world:relations'),
+  },
+  sg1: {
+    analyze: (input: Sg1Input) => ipcRenderer.invoke('sg1:analyze', input),
   },
   events: {
     onQueueProgress: (cb: (progress: QueueProgress) => void) => {

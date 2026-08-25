@@ -1,0 +1,93 @@
+// Handlers IPC do módulo SG_1: dados do mundo (map dumps oficiais + diplomacia)
+// e Análise de Aldeias e Distâncias. Nenhum handler muta o jogo — SG_1 é 100%
+// leitura; falhas sempre voltam como erro legível.
+
+import { ipcMain } from 'electron';
+import type { Journal } from './journal';
+import type { TwSessionManager } from './tw/session';
+import type { RequestQueue } from './tw/request-queue';
+import type { WorldDataService } from './services/world-data-service';
+import type { Sg1Service } from './services/sg1-service';
+import type { Sg1Input } from '@shared/types';
+
+export interface WorldIpcDeps {
+  twSession: TwSessionManager;
+  queue: RequestQueue;
+  journal: Journal;
+  worldData: WorldDataService;
+  sg1: Sg1Service;
+}
+
+function fail(context: string, error: unknown): never {
+  throw new Error(`${context}: ${error instanceof Error ? error.message : String(error)}`);
+}
+
+export function registerWorldIpc(deps: WorldIpcDeps): void {
+  const { twSession, journal, worldData, sg1 } = deps;
+  // `queue` fica de fora de propósito: SG_1 são poucos fetches únicos (dumps +
+  // interface.php), sem operação de fila — e o village.txt.gz exige bytes crus,
+  // fora do fetchForQueue da fila. A fila entra nas coletas das fases seguintes.
+
+  ipcMain.handle('world:refresh', async () => {
+    try {
+      const status = await worldData.refresh();
+      const world = twSession.getStatus().world ?? '?';
+      await journal.append(
+        'read',
+        'world-refresh',
+        `mundo=${world} aldeias=${status.villageCount} jogadores=${status.playerCount} tribos=${status.allyCount}`,
+        false,
+      );
+      return status;
+    } catch (error) {
+      fail('Falha ao atualizar os dados do mundo', error);
+    }
+  });
+
+  ipcMain.handle('world:status', async () => {
+    try {
+      return await worldData.status();
+    } catch (error) {
+      fail('Falha ao ler o status do mundo', error);
+    }
+  });
+
+  ipcMain.handle('world:tribes', async () => {
+    try {
+      return await worldData.tribes();
+    } catch (error) {
+      fail('Falha ao ler as tribos do mundo', error);
+    }
+  });
+
+  ipcMain.handle('world:villages', async () => {
+    try {
+      return await worldData.villages();
+    } catch (error) {
+      fail('Falha ao ler as aldeias do mundo', error);
+    }
+  });
+
+  ipcMain.handle('world:relations', async () => {
+    try {
+      return await worldData.relations();
+    } catch (error) {
+      fail('Falha ao ler as relações diplomáticas', error);
+    }
+  });
+
+  ipcMain.handle('sg1:analyze', async (_event, input: Sg1Input) => {
+    try {
+      const result = await sg1.analyze(input);
+      await journal.append(
+        'read',
+        'sg1-analyze',
+        `tribo=${input.ownTag} inimigos=${input.enemyTags.join(';')} k=${input.kDesired.join(' ')} → próprias=${result.ownVillageCount} inimigas=${result.enemyVillageCount}`,
+        false,
+      );
+      return result;
+    } catch (error) {
+      fail('Falha na Análise de Aldeias e Distâncias', error);
+    }
+  });
+}

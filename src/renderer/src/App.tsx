@@ -5,6 +5,7 @@ import CapturesPage from './pages/CapturesPage';
 import DashboardPage from './pages/DashboardPage';
 import JournalPage from './pages/JournalPage';
 import ModulePlaceholderPage from './pages/ModulePlaceholderPage';
+import Sg1Page from './pages/sg1/Sg1Page';
 import SessionPage from './pages/SessionPage';
 import SettingsPage from './pages/SettingsPage';
 import { MODULES, type PageId } from './modules';
@@ -37,6 +38,8 @@ function renderPage(page: PageId, onNavigate: (page: PageId) => void) {
       return <JournalPage />;
     case 'captures':
       return <CapturesPage />;
+    case 'sg1':
+      return <Sg1Page />;
     default: {
       const moduleInfo = MODULES.find((module) => module.id === page);
       if (!moduleInfo) return <DashboardPage onNavigate={onNavigate} />; // inalcançável: PageId cobre todos os módulos

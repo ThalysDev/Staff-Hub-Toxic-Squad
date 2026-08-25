@@ -1,6 +1,17 @@
 // Contrato IPC entre renderer e processo principal do Staff Hub Toxic Squad.
 // Toda evolução da ponte começa aqui — preload e main implementam, renderer consome.
 
+import type {
+  DiplomacyRelations,
+  Sg1Input,
+  Sg1Result,
+  WorldAlly,
+  WorldDataStatus,
+  WorldVillage,
+} from './types';
+
+export type { DiplomacyRelations, Sg1Input, Sg1Result, WorldAlly, WorldDataStatus, WorldVillage };
+
 export type SessionState = 'logged-out' | 'logging-in' | 'logged-in' | 'unknown';
 
 export interface SessionStatus {
@@ -81,6 +92,22 @@ export interface StaffHubApi {
   dev: {
     /** Baixa uma URL do jogo com a sessão atual e salva como fixture em userData/fixtures. */
     captureFixture(name: string, url: string): Promise<FixtureCaptureResult>;
+  };
+  world: {
+    /** Baixa/atualiza os map dumps oficiais (village/player/ally) do mundo ativo. */
+    refresh(): Promise<WorldDataStatus>;
+    /** Status do cache local (sem rede). */
+    status(): Promise<WorldDataStatus>;
+    /** Tribos do mundo (do dump ally.txt). */
+    tribes(): Promise<WorldAlly[]>;
+    /** Aldeias do mundo (do dump village.txt) — payload do mapa mundial. */
+    villages(): Promise<WorldVillage[]>;
+    /** Relações diplomáticas da tribo do jogador (página autenticada). */
+    relations(): Promise<DiplomacyRelations>;
+  };
+  sg1: {
+    /** Análise de Aldeias e Distâncias (buckets de tempo de nobre). */
+    analyze(input: Sg1Input): Promise<Sg1Result>;
   };
   events: {
     onQueueProgress(cb: (progress: QueueProgress) => void): () => void;

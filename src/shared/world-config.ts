@@ -25,9 +25,19 @@ function parseNumber(value: string | null, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+// Validado contra o XML real do BR142: flags podem ser 1/2/3 (ex. moral=2,
+// knight=3 = paladino com itens) e <night> é um BLOCO aninhado — a tag plana
+// nunca casa. "Ativo" = qualquer valor diferente de 0.
 function parseFlag(value: string | null, fallback: boolean): boolean {
   if (value === null) return fallback;
-  return value.trim() === '1';
+  const trimmed = value.trim();
+  return trimmed !== '' && trimmed !== '0';
+}
+
+function parseNestedFlag(xml: string, tag: string, fallback: boolean): boolean {
+  const block = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, 'i').exec(xml);
+  if (!block?.[1]) return parseFlag(tagContent(xml, tag), fallback);
+  return parseFlag(tagContent(block[1], 'active') ?? block[1], fallback);
 }
 
 // Tags ausentes recebem fallback (speed/unitSpeed 1, flags false) — o XML do
@@ -38,7 +48,7 @@ export function parseWorldConfigXml(world: string, xml: string): WorldConfig {
     speed: parseNumber(tagContent(xml, 'speed'), 1),
     unitSpeed: parseNumber(tagContent(xml, 'unit_speed'), 1),
     moralActive: parseFlag(tagContent(xml, 'moral'), false),
-    nightBonusActive: parseFlag(tagContent(xml, 'night'), false),
+    nightBonusActive: parseNestedFlag(xml, 'night', false),
     hasArchers: parseFlag(tagContent(xml, 'archer'), false),
     hasPaladin: parseFlag(tagContent(xml, 'knight'), false),
     hasMilitia: parseFlag(tagContent(xml, 'militia'), false),
