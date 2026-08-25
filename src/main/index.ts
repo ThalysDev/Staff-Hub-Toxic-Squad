@@ -12,6 +12,8 @@ import { TroopsService } from './services/troops-service';
 import { registerTroopsIpc } from './ipc-troops';
 import { registerSg3Ipc } from './ipc-sg3';
 import { Sg5Service } from './services/sg5-service';
+import { Sg6Service } from './mutations/sg6-service';
+import { registerSg6Ipc } from './ipc-sg6';
 import { registerSg5Ipc } from './ipc-sg5';
 import { DEFAULT_SETTINGS, type AppSettings, type QueueProgress } from '@shared/ipc-types';
 
@@ -191,6 +193,8 @@ app.whenReady().then(() => {
   registerSg3Ipc({ troops: troopsService, journal });
   const sg5Service = new Sg5Service(twSession, queue as RequestQueue, journal, worldData);
   registerSg5Ipc({ sg5: sg5Service, journal });
+  const sg6Service = new Sg6Service(twSession, journal);
+  registerSg6Ipc({ sg6: sg6Service, journal });
   createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

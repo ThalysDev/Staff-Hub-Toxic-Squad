@@ -53,6 +53,11 @@ const api = {
     checkBlind: (input: Omit<BlindCheckInput, 'defense'>) =>
       ipcRenderer.invoke('sg3:check-blind', input) as Promise<{ results: BlindVillageResult[]; bbcode: string }>,
   },
+  sg6: {
+    reserveMass: (coords: string[], confirm: boolean) => ipcRenderer.invoke("sg6:reserve-mass", coords, confirm),
+    sendMps: (input: { subject: string; body: string; entries: { playerName: string; coords: string[] }[] }, confirm: boolean) =>
+      ipcRenderer.invoke("sg6:send-mps", input, confirm),
+  },
   sg5: {
     verify: (entries: import('@shared/ipc-types').Sg5VerifyEntry[]) =>
       ipcRenderer.invoke('sg5:verify', entries) as Promise<import('@shared/ipc-types').Sg5VerifyResult>,

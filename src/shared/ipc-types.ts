@@ -42,6 +42,15 @@ export type {
 export type { Sg2FilterResult, Sg2Filters, TroopSnapshot };
 export type { BlindCheckInput, BlindVillageResult };
 
+export interface Sg6MutationOutcome {
+  coord?: string;
+  playerName?: string;
+  dryRun: boolean;
+  /** null = simulado (dry-run) — sem resultado real do servidor. */
+  ok: boolean | null;
+  detail: string;
+}
+
 export type SessionState = 'logged-out' | 'logging-in' | 'logged-in' | 'unknown';
 
 export interface SessionStatus {
@@ -172,6 +181,12 @@ export interface StaffHubApi {
     verify(entries: Sg5VerifyEntry[]): Promise<Sg5VerifyResult>;
     /** Totalizador por jogador a partir de coordenadas. */
     totals(coords: string[]): Promise<Sg5TotalsResult>;
+  };
+  sg6: {
+    /** Reserva em massa no Planejador — MUTAÇÃO: confirmação dupla + journal + dry-run. */
+    reserveMass(coords: string[], confirm: boolean): Promise<Sg6MutationOutcome[]>;
+    /** MPs personalizadas (#alvos#) — MUTAÇÃO: confirmação dupla + journal + dry-run. */
+    sendMps(input: { subject: string; body: string; entries: { playerName: string; coords: string[] }[] }, confirm: boolean): Promise<Sg6MutationOutcome[]>;
   };
   events: {
     onQueueProgress(cb: (progress: QueueProgress) => void): () => void;
