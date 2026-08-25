@@ -1,20 +1,35 @@
+import EmptyState from '../components/EmptyState';
+import PageHeader from '../components/PageHeader';
+import type { ModuleInfo } from '../modules';
+
 interface ModulePlaceholderPageProps {
-  title: string;
-  description: string;
-  phase: number;
+  module: ModuleInfo;
 }
 
 /**
- * Estado vazio genérico dos módulos SG ainda não implementados.
- * `description` recebe o rótulo ORIGINAL da ferramenta replicada (docs/MODULOS-SG.md).
+ * Estado vazio dos módulos SG ainda não implementados: ícone do módulo,
+ * rótulo ORIGINAL da ferramenta em Cinzel e os fluxos planejados.
  */
-export default function ModulePlaceholderPage({ title, description, phase }: ModulePlaceholderPageProps) {
+export default function ModulePlaceholderPage({ module }: ModulePlaceholderPageProps) {
   return (
-    <section>
-      <h1>{title}</h1>
-      <div className="card empty">
-        <p>{description}</p>
-        <span className="pill pill--gold">Fase {phase} — em breve</span>
+    <section className="page">
+      <PageHeader
+        kicker={`Módulo ${module.id.toUpperCase()} — Fase ${module.phase}`}
+        title={module.title}
+        description={module.description}
+      />
+      <div className="card">
+        <EmptyState
+          icon={module.icon}
+          title={module.originalLabel}
+          hint={`Em construção — entra na Fase ${module.phase} do plano de entregas. O que está planejado:`}
+        >
+          <ul className="empty-state-list">
+            {module.flows.map((flow) => (
+              <li key={flow}>{flow}</li>
+            ))}
+          </ul>
+        </EmptyState>
       </div>
     </section>
   );

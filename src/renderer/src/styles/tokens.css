@@ -1,29 +1,113 @@
-/* tokens.css — Design tokens do tema Toxic Squad. Única fonte de cores/medidas do renderer. */
+/* tokens.css — Design tokens do tema pergaminho "Nexus" do Staff Hub.
+   Única fonte de verdade de cor, tipografia, espaço, raio, elevação e movimento.
+   Tema CLARO medieval: profundidade vem da borda 1px e do contraste
+   creme × branco-quente — nada de sombras fortes ou gradientes.
+   Contraste de texto verificado >= 4.5:1 (WCAG AA) sobre cada superfície. */
+
+/* ---------- Fontes embutidas (variable, subset latin) ---------- */
+@font-face {
+  font-family: 'Cinzel';
+  src: url('../../assets/fonts/cinzel-latin.woff2') format('woff2');
+  font-weight: 400 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('../../assets/fonts/inter-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
 
 :root {
-  /* Cores base */
-  --bg-obsidian: #12100e;
-  --panel-graphite: #1c1916;
-  --border-gold-soft: #8a6d2f;
-  --border-gold: #c8a24a;
-  --text-parchment: #e8ddc0;
-  --text-muted: #9a8f78;
+  /* ===== Superfícies — pergaminho em camadas claras ===== */
+  --bg-page: #f5edd6; /* fundo geral da janela */
+  --bg-sidebar: #ede3c8; /* coluna de navegação */
+  --bg-card: #fdf8ee; /* cards off-white quente */
+  --bg-card-hover: #fbf4e2; /* hover de card/tabela */
+  --bg-inset: #f2e9d0; /* tracks de progresso */
+  --bg-field: #fffefa; /* inputs */
 
-  /* Semânticas */
-  --ok-green: #4f8a5b;
-  --alert-red: #a34141;
-  --info-blue: #3f6f8f;
+  /* ===== Linhas ===== */
+  --border-card: #e0d5b8;
+  --border-input: #d8ccae;
+  --divider: #e8dfc8; /* divisores entre itens de lista */
+  --border-strong: #c9a177; /* foco e destaque */
 
-  /* Derivados (bordas/superfícies em tons dourados) */
-  --border-subtle: rgba(138, 109, 47, 0.35);
-  --bg-hover-gold: rgba(200, 162, 74, 0.1);
-  --bg-active-gold: rgba(200, 162, 74, 0.16);
+  /* ===== Texto ===== */
+  --text-strong: #3d2e1c; /* títulos e números */
+  --text: #4a3a26; /* corpo */
+  --text-muted: #6f6049; /* secundário */
+  --text-meta: #9b8b72; /* apenas decorativo/hairline — nunca texto pequeno */
 
-  /* Tipografia — stack local, sem fontes remotas */
-  --font-family: 'Segoe UI', 'Segoe UI Variable Text', 'Trebuchet MS',
-    'Lucida Sans Unicode', system-ui, sans-serif;
+  /* ===== Marca — marrom-dourado ===== */
+  --accent: #8b5e3c; /* barra ativa, ícones, bordas de destaque */
+  --accent-ink: #7d5232; /* texto em marrom-dourado (AA) */
+  --accent-soft: #f0e4d4; /* fundo de destaque */
 
-  /* Layout */
-  --sidebar-width: 220px;
-  --radius: 8px;
+  /* ===== Ação — verde ===== */
+  --action: #4a7c3f; /* botão primário, texto branco */
+  --action-hover: #548040;
+  --action-ink: #ffffff;
+  --progress: #4caf5c; /* fill de barra de progresso */
+  --ok-ink: #2e6b34; /* texto de status verde */
+  --ok-bg: #e8f5e9;
+  --ok-border: #a5d6a7;
+
+  /* ===== Erro / alerta ===== */
+  --danger: #c62828; /* botão e texto */
+  --danger-hover: #d32f2f;
+  --danger-bg: #fdeded;
+  --danger-border: #e5b4af;
+  --warn-ink: #7a5f16;
+  --warn-bg: #faf0d7;
+  --warn-border: #e3d39a;
+
+  /* ===== Tipografia ===== */
+  --font-display: 'Cinzel', Georgia, 'Times New Roman', serif;
+  --font-body: 'Inter', 'Segoe UI', system-ui, sans-serif;
+
+  --fs-display: 1.625rem; /* números-destaque em StatBlock */
+  --fs-h1: 1.5rem;
+  --fs-h2: 1.125rem;
+  --fs-h3: 0.9375rem;
+  --fs-body: 0.875rem;
+  --fs-small: 0.8125rem;
+  --fs-caption: 0.6875rem;
+
+  --lh-tight: 1.25;
+  --lh-body: 1.6;
+
+  --track-caps: 0.08em; /* títulos Cinzel */
+  --track-wide: 0.16em; /* kickers e legendas caps */
+
+  /* ===== Espaçamento ===== */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  /* ===== Raios ===== */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  /* ===== Elevação — flat: no máximo um beijo de sombra ===== */
+  --elev-1: 0 1px 2px rgba(61, 46, 28, 0.08);
+  --elev-2: 0 4px 12px rgba(61, 46, 28, 0.12);
+
+  /* ===== Movimento ===== */
+  --t-fast: 110ms ease-out;
+  --t-base: 180ms cubic-bezier(0.2, 0.6, 0.3, 1);
+
+  /* ===== Layout ===== */
+  --sidebar-width: 236px;
+  --content-max: 1160px;
 }

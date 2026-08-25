@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Camera, History, LayoutDashboard, LogIn, Settings2 } from 'lucide-react';
 import Sidebar, { type SidebarGroup, type SidebarItem } from './components/Sidebar';
 import CapturesPage from './pages/CapturesPage';
 import DashboardPage from './pages/DashboardPage';
@@ -9,25 +10,25 @@ import SettingsPage from './pages/SettingsPage';
 import { MODULES, type PageId } from './modules';
 
 const SYSTEM_ITEMS: readonly SidebarItem[] = [
-  { id: 'dashboard', label: 'Início' },
-  { id: 'sessao', label: 'Sessão' },
-  { id: 'config', label: 'Configurações' },
-  { id: 'journal', label: 'Journal' },
-  { id: 'captures', label: 'Capturas BR142' },
+  { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
+  { id: 'sessao', label: 'Sessão', icon: LogIn },
+  { id: 'config', label: 'Configurações', icon: Settings2 },
+  { id: 'journal', label: 'Journal', icon: History },
+  { id: 'captures', label: 'Capturas BR142', icon: Camera },
 ];
 
 const NAV_GROUPS: readonly SidebarGroup[] = [
   {
     label: 'Operações',
-    items: MODULES.map((module) => ({ id: module.id, label: module.title })),
+    items: MODULES.map((module) => ({ id: module.id, label: module.navLabel, icon: module.icon })),
   },
   { label: 'Sistema', items: SYSTEM_ITEMS },
 ];
 
-function renderPage(page: PageId) {
+function renderPage(page: PageId, onNavigate: (page: PageId) => void) {
   switch (page) {
     case 'dashboard':
-      return <DashboardPage />;
+      return <DashboardPage onNavigate={onNavigate} />;
     case 'sessao':
       return <SessionPage />;
     case 'config':
@@ -38,14 +39,8 @@ function renderPage(page: PageId) {
       return <CapturesPage />;
     default: {
       const moduleInfo = MODULES.find((module) => module.id === page);
-      if (!moduleInfo) return <DashboardPage />; // inalcançável: PageId cobre todos os módulos
-      return (
-        <ModulePlaceholderPage
-          title={moduleInfo.title}
-          description={moduleInfo.originalLabel}
-          phase={moduleInfo.phase}
-        />
-      );
+      if (!moduleInfo) return <DashboardPage onNavigate={onNavigate} />; // inalcançável: PageId cobre todos os módulos
+      return <ModulePlaceholderPage module={moduleInfo} />;
     }
   }
 }
@@ -56,7 +51,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <Sidebar groups={NAV_GROUPS} active={page} onNavigate={setPage} />
-      <main className="content">{renderPage(page)}</main>
+      <main className="content">{renderPage(page, setPage)}</main>
     </div>
   );
 }

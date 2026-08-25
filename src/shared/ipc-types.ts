@@ -51,11 +51,21 @@ export type FixtureCaptureResult =
   | { ok: true; name: string; bytes: number; path: string }
   | { ok: false; name: string; error: string };
 
+export type SidLoginResult =
+  | { ok: true; status: SessionStatus }
+  | { ok: false; error: string };
+
 export interface StaffHubApi {
   session: {
     openLogin(): Promise<void>;
     logout(): Promise<void>;
     status(): Promise<SessionStatus>;
+    /**
+     * Import de sessão via sid colado pelo próprio usuário (fluxo
+     * EditThisCookie, autorizado pelo dono — ver AGENTS.md). O app apenas
+     * grava o cookie e verifica; nunca gera/renova/rotaciona sid.
+     */
+    loginWithSid(world: string, sid: string): Promise<SidLoginResult>;
   };
   settings: {
     get(): Promise<AppSettings>;

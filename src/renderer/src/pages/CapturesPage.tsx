@@ -1,5 +1,11 @@
 import { useState } from 'react';
+import { Camera, CheckCircle2, LogIn, XCircle } from 'lucide-react';
 import type { FixtureCaptureResult } from '@shared/ipc-types';
+import EmptyState from '../components/EmptyState';
+import PageHeader from '../components/PageHeader';
+import ProgressBar from '../components/ProgressBar';
+import ToastViewport from '../components/Toast';
+import { useToast } from '../hooks/useToast';
 import { useSessionStatus } from '../hooks/useSessionStatus';
 
 /**
@@ -27,15 +33,22 @@ const CAPTURE_TARGETS: readonly { name: string; label: string; path: string }[] 
   { name: 'world-config-xml', label: 'Config do mundo (XML)', path: '/interface.php?func=get_config' },
 ];
 
+function formatBytes(bytes: number): string {
+  const kb = bytes / 1024;
+  return kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(kb))} kB`;
+}
+
 export default function CapturesPage() {
   const session = useSessionStatus();
   const [results, setResults] = useState<FixtureCaptureResult[]>([]);
   const [running, setRunning] = useState(false);
+  const { toasts, push, dismiss } = useToast();
 
   const world = session.world;
-  const disabled = !world || session.state !== 'logged-in' || running;
+  const loggedIn = session.state === 'logged-in';
+  const disabled = !world || !loggedIn || running;
 
-  async function captureAll() {
+  async function captureAll(): Promise<void> {
     if (!world) return;
     setRunning(true);
     setResults([]);
@@ -55,29 +68,59 @@ export default function CapturesPage() {
       setResults([...collected]);
     } finally {
       setRunning(false);
+      const okCount = collected.filter((r) => r.ok).length;
+      if (okCount === collected.length && collected.length > 0) {
+        push('ok', `Captura concluída: ${okCount} de ${collected.length} alvos salvos.`);
+      } else if (collected.length > 0) {
+        push('error', `Captura encerrada com falhas: ${okCount} de ${collected.length} alvos salvos.`);
+      }
     }
   }
 
   const okCount = results.filter((r) => r.ok).length;
+  const needsLogin = !world || !loggedIn;
 
   return (
-    <div className="col" style={{ gap: 16 }}>
-      <header className="page-header">
-        <h2>Capturas de tela (fixtures BR142)</h2>
-        <p className="muted">
-          Baixa páginas do jogo com a sua sessão e salva como fixtures para os testes dos
-          parsers. Somente leitura — nenhuma ação é enviada ao jogo. Os alvos com
-          &quot;preencher&quot; precisam de um id real antes de capturar.
-        </p>
-      </header>
+    <section className="page">
+      <PageHeader
+        kicker="Fase 0.5"
+        title="Capturas BR142"
+        description="Baixa páginas do jogo com a sua sessão e salva como fixtures para os testes dos parsers. Somente leitura — nada é enviado ao jogo."
+      />
 
-      {!world || session.state !== 'logged-in' ? (
-        <div className="empty">Faça login no jogo (página Sessão) para capturar.</div>
+      {needsLogin ? (
+        <div className="card">
+          <EmptyState
+            icon={LogIn}
+            title="Sessão necessária"
+            hint="As capturas usam os cookies da sua sessão do jogo. Faça login para habilitar a coleta das telas."
+            action={
+              <button
+                type="button"
+                className="btn"
+                onClick={() => void window.staffhub.session.openLogin()}
+              >
+                <LogIn size={15} aria-hidden="true" />
+                Fazer login no jogo
+              </button>
+            }
+          />
+        </div>
       ) : (
         <>
           <div className="row">
             <button type="button" className="btn" onClick={() => void captureAll()} disabled={disabled}>
-              {running ? 'Capturando…' : `Capturar ${CAPTURE_TARGETS.length} telas do mundo ${world}`}
+              {running ? (
+                <>
+                  <span className="btn-spinner" aria-hidden="true" />
+                  Capturando…
+                </>
+              ) : (
+                <>
+                  <Camera size={15} aria-hidden="true" />
+                  Capturar {CAPTURE_TARGETS.length} telas do mundo {world}
+                </>
+              )}
             </button>
             {results.length > 0 && (
               <span className={okCount === results.length ? 'ok' : 'error'}>
@@ -86,41 +129,40 @@ export default function CapturesPage() {
             )}
           </div>
 
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Alvo</th>
-                <th>Resultado</th>
-                <th>Detalhe</th>
-              </tr>
-            </thead>
-            <tbody>
-              {CAPTURE_TARGETS.map((target) => {
-                const result = results.find((r) => r.name === target.name);
-                return (
-                  <tr key={target.name}>
-                    <td>{target.label}</td>
-                    <td>
-                      {result ? (
-                        result.ok ? (
-                          <span className="ok">salvo ({result.bytes} bytes)</span>
-                        ) : (
-                          <span className="error">falhou</span>
-                        )
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
-                    </td>
-                    <td className="muted">
-                      {result && !result.ok ? result.error : result?.ok ? result.path : ''}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          {running && <ProgressBar done={results.length} total={CAPTURE_TARGETS.length} label="Capturando" />}
+
+          <div className="capture-grid">
+            {CAPTURE_TARGETS.map((target) => {
+              const result = results.find((r) => r.name === target.name);
+              return (
+                <article key={target.name} className="capture-card">
+                  <h3 className="capture-card-head">
+                    <Camera size={15} aria-hidden="true" />
+                    {target.label}
+                  </h3>
+                  <p className="capture-path">{target.path}</p>
+                  {result === undefined ? (
+                    <span className="capture-result capture-result--pending">Aguardando</span>
+                  ) : result.ok ? (
+                    <span className="capture-result capture-result--ok">
+                      <CheckCircle2 size={15} aria-hidden="true" />
+                      Salvo
+                      <span className="capture-result-detail">· {formatBytes(result.bytes)}</span>
+                    </span>
+                  ) : (
+                    <span className="capture-result capture-result--error">
+                      <XCircle size={15} aria-hidden="true" />
+                      Falhou
+                      <span className="capture-result-detail">· {result.error}</span>
+                    </span>
+                  )}
+                </article>
+              );
+            })}
+          </div>
         </>
       )}
-    </div>
+      <ToastViewport toasts={toasts} onDismiss={dismiss} />
+    </section>
   );
 }

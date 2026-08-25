@@ -20,8 +20,14 @@ pnpm typecheck && pnpm test && pnpm build
 ## Política de segurança (PERMANENTE, sem exceções)
 - **NUNCA** implementar captcha-solver, bypass de fingerprint, rotação de sid ou qualquer
   camada de evasão — de qualquer fornecedor. A linha é a função, não o vendor.
-- Sessão do jogo = janela de login real (usuário resolve captcha/2FA) na partição
-  `persist:tw`; requisições via `session.fetch` da partição (cookie jar do Chromium).
+- Sessão do jogo, duas formas AUTORIZADAS PELO DONO (24/08/2026), ambas com sessão resolvida
+  pelo próprio usuário (captcha/2FA no navegador dele, nunca automatizado):
+  1. Janela de login real na partição `persist:tw` (fluxo padrão);
+  2. **Import de sid** colado pelo dono (fluxo EditThisCookie, igual ao reidasmultistw):
+     o usuário copia o cookie `sid` da PRÓPRIA conta logada no navegador e cola no app.
+     Sid importado é dado de sessão do usuário — nunca gerar, renovar ou rotacionar sid
+     automaticamente.
+- Todas as requisições via `session.fetch` da partição (cookie jar do Chromium).
 - Padrão detect-pause-notify: sentinela de sessão/captcha interrompe a operação e avisa.
 - Leituras: até 3 tentativas em falha transitória. Mutações: 1 tentativa, confirmação dupla
   na UI, journal obrigatório. `dryRun` padrão ON até validação na tribo.

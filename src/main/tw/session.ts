@@ -121,6 +121,44 @@ export class TwSessionManager {
     this.emit();
   }
 
+  /**
+   * Import de sessão via sid colado pelo próprio usuário (fluxo EditThisCookie,
+   * autorizado pelo dono — ver AGENTS.md). Grava o cookie na partição e valida
+   * com um probe real; sid inválido/expirado volta como erro limpo. O app nunca
+   * gera, renova ou rotaciona sid.
+   */
+  async loginWithSid(world: string, sid: string): Promise<{ ok: true; status: SessionStatus } | { ok: false; error: string }> {
+    const normalizedWorld = world.trim().toLowerCase();
+    const normalizedSid = sid.trim();
+    if (!/^br\d{1,4}$/.test(normalizedWorld)) {
+      return { ok: false, error: 'Mundo inválido — use o formato br142.' };
+    }
+    if (normalizedSid.length < 8 || !/^[a-f0-9]+$/i.test(normalizedSid)) {
+      return { ok: false, error: 'SID inválido — copie o valor completo do cookie "sid" no navegador.' };
+    }
+    await this.ses.clearStorageData({ storages: ['cookies'] });
+    await this.ses.cookies.set({
+      url: `https://${normalizedWorld}.tribalwars.com.br/`,
+      name: 'sid',
+      value: normalizedSid,
+      path: '/',
+      secure: true,
+      httpOnly: true,
+    });
+    try {
+      const html = await this.fetchText(`https://${normalizedWorld}.tribalwars.com.br/game.php?screen=overview`);
+      const player = extractPlayerName(html);
+      if (!player || looksLikeLoginForm(html)) {
+        return { ok: false, error: 'SID não validado — pode estar expirado. Faça login no navegador, copie o sid atual e tente de novo.' };
+      }
+      this.status = { state: 'logged-in', world: normalizedWorld, player, checkedAt: new Date().toISOString() };
+      this.emit();
+      return { ok: true, status: this.status };
+    } catch (error) {
+      return { ok: false, error: `Falha ao validar o sid: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+
   /** Fetch autenticado pelo cookie jar da partição. */
   async fetchText(url: string): Promise<string> {
     const response = await this.ses.fetch(url, {

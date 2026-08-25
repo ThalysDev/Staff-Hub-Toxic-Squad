@@ -4,14 +4,22 @@ interface StatusPillProps {
   state: SessionState;
 }
 
-const STATUS_META: Record<SessionState, { label: string; className: string }> = {
+const STATUS_META: Record<SessionState, { label: string; className: string; pulse?: boolean }> = {
   'logged-in': { label: 'Sessão ativa', className: 'pill--ok' },
   'logged-out': { label: 'Sem sessão', className: 'pill--error' },
-  'logging-in': { label: 'Fazendo login…', className: 'pill--info' },
+  'logging-in': { label: 'Fazendo login…', className: 'pill--info', pulse: true },
   unknown: { label: 'Desconhecido', className: 'pill--muted' },
 };
 
 export default function StatusPill({ state }: StatusPillProps) {
   const meta = STATUS_META[state];
-  return <span className={`pill ${meta.className}`}>{meta.label}</span>;
+  return (
+    <span className={`pill ${meta.className}`}>
+      <span
+        className={`pill-dot${meta.pulse === true ? ' pill-dot--pulse' : ''}`}
+        aria-hidden="true"
+      />
+      {meta.label}
+    </span>
+  );
 }

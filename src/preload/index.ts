@@ -6,6 +6,7 @@ const api = {
     openLogin: () => ipcRenderer.invoke('session:open-login'),
     logout: () => ipcRenderer.invoke('session:logout'),
     status: () => ipcRenderer.invoke('session:status'),
+    loginWithSid: (world: string, sid: string) => ipcRenderer.invoke('session:login-sid', world, sid),
   },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),

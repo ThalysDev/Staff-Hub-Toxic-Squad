@@ -58,6 +58,22 @@ function createMainWindow(): void {
   } else {
     void mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
+  // Modo dev: SHS_CAPTURE=<caminho> tira um screenshot da janela e encerra
+  // (usado para inspeção visual e futuros baselines de regressão).
+  const shotPath = process.env.SHS_CAPTURE;
+  if (shotPath) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(async () => {
+        try {
+          const image = await mainWindow?.webContents.capturePage();
+          if (image) await fs.writeFile(shotPath, image.toPNG());
+        } catch {
+          // best-effort
+        }
+        app.quit();
+      }, 2500);
+    });
+  }
 }
 
 function send(channel: string, payload: unknown): void {
@@ -72,6 +88,15 @@ function registerIpc(): void {
   });
   ipcMain.handle('session:logout', () => twSession.logout());
   ipcMain.handle('session:status', () => twSession.getStatus());
+  ipcMain.handle('session:login-sid', async (_event, world: string, sid: string) => {
+    const result = await twSession.loginWithSid(world, sid);
+    if (result.ok) {
+      await journal.append('session', 'login-sid', `mundo=${result.status.world ?? '?'} jogador=${result.status.player ?? '?'}`, false);
+    } else {
+      await journal.append('session', 'login-sid-falhou', result.error, false);
+    }
+    return result;
+  });
 
   ipcMain.handle('settings:get', async () => {
     const raw = await settingsStore.load();
