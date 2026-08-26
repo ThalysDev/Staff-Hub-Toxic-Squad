@@ -4,8 +4,10 @@
 // determinístico por construção.
 import type { OpArchiveEntry, OpPlayerConference } from './ipc-types';
 
-/** Linha válida da distribuição "nick;coord coord" (mesma regex de SG_5/SG_6). */
-const DISTRIBUTION_LINE = /^([^;]{2,40});((?:\d{1,3}\|\d{1,3}\s*)+)$/;
+/** Linha válida da distribuição "nick;coord coord" (mesma regex de SG_5/SG_6).
+ *  Pares separados por espaço OBRIGATÓRIO — "123|456789|012" é linha inválida,
+ *  não dois alvos silenciosos (fail-closed do AGENTS.md). */
+const DISTRIBUTION_LINE = /^([^;]{2,40});((?:\d{1,3}\|\d{1,3})(?:\s+\d{1,3}\|\d{1,3})*\s*)$/;
 
 /**
  * Faz o parse da distribuição "nick;coords" (saída do SG_4): uma linha por

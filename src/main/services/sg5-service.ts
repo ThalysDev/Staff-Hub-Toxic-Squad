@@ -139,4 +139,35 @@ export class Sg5Service {
     await this.journal.append('read', 'sg5-totals', `${coords.length} aldeias — ${all.length} comandos`, true);
     return { generatedAt: new Date().toISOString(), totals: totalsByPlayer(all) };
   }
+
+  /**
+   * P0-5: varre as ALDEIAS PRÓPRIAS do jogador logado (info_village, mesmo
+   * parser do verify) — alimenta a triagem "esta aldeia vai cair" do SG_3.
+   */
+  async scanOwnVillages(): Promise<VerifyResult & { player: string }> {
+    const { state, world, player } = this.twSession.getStatus();
+    if (state !== 'logged-in' || world === null || player === null) {
+      throw new Error('Nenhuma sessão ativa no jogo — faça login antes de varrer os ataques recebidos.');
+    }
+    const [villages, players] = await Promise.all([this.worldData.villages(), this.worldData.players()]);
+    const self = players.find((candidate) => candidate.name === player);
+    if (self === undefined) {
+      throw new Error(`Jogador logado "${player}" não está no dump do mundo — atualize os dados do mundo.`);
+    }
+    const ownCoords = villages
+      .filter((village) => village.playerId === self.id)
+      .map((village) => `${village.x}|${village.y}`);
+    if (ownCoords.length === 0) {
+      throw new Error(`Nenhuma aldeia de "${player}" no dump do mundo — atualize os dados do mundo.`);
+    }
+    const byCoord = await this.fetchVillagePages(ownCoords, `Varrendo ataques recebidos (${ownCoords.length} aldeias próprias)`);
+    const attacks = [...byCoord.values()].reduce((sum, verification) => sum + verification.commands.length, 0);
+    await this.journal.append('read', 'sg5-scan-own', `jogador=${player} aldeias=${ownCoords.length} comandos=${attacks}`, true);
+    return {
+      generatedAt: new Date().toISOString(),
+      player,
+      villages: [...byCoord.values()],
+      unknown: [],
+    };
+  }
 }

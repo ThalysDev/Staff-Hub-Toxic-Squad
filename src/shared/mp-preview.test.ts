@@ -35,6 +35,32 @@ describe('previewMps', () => {
     expect(primeira).toHaveLength(1);
     expect(primeira[0]?.playerName).toBe('Thalys');
   });
+
+  it('#horarios# vira bloco "alvo → HH:MM:SS" na mesma ordem das coords (fonte única horariosBlock)', () => {
+    const preview = previewMps('OP', 'Alvos: #alvos#\nHorários:\n#horarios#', [
+      { playerName: 'Thalys', coords: ['455|505', '490|512'], horarios: ['22:00:00', '21:45:30'] },
+    ]);
+    expect(preview[0]?.body).toBe('Alvos: 455|505 490|512\nHorários:\n455|505 → 22:00:00\n490|512 → 21:45:30');
+  });
+
+  it('#horarios# no corpo sem horários na entrada → ERRO antes de qualquer confirmação (fail-closed)', () => {
+    expect(() =>
+      previewMps('OP', 'Horários:\n#horarios#', [{ playerName: 'Thalys', coords: ['455|505'] }]),
+    ).toThrow(/não trouxe horários/);
+  });
+
+  it('#horarios# com quantidade diferente das coords → ERRO de dessincronização', () => {
+    expect(() =>
+      previewMps('OP', '#horarios#', [{ playerName: 'Thalys', coords: ['455|505', '490|512'], horarios: ['22:00:00'] }]),
+    ).toThrow(/dessincronizados/);
+  });
+
+  it('entrada com horários mas template só com #alvos# → horários ignorados, sem erro', () => {
+    const preview = previewMps('OP', TEMPLATE, [
+      { playerName: 'Thalys', coords: ['455|505'], horarios: ['22:00:00'] },
+    ]);
+    expect(preview[0]?.body).toBe('Olá! Alvos: 455|505. Confirme.');
+  });
 });
 
 describe('validateNicks', () => {

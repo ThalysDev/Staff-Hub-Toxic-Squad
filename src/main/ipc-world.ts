@@ -23,12 +23,18 @@ function fail(context: string, error: unknown): never {
 }
 
 export function registerWorldIpc(deps: WorldIpcDeps): void {
-  const { twSession, journal, worldData, sg1 } = deps;
-  // `queue` fica de fora de propósito: SG_1 são poucos fetches únicos (dumps +
-  // interface.php), sem operação de fila — e o village.txt.gz exige bytes crus,
-  // fora do fetchForQueue da fila. A fila entra nas coletas das fases seguintes.
+  const { twSession, journal, worldData, sg1, queue } = deps;
+  // `queue` entra SÓ no guard do refresh (C4): os dumps em si saem por fetch
+  // direto (village.txt.gz exige bytes crus, fora do fetchForQueue da fila) —
+  // mas não podem correr junto com uma coleta (pacing triplicado = risco).
 
   ipcMain.handle('world:refresh', async () => {
+    if (queue.isRunning) {
+      fail('Falha ao atualizar os dados do mundo', new Error('Uma operação está em andamento — aguarde terminar (ou cancele) antes de atualizar os dados do mundo.'));
+    }
+    // Ocupação real (C4): os dumps rodam fora da fila, mas marcam a fila
+    // ocupada para que nenhuma coleta/mutação comece em paralelo.
+    queue.beginOperation();
     try {
       const status = await worldData.refresh();
       const world = twSession.getStatus().world ?? '?';
@@ -41,6 +47,8 @@ export function registerWorldIpc(deps: WorldIpcDeps): void {
       return status;
     } catch (error) {
       fail('Falha ao atualizar os dados do mundo', error);
+    } finally {
+      queue.endOperation();
     }
   });
 

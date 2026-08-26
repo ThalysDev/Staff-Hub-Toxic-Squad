@@ -103,7 +103,15 @@ export default function WarRoomPage() {
   );
 
   // Scorecard sobre a lista ATUAL do arquivo (recarrega após anexar conferência).
-  const scorecard = useMemo(() => buildScorecard(ops), [ops]);
+  // Fail-closed em render: OP arquivada com distribution malformada (ex.: JSON
+  // editado à mão) mostra erro legível em vez de derrubar a página.
+  const scorecard = useMemo<{ rows: ReturnType<typeof buildScorecard> | null; error: string }>(() => {
+    try {
+      return { rows: buildScorecard(ops), error: '' };
+    } catch (err) {
+      return { rows: null, error: err instanceof Error ? err.message : String(err) };
+    }
+  }, [ops]);
 
   const commandCount = verifyResult?.villages.reduce((sum, village) => sum + village.commands.length, 0) ?? 0;
 
@@ -342,9 +350,13 @@ export default function WarRoomPage() {
         <div className="card-header">
           <h2 className="card-title">Scorecard de participação</h2>
           <span className="spacer" />
-          <span className="pill pill--muted">{scorecard.length} jogador(es)</span>
+          <span className="pill pill--muted">{scorecard.rows?.length ?? 0} jogador(es)</span>
         </div>
-        {scorecard.length === 0 ? (
+        {scorecard.error !== '' ? (
+          <p className="error" role="alert">
+            Arquivo de OPs com distribuição malformada: {scorecard.error}
+          </p>
+        ) : (scorecard.rows ?? []).length === 0 ? (
           <p className="muted">Sem conferências arquivadas ainda — anexe uma conferência para alimentar o scorecard.</p>
         ) : (
           <div className="table-wrap">
@@ -359,7 +371,7 @@ export default function WarRoomPage() {
                 </tr>
               </thead>
               <tbody>
-                {scorecard.map((row) => (
+                {(scorecard.rows ?? []).map((row) => (
                   <tr key={row.playerName}>
                     <td className="cell-nowrap">{row.playerName}</td>
                     <td className="cell-num">{row.opsParticipated}</td>

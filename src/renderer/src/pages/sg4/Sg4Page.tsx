@@ -17,6 +17,7 @@ import {
 import { computeSendTimes, formatHms, formatSendSchedule, nobleTrain, type SendScheduleRow } from '@shared/sg4-timing';
 import { originsFromSnapshot } from '@shared/origins-from-snapshot';
 import { solveDepartureForArrival, type NightBonusCfg } from '@shared/night-bonus';
+import { buildPlayerComms, planBbcode, renderTemplate, reservationList, sg6EntriesText } from '@shared/comms-package';
 import type { DiplomacyRelations, WorldPlayer } from '@shared/types';
 import Field from '../../components/Field';
 import PageHeader from '../../components/PageHeader';
@@ -127,6 +128,10 @@ export default function Sg4Page() {
   // ---- P0-9 — Arquivo de OPs ----
   const [opTitle, setOpTitle] = useState(`OP do ${new Date().toLocaleDateString('pt-BR')}`);
   const [archiving, setArchiving] = useState(false);
+  // ---- P0-8 — Pacote de comunicação ----
+  const [commsTemplate, setCommsTemplate] = useState(
+    'OP marcada!\n\nSeus alvos:\n#alvos#\n\nEnvie cada comando para bater no horário combinado:\n#horarios#\n\nBoa sorte!',
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -299,6 +304,36 @@ export default function Sg4Page() {
       push('ok', `Origens preenchidas do SG_2: ${playerCount} jogador(es) com aldeia full.`);
     } catch (error) {
       push('error', errorMessage(error));
+    }
+  }
+
+  /** P0-8: jogadores com alvos+horários prontos para o pacote de comunicação
+   * (MPs com #horarios#, BBCode do plano e lista de reservas). */
+  const commsPlayers = useMemo(() => {
+    if (distribution === null || scheduleRows === null || scheduleRows.length === 0) return null;
+    try {
+      return buildPlayerComms({
+        opTitle,
+        template: commsTemplate,
+        distribution: distributionSummary(distribution),
+        sendSchedule: formatSendSchedule(scheduleRows),
+      });
+    } catch {
+      return null;
+    }
+  }, [distribution, scheduleRows, opTitle, commsTemplate]);
+
+  const commsDistributionText = useMemo(
+    () => (distribution === null ? '' : distributionSummary(distribution)),
+    [distribution],
+  );
+
+  function commsPreview(): string | null {
+    if (commsPlayers === null || commsPlayers.length === 0) return null;
+    try {
+      return renderTemplate(commsTemplate, commsPlayers[0] ?? { playerName: '?', coords: [], horarios: [] });
+    } catch {
+      return null;
     }
   }
 
@@ -1130,6 +1165,84 @@ export default function Sg4Page() {
                   </label>
                 </>
               )}
+            </div>
+          </div>
+        )}
+
+        {distribution !== null && distribution.assignments.length > 0 && (
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">Pacote de Comunicação</h3>
+              <span className="spacer" />
+              <span className="pill pill--muted">MPs com #horarios# · BBCode do plano · reservas</span>
+            </div>
+            <div className="card-body">
+              <label className="field">
+                <span className="field-label">Template da MP (use #alvos# e #horarios#)</span>
+                <textarea
+                  className="textarea"
+                  rows={5}
+                  value={commsTemplate}
+                  aria-label="Template da MP"
+                  onChange={(event) => setCommsTemplate(event.target.value)}
+                />
+              </label>
+              {scheduleRows === null || scheduleRows.length === 0 ? (
+                <p className="muted">
+                  Calcule a Agenda de Envio acima para gerar MPs com #horarios# — BBCode e lista de reservas já funcionam só com a distribuição.
+                </p>
+              ) : commsPlayers === null ? (
+                <p className="error" role="alert">
+                  Distribuição e agenda de envio dessincronizadas — rode a distribuição e a agenda na mesma OP.
+                </p>
+              ) : (
+                <>
+                  {commsPreview() !== null && (
+                    <div>
+                      <p className="field-label">Prévia da MP de {commsPlayers[0]?.playerName}:</p>
+                      <pre className="sg7-code">{commsPreview()}</pre>
+                    </div>
+                  )}
+                  <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => void copyText(sg6EntriesText(commsPlayers))}
+                    >
+                      <Copy size={14} aria-hidden="true" />
+                      Copiar destinatários (SG_6)
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() =>
+                        void copyText(
+                          planBbcode({
+                            opTitle,
+                            template: commsTemplate,
+                            distribution: commsDistributionText,
+                            sendSchedule: formatSendSchedule(scheduleRows),
+                          }),
+                        )
+                      }
+                    >
+                      <Copy size={14} aria-hidden="true" />
+                      Copiar BBCode do plano (fórum)
+                    </button>
+                  </div>
+                </>
+              )}
+              <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={commsDistributionText === ''}
+                  onClick={() => void copyText(reservationList(commsDistributionText))}
+                >
+                  <Copy size={14} aria-hidden="true" />
+                  Copiar lista de reservas
+                </button>
+              </div>
             </div>
           </div>
         )}

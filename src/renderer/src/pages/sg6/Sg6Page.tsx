@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { KeyRound, MapPin } from 'lucide-react';
 import type { Sg6MutationOutcome } from '@shared/ipc-types';
 import { parseCoordList } from '@shared/coords';
-import { previewMps, validateNicks, type NickValidation } from '@shared/mp-preview';
+import { previewMps, validateNicks, type MpPreviewEntry, type NickValidation } from '@shared/mp-preview';
 import { useToast } from '../../hooks/useToast';
 import ToastViewport from '../../components/Toast';
 
@@ -14,7 +14,7 @@ export default function Sg6Page() {
   const [mpSubject, setMpSubject] = useState('');
   const [mpBody, setMpBody] = useState('');
   const [mpEntriesText, setMpEntriesText] = useState('');
-  const [mpPending, setMpPending] = useState<{ playerName: string; coords: string[] }[] | null>(null);
+  const [mpPending, setMpPending] = useState<{ playerName: string; coords: string[]; horarios?: string[] }[] | null>(null);
   const [mpResults, setMpResults] = useState<Sg6MutationOutcome[] | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -42,10 +42,19 @@ export default function Sg6Page() {
     };
   }, [mpPending]);
 
-  /** Prévia EXATA da 1ª MP (mesma substituição de #alvos# do envio real). */
-  const firstMpPreview = useMemo(() => {
-    if (mpPending === null || mpPending.length === 0) return null;
-    return previewMps(mpSubject, mpBody, mpPending, 1)[0] ?? null;
+  /**
+   * Prévia EXATA da 1ª MP (mesma substituição do envio real). Fail-closed em
+   * render: se a combinação template×entradas não compila (ex.: #horarios#
+   * sem horários), o erro aparece inline e o Confirmar fica travado —
+   * NUNCA lançar durante o render (derrubaria o app).
+   */
+  const firstMpPreview = useMemo<{ preview: MpPreviewEntry | null; error: string }>(() => {
+    if (mpPending === null || mpPending.length === 0) return { preview: null, error: '' };
+    try {
+      return { preview: previewMps(mpSubject, mpBody, mpPending, 1)[0] ?? null, error: '' };
+    } catch (error) {
+      return { preview: null, error: error instanceof Error ? error.message : String(error) };
+    }
   }, [mpPending, mpSubject, mpBody]);
 
   const blockUnknownNicks = nickValidation?.source === 'dump' && nickValidation.validation !== null && nickValidation.validation.unknown.length > 0;
@@ -53,14 +62,21 @@ export default function Sg6Page() {
    * de nicks está em voo (nunca "habilitado até provar problema"). */
   const validatingNicks = mpPending !== null && nickValidation === null;
 
-  function parseMpEntries(text: string): { playerName: string; coords: string[] }[] {
-    const entries: { playerName: string; coords: string[] }[] = [];
+  function parseMpEntries(text: string): { playerName: string; coords: string[]; horarios?: string[] }[] {
+    const entries: { playerName: string; coords: string[]; horarios?: string[] }[] = [];
     for (const line of text.split(/\r?\n/)) {
       const trimmed = line.trim();
       if (trimmed === '') continue;
-      const match = /^([^;]{2,40});((?:\d{1,3}\|\d{1,3}\s*)+)$/.exec(trimmed);
-      if (match === null) throw new Error(`Linha inválida (use "nick;coord coord"): "${trimmed.slice(0, 60)}"`);
-      entries.push({ playerName: match[1] ?? '', coords: (match[2] ?? '').trim().split(/\s+/) });
+      // 3º bloco opcional: horários "HH:MM:SS,HH:MM:SS" (saída do Pacote de
+      // Comunicação do SG_4) substitui #horarios# no corpo.
+      const match = /^([^;]{2,40});((?:\d{1,3}\|\d{1,3})(?:\s+\d{1,3}\|\d{1,3})*\s*)(?:;((?:\d{2}:\d{2}:\d{2})(?:,\d{2}:\d{2}:\d{2})*))?$/.exec(trimmed);
+      if (match === null) throw new Error(`Linha inválida (use "nick;coord coord[;HH:MM:SS,HH:MM:SS]"): "${trimmed.slice(0, 60)}"`);
+      const horariosRaw = match[3];
+      entries.push({
+        playerName: match[1] ?? '',
+        coords: (match[2] ?? '').trim().split(/\s+/),
+        ...(horariosRaw !== undefined ? { horarios: horariosRaw.split(',') } : {}),
+      });
     }
     return entries;
   }
@@ -83,7 +99,7 @@ export default function Sg6Page() {
     }
   }
 
-  async function runMps(entries: { playerName: string; coords: string[] }[]): Promise<void> {
+  async function runMps(entries: { playerName: string; coords: string[]; horarios?: string[] }[]): Promise<void> {
     setBusy(true);
     setError('');
     try {
@@ -212,11 +228,13 @@ export default function Sg6Page() {
           />
         </label>
         <label className="field">
-          <span className="field-label">Destinatários (nick;coordenadas — nick EXATO do jogo, um por linha)</span>
+          <span className="field-label">
+            Destinatários (nick;coordenadas[;horários] — nick EXATO do jogo, um por linha; horários opcionais no formato HH:MM:SS,HH:MM:SS)
+          </span>
           <textarea
             className="textarea"
             rows={3}
-            placeholder={'mjmetal;547|381 549|478\nericson123;485|307'}
+            placeholder={'mjmetal;547|381 549|478;22:00:00,22:00:05\nericson123;485|307'}
             value={mpEntriesText}
             onChange={(event) => setMpEntriesText(event.target.value)}
           />
@@ -228,9 +246,15 @@ export default function Sg6Page() {
             disabled={busy}
             onClick={() => {
               try {
-                if (!mpBody.includes('#alvos#')) throw new Error('O corpo precisa conter #alvos#.');
+                if (!mpBody.includes('#alvos#') && !mpBody.includes('#horarios#')) {
+                  throw new Error('O corpo precisa conter #alvos# e/ou #horarios#.');
+                }
                 const entries = parseMpEntries(mpEntriesText);
                 if (entries.length === 0) throw new Error('Cole as linhas "nick;coords".');
+                // Fail-closed no clique: TODAS as entradas precisam compilar
+                // (ex.: #horarios# exige o 3º bloco em cada linha) antes de
+                // abrir o painel de confirmação.
+                previewMps(mpSubject, mpBody, entries);
                 setError('');
                 setMpPending(entries);
               } catch (err) {
@@ -246,10 +270,13 @@ export default function Sg6Page() {
               Confirmar envio de <strong>{mpPending.length}</strong> MP(s)? Nick tem de bater exatamente; envio
               sequencial com pacing humano.
             </p>
-            {firstMpPreview !== null && (
+            {firstMpPreview.error !== '' && (
+              <p className="error" role="alert">{firstMpPreview.error}</p>
+            )}
+            {firstMpPreview.preview !== null && (
               <div className="sg6-preview">
-                <p className="field-label">Prévia da 1ª MP ({firstMpPreview.playerName}) — #alvos# já substituído:</p>
-                <pre className="sg7-code">{`Assunto: ${firstMpPreview.subject}\n\n${firstMpPreview.body}`}</pre>
+                <p className="field-label">Prévia da 1ª MP ({firstMpPreview.preview.playerName}) — #alvos#/#horarios# já substituídos:</p>
+                <pre className="sg7-code">{`Assunto: ${firstMpPreview.preview.subject}\n\n${firstMpPreview.preview.body}`}</pre>
               </div>
             )}
             {nickValidation !== null && nickValidation.source === 'dump' && nickValidation.validation !== null && (
@@ -285,7 +312,7 @@ export default function Sg6Page() {
               <button
                 type="button"
                 className="btn btn-danger"
-                disabled={busy || validatingNicks || blockUnknownNicks}
+                disabled={busy || validatingNicks || blockUnknownNicks || firstMpPreview.error !== ''}
                 onClick={() => void runMps(mpPending)}
               >
                 {busy ? <><span className="btn-spinner" aria-hidden="true" /> Enviando…</> : 'Confirmar Envio'}

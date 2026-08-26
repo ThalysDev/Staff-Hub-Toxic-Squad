@@ -23,4 +23,12 @@ export function registerSg5Ipc(deps: Sg5IpcDeps): void {
       throw new Error(error instanceof Error ? error.message : String(error));
     }
   });
+
+  ipcMain.handle('sg5:scan-own', async () => {
+    try {
+      return await deps.sg5.scanOwnVillages();
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : String(error));
+    }
+  });
 }

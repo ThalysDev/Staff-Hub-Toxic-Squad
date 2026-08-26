@@ -14,7 +14,7 @@ function parseEntries(text: string): { playerName: string; coords: string[] }[] 
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (trimmed === '') continue;
-    const match = /^([^;]{2,40});((?:\d{1,3}\|\d{1,3}\s*)+)$/.exec(trimmed);
+    const match = /^([^;]{2,40});((?:\d{1,3}\|\d{1,3})(?:\s+\d{1,3}\|\d{1,3})*\s*)$/.exec(trimmed);
     if (match === null) {
       throw new Error(`Linha inválida (use "nick;coord coord"): "${trimmed.slice(0, 60)}"`);
     }

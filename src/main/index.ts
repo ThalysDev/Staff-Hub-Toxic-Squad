@@ -250,9 +250,9 @@ registerIpc();
   registerSupportersIpc(new SupportersService(twSession, queue as RequestQueue, journal, worldData, settingsStore));
   const sg5Service = new Sg5Service(twSession, queue as RequestQueue, journal, worldData, settingsStore);
   registerSg5Ipc({ sg5: sg5Service, journal });
-  const sg6Service = new Sg6Service(twSession, journal, settingsStore);
+  const sg6Service = new Sg6Service(twSession, journal, settingsStore, queue as RequestQueue);
   registerSg6Ipc({ sg6: sg6Service, journal });
-  registerSg7Ipc(new Sg7Service(twSession, journal));
+  registerSg7Ipc(new Sg7Service(twSession, journal, queue as RequestQueue));
   registerOpIpc({ journal, opArchive: new OpArchiveService(journal) });
   createMainWindow();
   app.on('activate', () => {

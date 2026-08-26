@@ -2,7 +2,9 @@ import { session } from 'electron';
 import { TW_PARTITION, type TwSessionManager } from '../tw/session';
 import type { Journal } from '../journal';
 import type { JsonStore } from '../stores/json-store';
+import type { RequestQueue } from '../tw/request-queue';
 import { DEFAULT_SETTINGS, type AppSettings } from '@shared/ipc-types';
+import { horariosBlock } from '@shared/comms-package';
 import { detectPageSentinels } from '../tw/request-queue';
 
 export interface MutationOutcome {
@@ -14,6 +16,8 @@ export interface MutationOutcome {
 export interface MpEntry {
   playerName: string;
   coords: string[];
+  /** Horários "HH:MM:SS" alinhados às coords (substitui #horarios#). */
+  horarios?: string[];
 }
 
 export interface MpOutcome {
@@ -37,7 +41,16 @@ export class Sg6Service {
     private readonly journal: Journal,
     /** Instância COMPARTILHADA com o index — sem cache obsoleto entre services. */
     private readonly settingsStore: JsonStore<AppSettings>,
+    /** Single-flight global (C4): mutação não corre junto com coleta da fila. */
+    private readonly queue: RequestQueue,
   ) {}
+
+  /** C4: coleta/mutação em andamento = esta mutação NÃO executa (pacing somado = risco de ban). */
+  private assertQueueIdle(): void {
+    if (this.queue.isRunning) {
+      throw new Error('Uma operação está em andamento — aguarde terminar (ou cancele) antes de executar mutações no jogo.');
+    }
+  }
 
   private async settings(): Promise<AppSettings> {
     const raw = await this.settingsStore.load();
@@ -92,65 +105,88 @@ export class Sg6Service {
   async reserveMass(coords: string[], confirm: boolean): Promise<MutationOutcome[]> {
     if (!confirm) throw new Error('Confirmação dupla necessária — revise o resumo e confirme na tela.');
     if (coords.length === 0) throw new Error('Nenhuma coordenada informada.');
-    const settings = await this.settings();
-    if (coords.length > settings.requestCeiling) {
-      throw new Error(`Reserva em massa maior que o teto das settings (${settings.requestCeiling}) — ${coords.length} coordenadas.`);
-    }
-    const parsedCoords = coords.map((coord) => ({ coord, parts: this.splitCoord(coord) }));
-    const world = this.world();
-    const base = `https://${world}.tribalwars.com.br/game.php?screen=ally&mode=reservations`;
-    await sleep(settings.requestMinIntervalMs);
-    const page = await this.twSession.fetchText(base);
-    const { csrf, villageId } = this.pageTokens(page);
-    const outcomes: MutationOutcome[] = [];
-    for (const { coord, parts } of parsedCoords) {
-      await sleep(settings.requestMinIntervalMs + Math.random() * settings.requestJitterMs);
-      let outcome: MutationOutcome;
-      try {
-        const response = await this.postForm(
-          `${base}&village=${villageId}&action=new_reservation&group_id=all&filter=&h=${csrf}`,
-          {
-            'target_type': 'coord',
-            'x[]': parts.x,
-            'y[]': parts.y,
-            'save_reservations': 'Reservar esta aldeia',
-          },
-        );
-        const sentinel = detectPageSentinels(response.body);
-        if (sentinel === 'session-expired' || sentinel === 'captcha-suspected') {
-          await this.journal.append('mutation', 'reserve-halt', `Reserva interrompida na coordenada ${coord} (${sentinel})`, false);
-          outcomes.push({ coord, ok: false, detail: sentinel === 'session-expired' ? 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.' : 'CAPTCHA — operação interrompida.' });
-          break;
-        }
-        const already = /já reserva(?:d[ao]|u)|already reserv/i.test(response.body);
-        const error = /class="error"|não existe tal aldeia/i.test(response.body);
-        outcome = {
-          coord,
-          ok: error ? false : response.ok,
-          detail: error
-            ? 'Recusado pelo jogo (aldeia inexistente ou erro).'
-            : already
-              ? 'Já reservada por outro membro — tolerado.'
-              : response.ok
-                ? 'Pedido enviado.'
-                : `HTTP ${response.status}`,
-        };
-      } catch (err) {
-        outcome = { coord, ok: false, detail: `Falha de rede: ${err instanceof Error ? err.message : String(err)}` };
+    this.assertQueueIdle();
+    this.queue.beginOperation();
+    try {
+      const settings = await this.settings();
+      if (coords.length > settings.requestCeiling) {
+        throw new Error(`Reserva em massa maior que o teto das settings (${settings.requestCeiling}) — ${coords.length} coordenadas.`);
       }
-      await this.journal.append('mutation', 'reserve', `reserva ${coord} → ${outcome.detail}`, false);
-      outcomes.push(outcome);
+      const parsedCoords = coords.map((coord) => ({ coord, parts: this.splitCoord(coord) }));
+      const world = this.world();
+      const base = `https://${world}.tribalwars.com.br/game.php?screen=ally&mode=reservations`;
+      await sleep(settings.requestMinIntervalMs);
+      const page = await this.twSession.fetchText(base);
+      const { csrf, villageId } = this.pageTokens(page);
+      const outcomes: MutationOutcome[] = [];
+      for (const { coord, parts } of parsedCoords) {
+        await sleep(settings.requestMinIntervalMs + Math.random() * settings.requestJitterMs);
+        let outcome: MutationOutcome;
+        try {
+          const response = await this.postForm(
+            `${base}&village=${villageId}&action=new_reservation&group_id=all&filter=&h=${csrf}`,
+            {
+              'target_type': 'coord',
+              'x[]': parts.x,
+              'y[]': parts.y,
+              'save_reservations': 'Reservar esta aldeia',
+            },
+          );
+          const sentinel = detectPageSentinels(response.body);
+          if (sentinel === 'session-expired' || sentinel === 'captcha-suspected') {
+            await this.journal.append('mutation', 'reserve-halt', `Reserva interrompida na coordenada ${coord} (${sentinel})`, false);
+            outcomes.push({ coord, ok: false, detail: sentinel === 'session-expired' ? 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.' : 'CAPTCHA — operação interrompida.' });
+            break;
+          }
+          const already = /já reserva(?:d[ao]|u)|already reserv/i.test(response.body);
+          const error = /class="error"|não existe tal aldeia/i.test(response.body);
+          outcome = {
+            coord,
+            ok: error ? false : response.ok,
+            detail: error
+              ? 'Recusado pelo jogo (aldeia inexistente ou erro).'
+              : already
+                ? 'Já reservada por outro membro — tolerado.'
+                : response.ok
+                  ? 'Pedido enviado.'
+                  : `HTTP ${response.status}`,
+          };
+        } catch (err) {
+          outcome = { coord, ok: false, detail: `Falha de rede: ${err instanceof Error ? err.message : String(err)}` };
+        }
+        await this.journal.append('mutation', 'reserve', `reserva ${coord} → ${outcome.detail}`, false);
+        outcomes.push(outcome);
+      }
+      return outcomes;
+    } finally {
+      this.queue.endOperation();
     }
-    return outcomes;
   }
 
-  /** MPs personalizadas em cadeia: #alvos# substituído pelas coords de cada nick. */
+  /** MPs personalizadas em cadeia: #alvos# (coords) e opcionalmente #horarios# por jogador. */
   async sendMps(subject: string, bodyTemplate: string, entries: MpEntry[], confirm: boolean): Promise<MpOutcome[]> {
     if (!confirm) throw new Error('Confirmação dupla necessária — revise o resumo e confirme na tela.');
     if (subject.trim() === '') throw new Error('Assunto vazio.');
-    if (!bodyTemplate.includes('#alvos#')) throw new Error('O corpo precisa conter #alvos# para inserir os alvos de cada jogador.');
+    if (!bodyTemplate.includes('#alvos#') && !bodyTemplate.includes('#horarios#')) {
+      throw new Error('O corpo precisa conter #alvos# e/ou #horarios# para personalizar a MP de cada jogador.');
+    }
     if (entries.length === 0) throw new Error('Nenhuma entrada "nick;coords" informada.');
-    const settings = await this.settings();
+    this.assertQueueIdle();
+    // Fail-closed ANTES de qualquer POST: #horarios# no corpo exige horários
+    // coerentes (mesma quantidade que os alvos) em TODAS as entradas.
+    if (bodyTemplate.includes('#horarios#')) {
+      for (const entry of entries) {
+        if (entry.horarios === undefined || entry.horarios.length === 0) {
+          throw new Error(`O corpo usa #horarios#, mas a entrada de "${entry.playerName}" não trouxe horários — gere o pacote de comunicação no SG_4.`);
+        }
+        if (entry.horarios.length !== entry.coords.length) {
+          throw new Error(`Horários de "${entry.playerName}" dessincronizados: ${entry.horarios.length} horário(s) × ${entry.coords.length} alvo(s).`);
+        }
+      }
+    }
+    this.queue.beginOperation();
+    try {
+      const settings = await this.settings();
     if (entries.length > settings.requestCeiling) {
       throw new Error(`Envio maior que o teto das settings (${settings.requestCeiling}) — ${entries.length} MPs.`);
     }
@@ -161,7 +197,10 @@ export class Sg6Service {
     const { csrf, villageId } = this.pageTokens(page);
     const outcomes: MpOutcome[] = [];
     for (const entry of entries) {
-      const message = bodyTemplate.replaceAll('#alvos#', entry.coords.join(' '));
+      let message = bodyTemplate.replaceAll('#alvos#', entry.coords.join(' '));
+      if (message.includes('#horarios#') && entry.horarios !== undefined) {
+        message = message.replaceAll('#horarios#', horariosBlock(entry.coords, entry.horarios));
+      }
       await sleep(settings.requestMinIntervalMs + Math.random() * settings.requestJitterMs);
       let outcome: MpOutcome;
       try {
@@ -199,6 +238,9 @@ export class Sg6Service {
       await this.journal.append('mutation', 'mp-send', `MP ${entry.playerName} (${entry.coords.length} alvos) → ${outcome.detail}`, false);
       outcomes.push(outcome);
     }
-    return outcomes;
+      return outcomes;
+    } finally {
+      this.queue.endOperation();
+    }
   }
 }

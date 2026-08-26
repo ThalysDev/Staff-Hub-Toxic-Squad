@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { ClipboardCopy, ShieldAlert, ShieldCheck, Users } from 'lucide-react';
+import { ClipboardCopy, Radar, ShieldAlert, ShieldCheck, Users } from 'lucide-react';
 import type { BlindVillageResult } from '@shared/ipc-types';
 import type { SupportersResult } from '@shared/types';
 import { parseCoordList } from '@shared/coords';
+import { rankVillagesByThreat, threatSummary, type VillageThreat, type VillageThreatInput } from '@shared/incoming-risk';
 import { TW_UNIT_ICONS } from '../../assets';
-import { UNITS, type UnitCounts, type UnitId } from '@shared/units';
+import { UNITS, defensivePopulation, type UnitCounts, type UnitId } from '@shared/units';
 import { useToast } from '../../hooks/useToast';
 import ToastViewport from '../../components/Toast';
 import EmptyState from '../../components/EmptyState';
@@ -33,6 +34,10 @@ export default function Sg3Page() {
   const [supportersBusy, setSupportersBusy] = useState(false);
   const [supportersResult, setSupportersResult] = useState<SupportersResult | null>(null);
   const [supportersError, setSupportersError] = useState('');
+  // ---- P0-5 — Ataques recebidos (triagem "esta aldeia vai cair") ----
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const [threats, setThreats] = useState<VillageThreat[] | null>(null);
 const [progress, setProgress] = useState<{ label: string; done: number; total: number } | null>(null);
 
   useEffect(() => {
@@ -88,6 +93,43 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
       push('error', message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** P0-5: varre as aldeias próprias (info_village) e cruza com a defesa do SG_3. */
+  async function runScanIncoming(): Promise<void> {
+    setScanBusy(true);
+    setScanError('');
+    setThreats(null);
+    try {
+      const [scan, defense] = await Promise.all([
+        window.staffhub.sg5.scanOwnVillages(),
+        window.staffhub.troops.get('defense').catch(() => null),
+      ]);
+      // Peso DEFENSIVO presente por coordenada (mesma métrica do blind:
+      // spear/sword/archer + heavy×4 — população bruta esconderia stacks
+      // ofensivos atrás de um veredito "resistente" otimista).
+      const popByCoord = new Map<string, number>();
+      if (defense !== null) {
+        for (const entry of defense.entries) {
+          if (entry.coord.x < 0) continue; // linha de resumo (sem aldeia específica)
+          const key = `${entry.coord.x}|${entry.coord.y}`;
+          popByCoord.set(key, (popByCoord.get(key) ?? 0) + defensivePopulation(entry.units));
+        }
+      }
+      const inputs: VillageThreatInput[] = scan.villages.map((village) => {
+        const defensePop = popByCoord.get(village.coord);
+        return { coord: village.coord, commands: village.commands, ...(defensePop !== undefined ? { defensePop } : {}) };
+      });
+      const ranked = rankVillagesByThreat(inputs);
+      setThreats(ranked);
+      push('ok', threatSummary(ranked));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setScanError(message);
+      push('error', message);
+    } finally {
+      setScanBusy(false);
     }
   }
 
@@ -285,6 +327,59 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
               </tbody>
             </table>
           </div>
+        )}
+      </section>
+
+      <section className="card">
+        <div className="card-header">
+          <h2 className="card-title">Ataques Recebidos (aldeias próprias)</h2>
+        </div>
+        <p className="muted">
+          Varre as aldeias do jogador logado (1 requisição por aldeia, com pacing) e cruza com a última coleta de
+          defesa: <strong>esta aldeia vai cair</strong> quando chega nobre/ataque grande e a defesa presente está
+          abaixo do patamar. Sem coleta de defesa, a aldeia fica "sem dados" (nunca chutado).
+        </p>
+        <div className="row">
+          <button type="button" className="btn" disabled={scanBusy} onClick={() => void runScanIncoming()}>
+            <Radar size={16} aria-hidden="true" />
+            {scanBusy ? <><span className="btn-spinner" aria-hidden="true" /> Varrendo…</> : 'Varrer ataques recebidos'}
+          </button>
+          {scanBusy && progress !== null && <ProgressBar done={progress.done} total={progress.total} label={progress.label} />}
+        </div>
+        {scanError !== '' && <p className="error" role="alert">{scanError}</p>}
+        {threats !== null && (
+          <>
+            <p className={threats.some((threat) => threat.level === 'vai-cair') ? 'error' : 'ok'}>{threatSummary(threats)}</p>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Aldeia</th>
+                    <th>Triagem</th>
+                    <th className="cell-num">Ataques</th>
+                    <th className="cell-num">Com nobre</th>
+                    <th>Detalhe</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {threats.map((threat) => (
+                    <tr key={threat.coord}>
+                      <td className="cell-nowrap">{threat.coord}</td>
+                      <td className="cell-nowrap">
+                        {threat.level === 'vai-cair' && <span className="error">VAI CAIR</span>}
+                        {threat.level === 'pressionada' && <span className="text-warn">Pressionada</span>}
+                        {threat.level === 'resistente' && <span className="ok">Resistente</span>}
+                        {threat.level === 'sem-dados' && <span className="muted">Sem dados</span>}
+                      </td>
+                      <td className="cell-num">{threat.attackCount}</td>
+                      <td className="cell-num">{threat.nobleCount > 0 ? <strong>{threat.nobleCount}</strong> : 0}</td>
+                      <td className="cell-detail">{threat.detail}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
 

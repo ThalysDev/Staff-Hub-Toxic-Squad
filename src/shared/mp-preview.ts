@@ -3,6 +3,8 @@
 // e validam os nicks contra o dump de jogadores (player.txt).
 // Atenção: MP no Tribal Wars é case-sensitive — errar a CAIXA do nick = não entrega.
 
+import { horariosBlock } from './comms-package';
+
 export interface MpPreviewEntry {
   playerName: string;
   subject: string;
@@ -11,22 +13,30 @@ export interface MpPreviewEntry {
 
 /**
  * Prévia EXATA do que sendMps enviaria: mesma ordem de parâmetros e mesma
- * substituição (bodyTemplate.replaceAll('#alvos#', entry.coords.join(' ')) —
- * separador é espaço). `limit` corta para as N primeiras entradas (a UI mostra
- * a 1ª); sem limit, gera a prévia de TODAS as entradas.
+ * substituição (#alvos# por coords separadas por espaço; #horarios# pelo bloco
+ * "alvo → HH:MM:SS" da fonte única horariosBlock — prévia e envio nunca
+ * divergem). `limit` corta para as N primeiras entradas (a UI mostra a 1ª);
+ * sem limit, gera a prévia de TODAS as entradas.
+ * Fail-closed igual ao service: #horarios# no corpo sem horários coerentes
+ * na entrada → ERRO antes de qualquer confirmação.
  */
 export function previewMps(
   subject: string,
   bodyTemplate: string,
-  entries: { playerName: string; coords: string[] }[],
+  entries: { playerName: string; coords: string[]; horarios?: string[] }[],
   limit?: number,
 ): MpPreviewEntry[] {
   const selecionadas = limit === undefined ? entries : entries.slice(0, limit);
-  return selecionadas.map((entry) => ({
-    playerName: entry.playerName,
-    subject,
-    body: bodyTemplate.replaceAll('#alvos#', entry.coords.join(' ')),
-  }));
+  return selecionadas.map((entry) => {
+    let body = bodyTemplate.replaceAll('#alvos#', entry.coords.join(' '));
+    if (body.includes('#horarios#')) {
+      if (entry.horarios === undefined || entry.horarios.length === 0) {
+        throw new Error(`O corpo usa #horarios#, mas a entrada de "${entry.playerName}" não trouxe horários — gere o pacote de comunicação no SG_4.`);
+      }
+      body = body.replaceAll('#horarios#', horariosBlock(entry.coords, entry.horarios));
+    }
+    return { playerName: entry.playerName, subject, body };
+  });
 }
 
 export interface NickValidation {

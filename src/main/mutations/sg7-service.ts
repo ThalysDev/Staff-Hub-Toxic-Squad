@@ -1,6 +1,7 @@
 import { session } from 'electron';
 import { TW_PARTITION, type TwSessionManager } from '../tw/session';
 import type { Journal } from '../journal';
+import type { RequestQueue } from '../tw/request-queue';
 import { forumTokens, parseEditForm, parseForumThread } from '@shared/parsers/forum-parsers';
 import { applyBlindUpdate, recognizeComments, recognizedSummary, sumByPedido } from '@shared/sg7-engine';
 import { detectPageSentinels } from '../tw/request-queue';
@@ -27,7 +28,16 @@ export class Sg7Service {
   constructor(
     private readonly twSession: TwSessionManager,
     private readonly journal: Journal,
+    /** Single-flight global (C4): mutação não corre junto com coleta da fila. */
+    private readonly queue: RequestQueue,
   ) {
+  }
+
+  /** C4: coleta em andamento na fila = mutação NÃO executa. */
+  private assertQueueIdle(): void {
+    if (this.queue.isRunning) {
+      throw new Error('Uma operação de coleta está em andamento na fila — aguarde terminar (ou cancele) antes de mutar o fórum.');
+    }
   }
 
   private world(): string {
@@ -98,11 +108,14 @@ export class Sg7Service {
   /** MUTAÇÃO: aplica o BBCode atualizado no primeiro post (Ajustar Conforme Script). */
   async adjust(threadUrl: string, confirm: boolean): Promise<{ ok: boolean; detail: string }> {
     if (!confirm) throw new Error('Confirmação dupla necessária — revise a conferência e confirme na tela.');
-    const conference = await this.conference(threadUrl);
-    if (!conference.changed) {
-      return { ok: true, detail: 'Nada a ajustar — nenhum envio reconhecido altera a tabela.' };
-    }
-    const path = threadUrl.replace(/^https?:\/\/[^/]+\//, '');
+    this.assertQueueIdle();
+    this.queue.beginOperation();
+    try {
+      const conference = await this.conference(threadUrl);
+      if (!conference.changed) {
+        return { ok: true, detail: 'Nada a ajustar — nenhum envio reconhecido altera a tabela.' };
+      }
+      const path = threadUrl.replace(/^https?:\/\/[^/]+\//, '');
     const forumId = /forum_id=(\d+)/.exec(path)?.[1] ?? '0';
     // Recarrega o tópico para pegar o primeiro post + abre o formulário com a
     // action EXATA que o jogo espera (edit_post_id + post_id + forum_id + h).
@@ -138,6 +151,9 @@ export class Sg7Service {
     }
     await this.journal.append('mutation', 'forum-adjust', `thread=${conference.threadId} → ${detail}`, false);
     return { ok, detail };
+    } finally {
+      this.queue.endOperation();
+    }
   }
 
   /**
@@ -148,7 +164,10 @@ export class Sg7Service {
   async deletePosts(threadUrl: string, postIds: number[], confirm: boolean): Promise<{ ok: boolean; detail: string }> {
     if (!confirm) throw new Error('Confirmação dupla necessária — selecione os posts e confirme na tela.');
     if (postIds.length === 0) throw new Error('Nenhum post selecionado.');
-    const pathLast = threadUrl.replace(/^https?:\/\/[^/]+\//, '');
+    this.assertQueueIdle();
+    this.queue.beginOperation();
+    try {
+      const pathLast = threadUrl.replace(/^https?:\/\/[^/]+\//, '');
     const html = await this.getHtml(pathLast);
     const thread = parseForumThread(html);
     const forumId = /forum_id=(\d+)/.exec(pathLast)?.[1] ?? '0';
@@ -177,5 +196,8 @@ export class Sg7Service {
     }
     await this.journal.append('mutation', 'forum-delete-posts', `thread=${thread.threadId} posts=${postIds.length} → ${detail}`, false);
     return { ok, detail };
+    } finally {
+      this.queue.endOperation();
+    }
   }
 }

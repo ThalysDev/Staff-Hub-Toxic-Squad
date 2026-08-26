@@ -104,7 +104,7 @@ export function parseOriginsInput(text: string): OriginPlayer[] {
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (trimmed === '') continue;
-    const match = /^([^;]{2,40});(\d+);((?:\d{1,3}\|\d{1,3}\s*)+)$/.exec(trimmed);
+    const match = /^([^;]{2,40});(\d+);((?:\d{1,3}\|\d{1,3})(?:\s+\d{1,3}\|\d{1,3})*\s*)$/.exec(trimmed);
     if (match === null) {
       throw new Error(`Linha de origem inválida (use "nick;fulls;coord coord"): "${trimmed.slice(0, 60)}"`);
     }

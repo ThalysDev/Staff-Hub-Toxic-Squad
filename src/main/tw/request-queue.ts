@@ -65,6 +65,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  */
 export class RequestQueue {
   private operationId: string | null = null;
+  private externalOperations = 0;
   private cancelled = false;
   private executed = 0;
   private lastAt = 0;
@@ -85,12 +86,28 @@ export class RequestQueue {
   }
 
   get isRunning(): boolean {
-    return this.operationId !== null;
+    return this.operationId !== null || this.externalOperations > 0;
+  }
+
+  /**
+   * Ocupação externa (C4 — single-flight global): mutações e downloads de
+   * dumps rodam FORA da fila (POSTs diretos / gzip), mas marcam a fila ocupada
+   * para que NENHUMA coleta (nem outra mutação) comece em paralelo — pacing
+   * duplicado/triplicado é risco de ban. begin/end sempre em try/finally.
+   */
+  beginOperation(): void {
+    this.externalOperations += 1;
+  }
+
+  endOperation(): void {
+    this.externalOperations = Math.max(0, this.externalOperations - 1);
   }
 
   /** Executa N requisições em sequência com pacing; retorna corpos em ordem. */
   async run(urls: string[], options: QueueOptions): Promise<string[]> {
-    if (this.operationId) throw new QueueError('aborted', 'Outra operação está em andamento.');
+    if (this.operationId !== null || this.externalOperations > 0) {
+      throw new QueueError('aborted', 'Outra operação está em andamento — aguarde terminar (ou cancele) antes de iniciar outra.');
+    }
     if (urls.length > options.ceiling) {
       throw new QueueError('ceiling-exceeded', `Operação excede o teto de ${options.ceiling} requisições (${urls.length}).`);
     }

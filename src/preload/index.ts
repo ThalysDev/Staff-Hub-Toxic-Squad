@@ -67,8 +67,10 @@ const api = {
   },
   sg6: {
     reserveMass: (coords: string[], confirm: boolean) => ipcRenderer.invoke("sg6:reserve-mass", coords, confirm),
-    sendMps: (input: { subject: string; body: string; entries: { playerName: string; coords: string[] }[] }, confirm: boolean) =>
-      ipcRenderer.invoke("sg6:send-mps", input, confirm),
+    sendMps: (
+      input: { subject: string; body: string; entries: { playerName: string; coords: string[]; horarios?: string[] }[] },
+      confirm: boolean,
+    ) => ipcRenderer.invoke("sg6:send-mps", input, confirm),
   },
   opArchive: {
     list: () => ipcRenderer.invoke('oparchive:list') as Promise<OpArchiveEntry[]>,
@@ -82,6 +84,8 @@ const api = {
       ipcRenderer.invoke('sg5:verify', entries) as Promise<import('@shared/ipc-types').Sg5VerifyResult>,
     totals: (coords: string[]) =>
       ipcRenderer.invoke('sg5:totals', coords) as Promise<import('@shared/ipc-types').Sg5TotalsResult>,
+    scanOwnVillages: () =>
+      ipcRenderer.invoke('sg5:scan-own') as Promise<import('@shared/ipc-types').Sg5VerifyResult & { player: string }>,
   },
   window: {
     minimize: () => ipcRenderer.invoke('win:min'),

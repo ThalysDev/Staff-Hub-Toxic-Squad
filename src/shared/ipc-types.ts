@@ -250,6 +250,8 @@ export interface StaffHubApi {
     verify(entries: Sg5VerifyEntry[]): Promise<Sg5VerifyResult>;
     /** Totalizador por jogador a partir de coordenadas. */
     totals(coords: string[]): Promise<Sg5TotalsResult>;
+    /** P0-5: varre as aldeias PRÓPRIAS do jogador logado (mesmo parser do verify). */
+    scanOwnVillages(): Promise<Sg5VerifyResult & { player: string }>;
   };
   sg7: {
     /** Conferência dos posts do tópico de blindagem (leitura). */
@@ -262,8 +264,12 @@ export interface StaffHubApi {
   sg6: {
     /** Reserva em massa no Planejador — MUTAÇÃO: confirmação dupla + journal (modo real permanente). */
     reserveMass(coords: string[], confirm: boolean): Promise<Sg6MutationOutcome[]>;
-    /** MPs personalizadas (#alvos#) — MUTAÇÃO: confirmação dupla + journal (modo real permanente). */
-    sendMps(input: { subject: string; body: string; entries: { playerName: string; coords: string[] }[] }, confirm: boolean): Promise<Sg6MutationOutcome[]>;
+    /** MPs personalizadas (#alvos# e opcionalmente #horarios# por jogador) — MUTAÇÃO: confirmação dupla + journal. */
+    sendMps(input: {
+      subject: string;
+      body: string;
+      entries: { playerName: string; coords: string[]; horarios?: string[] }[];
+    }, confirm: boolean): Promise<Sg6MutationOutcome[]>;
   };
   opArchive: {
     /** OPs arquivadas, mais recente primeiro. */
