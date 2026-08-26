@@ -80,12 +80,15 @@ export interface AppSettings {
   requestJitterMs: number;
   /** Teto de requisições por operação de coleta. */
   requestCeiling: number;
+  /** Endpoint do manifest de atualização (latest.json) do canal oficial. */
+  updateUrl: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   requestMinIntervalMs: 350,
   requestJitterMs: 250,
   requestCeiling: 400,
+  updateUrl: 'http://74.0.5.75/staffhub/latest.json',
 };
 
 export interface JournalEntry {
@@ -103,6 +106,36 @@ export interface QueueProgress {
   done: number;
   total: number;
 }
+
+// ---------------------------------------------------------------------------
+// Atualização automática (canal oficial na VPS)
+// ---------------------------------------------------------------------------
+
+/** Manifest publicado no canal (latest.json) — validado fail-closed. */
+export interface UpdateManifest {
+  version: string;
+  notes: string;
+  url: string;
+  sha256: string;
+  releasedAt: string;
+}
+
+export interface UpdateCheckResult {
+  currentVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+  /** Presente quando há atualização. */
+  manifest?: UpdateManifest;
+  /** Rede/servidor indisponível etc. — checagem é fail-soft, nunca derruba o app. */
+  error?: string;
+}
+
+export type UpdateProgress =
+  | { phase: 'download'; receivedBytes: number; totalBytes: number }
+  | { phase: 'verify' }
+  | { phase: 'extract' }
+  | { phase: 'ready'; version: string }
+  | { phase: 'error'; detail: string };
 
 /** Tipo de coleta de tropas: tropas recrutadas da tribo ou defesa das aldeias (SG_3). */
 export type TroopKind = 'troops' | 'defense';
@@ -207,6 +240,15 @@ export interface StaffHubApi {
     /** Cancela a operação de coleta em andamento na RequestQueue. */
     cancel(): Promise<void>;
   };
+  updater: {
+    /** Verifica o canal oficial (fail-soft: erro volta em `error`). */
+    check(): Promise<UpdateCheckResult>;
+    /** Baixa + confere SHA-256 + extrai em área de staging + gera script de troca.
+     *  Progresso via events.onUpdaterProgress. Só funciona empacotado. */
+    downloadAndPrepare(): Promise<{ ok: boolean; detail: string }>;
+    /** Sai do app executando a troca de pasta e relança a nova versão. */
+    restartToUpdate(): Promise<void>;
+  };
   dev: {
     /** Baixa uma URL do jogo com a sessão atual e salva como fixture em userData/fixtures. */
     captureFixture(name: string, url: string): Promise<FixtureCaptureResult>;
@@ -299,6 +341,8 @@ export interface StaffHubApi {
     onSessionChanged(cb: (status: SessionStatus) => void): () => void;
     /** Estado maximizado da janela (titlebar). */
     onWindowMaxChanged(cb: (maximized: boolean) => void): () => void;
+    /** Progresso do download/preparo da atualização. */
+    onUpdaterProgress(cb: (progress: UpdateProgress) => void): () => void;
   };
 }
 

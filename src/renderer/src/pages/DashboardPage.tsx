@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, Camera, Info, LogIn, Map, User } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Camera, CheckCircle2, DownloadCloud, Info, LogIn, Map, RefreshCw, User } from 'lucide-react';
+import type { UpdateManifest } from '@shared/ipc-types';
 import StatBlock from '../components/StatBlock';
 import { useSessionStatus } from '../hooks/useSessionStatus';
 import { MODULES, type ModuleId, type PageId } from '../modules';
@@ -21,6 +22,252 @@ const MODULE_BLURBS: Record<ModuleId, string> = {
 
 interface DashboardPageProps {
   onNavigate: (page: PageId) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Card de atualização — checagem silenciosa no mount; falha nunca derruba a página.
+// ---------------------------------------------------------------------------
+
+/** Etapas locais do preparo: espelham os eventos de updater + o resultado da Promise. */
+type UpdateStage = 'idle' | 'download' | 'verify' | 'extract' | 'ready' | 'error';
+
+interface ConfirmedUpdate {
+  /** Versão em execução quando a checagem encontrou novidade. */
+  currentVersion: string;
+  manifest: UpdateManifest;
+}
+
+function formatMb(bytes: number): string {
+  return (bytes / 1048576).toFixed(1);
+}
+
+function UpdateCard() {
+  const [update, setUpdate] = useState<ConfirmedUpdate | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+  const [stage, setStage] = useState<UpdateStage>('idle');
+  const [errorDetail, setErrorDetail] = useState('');
+  const [bytes, setBytes] = useState({ received: 0, total: 0 });
+  const [restarting, setRestarting] = useState(false);
+
+  // Checagem silenciosa (fail-soft): sem atualização disponível OU com erro do
+  // canal → nada renderiza. Erros de rede ficam fora da tela de propósito.
+  useEffect(() => {
+    let cancelled = false;
+    void window.staffhub.updater
+      .check()
+      .then((result) => {
+        if (cancelled || result.error !== undefined) return;
+        if (!result.updateAvailable || result.manifest === undefined) return;
+        setUpdate({ currentVersion: result.currentVersion, manifest: result.manifest });
+      })
+      .catch(() => {
+        // Canal inacessível: silencioso por design.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Progresso do preparo — cleanup garantido no unmount.
+  useEffect(() => {
+    return window.staffhub.events.onUpdaterProgress((progress) => {
+      switch (progress.phase) {
+        case 'download':
+          setStage('download');
+          setBytes({ received: progress.receivedBytes, total: progress.totalBytes });
+          break;
+        case 'verify':
+        case 'extract':
+        case 'ready':
+          setStage(progress.phase);
+          break;
+        case 'error':
+          setErrorDetail(progress.detail);
+          setStage('error');
+          break;
+      }
+    });
+  }, []);
+
+  async function handlePrepare(): Promise<void> {
+    setErrorDetail('');
+    setBytes({ received: 0, total: 0 });
+    setStage('download');
+    try {
+      const outcome = await window.staffhub.updater.downloadAndPrepare();
+      // ok=false manda no resultado: mostra o detail como erro, salvo se os
+      // eventos já confirmaram "pronto" enquanto isso.
+      if (!outcome.ok) {
+        setErrorDetail(outcome.detail || 'Não foi possível preparar a atualização.');
+        setStage((current) => (current === 'ready' ? current : 'error'));
+      }
+    } catch {
+      setErrorDetail('Não foi possível preparar a atualização. Tente novamente.');
+      setStage((current) => (current === 'ready' ? current : 'error'));
+    }
+  }
+
+  async function handleRestart(): Promise<void> {
+    setRestarting(true);
+    try {
+      await window.staffhub.updater.restartToUpdate();
+      // Sucesso aqui = o app está saindo para trocar de versão.
+    } catch {
+      setRestarting(false);
+      setErrorDetail('O hub não conseguiu reiniciar sozinho. Feche-o manualmente e abra de novo para concluir.');
+      setStage('error');
+    }
+  }
+
+  if (update === null || dismissed) return null;
+
+  const { manifest } = update;
+
+  // ---- Falha: callout vermelho + repetir ou adiar -------------------------
+  if (stage === 'error') {
+    return (
+      <div className="callout callout--danger" role="alert">
+        <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
+        <div className="callout-body">
+          <p className="callout-title">Falha ao atualizar</p>
+          <p>{errorDetail}</p>
+          <div className="row">
+            <button
+              type="button"
+              className="btn"
+              aria-label={`Tentar baixar a versão ${manifest.version} novamente`}
+              onClick={() => void handlePrepare()}
+            >
+              Tentar de novo
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              aria-label="Fechar aviso de atualização até a próxima visita"
+              onClick={() => setDismissed(true)}
+            >
+              Mais tarde
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Pronto: callout verde de sucesso + reinício explícito --------------
+  if (stage === 'ready') {
+    return (
+      <div className="callout callout--info">
+        <CheckCircle2 size={18} className="callout-icon" aria-hidden="true" />
+        <div className="callout-body">
+          <p className="callout-title">Versão {manifest.version} pronta</p>
+          <p>
+            Download conferido e extraído. O arquivo novo já está preparado — reinicie o hub para trocar
+            para a versão {manifest.version}.
+          </p>
+          <div className="row">
+            <button
+              type="button"
+              className="btn btn-danger"
+              aria-label={`Fechar o hub agora e abrir a nova versão ${manifest.version}`}
+              onClick={() => void handleRestart()}
+              disabled={restarting}
+            >
+              {restarting ? (
+                <>
+                  <span className="btn-spinner" aria-hidden="true" />
+                  Reiniciando…
+                </>
+              ) : (
+                <>
+                  <RefreshCw size={15} aria-hidden="true" />
+                  Reiniciar e atualizar
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Preparando: barra de download / fases conferir + extrair -----------
+  if (stage !== 'idle') {
+    const percent =
+      bytes.total > 0
+        ? Math.min(100, Math.max(0, Math.round((bytes.received / bytes.total) * 100)))
+        : 0;
+    const label =
+      bytes.total > 0
+        ? `${percent}% · ${formatMb(bytes.received)} / ${formatMb(bytes.total)} MB`
+        : `${formatMb(bytes.received)} MB baixados`;
+    return (
+      <div className="callout callout--info">
+        <DownloadCloud size={18} className="callout-icon" aria-hidden="true" />
+        <div className="callout-body" aria-live="polite">
+          <p className="callout-title">Preparando versão {manifest.version}</p>
+          {stage === 'download' && (
+            <div
+              className="progress"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={percent}
+              aria-label={`Baixando atualização: ${percent}% concluído`}
+            >
+              <div className="progress-track">
+                <div className="progress-fill" style={{ width: `${percent}%` }} />
+              </div>
+              <span className="progress-label">{label}</span>
+            </div>
+          )}
+          {stage === 'verify' && (
+            <p className="row">
+              <span className="btn-spinner" aria-hidden="true" /> Conferindo integridade…
+            </p>
+          )}
+          {stage === 'extract' && (
+            <p className="row">
+              <span className="btn-spinner" aria-hidden="true" /> Extraindo…
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Oferta inicial: notas do release + adiar ---------------------------
+  return (
+    <div className="callout callout--info">
+      <DownloadCloud size={18} className="callout-icon" aria-hidden="true" />
+      <div className="callout-body">
+        <p className="callout-title">Versão {manifest.version} disponível</p>
+        <p style={{ whiteSpace: 'pre-wrap' }}>{manifest.notes}</p>
+        <p className="muted">
+          Versão atual: {update.currentVersion} · Nova versão: {manifest.version}
+        </p>
+        <div className="row">
+          <button
+            type="button"
+            className="btn"
+            aria-label={`Baixar e preparar a versão ${manifest.version} agora`}
+            onClick={() => void handlePrepare()}
+          >
+            <DownloadCloud size={15} aria-hidden="true" />
+            Atualizar agora
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            aria-label="Fechar aviso de atualização até a próxima visita"
+            onClick={() => setDismissed(true)}
+          >
+            Mais tarde
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function DashboardPage({ onNavigate }: DashboardPageProps) {
@@ -85,6 +332,8 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           </div>
         </div>
       )}
+
+      <UpdateCard />
 
       <div className="stat-row">
         <StatBlock

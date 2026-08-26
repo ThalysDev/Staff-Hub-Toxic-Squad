@@ -21,6 +21,7 @@ import { Sg7Service } from './mutations/sg7-service';
 import { registerSg7Ipc } from './ipc-sg7';
 import { OpArchiveService } from './services/op-archive-service';
 import { registerOpIpc } from './ipc-op';
+import { UpdaterService } from './updater-service';
 import { registerSg5Ipc } from './ipc-sg5';
 import { DEFAULT_SETTINGS, type AppSettings, type QueueProgress } from '@shared/ipc-types';
 
@@ -46,6 +47,8 @@ function sanitizeSettings(value: Partial<AppSettings>): AppSettings {
   if (Number.isFinite(jitter) && jitter >= 0) safe.requestJitterMs = Math.round(jitter);
   const ceiling = Number(value.requestCeiling);
   if (Number.isFinite(ceiling) && ceiling >= 1) safe.requestCeiling = Math.round(ceiling);
+  const updateUrl = typeof value.updateUrl === 'string' ? value.updateUrl.trim() : '';
+  if (/^https?:\/\/\S+$/.test(updateUrl)) safe.updateUrl = updateUrl;
   return safe;
 }
 
@@ -213,6 +216,14 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('queue:cancel', () => queue?.cancel());
+
+  // Atualização pelo canal oficial (VPS): handlers finos sobre o UpdaterService.
+  const updater = new UpdaterService(settingsStore, journal, (progress) => send('updater:progress', progress));
+  ipcMain.handle('updater:check', async () => updater.check());
+  ipcMain.handle('updater:download-prepare', async () => updater.downloadAndPrepare());
+  ipcMain.handle('updater:restart', async () => {
+    await updater.restartToUpdate();
+  });
 
   // Titlebar personalizada (frame:false): controles de janela via IPC.
   ipcMain.handle('win:min', () => mainWindow?.minimize());

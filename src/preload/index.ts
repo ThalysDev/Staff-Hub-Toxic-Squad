@@ -50,6 +50,11 @@ const api = {
   queue: {
     cancel: () => invoke('queue:cancel'),
   },
+  updater: {
+    check: () => invoke('updater:check'),
+    downloadAndPrepare: () => invoke('updater:download-prepare'),
+    restartToUpdate: () => invoke('updater:restart'),
+  },
   dev: {
     captureFixture: (name: string, url: string) => invoke('dev:capture-fixture', name, url),
   },
@@ -123,6 +128,11 @@ const api = {
       const listener = (_event: Electron.IpcRendererEvent, maximized: boolean) => cb(maximized);
       ipcRenderer.on('win:max-changed', listener);
       return () => ipcRenderer.removeListener('win:max-changed', listener);
+    },
+    onUpdaterProgress: (cb: (progress: import('@shared/ipc-types').UpdateProgress) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: import('@shared/ipc-types').UpdateProgress) => cb(progress);
+      ipcRenderer.on('updater:progress', listener);
+      return () => ipcRenderer.removeListener('updater:progress', listener);
     },
     onSessionChanged: (cb: (status: SessionStatus) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, status: SessionStatus) => cb(status);

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Lock, RotateCcw, Save } from 'lucide-react';
-import type { AppSettings } from '@shared/ipc-types';
+import { AlertTriangle, CheckCircle2, Lock, RefreshCw, RotateCcw, Save } from 'lucide-react';
+import type { AppSettings, UpdateCheckResult } from '@shared/ipc-types';
 import { DEFAULT_SETTINGS } from '@shared/ipc-types';
 import PageHeader from '../components/PageHeader';
 import ToastViewport from '../components/Toast';
@@ -10,7 +10,7 @@ interface SettingsDraft {
   requestMinIntervalMs: string;
   requestJitterMs: string;
   requestCeiling: string;
-  }
+}
 
 function toDraft(settings: AppSettings): SettingsDraft {
   return {
@@ -37,6 +37,21 @@ function validateDraft(draft: SettingsDraft): FieldErrors {
   if (!Number.isFinite(ceiling) || ceiling <= 0) errors.ceiling = 'Informe um número maior que zero.';
 
   return errors;
+}
+
+/** Validação de UI do canal: só aceita URL absoluta http(s). */
+function validateUpdateUrl(value: string): string | undefined {
+  const trimmed = value.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return 'Informe a URL completa do latest.json (começa com http:// ou https://).';
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return 'O canal precisa começar com http:// ou https://.';
+  }
+  return undefined;
 }
 
 function describedBy(id: string, hasError: boolean): string {
@@ -105,6 +120,14 @@ export default function SettingsPage() {
   const [savedAt, setSavedAt] = useState(0);
   const [justSaved, setJustSaved] = useState(false);
   const [loadError, setLoadError] = useState(false);
+
+  // ---- Seção Atualizações -------------------------------------------------
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [updateUrlDraft, setUpdateUrlDraft] = useState('');
+  const [savingChannel, setSavingChannel] = useState(false);
+  const [checkBusy, setCheckBusy] = useState(false);
+  const [checkResult, setCheckResult] = useState<UpdateCheckResult | null>(null);
+
   const { toasts, push, dismiss } = useToast();
 
   useEffect(() => {
@@ -115,10 +138,17 @@ export default function SettingsPage() {
         if (cancelled) return;
         setSettings(current);
         setDraft(toDraft(current));
+        setUpdateUrlDraft(current.updateUrl);
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
       });
+    void window.staffhub.app
+      .getVersion()
+      .then((value) => {
+        if (!cancelled) setAppVersion(value);
+      })
+      .catch(() => undefined); // Versão fica em "…" até resolver.
     return () => {
       cancelled = true;
     };
@@ -162,6 +192,41 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleSaveChannel(): Promise<void> {
+    if (!settings) return;
+    const channelUrl = updateUrlDraft.trim();
+    if (validateUpdateUrl(channelUrl) !== undefined) return;
+    setSavingChannel(true);
+    try {
+      const updated = await window.staffhub.settings.update({ updateUrl: channelUrl });
+      setSettings(updated);
+      setUpdateUrlDraft(updated.updateUrl);
+      push('ok', 'Canal de atualização salvo.');
+    } catch {
+      push('error', 'Não foi possível salvar o canal de atualização. Tente novamente.');
+    } finally {
+      setSavingChannel(false);
+    }
+  }
+
+  async function handleCheckNow(): Promise<void> {
+    setCheckBusy(true);
+    setCheckResult(null);
+    try {
+      setCheckResult(await window.staffhub.updater.check());
+    } catch {
+      // Falha de ponte IPC: vira erro visível na linha de resultado.
+      setCheckResult({
+        currentVersion: appVersion ?? '?',
+        latestVersion: '?',
+        updateAvailable: false,
+        error: 'Não foi possível consultar o canal de atualização agora.',
+      });
+    } finally {
+      setCheckBusy(false);
+    }
+  }
+
   if (loadError) {
     return (
       <section className="page">
@@ -190,6 +255,9 @@ export default function SettingsPage() {
   const errors = validateDraft(draft);
   const canSave =
     errors.min === undefined && errors.jitter === undefined && errors.ceiling === undefined;
+
+  const channelTrimmed = updateUrlDraft.trim();
+  const channelError = validateUpdateUrl(channelTrimmed);
 
   return (
     <section className="page">
@@ -273,6 +341,110 @@ export default function SettingsPage() {
           </form>
         </div>
       </div>
+
+      <section className="page-section">
+        <h2 className="section-title">Atualizações</h2>
+        <div className="card">
+          <div className="card-body">
+            <form
+              className="col"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleSaveChannel();
+              }}
+            >
+              <div className="field">
+                <label className="field-label" htmlFor="updateChannelUrl">
+                  Canal de atualização (latest.json)
+                </label>
+                <input
+                  id="updateChannelUrl"
+                  className="input"
+                  type="url"
+                  value={updateUrlDraft}
+                  aria-describedby={
+                    channelError !== undefined ? 'updateChannelUrl-error' : 'updateChannelUrl-hint'
+                  }
+                  aria-invalid={channelError !== undefined || undefined}
+                  onChange={(event) => setUpdateUrlDraft(event.target.value)}
+                />
+                {channelError !== undefined ? (
+                  <p className="field-error" id="updateChannelUrl-error" role="alert">
+                    {channelError}
+                  </p>
+                ) : (
+                  <p className="field-hint" id="updateChannelUrl-hint">
+                    Endereço do manifest que o hub consulta por novas versões.
+                  </p>
+                )}
+              </div>
+
+              <div className="row">
+                <button
+                  type="submit"
+                  className="btn"
+                  aria-label="Salvar o canal de atualização"
+                  disabled={savingChannel || channelError !== undefined || channelTrimmed === ''}
+                >
+                  {savingChannel ? (
+                    <>
+                      <span className="btn-spinner" aria-hidden="true" />
+                      Salvando…
+                    </>
+                  ) : (
+                    <>
+                      <Save size={15} aria-hidden="true" />
+                      Salvar canal
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  aria-label="Verificar agora se existe nova versão no canal"
+                  onClick={() => void handleCheckNow()}
+                  disabled={checkBusy}
+                >
+                  {checkBusy ? (
+                    <>
+                      <span className="btn-spinner" aria-hidden="true" />
+                      Verificando…
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw size={15} aria-hidden="true" />
+                      Verificar agora
+                    </>
+                  )}
+                </button>
+                <span className="muted">
+                  Versão instalada: <strong>{appVersion ?? '…'}</strong>
+                </span>
+              </div>
+
+              {checkResult !== null &&
+                (checkResult.error !== undefined ? (
+                  <p className="error" role="alert">
+                    {checkResult.error}
+                  </p>
+                ) : checkResult.updateAvailable ? (
+                  <p className="text-warn">
+                    Versão {checkResult.latestVersion} disponível — veja o aviso no Início.
+                  </p>
+                ) : (
+                  <p className="ok" role="status">
+                    Você está na versão mais recente ({checkResult.currentVersion}).
+                  </p>
+                ))}
+
+              <p className="hint-note">
+                O download e a instalação acontecem pelo botão no Início; a versão só é trocada quando você clica
+                em Reiniciar e atualizar.
+              </p>
+            </form>
+          </div>
+        </div>
+      </section>
       <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
