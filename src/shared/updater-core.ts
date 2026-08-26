@@ -80,6 +80,10 @@ export interface SwapScriptInput {
 const DEFAULT_MAX_WAIT_SECONDS = 120;
 // Caracteres proibidos em caminhos embutidos no .cmd: quebrariam as linhas/aspas do script.
 const CARACTERES_PROIBIDOS_RE = /["\r\n\0]/;
+// O cmd.exe lê o .cmd no CODEPAGE OEM, não em UTF-8 — acentos no caminho
+// (ex.: C:\Users\Usuário) viram mojibake e o ren/move procuram pasta
+// inexistente. Caminhos no script devem ser ASCII (use o path curto 8.3).
+const CARACTERE_NAO_ASCII_RE = /[^\x20-\x7E]/;
 
 function exigir(condicao: boolean, mensagem: string): void {
   if (!condicao) throw new Error(mensagem);
@@ -88,6 +92,7 @@ function exigir(condicao: boolean, mensagem: string): void {
 function validarString(valor: string, campo: string): void {
   exigir(typeof valor === 'string' && valor.trim().length > 0, `Campo ${campo} não pode ser vazio.`);
   exigir(!CARACTERES_PROIBIDOS_RE.test(valor), `Campo ${campo} contém caractere proibido no .cmd.`);
+  exigir(!CARACTERE_NAO_ASCII_RE.test(valor), `Campo ${campo} contém caractere não-ASCII (acento?) — o cmd.exe leria errado; converta para caminho curto 8.3 antes.`);
 }
 
 // Último segmento do caminho Windows (aceita "\\" ou "/" como separador).

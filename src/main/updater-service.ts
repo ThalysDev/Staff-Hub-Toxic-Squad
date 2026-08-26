@@ -3,7 +3,7 @@
 // o executável ou pasta de staging corrompida ABORTEM sem tocar na instalação
 // atual. A troca de pasta só acontece pelo script .cmd externo (buildSwapScript
 // do @shared/updater-core) depois que o app sai — o .exe rodando fica travado.
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -15,6 +15,24 @@ import type { AppSettings, UpdateCheckResult, UpdateManifest, UpdateProgress } f
 import { buildSwapScript, isNewerVersion, isValidManifest } from '@shared/updater-core';
 
 const EXE_NAME = 'Staff Hub Toxic Squad.exe';
+
+/** Caminho curto 8.3 (ASCII puro) de um caminho Windows — o cmd.exe lê o .cmd
+ *  no codepage OEM e acentos do perfil (Usuário) corromperiam o ren/move.
+ *  Fail-closed: se o volume não gerar path curto, erro claro (sem adivinhar). */
+function shortPathOf(absolutePath: string): string {
+  const result = execSync(`for %I in ("${absolutePath.replace(/"/g, '')}") do @echo %~sI`, {
+    shell: 'cmd.exe',
+    encoding: 'buffer',
+    windowsHide: true,
+    timeout: 10_000,
+  })
+    .toString('latin1')
+    .trim();
+  if (result === '' || /[^\x20-\x7E]/.test(result) || !existsSync(result)) {
+    throw new Error(`Não consegui o caminho curto (8.3) de ${absolutePath} — verifique se nomes curtos estão habilitados no disco (fsutil 8dot3name).`);
+  }
+  return result;
+}
 
 export class UpdaterService {
   /** staging preparado pela última downloadAndPrepare bem-sucedida. */
@@ -98,13 +116,23 @@ export class UpdaterService {
   }
 
   private async doDownloadAndPrepare(): Promise<{ ok: boolean; detail: string }> {
-    this.prepared = null;
     try {
+      await this.journal.append('system', 'update-download-start', 'downloadAndPrepare iniciado', false);
       const check = await this.check();
       const manifest = check.manifest;
       if (manifest === undefined) {
-        return { ok: false, detail: check.error ?? `Você já está na versão mais recente (${check.currentVersion}).` };
+        const detail = check.error ?? `Você já está na versão mais recente (${check.currentVersion}).`;
+        await this.journal.append('system', 'update-error', `check sem manifest: ${detail}`, false);
+        return { ok: false, detail };
       }
+      // Idempotência: staging já preparado para ESTA versão (ex.: usuário
+      // navegou para outra página e voltou ao Início, que remonta o card) —
+      // não baixa de novo, só re-emite o estado pronto para a UI.
+      if (this.prepared !== null && this.prepared.version === manifest.version && existsSync(this.prepared.scriptPath)) {
+        this.emit({ phase: 'ready', version: manifest.version });
+        return { ok: true, detail: `Versão ${manifest.version} pronta — clique em Reiniciar e atualizar.` };
+      }
+      this.prepared = null;
 
       const updatesDir = join(app.getPath('userData'), 'updates');
       rmSync(updatesDir, { recursive: true, force: true });
@@ -191,28 +219,30 @@ export class UpdaterService {
       }
 
       // 4. Script de troca (em %TEMP%): espera este processo sair, troca as
-      // pastas, relança a nova versão e apaga o resto de si.
+      // pastas, relança a nova versão e apaga o resto de si. O cmd.exe lê o
+      // .cmd no codepage OEM — caminhos com ACENTO (ex.: C:\Users\Usuário)
+      // viram mojibake e o ren falha. Caminhos curtos 8.3 são ASCII puro.
       const stamp = `${Date.now()}`;
       const scriptPath = join(app.getPath('temp'), `staffhub-update-${stamp}.cmd`);
       const currentAppDir = join(process.execPath, '..');
       const script = buildSwapScript({
         pid: process.pid,
-        appDir: currentAppDir,
-        stagedDir: appDir,
+        appDir: shortPathOf(currentAppDir),
+        stagedDir: shortPathOf(appDir),
         exeName: EXE_NAME,
         stamp,
       });
-      writeFileSync(scriptPath, script, 'utf8');
+      writeFileSync(scriptPath, script, 'ascii');
 
       this.prepared = { version: manifest.version, scriptPath };
       this.emit({ phase: 'ready', version: manifest.version });
       await this.journal.append('system', 'update-ready', `versão ${manifest.version} preparada — aguardando reinício`, false);
       return { ok: true, detail: `Versão ${manifest.version} pronta — clique em Reiniciar e atualizar.` };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.emit({ phase: 'error', detail: message });
-      await this.journal.append('system', 'update-error', message, false);
-      return { ok: false, detail: message };
+      const stack = error instanceof Error ? `${error.message} @ ${(error.stack ?? '').split('\n')[1]?.trim()}` : String(error);
+      this.emit({ phase: 'error', detail: error instanceof Error ? error.message : String(error) });
+      await this.journal.append('system', 'update-error', stack, false);
+      return { ok: false, detail: error instanceof Error ? error.message : String(error) };
     }
   }
 

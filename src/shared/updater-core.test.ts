@@ -151,6 +151,14 @@ describe('buildSwapScript', () => {
     expect(script).toContain('ping -n 2 127.0.0.1');
   });
 
+  it('caminho com ACENTO é rejeitado — cmd.exe lê o .cmd no codepage OEM', () => {
+    // Regressão do E2E: C:\Users\Usuário em UTF-8 vira mojibake no cmd e o
+    // ren procura pasta inexistente. Caller deve converter para path curto 8.3.
+    expect(() =>
+      buildSwapScript({ ...SWAP_BASE, appDir: 'C:\\Users\\Usuário\\AppData\\staff-hub' }),
+    ).toThrow(/não-ASCII/);
+  });
+
   it('todos os caminhos aparecem entre aspas duplas — inclusive com espaços', () => {
     const script = buildSwapScript(SWAP_BASE);
     expect(script).toContain(`"${SWAP_BASE.appDir}"`);
