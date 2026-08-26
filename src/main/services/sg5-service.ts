@@ -1,4 +1,4 @@
-import { parseIncomingCommandRows, totalsByPlayer, type IncomingCommandRow, type PlayerCommandTotal } from '@shared/parsers/village-parsers';
+import { parseIncomingCommandRows, pageLoadSec, totalsByPlayer, type IncomingCommandRow, type PlayerCommandTotal } from '@shared/parsers/village-parsers';
 import type { WorldDataService } from './world-data-service';
 import type { RequestQueue } from '../tw/request-queue';
 import { QueueError } from '../tw/request-queue';
@@ -15,6 +15,10 @@ export interface VerifyEntry {
 
 export interface VillageVerification {
   coord: string;
+  /** Momento (epoch ms) em que a página do alvo foi carregada — âncora da
+   * própria página (Timing.init) quando presente; fallback = hora do fetch.
+   * Base do Gantt: chegada absoluta = loadedAt + arrivalSecFromLoad. */
+  loadedAt: number;
   /** Comandos compartilhados chegando (todos os tipos). */
   commands: IncomingCommandRow[];
 }
@@ -62,7 +66,7 @@ export class Sg5Service {
     return map;
   }
 
-  private async fetchVillagePages(coords: string[], label: string): Promise<Map<string, IncomingCommandRow[]>> {
+  private async fetchVillagePages(coords: string[], label: string): Promise<Map<string, VillageVerification>> {
     const world = this.world();
     const idByCoord = await this.coordToVillageId();
     const missing = coords.filter((coord) => !idByCoord.has(coord));
@@ -71,6 +75,9 @@ export class Sg5Service {
     }
     const urls = coords.map((coord) => `https://${world}.tribalwars.com.br/game.php?screen=info_village&id=${idByCoord.get(coord)}`);
     const ceiling = await this.ceiling();
+    // Âncora de fallback amostrada ANTES do lote: sem ela, páginas sem
+    // Timing.init ancorariam no FIM do lote inteiro (drift de minutos).
+    const fallbackLoadedAt = Date.now();
     let bodies: string[];
     try {
       bodies = await this.queue.run(urls, { label, ceiling });
@@ -80,10 +87,18 @@ export class Sg5Service {
       }
       throw error;
     }
-    const byCoord = new Map<string, IncomingCommandRow[]>();
+    const byCoord = new Map<string, VillageVerification>();
     coords.forEach((coord, index) => {
       const body = bodies[index];
-      if (body !== undefined) byCoord.set(coord, parseIncomingCommandRows(body));
+      if (body === undefined) return;
+      // Âncora da PRÓPRIA página (Timing.init) quando existe; sem ela, o
+      // momento do fetch é a melhor âncora disponível (drift ≤ duração do lote).
+      const anchorSec = pageLoadSec(body);
+      byCoord.set(coord, {
+        coord,
+        loadedAt: anchorSec !== null ? Math.round(anchorSec * 1000) : fallbackLoadedAt,
+        commands: parseIncomingCommandRows(body),
+      });
     });
     return byCoord;
   }
@@ -102,9 +117,10 @@ export class Sg5Service {
     const villages: VillageVerification[] = [];
     const unknown: IncomingCommandRow[] = [];
     for (const coord of allCoords) {
-      const commands = byCoord.get(coord) ?? [];
-      villages.push({ coord, commands });
-      for (const command of commands) {
+      const verification = byCoord.get(coord);
+      if (verification === undefined) continue;
+      villages.push(verification);
+      for (const command of verification.commands) {
         if (!expectedPlayers.has(command.playerName)) unknown.push(command);
       }
     }
@@ -119,7 +135,7 @@ export class Sg5Service {
     }
     const byCoord = await this.fetchVillagePages(coords, `Totalizando comandos (${coords.length} aldeias)`);
     const all: IncomingCommandRow[] = [];
-    for (const rows of byCoord.values()) all.push(...rows);
+    for (const verification of byCoord.values()) all.push(...verification.commands);
     await this.journal.append('read', 'sg5-totals', `${coords.length} aldeias — ${all.length} comandos`, true);
     return { generatedAt: new Date().toISOString(), totals: totalsByPlayer(all) };
   }

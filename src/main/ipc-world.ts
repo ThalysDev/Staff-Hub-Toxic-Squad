@@ -84,6 +84,14 @@ export function registerWorldIpc(deps: WorldIpcDeps): void {
     }
   });
 
+  ipcMain.handle('world:night-bonus', async () => {
+    try {
+      return await sg1.nightBonus();
+    } catch (error) {
+      fail('Falha ao obter o bônus noturno do mundo', error);
+    }
+  });
+
   ipcMain.handle('world:relations', async () => {
     try {
       const relations = await worldData.relations();

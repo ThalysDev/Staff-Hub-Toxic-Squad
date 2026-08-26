@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { KeyRound, MapPin } from 'lucide-react';
 import type { Sg6MutationOutcome } from '@shared/ipc-types';
 import { parseCoordList } from '@shared/coords';
+import { previewMps, validateNicks, type NickValidation } from '@shared/mp-preview';
 import { useToast } from '../../hooks/useToast';
 import ToastViewport from '../../components/Toast';
 
@@ -17,6 +18,40 @@ export default function Sg6Page() {
   const [mpResults, setMpResults] = useState<Sg6MutationOutcome[] | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // U5: validação dos nicks contra o dump do mundo (players), para o painel de
+  // confirmação. Sem dump disponível, a validação fica best-effort (aviso).
+  const [nickValidation, setNickValidation] = useState<{ validation: NickValidation; source: 'dump' } | { validation: null; source: 'indisponivel' } | null>(null);
+
+  useEffect(() => {
+    if (mpPending === null) {
+      setNickValidation(null);
+      return;
+    }
+    let cancelled = false;
+    void window.staffhub.world
+      .players()
+      .then((players) => {
+        if (!cancelled) setNickValidation({ validation: validateNicks(mpPending, players.map((player) => player.name)), source: 'dump' });
+      })
+      .catch(() => {
+        if (!cancelled) setNickValidation({ validation: null, source: 'indisponivel' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mpPending]);
+
+  /** Prévia EXATA da 1ª MP (mesma substituição de #alvos# do envio real). */
+  const firstMpPreview = useMemo(() => {
+    if (mpPending === null || mpPending.length === 0) return null;
+    return previewMps(mpSubject, mpBody, mpPending, 1)[0] ?? null;
+  }, [mpPending, mpSubject, mpBody]);
+
+  const blockUnknownNicks = nickValidation?.source === 'dump' && nickValidation.validation !== null && nickValidation.validation.unknown.length > 0;
+  /** Fail-closed em mutação REAL: Confirmar fica travado ENQUANTO a validação
+   * de nicks está em voo (nunca "habilitado até provar problema"). */
+  const validatingNicks = mpPending !== null && nickValidation === null;
 
   function parseMpEntries(text: string): { playerName: string; coords: string[] }[] {
     const entries: { playerName: string; coords: string[] }[] = [];
@@ -211,8 +246,48 @@ export default function Sg6Page() {
               Confirmar envio de <strong>{mpPending.length}</strong> MP(s)? Nick tem de bater exatamente; envio
               sequencial com pacing humano.
             </p>
+            {firstMpPreview !== null && (
+              <div className="sg6-preview">
+                <p className="field-label">Prévia da 1ª MP ({firstMpPreview.playerName}) — #alvos# já substituído:</p>
+                <pre className="sg7-code">{`Assunto: ${firstMpPreview.subject}\n\n${firstMpPreview.body}`}</pre>
+              </div>
+            )}
+            {nickValidation !== null && nickValidation.source === 'dump' && nickValidation.validation !== null && (
+              <div className="sg6-nick-check">
+                <p className="field-label">Nicks contra o dump do mundo:</p>
+                <ul className="sg6-nick-list">
+                  {nickValidation.validation.caseMismatch.map((mismatch) => (
+                    <li key={mismatch.given} className="text-warn">
+                      ⚠ {mismatch.given} — no jogo consta “{mismatch.known}” (MP diferencia maiúsculas!)
+                    </li>
+                  ))}
+                  {nickValidation.validation.unknown.map((nick) => (
+                    <li key={nick} className="error">
+                      ✕ {nick} — não existe no dump do mundo
+                    </li>
+                  ))}
+                  {nickValidation.validation.valid.length > 0 && (
+                    <li className="ok">✓ {nickValidation.validation.valid.length} nick(s) confirmados no dump</li>
+                  )}
+                </ul>
+                {blockUnknownNicks && (
+                  <p className="error" role="alert">
+                    Há nick(s) que NÃO existem no dump — corrija as linhas antes de enviar (MP para nick errado não entrega).
+                  </p>
+                )}
+              </div>
+            )}
+            {nickValidation !== null && nickValidation.source === 'indisponivel' && (
+              <p className="muted">Não foi possível validar os nicks contra o dump do mundo (dump não baixado?) — revise manualmente.</p>
+            )}
+            {validatingNicks && <p className="muted">Validando nicks contra o dump do mundo…</p>}
             <div className="row">
-              <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void runMps(mpPending)}>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={busy || validatingNicks || blockUnknownNicks}
+                onClick={() => void runMps(mpPending)}
+              >
                 {busy ? <><span className="btn-spinner" aria-hidden="true" /> Enviando…</> : 'Confirmar Envio'}
               </button>
               <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setMpPending(null)}>

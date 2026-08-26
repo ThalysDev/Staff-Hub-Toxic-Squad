@@ -22,7 +22,7 @@ export interface Sg5VerifyEntry {
 
 export interface Sg5VerifyResult {
   generatedAt: string;
-  villages: { coord: string; commands: IncomingCommandRow[] }[];
+  villages: { coord: string; loadedAt: number; commands: IncomingCommandRow[] }[];
   unknown: IncomingCommandRow[];
 }
 
@@ -118,6 +118,64 @@ export type FixtureCaptureResult =
   | { ok: true; name: string; bytes: number; path: string }
   | { ok: false; name: string; error: string };
 
+// ---------------------------------------------------------------------------
+// Arquivo de OPs + Sala de Guerra (Sprint 3)
+// ---------------------------------------------------------------------------
+
+/** Participação de um jogador na conferência de UMA OP. */
+export interface OpPlayerConference {
+  playerName: string;
+  /** Alvos atribuídos ao jogador na distribuição. */
+  assigned: number;
+  /** Alvos dele com ≥1 comando compartilhado chegando. */
+  sent: number;
+}
+
+/** Conferência de uma OP (derivada do SG_5 verify) arquivada com a OP. */
+export interface OpConferenceSnapshot {
+  verifiedAt: string;
+  /** % de alvos com ≥1 comando do jogador esperado (0–100). */
+  coveragePct: number;
+  perPlayer: OpPlayerConference[];
+  /** Alvos atribuídos sem NENHUM comando do jogador esperado. */
+  targetsWithoutCommand: string[];
+}
+
+/** Totalizador de UMA OP (snapshot do SG_5 totals). */
+export interface OpTotalsSnapshot {
+  playerName: string;
+  attacks: number;
+  fakes: number;
+  nobleAttacks: number;
+  supports: number;
+  total: number;
+}
+
+/** OP arquivada — memória histórica das operações da tribo. */
+export interface OpArchiveEntry {
+  id: string;
+  title: string;
+  createdAt: string;
+  /** Alvos da OP (coords). */
+  targets: string[];
+  /** Distribuição "nick;coords" (saída do SG_4) no arquivamento. */
+  distribution: string;
+  /** Agenda "nick;alvo;HH:MM:SS" (saída da calculadora de envio), se houver. */
+  sendSchedule?: string;
+  conference?: OpConferenceSnapshot;
+  totals?: OpTotalsSnapshot[];
+}
+
+/** Entrada para criar/atualizar uma OP do arquivo. */
+export interface OpSaveInput {
+  /** Presente = atualiza a OP existente (mesmo id). */
+  id?: string;
+  title: string;
+  targets: string[];
+  distribution: string;
+  sendSchedule?: string;
+}
+
 export type SidLoginResult =
   | { ok: true; status: SessionStatus }
   | { ok: false; error: string };
@@ -162,6 +220,8 @@ export interface StaffHubApi {
     players(): Promise<WorldPlayer[]>;
     /** Minutos por campo do NOBRE no mundo ativo (efetivo, com speeds). */
     nobleMinutes(): Promise<number>;
+    /** Bônus noturno do mundo (get_config): se ativo e a janela de horas. */
+    nightBonus(): Promise<{ active: boolean; startHour: number; endHour: number }>;
     /** Relações diplomáticas da tribo do jogador (página autenticada). */
     relations(): Promise<DiplomacyRelations>;
   };
@@ -204,6 +264,16 @@ export interface StaffHubApi {
     reserveMass(coords: string[], confirm: boolean): Promise<Sg6MutationOutcome[]>;
     /** MPs personalizadas (#alvos#) — MUTAÇÃO: confirmação dupla + journal (modo real permanente). */
     sendMps(input: { subject: string; body: string; entries: { playerName: string; coords: string[] }[] }, confirm: boolean): Promise<Sg6MutationOutcome[]>;
+  };
+  opArchive: {
+    /** OPs arquivadas, mais recente primeiro. */
+    list(): Promise<OpArchiveEntry[]>;
+    /** Cria (sem id) ou atualiza (com id) uma OP do arquivo. */
+    save(input: OpSaveInput): Promise<OpArchiveEntry>;
+    /** Anexa a conferência (e opcionalmente o totalizador) a uma OP arquivada. */
+    attachConference(id: string, conference: OpConferenceSnapshot, totals?: OpTotalsSnapshot[]): Promise<OpArchiveEntry>;
+    /** Remove uma OP do arquivo (confirmação na UI). */
+    remove(id: string): Promise<void>;
   };
   window: {
     /** Titlebar personalizada (frame:false). */

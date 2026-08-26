@@ -3,6 +3,10 @@ import type {
   AppSettings,
   BlindCheckInput,
   BlindVillageResult,
+  OpArchiveEntry,
+  OpConferenceSnapshot,
+  OpSaveInput,
+  OpTotalsSnapshot,
   QueueProgress,
   SessionStatus,
   Sg1Input,
@@ -38,6 +42,8 @@ const api = {
     villages: () => ipcRenderer.invoke('world:villages'),
     players: () => ipcRenderer.invoke('world:players'),
     nobleMinutes: () => ipcRenderer.invoke('world:noble-minutes'),
+    nightBonus: () =>
+      ipcRenderer.invoke('world:night-bonus') as Promise<{ active: boolean; startHour: number; endHour: number }>,
     relations: () => ipcRenderer.invoke('world:relations'),
   },
   sg1: {
@@ -63,6 +69,13 @@ const api = {
     reserveMass: (coords: string[], confirm: boolean) => ipcRenderer.invoke("sg6:reserve-mass", coords, confirm),
     sendMps: (input: { subject: string; body: string; entries: { playerName: string; coords: string[] }[] }, confirm: boolean) =>
       ipcRenderer.invoke("sg6:send-mps", input, confirm),
+  },
+  opArchive: {
+    list: () => ipcRenderer.invoke('oparchive:list') as Promise<OpArchiveEntry[]>,
+    save: (input: OpSaveInput) => ipcRenderer.invoke('oparchive:save', input) as Promise<OpArchiveEntry>,
+    attachConference: (id: string, conference: OpConferenceSnapshot, totals?: OpTotalsSnapshot[]) =>
+      ipcRenderer.invoke('oparchive:attach-conference', id, conference, totals) as Promise<OpArchiveEntry>,
+    remove: (id: string) => ipcRenderer.invoke('oparchive:remove', id) as Promise<void>,
   },
   sg5: {
     verify: (entries: import('@shared/ipc-types').Sg5VerifyEntry[]) =>

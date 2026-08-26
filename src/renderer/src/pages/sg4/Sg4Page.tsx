@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { Copy, Crosshair, Plus, Radar, Share2, Swords } from 'lucide-react';
+import { Clock, Copy, Crosshair, Plus, Radar, Share2, Swords } from 'lucide-react';
 import { parseCoord, parseCoordList } from '@shared/coords';
 import {
   centralOpAnalysis,
@@ -11,8 +11,12 @@ import {
   type DistributionInput,
   type DistributionResult,
   type EnemyVillageRef,
+  type OriginPlayer,
   type TargetLine,
 } from '@shared/sg4-engine';
+import { computeSendTimes, formatHms, formatSendSchedule, nobleTrain, type SendScheduleRow } from '@shared/sg4-timing';
+import { originsFromSnapshot } from '@shared/origins-from-snapshot';
+import { solveDepartureForArrival, type NightBonusCfg } from '@shared/night-bonus';
 import type { DiplomacyRelations, WorldPlayer } from '@shared/types';
 import Field from '../../components/Field';
 import PageHeader from '../../components/PageHeader';
@@ -113,6 +117,16 @@ export default function Sg4Page() {
   const [busyB, setBusyB] = useState(false);
   const [planning, setPlanning] = useState<DistributionResult | null>(null);
   const [distribution, setDistribution] = useState<DistributionResult | null>(null);
+
+  // ---- Seção C — Agenda de envio (timing da OP: P0-1/P0-2/P0-6) ----
+  const [opTimeText, setOpTimeText] = useState('22:00');
+  const [noblesText, setNoblesText] = useState('1');
+  const [spacingText, setSpacingText] = useState('300');
+  const [scheduleRows, setScheduleRows] = useState<SendScheduleRow[] | null>(null);
+  const [timingError, setTimingError] = useState('');
+  // ---- P0-9 — Arquivo de OPs ----
+  const [opTitle, setOpTitle] = useState(`OP do ${new Date().toLocaleDateString('pt-BR')}`);
+  const [archiving, setArchiving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -267,6 +281,47 @@ export default function Sg4Page() {
     }
   }
 
+  /** P0-7: origens "nick;fulls;coords" direto do snapshot de tropas do SG_2. */
+  async function fillOriginsFromSnapshot(): Promise<void> {
+    try {
+      const snapshot = await window.staffhub.troops.get('troops');
+      if (snapshot === null) {
+        push('error', 'Nenhum snapshot de tropas — rode a coleta no SG_2 antes de preencher.');
+        return;
+      }
+      const text = originsFromSnapshot(snapshot);
+      if (text === '') {
+        push('error', 'Snapshot sem aldeias com nobre (snob) — nada para preencher.');
+        return;
+      }
+      setOriginsText(text);
+      const playerCount = text.split('\n').filter((line) => line.trim() !== '').length;
+      push('ok', `Origens preenchidas do SG_2: ${playerCount} jogador(es) com aldeia full.`);
+    } catch (error) {
+      push('error', errorMessage(error));
+    }
+  }
+
+  /** P0-9: arquiva a OP atual (alvos + distribuição + agenda) no arquivo de OPs. */
+  async function archiveOp(): Promise<void> {
+    if (distribution === null || distribution.assignments.length === 0) return;
+    setArchiving(true);
+    try {
+      const targets = [...new Set(distribution.assignments.map((assignment) => assignment.target))];
+      const entry = await window.staffhub.opArchive.save({
+        title: opTitle.trim() === '' ? `OP do ${new Date().toLocaleDateString('pt-BR')}` : opTitle.trim(),
+        targets,
+        distribution: distributionSummary(distribution),
+        ...(scheduleRows !== null && scheduleRows.length > 0 ? { sendSchedule: formatSendSchedule(scheduleRows) } : {}),
+      });
+      push('ok', `OP "${entry.title}" arquivada (${targets.length} alvos) — acompanhe na Sala de Guerra.`);
+    } catch (error) {
+      push('error', errorMessage(error));
+    } finally {
+      setArchiving(false);
+    }
+  }
+
   // -----------------------------------------------------------------------
   // Seção B
   // -----------------------------------------------------------------------
@@ -361,6 +416,9 @@ export default function Sg4Page() {
         push('ok', `Planificação: ${result.matrix.length} origem(ns) × ${result.lineTargets.length} alvo(s).`);
       } else {
         setDistribution(result);
+        // Distribuição nova = agenda antiga órfã (lookup de campos mudou).
+        setScheduleRows(null);
+        setTimingError('');
         push(
           'ok',
           `Distribuição: ${result.assignments.length} atacante(s) alocado(s) — ${result.orphanOrigins.length} origem(ns) e ${result.orphanTargets.length} alvo(s) órfãos.`,
@@ -381,6 +439,102 @@ export default function Sg4Page() {
     if (hours.length === 0) return { min: 0, max: 1 };
     return { min: Math.min(...hours), max: Math.max(...hours) };
   }, [planning]);
+
+  /**
+   * P0-1/P0-2/P0-6: agenda de envio = chegada desejada − tempo de viagem
+   * (com bônus noturno aplicado por par, quando ativo no mundo) + trem de
+   * nobres (N envios por alvo espaçados em segundos).
+   */
+  async function runSendSchedule(): Promise<void> {
+    setTimingError('');
+    setScheduleRows(null);
+    if (distribution === null || distribution.assignments.length === 0) {
+      setTimingError('Realize a distribuição antes de calcular os horários de envio.');
+      return;
+    }
+    const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(opTimeText.trim());
+    if (timeMatch === null) {
+      setTimingError('Horário inválido — use HH:MM (ex.: 22:00).');
+      return;
+    }
+    const hour = Number(timeMatch[1]);
+    const minute = Number(timeMatch[2]);
+    const noblesPerTarget = Number(noblesText);
+    const spacingSec = Number(spacingText);
+    if (!Number.isInteger(noblesPerTarget) || noblesPerTarget < 1) {
+      setTimingError('Nobres por alvo deve ser um número inteiro maior ou igual a 1.');
+      return;
+    }
+    if (!Number.isFinite(spacingSec) || spacingSec < 0) {
+      setTimingError('Espaçamento entre nobres deve ser um número de segundos maior ou igual a 0.');
+      return;
+    }
+    try {
+      const noble = nobleMinutes > 0 ? nobleMinutes : await window.staffhub.world.nobleMinutes();
+      if (nobleMinutes === 0) setNobleMinutes(noble);
+      let nightCfg: NightBonusCfg | null = null;
+      try {
+        const night = await window.staffhub.world.nightBonus();
+        nightCfg = { nightBonusActive: night.active, nightStartHour: night.startHour, nightEndHour: night.endHour };
+      } catch {
+        nightCfg = null; // sem config do mundo: viagem clássica, sem bônus
+      }
+
+      // Campos por par origem×alvo direto da planilha da distribuição.
+      const fieldsByPair = new Map<string, number>();
+      distribution.matrix.forEach((row) => {
+        distribution.lineTargets.forEach((target, index) => {
+          fieldsByPair.set(`${row.origin}|${target.x}|${target.y}`, row.cells[index]?.fields ?? 0);
+        });
+      });
+
+      const base = new Date();
+      const arrival = new Date(base.getFullYear(), base.getMonth(), base.getDate(), hour, minute, 0, 0);
+      const travelMinutesPerPair = (originPlayer: OriginPlayer, targetCoord: string): number => {
+        const originCoord = originPlayer.origins[0];
+        if (originCoord === undefined) {
+          throw new Error(`Jogador ${originPlayer.playerName} sem aldeia de origem — confira INFORMAÇÕES ORIGEM.`);
+        }
+        const key = `${originCoord.x}|${originCoord.y}|${targetCoord}`;
+        const fields = fieldsByPair.get(key);
+        if (fields === undefined) {
+          throw new Error(`Par origem×alvo fora da planilha (${key}) — rode a distribuição novamente.`);
+        }
+        const classicMinutes = fields * noble;
+        if (nightCfg === null || !nightCfg.nightBonusActive) return classicMinutes;
+        // Bônus noturno: solver inverso a ponto fixo (partida ↔ viagem) na
+        // engine — converge mesmo nas bordas da janela; fail-closed se não.
+        const solved = solveDepartureForArrival({
+          distanceFields: fields,
+          minutesPerField: noble,
+          arrivalAt: arrival,
+          cfg: nightCfg,
+        });
+        return solved.travelMs / 60_000;
+      };
+
+      const origins = parseOriginsInput(originsText);
+      const baseRows = computeSendTimes(
+        { distribution, origins },
+        { desiredArrival: { hour, minute }, baseDate: base, travelMinutesPerPair },
+      );
+      const rows = noblesPerTarget > 1 ? nobleTrain(baseRows, { noblesPerTarget, spacingSec }) : baseRows;
+      setScheduleRows(rows);
+      if (nightCfg !== null && nightCfg.nightBonusActive && nightCfg.nightStartHour !== nightCfg.nightEndHour) {
+        push('info', `Bônus noturno ${nightCfg.nightStartHour}h→${nightCfg.nightEndHour}h aplicado no tempo de viagem.`);
+      }
+      const past = rows.filter((row) => row.sendAt.getTime() < Date.now()).length;
+      if (past > 0) {
+        push('error', `${past} envio(s) com horário JÁ PASSADO — ajuste a OP para bater amanhã ou antecipe.`);
+      } else {
+        push('ok', `Agenda pronta: ${rows.length} envio(s).`);
+      }
+    } catch (error) {
+      const message = errorMessage(error);
+      setTimingError(message);
+      push('error', message);
+    }
+  }
 
   const separator = sepByEnter ? '\n' : ' ';
 
@@ -622,6 +776,12 @@ export default function Sg4Page() {
                 aria-describedby={errorsB.origins !== undefined ? 'sg4-origins-error' : 'sg4-origins-hint'}
                 onChange={(event) => setOriginsText(event.target.value)}
               />
+              <div>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => void fillOriginsFromSnapshot()}>
+                  <Swords size={14} aria-hidden="true" />
+                  Preencher do snapshot do SG_2 (aldeias com nobre)
+                </button>
+              </div>
             </Field>
 
             {lines.map((line, index) => (
@@ -847,6 +1007,128 @@ export default function Sg4Page() {
               )}
               {distribution.orphanOrigins.length === 0 && distribution.orphanTargets.length === 0 && (
                 <p className="ok">Todos os alvos receberam um atacante.</p>
+              )}
+              <div className="sg4-params" style={{ marginTop: 12 }}>
+                <label className="field">
+                  <span className="field-label">Título da OP (arquivo)</span>
+                  <input
+                    className="input"
+                    value={opTitle}
+                    onChange={(event) => setOpTitle(event.target.value)}
+                    aria-label="Título da OP para o arquivo"
+                  />
+                </label>
+                <div className="field">
+                  <span className="field-label">Arquivo de OPs</span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={archiving || distribution.assignments.length === 0}
+                    onClick={() => void archiveOp()}
+                  >
+                    {archiving ? <><span className="btn-spinner" aria-hidden="true" /> Arquivando…</> : 'Arquivar OP (Sala de Guerra)'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {distribution !== null && distribution.assignments.length > 0 && (
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">Agenda de Envio (timing da OP)</h3>
+              <span className="spacer" />
+              <span className="pill pill--muted">enviar às = chegada desejada − tempo de viagem</span>
+            </div>
+            <div className="card-body">
+              <div className="sg4-params">
+                <label className="field">
+                  <span className="field-label">OP bate às (HH:MM)</span>
+                  <input
+                    className="input"
+                    type="time"
+                    value={opTimeText}
+                    onChange={(event) => setOpTimeText(event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Nobres por alvo (trem)</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    value={noblesText}
+                    onChange={(event) => setNoblesText(event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Espaçamento entre nobres (s)</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    value={spacingText}
+                    onChange={(event) => setSpacingText(event.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="sg4-form-actions">
+                <button type="button" className="btn" onClick={() => void runSendSchedule()}>
+                  <Clock size={15} aria-hidden="true" />
+                  Calcular horários de envio
+                </button>
+              </div>
+              {timingError !== '' && <p className="error" role="alert">{timingError}</p>}
+              {scheduleRows !== null && scheduleRows.length > 0 && (
+                <>
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Jogador</th>
+                          <th scope="col">Origem</th>
+                          <th scope="col">Alvo</th>
+                          <th scope="col">Enviar às</th>
+                          <th scope="col" className="cell-num">Viagem</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {scheduleRows.map((row, index) => (
+                          <tr key={`${row.nick}-${row.targetCoord}-${index}`}>
+                            <td className="cell-nowrap">{row.nick}</td>
+                            <td>{row.originCoord}</td>
+                            <td>{row.targetCoord}</td>
+                            <td className={row.sendAt.getTime() < Date.now() ? 'cell-nowrap text-warn' : 'cell-nowrap'}>
+                              {formatHms(row.sendAt)}
+                            </td>
+                            <td className="cell-num">{row.travelMinutes.toFixed(1)} min</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <label className="field">
+                    <span className="field-label">Nick;alvo;enviar às (formato original)</span>
+                    <textarea
+                      className="textarea sg4-coords"
+                      rows={Math.min(12, scheduleRows.length + 2)}
+                      readOnly
+                      value={formatSendSchedule(scheduleRows)}
+                      aria-label="Nick;alvo;enviar às"
+                    />
+                    <div>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => void copyText(formatSendSchedule(scheduleRows))}
+                      >
+                        <Copy size={14} aria-hidden="true" />
+                        Copiar agenda de envio
+                      </button>
+                    </div>
+                  </label>
+                </>
               )}
             </div>
           </div>

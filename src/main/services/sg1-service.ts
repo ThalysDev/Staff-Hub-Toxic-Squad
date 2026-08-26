@@ -136,6 +136,13 @@ export class Sg1Service {
     return effectiveNobleMinutesPerField(snob.speed, config.speed, config.unitSpeed);
   }
 
+  /** Bônus noturno do mundo ativo (get_config, cache 1 dia) — janela em horas. */
+  async nightBonus(): Promise<{ active: boolean; startHour: number; endHour: number }> {
+    const world = this.worldData.world();
+    const config = await this.worldConfig(world);
+    return { active: config.nightBonusActive, startHour: config.nightStartHour, endHour: config.nightEndHour };
+  }
+
   /** Unidades do mundo (interface.php?func=get_unit_info), cache 1 dia por mundo. */
   private async unitInfo(world: string): Promise<Record<string, UnitInfo>> {
     const cached = await this.unitInfoStore.load();

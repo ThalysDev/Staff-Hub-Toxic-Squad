@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ClipboardCopy, ListChecks, Printer, ShieldQuestion } from 'lucide-react';
 import type { Sg5TotalsResult, Sg5VerifyResult } from '@shared/ipc-types';
 import { parseCoordList } from '@shared/coords';
+import { formatHms } from '@shared/sg4-timing';
+import { buildArrivalTimeline, formatCountdown, ganttLayout } from '@shared/sg5-arrivals';
 import { useToast } from '../../hooks/useToast';
 
 import ProgressBar from '../../components/ProgressBar';
@@ -36,6 +38,30 @@ export default function Sg5Page() {
     const unsubscribe = window.staffhub.events.onQueueProgress(setProgress);
     return unsubscribe;
   }, []);
+
+  // ---- Gantt de chegadas (P0-3): timeline absoluta + countdown ao vivo ----
+  const timeline = useMemo(() => {
+    if (verifyResult === null) return null;
+    return buildArrivalTimeline(
+      verifyResult.villages.map((village) => ({ coord: village.coord, commands: village.commands, loadedAt: village.loadedAt })),
+    );
+  }, [verifyResult]);
+
+  /** Régua calculada UMA vez por verificação (não pula a cada segundo). */
+  const ganttWindow = useMemo(() => {
+    if (timeline === null || timeline.entries.length === 0) return null;
+    const first = timeline.entries[0]?.arrivalAt ?? Date.now();
+    const last = timeline.entries[timeline.entries.length - 1]?.arrivalAt ?? Date.now();
+    const now = Date.now();
+    return { from: Math.min(first, now) - 10 * 60_000, to: Math.max(last, now) + 10 * 60_000 };
+  }, [timeline]);
+
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => {
+    if (ganttWindow === null) return;
+    const id = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [ganttWindow]);
 
   async function runVerify(): Promise<void> {
     setBusy('verify');
@@ -167,6 +193,67 @@ export default function Sg5Page() {
               )}
             </div>
           ))}
+        </section>
+      )}
+
+      {timeline !== null && ganttWindow !== null && (
+        <section className="card sg5-printable">
+          <div className="card-header">
+            <h2 className="card-title">Gantt de Chegadas</h2>
+            <span className="spacer" />
+            <span className="pill pill--muted">
+              {timeline.entries.length} com horário · {timeline.unresolved} sem timestamp
+            </span>
+          </div>
+          <div className="card-body">
+            {timeline.entries.length === 0 ? (
+              <p className="muted">
+                Nenhum comando com horário em formato máquina — as páginas do jogo trouxeram apenas texto visível
+                (sem data-endtime/data-duration). A conferência por tabela continua acima.
+              </p>
+            ) : (
+              <>
+                {(() => {
+                  const layout = ganttLayout(timeline.entries, ganttWindow);
+                  const span = ganttWindow.to - ganttWindow.from;
+                  const nowPct = Math.max(0, Math.min(100, ((nowTick - ganttWindow.from) / span) * 100));
+                  const height = Math.min(Math.max(layout.rows.length, 1), 30) * 16 + 16;
+                  return (
+                    <div className="sg5-gantt" style={{ height }} role="img" aria-label="Linha do tempo das chegadas dos comandos">
+                      <div className="sg5-gantt-now" style={{ left: `${nowPct}%` }} title="agora" />
+                      {layout.rows.map((row, index) => (
+                        <div
+                          key={row.entry.commandId}
+                          className={`sg5-gantt-mark${row.entry.hasNoble ? ' sg5-gantt-mark--noble' : row.entry.sizeHint === 'pequeno' && !row.entry.hasNoble ? ' sg5-gantt-mark--fake' : ''}`}
+                          style={{ left: `${row.offsetPct}%`, top: `${(index % 30) * 16 + 8}px` }}
+                          title={`${formatHms(new Date(row.entry.arrivalAt))} · ${row.entry.coord} · ${row.entry.playerName}${row.entry.hasNoble ? ' · NOBRE' : ''}${row.entry.sizeHint === 'pequeno' && !row.entry.hasNoble ? ' · fake' : ''}`}
+                        />
+                      ))}
+                    </div>
+                  );
+                })()}
+                <p className="muted">
+                  Traços vermelhos = comandos com nobre · cinza = fakes (ataque pequeno) · a linha vertical é o AGORA.
+                  Passe o mouse sobre os traços para ver horário, alvo e jogador.
+                </p>
+                <div className="col" style={{ gap: 4 }}>
+                  {timeline.entries
+                    .filter((entry) => entry.arrivalAt > nowTick - 60_000)
+                    .slice(0, 8)
+                    .map((entry) => (
+                      <div key={entry.commandId} className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
+                        <strong className="cell-nowrap">{formatHms(new Date(entry.arrivalAt))}</strong>
+                        <span className="cell-nowrap">alvo {entry.coord}</span>
+                        <span className="cell-nowrap">{entry.playerName}{entry.hasNoble ? ' ♛' : ''}</span>
+                        <span className={entry.arrivalAt < nowTick ? 'muted' : 'ok'}>
+                          {formatCountdown(entry.arrivalAt - nowTick)}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </>
+            )}
+          </div>
         </section>
       )}
 

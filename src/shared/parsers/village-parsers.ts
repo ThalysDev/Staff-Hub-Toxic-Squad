@@ -31,6 +31,47 @@ export interface IncomingCommandRow {
   arrivesAtText: string;
   /** "Chega em" como texto do jogo ("1:08:03"). */
   arrivesInText: string;
+  /**
+   * Segundos até a chegada lidos do ATRIBUTO máquina da linha (não do texto).
+   * Formatos reais observados no BR142: data-endtime (época absoluta em
+   * segundos, convertido com o Timing.init da própria página) e data-duration
+   * (contagem a partir do carregamento). Capturas atuais das telas de comandos
+   * trazem só o texto <span class="timer"> sem atributo → null. Nunca
+   * adivinhar a partir do texto visível.
+   */
+  arrivalSecFromLoad: number | null;
+}
+
+/** Época de carregamento da página em segundos ("Timing.init(1787622257.6619)") —
+ * âncora da própria página para converter tempos relativos em absolutos. */
+export function pageLoadSec(html: string): number | null {
+  const match = /Timing\.init\((\d+(?:\.\d+)?)\)/.exec(html);
+  const raw = match?.[1];
+  if (raw === undefined || raw === '') return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Segundos até a chegada a partir do atributo máquina da linha. Fail-closed:
+ * atributo ausente, vazio ou não-numérico → null; data-endtime anterior ao
+ * carregamento (delta negativo) também → null.
+ */
+function arrivalSecFromLoad(rowHtml: string, loadSec: number | null): number | null {
+  const durationRaw = /data-duration="([^"]*)"/.exec(rowHtml)?.[1];
+  if (durationRaw !== undefined) {
+    if (durationRaw === '') return null;
+    const value = Number(durationRaw);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+  const endRaw = /data-endtime="([^"]*)"/.exec(rowHtml)?.[1];
+  if (endRaw !== undefined) {
+    if (endRaw === '' || loadSec === null) return null;
+    const endSec = Number(endRaw);
+    if (!Number.isFinite(endSec) || endSec < loadSec) return null;
+    return Math.round(endSec - loadSec);
+  }
+  return null;
 }
 
 const TAG_STRIP = /<[^>]+>/g;
@@ -51,6 +92,7 @@ function coordOf(villageText: string): string {
  */
 export function parseIncomingCommandRows(html: string): IncomingCommandRow[] {
   const rows: IncomingCommandRow[] = [];
+  const loadSec = pageLoadSec(html);
   for (const rowMatch of html.matchAll(/<tr[^>]*row_[ab][^>]*>([\s\S]*?)<\/tr>/g)) {
     const row = rowMatch[1] ?? '';
     const idMatch = /command_ids\[(\d+)\]/.exec(row);
@@ -75,6 +117,7 @@ export function parseIncomingCommandRows(html: string): IncomingCommandRow[] {
       fieldsDistance: Number((text(cells[4] ?? '').replace(',', '.') || '0')),
       arrivesAtText: text(cells[5] ?? ''),
       arrivesInText: text(cells[6] ?? ''),
+      arrivalSecFromLoad: arrivalSecFromLoad(row, loadSec),
     });
   }
   return rows;

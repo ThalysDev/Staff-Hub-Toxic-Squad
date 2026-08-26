@@ -2197,3 +2197,58 @@ kbd {
   color: var(--text-secondary, #7a6b55);
   letter-spacing: 0.05em;
 }
+
+/* SG_5 — Gantt de chegadas (P0-3): régua horizontal com marcadores absolutos
+   e cursor "agora" ao vivo. */
+.sg5-gantt {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  background:
+    repeating-linear-gradient(to right, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 10%),
+    rgba(0, 0, 0, 0.22);
+}
+
+.sg5-gantt-mark {
+  position: absolute;
+  width: 6px;
+  height: 10px;
+  border-radius: 2px;
+  background: #4f8f4a;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.sg5-gantt-mark--noble {
+  background: #d05b4b;
+}
+
+.sg5-gantt-mark--fake {
+  background: #8a857c;
+}
+
+.sg5-gantt-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #f0c674;
+  box-shadow: 0 0 4px rgba(240, 198, 116, 0.8);
+}
+
+/* SG_6 — validação de nicks no painel de confirmação (U5). */
+.sg6-nick-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 2px;
+}
+
+/* Titlebar — indicador global de operações em andamento (U3). */
+.titlebar-activity {
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  color: #f0c674;
+  white-space: nowrap;
+  user-select: none;
+}
