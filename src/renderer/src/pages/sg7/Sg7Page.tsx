@@ -8,11 +8,11 @@ export default function Sg7Page() {
   const { toasts, push, dismiss } = useToast();
   const [threadUrl, setThreadUrl] = useState('');
   const [conference, setConference] = useState<ForumConferenceResult | null>(null);
-  const [adjustResult, setAdjustResult] = useState<{ dryRun: boolean; ok: boolean | null; detail: string } | null>(null);
+  const [adjustResult, setAdjustResult] = useState<{ ok: boolean; detail: string } | null>(null);
   const [pendingAdjust, setPendingAdjust] = useState(false);
   const [selectedPosts, setSelectedPosts] = useState<number[]>([]);
   const [pendingDelete, setPendingDelete] = useState(false);
-  const [deleteResult, setDeleteResult] = useState<{ dryRun: boolean; ok: boolean | null; detail: string } | null>(null);
+  const [deleteResult, setDeleteResult] = useState<{ ok: boolean; detail: string } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 

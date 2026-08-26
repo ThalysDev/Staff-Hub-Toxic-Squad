@@ -1,11 +1,11 @@
 import { useState } from 'react';
+import type { ReactElement } from 'react';
 import { Camera, History, LayoutDashboard, LogIn, Settings2 } from 'lucide-react';
 import TitleBar from './components/TitleBar';
 import Sidebar, { type SidebarGroup, type SidebarItem } from './components/Sidebar';
 import CapturesPage from './pages/CapturesPage';
 import DashboardPage from './pages/DashboardPage';
 import JournalPage from './pages/JournalPage';
-import ModulePlaceholderPage from './pages/ModulePlaceholderPage';
 import Sg1Page from './pages/sg1/Sg1Page';
 import Sg2Page from './pages/sg2/Sg2Page';
 import Sg3Page from './pages/sg3/Sg3Page';
@@ -15,7 +15,7 @@ import Sg6Page from './pages/sg6/Sg6Page';
 import Sg7Page from './pages/sg7/Sg7Page';
 import SessionPage from './pages/SessionPage';
 import SettingsPage from './pages/SettingsPage';
-import { MODULES, type PageId } from './modules';
+import { MODULES, type ModuleId, type PageId, type SystemPageId } from './modules';
 
 const SYSTEM_ITEMS: readonly SidebarItem[] = [
   { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
@@ -33,7 +33,21 @@ const NAV_GROUPS: readonly SidebarGroup[] = [
   { label: 'Sistema', items: SYSTEM_ITEMS },
 ];
 
-function renderPage(page: PageId, onNavigate: (page: PageId) => void) {
+/** Páginas dos módulos SG: montam na 1ª visita e NUNCA desmontam — o estado
+ * da OP (alvos, distribuição, conferência) sobrevive à navegação. */
+const SG_PAGES: Readonly<Record<ModuleId, () => ReactElement>> = {
+  sg1: Sg1Page,
+  sg2: Sg2Page,
+  sg3: Sg3Page,
+  sg4: Sg4Page,
+  sg5: Sg5Page,
+  sg6: Sg6Page,
+  sg7: Sg7Page,
+};
+
+const isModulePage = (page: PageId): page is ModuleId => MODULES.some((module) => module.id === page);
+
+function renderSystemPage(page: SystemPageId, onNavigate: (page: PageId) => void) {
   switch (page) {
     case 'dashboard':
       return <DashboardPage onNavigate={onNavigate} />;
@@ -45,25 +59,6 @@ function renderPage(page: PageId, onNavigate: (page: PageId) => void) {
       return <JournalPage />;
     case 'captures':
       return <CapturesPage />;
-    case 'sg1':
-      return <Sg1Page />;
-    case 'sg2':
-      return <Sg2Page />;
-    case 'sg3':
-      return <Sg3Page />;
-    case 'sg4':
-      return <Sg4Page />;
-    case 'sg5':
-      return <Sg5Page />;
-    case 'sg6':
-      return <Sg6Page />;
-    case 'sg7':
-      return <Sg7Page />;
-    default: {
-      const moduleInfo = MODULES.find((module) => module.id === page);
-      if (!moduleInfo) return <DashboardPage onNavigate={onNavigate} />; // inalcançável: PageId cobre todos os módulos
-      return <ModulePlaceholderPage module={moduleInfo} />;
-    }
   }
 }
 
@@ -75,13 +70,33 @@ const INITIAL_PAGE = ((): PageId => {
 
 export default function App() {
   const [page, setPage] = useState<PageId>(INITIAL_PAGE);
+  const [mountedModules, setMountedModules] = useState<ReadonlySet<ModuleId>>(
+    () => (isModulePage(INITIAL_PAGE) ? new Set([INITIAL_PAGE]) : new Set<ModuleId>()),
+  );
+
+  const navigate = (next: PageId): void => {
+    if (isModulePage(next)) {
+      setMountedModules((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
+    }
+    setPage(next);
+  };
 
   return (
     <div className="app-shell">
       <TitleBar />
       <div className="app-main-row">
-        <Sidebar groups={NAV_GROUPS} active={page} onNavigate={setPage} />
-        <main className="content">{renderPage(page, setPage)}</main>
+        <Sidebar groups={NAV_GROUPS} active={page} onNavigate={navigate} />
+        <main className="content">
+          {MODULES.filter((module) => mountedModules.has(module.id)).map((module) => {
+            const SgPage = SG_PAGES[module.id];
+            return (
+              <div key={module.id} className="sg-page" hidden={page !== module.id}>
+                <SgPage />
+              </div>
+            );
+          })}
+          {!isModulePage(page) && renderSystemPage(page, navigate)}
+        </main>
       </div>
     </div>
   );

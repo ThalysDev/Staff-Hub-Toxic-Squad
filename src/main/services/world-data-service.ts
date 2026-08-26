@@ -38,6 +38,8 @@ export class WorldDataService {
   private readonly store: JsonStore<WorldDataCache>;
   private relationsCache: { at: number; data: DiplomacyRelations } | null = null;
   private lastDirectFetchAt = 0;
+  /** Refresh em andamento (single-flight): 2º chamador reusa a mesma promise. */
+  private refreshing: Promise<WorldDataStatus> | null = null;
 
   constructor(private readonly twSession: TwSessionManager) {
     this.store = new JsonStore<WorldDataCache>('world-data', EMPTY_WORLD_CACHE);
@@ -89,11 +91,21 @@ export class WorldDataService {
 
   /**
    * Baixa os map dumps oficiais do mundo ativo e grava o cache local.
+   * Single-flight: chamadas concorrentes compartilham o download em andamento
+   * (sem downloads duplicados nem saves corrompíveis).
    * village.txt.gz é um arquivo gzip binário: sai pelo session.fetch da
    * partição direto (bytes crus + gunzipSync) — o fetchForQueue decodificaria
    * o corpo como texto e corromperia o gzip.
    */
   async refresh(): Promise<WorldDataStatus> {
+    if (this.refreshing !== null) return this.refreshing;
+    this.refreshing = this.doRefresh().finally(() => {
+      this.refreshing = null;
+    });
+    return this.refreshing;
+  }
+
+  private async doRefresh(): Promise<WorldDataStatus> {
     const world = this.world();
     const base = `https://${world}.tribalwars.com.br`;
     const ses = session.fromPartition(TW_PARTITION);

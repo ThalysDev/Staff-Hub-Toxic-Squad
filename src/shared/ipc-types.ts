@@ -47,9 +47,7 @@ export type { BlindCheckInput, BlindVillageResult };
 export interface Sg6MutationOutcome {
   coord?: string;
   playerName?: string;
-  dryRun: boolean;
-  /** null = simulado (dry-run) — sem resultado real do servidor. */
-  ok: boolean | null;
+  ok: boolean;
   detail: string;
 }
 
@@ -82,15 +80,12 @@ export interface AppSettings {
   requestJitterMs: number;
   /** Teto de requisições por operação de coleta. */
   requestCeiling: number;
-  /** Modo DRY-RUN global: mutações são apenas registradas, nunca enviadas. */
-  dryRun: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   requestMinIntervalMs: 350,
   requestJitterMs: 250,
   requestCeiling: 400,
-  dryRun: true,
 };
 
 export interface JournalEntry {
@@ -199,15 +194,15 @@ export interface StaffHubApi {
   sg7: {
     /** Conferência dos posts do tópico de blindagem (leitura). */
     conference(threadUrl: string): Promise<ForumConferenceResult>;
-    /** MUTAÇÃO: aplica o BBCode atualizado no primeiro post — dupla confirmação + dry-run. */
-    adjust(threadUrl: string, confirm: boolean): Promise<{ dryRun: boolean; ok: boolean | null; detail: string }>;
-    /** MUTAÇÃO: apaga posts do tópico (moderação) — dupla confirmação + dry-run + verificação. */
-    deletePosts(threadUrl: string, postIds: number[], confirm: boolean): Promise<{ dryRun: boolean; ok: boolean | null; detail: string }>;
+    /** MUTAÇÃO: aplica o BBCode atualizado no primeiro post — dupla confirmação + journal (modo real permanente). */
+    adjust(threadUrl: string, confirm: boolean): Promise<{ ok: boolean; detail: string }>;
+    /** MUTAÇÃO: apaga posts do tópico (moderação) — dupla confirmação + journal + verificação (modo real permanente). */
+    deletePosts(threadUrl: string, postIds: number[], confirm: boolean): Promise<{ ok: boolean; detail: string }>;
   };
   sg6: {
-    /** Reserva em massa no Planejador — MUTAÇÃO: confirmação dupla + journal + dry-run. */
+    /** Reserva em massa no Planejador — MUTAÇÃO: confirmação dupla + journal (modo real permanente). */
     reserveMass(coords: string[], confirm: boolean): Promise<Sg6MutationOutcome[]>;
-    /** MPs personalizadas (#alvos#) — MUTAÇÃO: confirmação dupla + journal + dry-run. */
+    /** MPs personalizadas (#alvos#) — MUTAÇÃO: confirmação dupla + journal (modo real permanente). */
     sendMps(input: { subject: string; body: string; entries: { playerName: string; coords: string[] }[] }, confirm: boolean): Promise<Sg6MutationOutcome[]>;
   };
   window: {

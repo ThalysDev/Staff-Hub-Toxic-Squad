@@ -52,15 +52,15 @@ function assertKind(kind: unknown): asserts kind is TroopKind {
 
 export class TroopsService {
   private readonly store: JsonStore<TroopsSnapshotsStore>;
-  private readonly settingsStore: JsonStore<AppSettings>;
 
   constructor(
     private readonly twSession: TwSessionManager,
     private readonly queue: RequestQueue,
     private readonly journal: Journal,
+    /** Instância COMPARTILHADA com o index — sem cache obsoleto entre services. */
+    private readonly settingsStore: JsonStore<AppSettings>,
   ) {
     this.store = new JsonStore<TroopsSnapshotsStore>('troops-snapshots', EMPTY_TROOPS_STORE);
-    this.settingsStore = new JsonStore<AppSettings>('settings', DEFAULT_SETTINGS);
   }
 
   /** Mundo ativo da sessão; fail-closed com mensagem clara se não houver login. */

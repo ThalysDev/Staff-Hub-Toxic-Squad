@@ -33,7 +33,7 @@ let queue: RequestQueue | null = null;
 /**
  * Sanitiza settings na fronteira do main: valores inválidos (arquivo editado,
  * IPC malformado) voltam aos defaults SEGUROS — nunca a um pacing abaixo do
- * mínimo humano. Fail-closed: dryRun duvidoso volta a true.
+ * mínimo humano.
  */
 function sanitizeSettings(value: Partial<AppSettings>): AppSettings {
   const safe = { ...DEFAULT_SETTINGS };
@@ -43,7 +43,6 @@ function sanitizeSettings(value: Partial<AppSettings>): AppSettings {
   if (Number.isFinite(jitter) && jitter >= 0) safe.requestJitterMs = Math.round(jitter);
   const ceiling = Number(value.requestCeiling);
   if (Number.isFinite(ceiling) && ceiling >= 1) safe.requestCeiling = Math.round(ceiling);
-  safe.dryRun = value.dryRun === false ? false : true;
   return safe;
 }
 
@@ -152,7 +151,17 @@ function registerIpc(): void {
 
   ipcMain.handle('dev:capture-fixture', async (_event, name: string, url: string) => {
     try {
+      // Allowlist rígida: só páginas do Tribal Wars BR aceitas — renderer
+      // comprometido não transforma o app em proxy autenticado (SSRF).
+      if (!/^https:\/\/br\d+\.tribalwars\.com\.br\//.test(url)) {
+        return { ok: false as const, name, error: 'URL fora do allowlist — use https://br###.tribalwars.com.br/…' };
+      }
       const response = await twSession.fetchForQueue(url);
+      // Pós-fetch: se o servidor redirecionou para fora do domínio do jogo,
+      // o corpo não vira fixture (defesa contra redirect cross-origin).
+      if (!/^https:\/\/br\d+\.tribalwars\.com\.br\//.test(response.url)) {
+        return { ok: false as const, name, error: `Redirecionou para fora do jogo (${response.url}) — fixture descartada.` };
+      }
       // Fail-closed: página de erro HTTP ou formulário de login/captcha NÃO é
       // fixture válida — nunca envenenar os testes dos parsers.
       if (!response.ok) {
@@ -189,12 +198,12 @@ function registerIpc(): void {
   ipcMain.handle('win:is-max', () => mainWindow?.isMaximized() ?? false);
 }
 
-function wireEvents(): void {
+function wireEvents(initialQueueSettings: { minIntervalMs: number; jitterMs: number; ceiling: number }): void {
   twSession.onStatusChanged((status) => send('session:changed', status));
   queue = new RequestQueue(
     (url) => twSession.fetchForQueue(url),
     (progress) => send('queue:progress', progress satisfies QueueProgress),
-    { minIntervalMs: DEFAULT_SETTINGS.requestMinIntervalMs, jitterMs: DEFAULT_SETTINGS.requestJitterMs, ceiling: DEFAULT_SETTINGS.requestCeiling },
+    initialQueueSettings,
     {
       onStarted: (info) => {
         void journal.append('read', 'queue-started', `${info.label} (${info.total} requisições)`, true);
@@ -216,17 +225,30 @@ function wireEvents(): void {
 if (process.platform === 'win32') app.setAppUserModelId('com.toxicsquad.staffhub');
 app.whenReady().then(async () => {
   await journal.load();
+  // C1: pacing persistido aplica no BOOT — a fila já nasce com os valores do
+  // usuário (nunca 350ms default sem ele saber).
+  const persistedSettings = sanitizeSettings(await settingsStore.load());
   void twSession.restoreFromPartition();
 registerIpc();
-  wireEvents();
+  wireEvents({
+    minIntervalMs: persistedSettings.requestMinIntervalMs,
+    jitterMs: persistedSettings.requestJitterMs,
+    ceiling: persistedSettings.requestCeiling,
+  });
+  await journal.append(
+    'system',
+    'settings-boot',
+    `pacing boot: ${persistedSettings.requestMinIntervalMs}ms+jitter ${persistedSettings.requestJitterMs}ms teto ${persistedSettings.requestCeiling}`,
+    false,
+  );
   registerWorldIpc({ twSession, queue: queue as RequestQueue, journal, worldData, sg1: sg1Service });
-  const troopsService = new TroopsService(twSession, queue as RequestQueue, journal);
+  const troopsService = new TroopsService(twSession, queue as RequestQueue, journal, settingsStore);
   registerTroopsIpc({ twSession, queue: queue as RequestQueue, journal, troops: troopsService });
   registerSg3Ipc({ troops: troopsService, journal });
-  registerSupportersIpc(new SupportersService(twSession, queue as RequestQueue, journal, worldData));
-  const sg5Service = new Sg5Service(twSession, queue as RequestQueue, journal, worldData);
+  registerSupportersIpc(new SupportersService(twSession, queue as RequestQueue, journal, worldData, settingsStore));
+  const sg5Service = new Sg5Service(twSession, queue as RequestQueue, journal, worldData, settingsStore);
   registerSg5Ipc({ sg5: sg5Service, journal });
-  const sg6Service = new Sg6Service(twSession, journal);
+  const sg6Service = new Sg6Service(twSession, journal, settingsStore);
   registerSg6Ipc({ sg6: sg6Service, journal });
   registerSg7Ipc(new Sg7Service(twSession, journal));
   createMainWindow();

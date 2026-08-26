@@ -32,16 +32,14 @@ export interface VerifyResult {
  * Requer que os membros compartilhem comandos com a liderança no jogo.
  */
 export class Sg5Service {
-  private readonly settingsStore: JsonStore<AppSettings>;
-
   constructor(
     private readonly twSession: TwSessionManager,
     private readonly queue: RequestQueue,
     private readonly journal: Journal,
     private readonly worldData: WorldDataService,
-  ) {
-    this.settingsStore = new JsonStore<AppSettings>('settings', DEFAULT_SETTINGS);
-  }
+    /** Instância COMPARTILHADA com o index — sem cache obsoleto entre services. */
+    private readonly settingsStore: JsonStore<AppSettings>,
+  ) {}
 
   private world(): string {
     const { state, world } = this.twSession.getStatus();

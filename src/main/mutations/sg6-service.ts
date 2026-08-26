@@ -1,14 +1,13 @@
 import { session } from 'electron';
 import { TW_PARTITION, type TwSessionManager } from '../tw/session';
 import type { Journal } from '../journal';
-import { JsonStore } from '../stores/json-store';
+import type { JsonStore } from '../stores/json-store';
 import { DEFAULT_SETTINGS, type AppSettings } from '@shared/ipc-types';
 import { detectPageSentinels } from '../tw/request-queue';
 
 export interface MutationOutcome {
   coord: string;
-  dryRun: boolean;
-  ok: boolean | null;
+  ok: boolean;
   detail: string;
 }
 
@@ -19,8 +18,7 @@ export interface MpEntry {
 
 export interface MpOutcome {
   playerName: string;
-  dryRun: boolean;
-  ok: boolean | null;
+  ok: boolean;
   detail: string;
 }
 
@@ -30,18 +28,16 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * Mutações do SG_6 (reservas em massa + MPs personalizadas). Regras da política
  * (AGENTS.md): confirmação dupla (o renderer só chama com confirm=true depois de
  * mostrar resumo), UMA tentativa por mutação (jamais reenvio automático), pacing
- * humano entre envios, journal obrigatório de cada evento e DRY-RON global das
- * settings — em dry-run nada sai para o servidor, só o journal.
+ * humano entre envios e journal obrigatório de cada evento. Modo real
+ * permanente (decisão do dono 25/08/2026) — mutações sempre executam.
  */
 export class Sg6Service {
-  private readonly settingsStore: JsonStore<AppSettings>;
-
   constructor(
     private readonly twSession: TwSessionManager,
     private readonly journal: Journal,
-  ) {
-    this.settingsStore = new JsonStore<AppSettings>('settings', DEFAULT_SETTINGS);
-  }
+    /** Instância COMPARTILHADA com o index — sem cache obsoleto entre services. */
+    private readonly settingsStore: JsonStore<AppSettings>,
+  ) {}
 
   private async settings(): Promise<AppSettings> {
     const raw = await this.settingsStore.load();
@@ -50,9 +46,6 @@ export class Sg6Service {
       ...DEFAULT_SETTINGS,
       ...raw,
       requestMinIntervalMs: Number.isFinite(minInterval) && minInterval >= 350 ? minInterval : DEFAULT_SETTINGS.requestMinIntervalMs,
-      // Modo real permanente: decisão do dono em 25/08/2026 (registrada no
-      // AGENTS.md) — mutações sempre executam; journal e confirmação seguem.
-      dryRun: false,
     };
   }
 
@@ -126,14 +119,13 @@ export class Sg6Service {
         const sentinel = detectPageSentinels(response.body);
         if (sentinel === 'session-expired' || sentinel === 'captcha-suspected') {
           await this.journal.append('mutation', 'reserve-halt', `Reserva interrompida na coordenada ${coord} (${sentinel})`, false);
-          outcomes.push({ coord, dryRun: false, ok: false, detail: sentinel === 'session-expired' ? 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.' : 'CAPTCHA — operação interrompida.' });
+          outcomes.push({ coord, ok: false, detail: sentinel === 'session-expired' ? 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.' : 'CAPTCHA — operação interrompida.' });
           break;
         }
         const already = /já reserva(?:d[ao]|u)|already reserv/i.test(response.body);
         const error = /class="error"|não existe tal aldeia/i.test(response.body);
         outcome = {
           coord,
-          dryRun: false,
           ok: error ? false : response.ok,
           detail: error
             ? 'Recusado pelo jogo (aldeia inexistente ou erro).'
@@ -144,7 +136,7 @@ export class Sg6Service {
                 : `HTTP ${response.status}`,
         };
       } catch (err) {
-        outcome = { coord, dryRun: false, ok: false, detail: `Falha de rede: ${err instanceof Error ? err.message : String(err)}` };
+        outcome = { coord, ok: false, detail: `Falha de rede: ${err instanceof Error ? err.message : String(err)}` };
       }
       await this.journal.append('mutation', 'reserve', `reserva ${coord} → ${outcome.detail}`, false);
       outcomes.push(outcome);
@@ -180,12 +172,20 @@ export class Sg6Service {
           send: 'Enviar',
         });
         const sentinel = detectPageSentinels(response.body);
-        if (sentinel === "session-expired") throw new Error("Sessão expirada no meio da cadeia — operação interrompida.");
-        if (sentinel === "captcha-suspected") throw new Error("Captcha no meio da cadeia — operação interrompida.");
+        if (sentinel === 'session-expired' || sentinel === 'captcha-suspected') {
+          // Mesma semântica do reserveMass: sentinela INTERROMPE a cadeia —
+          // nunca continuar dando POST em página de login/captcha.
+          await this.journal.append('mutation', 'mp-halt', `MP interrompida em ${entry.playerName} (${sentinel})`, false);
+          outcomes.push({
+            playerName: entry.playerName,
+            ok: false,
+            detail: sentinel === 'session-expired' ? 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.' : 'CAPTCHA — operação interrompida.',
+          });
+          break;
+        }
         const notFound = /não existe|destinatário inválido|unknown recipient/i.test(response.body);
         outcome = {
           playerName: entry.playerName,
-          dryRun: false,
           ok: notFound ? false : response.ok,
           detail: notFound
             ? 'Nick não encontrado — confira o nome exato no jogo.'
@@ -194,7 +194,7 @@ export class Sg6Service {
               : `HTTP ${response.status}`,
         };
       } catch (err) {
-        outcome = { playerName: entry.playerName, dryRun: false, ok: false, detail: `Falha de rede: ${err instanceof Error ? err.message : String(err)}` };
+        outcome = { playerName: entry.playerName, ok: false, detail: `Falha de rede: ${err instanceof Error ? err.message : String(err)}` };
       }
       await this.journal.append('mutation', 'mp-send', `MP ${entry.playerName} (${entry.coords.length} alvos) → ${outcome.detail}`, false);
       outcomes.push(outcome);

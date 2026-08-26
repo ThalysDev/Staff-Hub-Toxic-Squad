@@ -15,16 +15,14 @@ import type { SupportersResult, VillageSupportersResult } from '@shared/types';
  * volume: 1 requisição por aldeia via RequestQueue (pacing/teto/sentinelas).
  */
 export class SupportersService {
-  private readonly settingsStore: JsonStore<AppSettings>;
-
   constructor(
     private readonly twSession: TwSessionManager,
     private readonly queue: RequestQueue,
     private readonly journal: Journal,
     private readonly worldData: WorldDataService,
-  ) {
-    this.settingsStore = new JsonStore<AppSettings>('settings', DEFAULT_SETTINGS);
-  }
+    /** Instância COMPARTILHADA com o index — sem cache obsoleto entre services. */
+    private readonly settingsStore: JsonStore<AppSettings>,
+  ) {}
 
   private world(): string {
     const { state, world } = this.twSession.getStatus();

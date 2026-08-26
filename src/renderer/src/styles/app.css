@@ -96,6 +96,19 @@ h2 {
   padding: var(--sp-6) var(--sp-6) var(--sp-8);
 }
 
+/* Páginas SG ficam montadas (estado sobrevive à navegação) — as inativas
+   são ocultadas por completo, sem renderizar nem ocupar espaço. */
+.sg-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  max-width: var(--content-max);
+}
+
+.sg-page[hidden] {
+  display: none !important;
+}
+
 .page {
   display: flex;
   flex-direction: column;

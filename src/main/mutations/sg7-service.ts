@@ -20,19 +20,14 @@ export interface ForumConferenceResult {
 
 /**
  * Blindagem no fórum (SG_7): conferência dos posts + ajuste do post da tabela.
- * MUTAÇÃO no ajuste: confirmação dupla, 1 tentativa, journal, dry-run.
- * A conferência em si é leitura (1 página do tópico).
+ * MUTAÇÃO no ajuste: confirmação dupla, 1 tentativa, journal. Modo real
+ * permanente (AGENTS.md) — sem dry-run. A conferência em si é leitura.
  */
 export class Sg7Service {
   constructor(
     private readonly twSession: TwSessionManager,
     private readonly journal: Journal,
   ) {
-  }
-
-  /** Modo real permanente: decisão do dono em 25/08/2026 (AGENTS.md). */
-  private async dryRun(): Promise<boolean> {
-    return false;
   }
 
   private world(): string {
@@ -101,16 +96,11 @@ export class Sg7Service {
   }
 
   /** MUTAÇÃO: aplica o BBCode atualizado no primeiro post (Ajustar Conforme Script). */
-  async adjust(threadUrl: string, confirm: boolean): Promise<{ dryRun: boolean; ok: boolean | null; detail: string }> {
+  async adjust(threadUrl: string, confirm: boolean): Promise<{ ok: boolean; detail: string }> {
     if (!confirm) throw new Error('Confirmação dupla necessária — revise a conferência e confirme na tela.');
-    const dryRun = await this.dryRun();
     const conference = await this.conference(threadUrl);
     if (!conference.changed) {
-      return { dryRun, ok: true, detail: 'Nada a ajustar — nenhum envio reconhecido altera a tabela.' };
-    }
-    if (dryRun) {
-      await this.journal.append('mutation', 'forum-adjust-dry-run', `thread=${conference.threadId} ajuste SIMULADO`, true);
-      return { dryRun: true, ok: null, detail: 'Simulado (DRY-RUN ativo) — nada foi enviado ao fórum.' };
+      return { ok: true, detail: 'Nada a ajustar — nenhum envio reconhecido altera a tabela.' };
     }
     const path = threadUrl.replace(/^https?:\/\/[^/]+\//, '');
     const forumId = /forum_id=(\d+)/.exec(path)?.[1] ?? '0';
@@ -147,23 +137,18 @@ export class Sg7Service {
       }
     }
     await this.journal.append('mutation', 'forum-adjust', `thread=${conference.threadId} → ${detail}`, false);
-    return { dryRun: false, ok, detail };
+    return { ok, detail };
   }
 
   /**
    * MUTAÇÃO: apaga os posts informados (moderação "Apagar mensagens").
-   * Confirmação dupla + journal + dry-run; 1 tentativa; verificação real
+   * Confirmação dupla + journal; 1 tentativa; verificação real
    * (relê o tópico e confere que os posts sumiram).
    */
-  async deletePosts(threadUrl: string, postIds: number[], confirm: boolean): Promise<{ dryRun: boolean; ok: boolean | null; detail: string }> {
+  async deletePosts(threadUrl: string, postIds: number[], confirm: boolean): Promise<{ ok: boolean; detail: string }> {
     if (!confirm) throw new Error('Confirmação dupla necessária — selecione os posts e confirme na tela.');
     if (postIds.length === 0) throw new Error('Nenhum post selecionado.');
-    const dryRun = await this.dryRun();
     const pathLast = threadUrl.replace(/^https?:\/\/[^/]+\//, '');
-    if (dryRun) {
-      await this.journal.append('mutation', 'forum-delete-dry-run', `posts ${postIds.join(',')} SIMULADOS`, true);
-      return { dryRun: true, ok: null, detail: 'Simulado (DRY-RUN ativo) — nada foi apagado.' };
-    }
     const html = await this.getHtml(pathLast);
     const thread = parseForumThread(html);
     const forumId = /forum_id=(\d+)/.exec(pathLast)?.[1] ?? '0';
@@ -191,6 +176,6 @@ export class Sg7Service {
       }
     }
     await this.journal.append('mutation', 'forum-delete-posts', `thread=${thread.threadId} posts=${postIds.length} → ${detail}`, false);
-    return { dryRun: false, ok, detail };
+    return { ok, detail };
   }
 }
