@@ -64,6 +64,13 @@ export function useQueueActivity(): QueueActivity {
     const reevaluate = (): void => {
       if (cancelled) return;
       const now = Date.now();
+      // Poda: operações concluídas/expiradas saem do mapa — cada queue.run gera
+      // um operationId novo e o mapa cresceria sem limite na vida do app.
+      for (const [id, state] of opsRef.current) {
+        if (state.done >= state.total || now - state.lastAt >= ACTIVE_WINDOW_MS) {
+          opsRef.current.delete(id);
+        }
+      }
       setActivity((prev) => {
         const summary = summarize(opsRef.current, now);
         return sameActivity(prev, summary) ? prev : summary;
