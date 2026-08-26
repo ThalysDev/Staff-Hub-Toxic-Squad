@@ -1,3 +1,4 @@
+import { copyFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { promises as fs } from 'node:fs';
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
@@ -48,6 +49,24 @@ function sanitizeSettings(value: Partial<AppSettings>): AppSettings {
   return safe;
 }
 
+/**
+ * Ícone da janela/taskbar: APIs nativas do Windows exigem arquivo REAL em
+ * disco — dentro do pacote o app roda de resources/app.asar, onde o .ico não
+ * serve para essas APIs. Extraímos o ícone do asar para o userData no primeiro
+ * uso e devolvemos esse caminho real. Em dev, o caminho do repo já é real.
+ */
+function iconPath(): string {
+  const inPackage = join(__dirname, '../../build/icon.ico');
+  if (existsSync(inPackage) && !inPackage.includes('app.asar')) return inPackage;
+  try {
+    const target = join(app.getPath('userData'), 'icon.ico');
+    if (!existsSync(target)) copyFileSync(inPackage, target);
+    return target;
+  } catch {
+    return inPackage;
+  }
+}
+
 function createMainWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1360,
@@ -56,7 +75,7 @@ function createMainWindow(): void {
     minHeight: 680,
     title: 'Staff Hub Toxic Squad',
     backgroundColor: '#12100e',
-    icon: join(__dirname, '../../build/icon.ico'),
+    icon: iconPath(),
     frame: false,
     titleBarStyle: 'hidden',
     webPreferences: {
@@ -70,7 +89,7 @@ function createMainWindow(): void {
   // (docs: appId é obrigatório para as demais opções do setAppDetails).
   mainWindow.setAppDetails({
     appId: 'com.toxicsquad.staffhub',
-    appIconPath: join(__dirname, '../../build/icon.ico'),
+    appIconPath: iconPath(),
     appIconIndex: 0,
   });
   const emitMaxState = (): void => {
