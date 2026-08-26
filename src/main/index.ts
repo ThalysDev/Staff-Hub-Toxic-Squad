@@ -18,6 +18,8 @@ import { Sg6Service } from './mutations/sg6-service';
 import { registerSg6Ipc } from './ipc-sg6';
 import { Sg7Service } from './mutations/sg7-service';
 import { registerSg7Ipc } from './ipc-sg7';
+import { OpArchiveService } from './services/op-archive-service';
+import { registerOpIpc } from './ipc-op';
 import { registerSg5Ipc } from './ipc-sg5';
 import { DEFAULT_SETTINGS, type AppSettings, type QueueProgress } from '@shared/ipc-types';
 
@@ -251,6 +253,7 @@ registerIpc();
   const sg6Service = new Sg6Service(twSession, journal, settingsStore);
   registerSg6Ipc({ sg6: sg6Service, journal });
   registerSg7Ipc(new Sg7Service(twSession, journal));
+  registerOpIpc({ journal, opArchive: new OpArchiveService(journal) });
   createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

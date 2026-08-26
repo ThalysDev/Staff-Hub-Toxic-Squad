@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { Camera, History, LayoutDashboard, LogIn, Settings2 } from 'lucide-react';
+import { Camera, Flame, History, LayoutDashboard, LogIn, Settings2 } from 'lucide-react';
 import TitleBar from './components/TitleBar';
 import Sidebar, { type SidebarGroup, type SidebarItem } from './components/Sidebar';
 import CapturesPage from './pages/CapturesPage';
@@ -15,7 +15,8 @@ import Sg6Page from './pages/sg6/Sg6Page';
 import Sg7Page from './pages/sg7/Sg7Page';
 import SessionPage from './pages/SessionPage';
 import SettingsPage from './pages/SettingsPage';
-import { MODULES, type ModuleId, type PageId, type SystemPageId } from './modules';
+import WarRoomPage from './pages/war/WarRoomPage';
+import { MODULES, type ModuleId, type PageId, type SystemPageId, type WarPageId } from './modules';
 
 const SYSTEM_ITEMS: readonly SidebarItem[] = [
   { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
@@ -28,7 +29,10 @@ const SYSTEM_ITEMS: readonly SidebarItem[] = [
 const NAV_GROUPS: readonly SidebarGroup[] = [
   {
     label: 'Operações',
-    items: MODULES.map((module) => ({ id: module.id, label: module.navLabel, icon: module.icon })),
+    items: [
+      ...MODULES.map((module) => ({ id: module.id as PageId, label: module.navLabel, icon: module.icon })),
+      { id: 'guerra' as PageId, label: 'Sala de Guerra', icon: Flame },
+    ],
   },
   { label: 'Sistema', items: SYSTEM_ITEMS },
 ];
@@ -45,7 +49,8 @@ const SG_PAGES: Readonly<Record<ModuleId, () => ReactElement>> = {
   sg7: Sg7Page,
 };
 
-const isModulePage = (page: PageId): page is ModuleId => MODULES.some((module) => module.id === page);
+const isModulePage = (page: PageId): page is ModuleId | WarPageId =>
+  MODULES.some((module) => module.id === page) || page === 'guerra';
 
 function renderSystemPage(page: SystemPageId, onNavigate: (page: PageId) => void) {
   switch (page) {
@@ -64,14 +69,17 @@ function renderSystemPage(page: SystemPageId, onNavigate: (page: PageId) => void
 
 const INITIAL_PAGE = ((): PageId => {
   const param = new URLSearchParams(window.location.search).get("page");
-  const valid = MODULES.some((m) => m.id === param) || ["dashboard", "sessao", "config", "journal", "captures"].includes(param ?? "");
+  const valid =
+    MODULES.some((m) => m.id === param) ||
+    param === 'guerra' ||
+    ["dashboard", "sessao", "config", "journal", "captures"].includes(param ?? "");
   return valid && param !== null ? (param as PageId) : "dashboard";
 })();
 
 export default function App() {
   const [page, setPage] = useState<PageId>(INITIAL_PAGE);
-  const [mountedModules, setMountedModules] = useState<ReadonlySet<ModuleId>>(
-    () => (isModulePage(INITIAL_PAGE) ? new Set([INITIAL_PAGE]) : new Set<ModuleId>()),
+  const [mountedModules, setMountedModules] = useState<ReadonlySet<ModuleId | WarPageId>>(
+    () => (isModulePage(INITIAL_PAGE) ? new Set([INITIAL_PAGE]) : new Set<ModuleId | WarPageId>()),
   );
 
   const navigate = (next: PageId): void => {
@@ -95,6 +103,11 @@ export default function App() {
               </div>
             );
           })}
+          {mountedModules.has('guerra') && (
+            <div className="sg-page" hidden={page !== 'guerra'}>
+              <WarRoomPage />
+            </div>
+          )}
           {!isModulePage(page) && renderSystemPage(page, navigate)}
         </main>
       </div>

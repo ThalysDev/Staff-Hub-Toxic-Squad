@@ -18,9 +18,12 @@ import {
 
 export type ModuleId = 'sg1' | 'sg2' | 'sg3' | 'sg4' | 'sg5' | 'sg6' | 'sg7';
 
+/** Sala de Guerra (P0-4): monitoramento ao vivo de uma OP arquivada. */
+export type WarPageId = 'guerra';
+
 export type SystemPageId = 'dashboard' | 'sessao' | 'config' | 'journal' | 'captures';
 
-export type PageId = ModuleId | SystemPageId;
+export type PageId = ModuleId | WarPageId | SystemPageId;
 
 export interface ModuleInfo {
   id: ModuleId;

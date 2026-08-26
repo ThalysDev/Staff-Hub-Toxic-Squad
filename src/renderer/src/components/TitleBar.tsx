@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Copy, Minus, Square, X } from 'lucide-react';
 import { BRAND_LOGO_SQUARE } from '../assets';
+import { useQueueActivity } from '../hooks/useQueueActivity';
 import { useSessionStatus } from '../hooks/useSessionStatus';
 
 /**
  * Titlebar personalizada (frame:false na janela): barra arrastável com a logo,
- * nome do app e NICK DO JOGADOR quando logado + controles de janela.
+ * nome do app, NICK DO JOGADOR quando logado, INDICADOR GLOBAL de operações
+ * em andamento (U3: "2 operações · coleta 12/57") + controles de janela.
  */
 export default function TitleBar() {
   const [maximized, setMaximized] = useState(false);
   const session = useSessionStatus();
+  const activity = useQueueActivity();
   const isLogged = session.state === 'logged-in';
 
   useEffect(() => {
@@ -36,6 +39,15 @@ export default function TitleBar() {
           </span>
         )}
       </div>
+      {activity.activeCount > 0 && activity.latest !== undefined && (
+        <span
+          className="titlebar-activity"
+          title={`Operação em andamento: ${activity.latest.label} (${activity.latest.done}/${activity.latest.total})`}
+        >
+          {activity.activeCount > 1 ? `${activity.activeCount} operações · ` : ''}
+          {activity.latest.label} {activity.latest.done}/{activity.latest.total}
+        </span>
+      )}
       <div className="titlebar-actions">
         <button
           type="button"
