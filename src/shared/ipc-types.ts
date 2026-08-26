@@ -260,6 +260,8 @@ export interface StaffHubApi {
     adjust(threadUrl: string, confirm: boolean): Promise<{ ok: boolean; detail: string }>;
     /** MUTAÇÃO: apaga posts do tópico (moderação) — dupla confirmação + journal + verificação (modo real permanente). */
     deletePosts(threadUrl: string, postIds: number[], confirm: boolean): Promise<{ ok: boolean; detail: string }>;
+    /** MUTAÇÃO (P0-8): substitui o primeiro post do tópico pelo PLANO BBCode — dupla confirmação + dialog nativo + journal + verificação real. */
+    postPlan(input: { threadUrl: string; bbcode: string }, confirm: boolean): Promise<{ ok: boolean; detail: string }>;
   };
   sg6: {
     /** Reserva em massa no Planejador — MUTAÇÃO: confirmação dupla + journal (modo real permanente). */

@@ -132,6 +132,10 @@ export default function Sg4Page() {
   const [commsTemplate, setCommsTemplate] = useState(
     'OP marcada!\n\nSeus alvos:\n#alvos#\n\nEnvie cada comando para bater no horário combinado:\n#horarios#\n\nBoa sorte!',
   );
+  const [planThreadUrl, setPlanThreadUrl] = useState('');
+  const [planPending, setPlanPending] = useState(false);
+  const [planPosting, setPlanPosting] = useState(false);
+  const [planResult, setPlanResult] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -334,6 +338,34 @@ export default function Sg4Page() {
       return renderTemplate(commsTemplate, commsPlayers[0] ?? { playerName: '?', coords: [], horarios: [] });
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * P0-8 (fecho): posta o plano BBCode no fórum — substitui o 1º post do
+   * tópico informado. MUTAÇÃO com confirmação dupla (aqui) + dialog nativo
+   * (main) + verificação real pós-envio + journal.
+   */
+  async function runPostPlan(): Promise<void> {
+    if (distribution === null) return;
+    setPlanPosting(true);
+    try {
+      const bbcode = planBbcode({
+        opTitle,
+        template: commsTemplate,
+        distribution: commsDistributionText,
+        sendSchedule: scheduleRows !== null && scheduleRows.length > 0 ? formatSendSchedule(scheduleRows) : '',
+      });
+      const result = await window.staffhub.sg7.postPlan({ threadUrl: planThreadUrl.trim(), bbcode }, true);
+      setPlanResult(result.detail);
+      push(result.ok ? 'ok' : 'error', result.detail);
+    } catch (error) {
+      const message = errorMessage(error);
+      setPlanResult(message);
+      push('error', message);
+    } finally {
+      setPlanPosting(false);
+      setPlanPending(false);
     }
   }
 
@@ -1243,6 +1275,50 @@ export default function Sg4Page() {
                   Copiar lista de reservas
                 </button>
               </div>
+              <div className="sg4-params" style={{ marginTop: 12 }}>
+                <label className="field">
+                  <span className="field-label">URL do tópico do plano (o 1º post será SUBSTITUÍDO)</span>
+                  <input
+                    className="input"
+                    placeholder="https://br142.tribalwars.com.br/game.php?screen=forum&screenmode=view_thread&forum_id=…&thread_id=…"
+                    value={planThreadUrl}
+                    aria-label="URL do tópico do plano"
+                    onChange={(event) => setPlanThreadUrl(event.target.value)}
+                  />
+                </label>
+                <div className="field">
+                  <span className="field-label">Postar no fórum — MUTAÇÃO REAL</span>
+                  {!planPending ? (
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      disabled={planPosting || !/thread_id=\d+/.test(planThreadUrl)}
+                      onClick={() => {
+                        setPlanResult(null);
+                        setPlanPending(true);
+                      }}
+                    >
+                      Postar plano no fórum
+                    </button>
+                  ) : (
+                    <div className="sg6-confirm">
+                      <p>
+                        Substituir o <strong>primeiro post</strong> do tópico pelo plano BBCode desta OP? Mutação única
+                        com verificação — e o Windows ainda pedirá confirmação nativa.
+                      </p>
+                      <div className="row">
+                        <button type="button" className="btn btn-danger" disabled={planPosting} onClick={() => void runPostPlan()}>
+                          {planPosting ? <><span className="btn-spinner" aria-hidden="true" /> Postando…</> : 'Confirmar post do plano'}
+                        </button>
+                        <button type="button" className="btn btn-ghost" disabled={planPosting} onClick={() => setPlanPending(false)}>
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {planResult !== null && <p className="muted">{planResult}</p>}
             </div>
           </div>
         )}

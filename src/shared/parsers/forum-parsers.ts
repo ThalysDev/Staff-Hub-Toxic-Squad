@@ -102,3 +102,31 @@ export function parseEditForm(html: string): EditFormDetails {
     currentPage: currentPage ?? '0',
   };
 }
+
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+};
+
+/**
+ * Decodifica entidades HTML do conteúdo bruto de um textarea (&amp; &lt;
+ * &#39; &#x27; …) para o texto ORIGINAL enviado — o jogo re-escapa o BBCode ao
+ * reabrir o formulário, então comparações de verificação pós-envio precisam
+ * comparar texto decodificado com o texto enviado (nunca cru × escapado).
+ */
+export function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&(amp|lt|gt|quot|apos|nbsp);/g, (whole, name: string) => NAMED_ENTITIES[name] ?? whole)
+    .replace(/&#(\d+);/g, (whole, code: string) => {
+      const codePoint = Number(code);
+      return codePoint > 0 && codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : whole;
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (whole, hex: string) => {
+      const codePoint = Number.parseInt(hex, 16);
+      return codePoint > 0 && codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : whole;
+    });
+}

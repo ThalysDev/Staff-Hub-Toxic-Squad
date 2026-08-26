@@ -66,4 +66,19 @@ export function registerSg7Ipc(sg7: Sg7Service): void {
       throw new Error(error instanceof Error ? error.message : String(error));
     }
   });
+  ipcMain.handle("sg7:post-plan", async (event, input: { threadUrl: string; bbcode: string }, confirm: boolean) => {
+    try {
+      if (confirm) {
+        await confirmMutation(
+          event,
+          "Postar plano no fórum",
+          `Confirmar a SUBSTITUIÇÃO do primeiro post do tópico pelo plano BBCode (${input.bbcode.length} caracteres)?`,
+          "Confirmar post do plano",
+        );
+      }
+      return await sg7.postPlanToThread(input.threadUrl, input.bbcode, confirm);
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : String(error));
+    }
+  });
 }

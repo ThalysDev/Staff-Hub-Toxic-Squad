@@ -2,7 +2,7 @@ import { session } from 'electron';
 import { TW_PARTITION, type TwSessionManager } from '../tw/session';
 import type { Journal } from '../journal';
 import type { RequestQueue } from '../tw/request-queue';
-import { forumTokens, parseEditForm, parseForumThread } from '@shared/parsers/forum-parsers';
+import { forumTokens, parseEditForm, parseForumThread, decodeHtmlEntities } from '@shared/parsers/forum-parsers';
 import { applyBlindUpdate, recognizeComments, recognizedSummary, sumByPedido } from '@shared/sg7-engine';
 import { detectPageSentinels } from '../tw/request-queue';
 
@@ -196,6 +196,79 @@ export class Sg7Service {
     }
     await this.journal.append('mutation', 'forum-delete-posts', `thread=${thread.threadId} posts=${postIds.length} → ${detail}`, false);
     return { ok, detail };
+    } finally {
+      this.queue.endOperation();
+    }
+  }
+
+  /**
+   * MUTAÇÃO (P0-8): posta o PLANO BBCode no PRIMEIRO post do tópico informado
+   * (SUBSTITUI o conteúdo atual — o dono aponta para o tópico de planos da
+   * OP). Mesma maquinaria de edição do adjust: formulário validado contra
+   * fixture real (parseEditForm), 1 tentativa, pacing, sentinelas e
+   * verificação REAL pós-envio (reabre o formulário e confere o BBCode
+   * gravado). Título do tópico não é editável pelo formulário do jogo.
+   */
+  async postPlanToThread(threadUrl: string, bbcode: string, confirm: boolean): Promise<{ ok: boolean; detail: string }> {
+    if (!confirm) throw new Error('Confirmação dupla necessária — revise o plano e confirme na tela.');
+    if (bbcode.trim() === '') throw new Error('Plano vazio — gere o Pacote de Comunicação antes de postar.');
+    this.assertQueueIdle();
+    this.queue.beginOperation();
+    try {
+      const world = this.world();
+      if (!threadUrl.includes(`${world}.tribalwars.com.br`)) {
+        throw new Error(`A URL do tópico deve apontar para ${world}.tribalwars.com.br — a sessão atual é do mundo ${world}.`);
+      }
+      const path = threadUrl.replace(/^https?:\/\/[^/]+\//, '');
+      const forumId = /forum_id=(\d+)/.exec(path)?.[1] ?? '0';
+      // Lê o tópico para achar o primeiro post + abre o formulário de edição
+      // com a action EXATA que o jogo espera.
+      const html = await this.getHtml(path);
+      const thread = parseForumThread(html);
+      const firstPost = thread.posts[0];
+      if (firstPost === undefined) throw new Error('Tópico sem posts.');
+      const { form } = await this.openEditForm(thread.threadId, firstPost.postId, Number(forumId));
+      const ses = session.fromPartition(TW_PARTITION);
+      await sleep(350 + Math.random() * 250);
+      const body = new URLSearchParams({
+        message: bbcode,
+        do: form.doValue,
+        'current_page': form.currentPage,
+        send: 'Enviar',
+      }).toString();
+      const response = await ses.fetch(`https://${world}.tribalwars.com.br/${form.action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+        redirect: 'follow',
+      });
+      const responseText = await response.text();
+      // Após o POST disparado, Toda falha (sentinela/verificação) ainda é
+      // journalada — mutação disparada nunca fica sem registro de auditoria.
+      try {
+        const sentinel = detectPageSentinels(responseText);
+        if (sentinel !== null) {
+          throw new Error(sentinel === 'session-expired' ? 'Sessão expirada no meio do envio — confira o tópico manualmente.' : 'Captcha detectado — confira o tópico manualmente.');
+        }
+        // Sem heurística de "erro" no HTML: a PROVA é a verificação real
+        // abaixo (reabre o formulário e confere o BBCode gravado) — marcador
+        // visual de erro sem fixture que o sustente já causou journal falso.
+        let ok = response.ok;
+        let detail = ok ? 'Plano postado no primeiro post do tópico (verificado).' : `HTTP ${response.status}`;
+        if (ok) {
+          const check = await this.openEditForm(thread.threadId, firstPost.postId, Number(forumId));
+          if (decodeHtmlEntities(check.form.message).trim() !== bbcode.trim()) {
+            ok = false;
+            detail = 'Envio aceito, mas o post NÃO refletiu o plano — confira manualmente.';
+          }
+        }
+        await this.journal.append('mutation', 'forum-post-plan', `thread=${thread.threadId} (${bbcode.length} chars BBCode) → ${detail}`, false);
+        return { ok, detail };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await this.journal.append('mutation', 'forum-post-plan-erro', `POST disparado (thread=${thread.threadId}) — resultado incerto: ${message}`, false);
+        throw error;
+      }
     } finally {
       this.queue.endOperation();
     }
