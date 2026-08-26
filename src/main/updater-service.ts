@@ -41,6 +41,9 @@ export class UpdaterService {
   private running = false;
   /** Última versão anunciada no journal (evita linha duplicada a cada visita ao Início). */
   private lastAnnouncedVersion: string | null = null;
+  /** Último progresso emitido — o check() devolve para o card nascer no estágio
+   *  certo ao remontar (o Início desmonta ao navegar; o download continua). */
+  private lastProgress: UpdateProgress | null = null;
 
   constructor(
     private readonly settingsStore: JsonStore<AppSettings>,
@@ -55,6 +58,7 @@ export class UpdaterService {
   }
 
   private emit(progress: UpdateProgress): void {
+    this.lastProgress = progress;
     this.sendProgress(progress);
   }
 
@@ -92,6 +96,12 @@ export class UpdaterService {
         latestVersion: manifest.version,
         updateAvailable,
         ...(updateAvailable ? { manifest } : {}),
+        // Estado vivo do atualizador: o card do Início desmonta ao navegar —
+        // com isso ele RENASCE no estágio certo (download em curso ou já pronta).
+        ...(this.running
+          ? { downloadInProgress: true, ...(this.lastProgress !== null ? { lastProgress: this.lastProgress } : {}) }
+          : {}),
+        ...(this.prepared !== null ? { preparedVersion: this.prepared.version } : {}),
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -102,7 +112,11 @@ export class UpdaterService {
   /** Baixa + confere SHA-256 + extrai em staging + gera o script de troca. */
   async downloadAndPrepare(): Promise<{ ok: boolean; detail: string }> {
     if (this.running) {
-      return { ok: false, detail: 'O download já está em andamento — acompanhe o progresso no Início.' };
+      // Remonta do card (Início desmonta ao navegar) ou clique duplo: NÃO é
+      // falha — re-emite o último progresso para qualquer ouvinte novo e devolve
+      // o aviso informativo (a UI trata como informação, não como erro).
+      if (this.lastProgress !== null) this.emit(this.lastProgress);
+      return { ok: false, detail: 'O download já está em andamento — acompanhe o progresso abaixo.' };
     }
     if (!app.isPackaged) {
       return { ok: false, detail: 'Atualização disponível apenas na versão instalada (portable) — em modo dev use o build novo.' };

@@ -131,6 +131,12 @@ export interface UpdateCheckResult {
   manifest?: UpdateManifest;
   /** Rede/servidor indisponível etc. — checagem é fail-soft, nunca derruba o app. */
   error?: string;
+  /** true quando um download/preparo está em curso agora (card renasce em andamento). */
+  downloadInProgress?: boolean;
+  /** Versão já baixada+verificada+pronta para aplicar (card renasce em "pronta"). */
+  preparedVersion?: string;
+  /** Último progresso emitido pelo preparo em curso (fase/bytes atuais). */
+  lastProgress?: UpdateProgress;
 }
 
 export type UpdateProgress =

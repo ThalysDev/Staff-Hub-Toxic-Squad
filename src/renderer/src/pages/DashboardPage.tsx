@@ -51,6 +51,9 @@ function UpdateCard() {
 
   // Checagem silenciosa (fail-soft): sem atualização disponível OU com erro do
   // canal → nada renderiza. Erros de rede ficam fora da tela de propósito.
+  // O resultado também carrega o ESTADO VIVO do atualizador (download em curso
+  // / versão já preparada) — o Início desmonta ao navegar, então o card precisa
+  // renascer no estágio certo em vez de oferecer "Atualizar" de novo.
   useEffect(() => {
     let cancelled = false;
     void window.staffhub.updater
@@ -59,9 +62,22 @@ function UpdateCard() {
         if (cancelled || result.error !== undefined) return;
         if (!result.updateAvailable || result.manifest === undefined) return;
         setUpdate({ currentVersion: result.currentVersion, manifest: result.manifest });
+        if (result.preparedVersion === result.manifest.version) {
+          setStage('ready');
+        } else if (result.downloadInProgress === true) {
+          const live = result.lastProgress;
+          if (live?.phase === 'download') {
+            setBytes({ received: live.receivedBytes, total: live.totalBytes });
+            setStage('download');
+          } else if (live?.phase === 'verify' || live?.phase === 'extract') {
+            setStage(live.phase);
+          } else {
+            setStage('download');
+          }
+        }
       })
       .catch(() => {
-        // Canal inacessível: silencioso por design.
+        // Canal inessível: silencioso por design.
       });
     return () => {
       cancelled = true;
@@ -92,12 +108,16 @@ function UpdateCard() {
   async function handlePrepare(): Promise<void> {
     setErrorDetail('');
     setBytes({ received: 0, total: 0 });
+    // Otimista: botão some na hora — clique duplo/remount não re-dispara.
     setStage('download');
     try {
       const outcome = await window.staffhub.updater.downloadAndPrepare();
-      // ok=false manda no resultado: mostra o detail como erro, salvo se os
-      // eventos já confirmaram "pronto" enquanto isso.
       if (!outcome.ok) {
+        // "Já está em andamento" é INFORMAÇÃO (download continua), não falha.
+        if (outcome.detail.includes('já está em andamento')) {
+          setStage((current) => (current === 'ready' ? current : 'download'));
+          return;
+        }
         setErrorDetail(outcome.detail || 'Não foi possível preparar a atualização.');
         setStage((current) => (current === 'ready' ? current : 'error'));
       }
