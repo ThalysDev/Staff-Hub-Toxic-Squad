@@ -4,7 +4,8 @@ import type { SessionStatus } from '@shared/ipc-types';
 
 export const TW_PARTITION = 'persist:tw';
 const PORTAL_URL = 'https://www.tribalwars.com.br/';
-const GAME_URL_PATTERN = /^https:\/\/(br\d+)\.tribalwars\.com\.br\/game\.php/;
+// Mundos regulares (br142) e CLÁSSICOS (brc2) — o prefixo brc + número existe.
+const GAME_URL_PATTERN = /^https:\/\/(brc?\d+)\.tribalwars\.com\.br\/game\.php/;
 
 interface ImportedCookie {
   name: string;
@@ -109,10 +110,10 @@ export class TwSessionManager {
     try {
       const cookies = await this.ses.cookies.get({});
       const sidCookie = cookies.find(
-        (cookie) => cookie.name === 'sid' && cookie.domain !== undefined && /(br\d{1,4}\.)?tribalwars\.com\.br$/.test(cookie.domain),
+        (cookie) => cookie.name === 'sid' && cookie.domain !== undefined && /(brc?\d{1,4}\.)?tribalwars\.com\.br$/.test(cookie.domain),
       );
       if (sidCookie === undefined) return; // nada persistido: segue logged-out
-      const world = /br(\d{1,4})/.exec(sidCookie.domain ?? '')?.[0] ?? null;
+      const world = /brc?\d{1,4}/.exec(sidCookie.domain ?? '')?.[0] ?? null;
       if (world === null) return;
       this.status = { state: 'unknown', world, player: this.status.player, checkedAt: null };
       await this.refreshStatus();
@@ -218,8 +219,8 @@ export class TwSessionManager {
    */
   async loginWithSid(world: string, sid: string): Promise<{ ok: true; status: SessionStatus } | { ok: false; error: string }> {
     const normalizedWorld = world.trim().toLowerCase();
-    if (!/^br\d{1,4}$/.test(normalizedWorld)) {
-      return { ok: false, error: 'Mundo inválido — use o formato br142.' };
+    if (!/^brc?\d{1,4}$/.test(normalizedWorld)) {
+      return { ok: false, error: 'Mundo inválido — use o formato br142 (regular) ou brc2 (clássico).' };
     }
     const parsed = parseSidInput(sid, normalizedWorld);
     if (!parsed) {

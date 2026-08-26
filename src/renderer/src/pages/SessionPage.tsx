@@ -13,7 +13,8 @@ interface SidErrors {
   sid?: string;
 }
 
-const WORLD_PATTERN = /^br\d{1,4}$/;
+// Mundos regulares (br142) e clássicos (brc2).
+const WORLD_PATTERN = /^brc?\d{1,4}$/;
 
 export default function SessionPage() {
   const status = useSessionStatus();
@@ -41,7 +42,7 @@ export default function SessionPage() {
     const sid = sidValue.trim();
 
     const errors: SidErrors = {};
-    if (!WORLD_PATTERN.test(world)) errors.world = 'Use o formato do jogo: br + número do mundo (ex.: br142).';
+    if (!WORLD_PATTERN.test(world)) errors.world = 'Use o formato do jogo: br + número (ex.: br142) ou brc + número (mundo clássico, ex.: brc2).';
     if (sid.length === 0) errors.sid = 'Cole o valor do cookie sid.';
     setSidErrors(errors);
     if (errors.world !== undefined || errors.sid !== undefined) return;
@@ -160,7 +161,7 @@ export default function SessionPage() {
                 id="sid-world"
                 className="input"
                 type="text"
-                placeholder="br142"
+                placeholder="br142 ou brc2"
                 autoComplete="off"
                 value={sidWorld}
                 onChange={(event) => setSidWorld(event.target.value)}

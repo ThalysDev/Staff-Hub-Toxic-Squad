@@ -159,15 +159,16 @@ function registerIpc(): void {
 
   ipcMain.handle('dev:capture-fixture', async (_event, name: string, url: string) => {
     try {
-      // Allowlist rígida: só páginas do Tribal Wars BR aceitas — renderer
-      // comprometido não transforma o app em proxy autenticado (SSRF).
-      if (!/^https:\/\/br\d+\.tribalwars\.com\.br\//.test(url)) {
+      // Allowlist rígida: só páginas do Tribal Wars BR aceitas (mundos br142 e
+      // clássicos brc2) — renderer comprometido não transforma o app em proxy
+      // autenticado (SSRF).
+      if (!/^https:\/\/brc?\d+\.tribalwars\.com\.br\//.test(url)) {
         return { ok: false as const, name, error: 'URL fora do allowlist — use https://br###.tribalwars.com.br/…' };
       }
       const response = await twSession.fetchForQueue(url);
       // Pós-fetch: se o servidor redirecionou para fora do domínio do jogo,
       // o corpo não vira fixture (defesa contra redirect cross-origin).
-      if (!/^https:\/\/br\d+\.tribalwars\.com\.br\//.test(response.url)) {
+      if (!/^https:\/\/brc?\d+\.tribalwars\.com\.br\//.test(response.url)) {
         return { ok: false as const, name, error: `Redirecionou para fora do jogo (${response.url}) — fixture descartada.` };
       }
       // Fail-closed: página de erro HTTP ou formulário de login/captcha NÃO é
