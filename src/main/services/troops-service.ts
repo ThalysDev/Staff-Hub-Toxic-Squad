@@ -264,7 +264,7 @@ export class TroopsService {
         continue;
       }
       try {
-        if (isMemberSummaryPage(body)) {
+        if (isMemberSummaryPage(body) || (kind === 'defense' && !body.includes('vis w100'))) {
           // Própria conta logada: usa a visão de unidades da conta.
           const own = await ownUnits();
           for (const village of own.villages) {

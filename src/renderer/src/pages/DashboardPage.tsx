@@ -60,6 +60,16 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         )}
       </div>
 
+      {status.state !== 'logged-in' && (
+        <div className="callout callout--info" style={{ marginBottom: 16 }}>
+          <Info size={18} className="callout-icon" aria-hidden="true" />
+          <div className="callout-body">
+            <p className="callout-title">Faça login primeiro</p>
+            <p>Os módulos precisam de uma sessão ativa no jogo para funcionar. Use o botão 'Fazer login no jogo' acima ou vá em Sessão.</p>
+          </div>
+        </div>
+      )}
+
       <div className="stat-row">
         <StatBlock
           label="Sessão do jogo"

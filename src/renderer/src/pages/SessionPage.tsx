@@ -13,7 +13,7 @@ interface SidErrors {
   sid?: string;
 }
 
-const WORLD_PATTERN = /^br\\d{1,4}$/;
+const WORLD_PATTERN = /^br\d{1,4}$/;
 
 export default function SessionPage() {
   const status = useSessionStatus();
@@ -88,8 +88,8 @@ export default function SessionPage() {
               <div className="callout-body">
                 <p className="callout-title">Abrindo a página de login</p>
                 <p>
-                  Resolva o captcha na janela que abriu. O hub retoma sozinho quando a sessão
-                  estiver ativa.
+                  Faça login no portal e <strong>clique no seu mundo</strong> para entrar no jogo. O
+                  hub detecta sozinho quando você entra no mundo e fecha a janela.
                 </p>
               </div>
             </div>

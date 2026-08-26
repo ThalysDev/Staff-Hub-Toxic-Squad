@@ -124,9 +124,12 @@ export class Sg6Service {
           },
         );
         const sentinel = detectPageSentinels(response.body);
-        if (sentinel === 'session-expired') throw new Error('Sessão expirada no meio da cadeia — operação interrompida.');
-        if (sentinel === 'captcha-suspected') throw new Error('Captcha no meio da cadeia — operação interrompida; resolva na janela de login.');
-        const already = /já reservad|already/i.test(response.body);
+        if (sentinel === 'session-expired' || sentinel === 'captcha-suspected') {
+          await this.journal.append('mutation', 'reserve-halt', `Reserva interrompida na coordenada ${coord} (${sentinel})`, false);
+          outcomes.push({ coord, dryRun: false, ok: false, detail: sentinel === 'session-expired' ? 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.' : 'CAPTCHA — operação interrompida.' });
+          break;
+        }
+        const already = /já reserva(?:d[ao]|u)|already reserv/i.test(response.body);
         const error = /class="error"|não existe tal aldeia/i.test(response.body);
         outcome = {
           coord,

@@ -225,7 +225,6 @@ export class TwSessionManager {
     if (!parsed) {
       return { ok: false, error: 'Não encontrei um cookie "sid" válido aí — cole o export completo do EditThisCookie ou o valor puro do sid (0%3Aabc… ou 0:abc…).' };
     }
-    await this.ses.clearStorageData({ storages: ['cookies'] });
     await this.ses.cookies.set({
       url: `https://${normalizedWorld}.tribalwars.com.br/`,
       name: 'sid',
@@ -290,10 +289,10 @@ export class TwSessionManager {
 
 /** Extrai o nick do jogador do cabeçalho do jogo (topo/visão geral) — best-effort. */
 export function extractPlayerName(html: string): string | null {
-  const byTopbar = /class="topbar[^"]*"[^>]*>\s*<a[^>]*>([^<]{2,30})<\/a>/.exec(html);
-  if (byTopbar?.[1]) return byTopbar[1].trim();
-  const byMenu = /screen=profile[^"]*"[^>]*>([^<]{2,30})<\/a>/.exec(html);
-  if (byMenu?.[1]) return byMenu[1].trim();
+  const byGameData = /"player":\{"id":\d+,"name":"([^"]{2,40})"/.exec(html);
+  if (byGameData?.[1]) return byGameData[1].trim();
+  const byInfoPlayer = /screen=info_player&[^"]*"[^>]*>([^<]{2,30})<\/a>/.exec(html);
+  if (byInfoPlayer?.[1]) return byInfoPlayer[1].trim();
   return null;
 }
 

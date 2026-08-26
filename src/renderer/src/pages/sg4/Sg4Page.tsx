@@ -339,9 +339,10 @@ export default function Sg4Page() {
       if (nobleMinutes === 0) setNobleMinutes(noble);
 
       const originPoints = new Map(players.map((player) => [player.name, player.points]));
+      const playerPointsById = new Map(players.map((player) => [player.id, player.points]));
       const targetPoints = new Map<string, number>();
       for (const enemy of enemyVillages) {
-        if (enemy.points !== undefined) targetPoints.set(`${enemy.coord.x}|${enemy.coord.y}`, enemy.points);
+        if (enemy.points !== undefined) targetPoints.set(`${enemy.coord.x}|${enemy.coord.y}`, playerPointsById.get(enemy.playerId) ?? enemy.points ?? 0);
       }
       const minMorale = Math.min(100, Math.max(0, Math.round(minMoraleRaw)));
       const input: DistributionInput = {
@@ -860,6 +861,8 @@ export default function Sg4Page() {
 }
 
 /** Visualização da Distribuição: origens (verde) × alvos (branco) sobre o mapa. */
+const EMPTY_MARKINGS = new Map<number, import('@shared/types').TribeMarking>();
+
 function DistributionMap({ assignments, onError }: { assignments: { playerName: string; origin: string; target: string }[]; onError: (message: string) => void }) {
   const [villages, setVillages] = useState<readonly import('@shared/types').WorldVillage[] | null>(null);
 
@@ -890,7 +893,7 @@ function DistributionMap({ assignments, onError }: { assignments: { playerName: 
         <span className="muted">● origens (NTs) · □ alvos</span>
       </div>
       <div className="card-body">
-        <WorldMapCanvas villages={villages} markings={new Map()} highlights={targets} origins={origins} />
+        <WorldMapCanvas villages={villages} markings={EMPTY_MARKINGS} highlights={targets} origins={origins} />
       </div>
     </div>
   );
