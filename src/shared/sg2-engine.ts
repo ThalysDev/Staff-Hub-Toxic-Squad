@@ -3,7 +3,7 @@
 
 import { classifyVillage } from './units';
 import type { UnitCounts } from './units';
-import { inAxesRange } from './coords';
+import { continentOf, inAxesRange } from './coords';
 
 export interface TroopEntry {
   playerId: number;
@@ -50,6 +50,15 @@ export interface Sg2Filters {
   scope: 'aldeia' | 'jogador';
   coordsFilter?: { x: number; y: number }[];
   axesRange?: { minX?: number; maxX?: number; minY?: number; maxY?: number };
+  /**
+   * Filtro por CONTINENTE K (calculado de "x|y" via continentOf):
+   * - 'incluir': só passa coordenada cujo K está na lista — lista VAZIA não
+   *   passa NADA (fail-closed, nunca "tudo");
+   * - 'excluir': passa a que NÃO está na lista.
+   * Ks válidos: inteiros 0–99; fora disso = erro (nunca resultado silencioso).
+   * Combinável com coordsFilter/axesRange (a aldeia precisa passar nos todos).
+   */
+  kFilter?: { ks: number[]; mode: 'incluir' | 'excluir' };
 }
 
 export interface Sg2FilterResult {
@@ -84,6 +93,8 @@ function passesEntry(entry: TroopEntry, filters: Sg2Filters): boolean {
  *   aldeias dele entram no resultado);
  * - coordsFilter ativo: só entries com coordenada válida na lista (resumo sem
  *   coords é ignorado);
+ * - kFilter ativo ('incluir'/'excluir' por continente): igual aos demais filtros
+ *   de geo — só entra aldeia com coordenada; resumo com kFilter é fail-closed;
  * - sem mínimos: devolve classificação ofensiva/defensiva de cada aldeia.
  */
 export function filterTroops(snapshot: TroopSnapshot, filters: Sg2Filters): Sg2FilterResult {
@@ -91,10 +102,26 @@ export function filterTroops(snapshot: TroopSnapshot, filters: Sg2Filters): Sg2F
   const coordSet = new Set(coordsFilter.map((c) => `${c.x}|${c.y}`));
   const minimums = filters.unitMinimums ?? {};
   const hasMinimumFilters = Object.keys(minimums).length > 0;
+  // Filtro por continente: Ks fora de 0–99 = dados inválidos → fail-closed.
+  const kFilter = filters.kFilter;
+  if (kFilter !== undefined) {
+    const invalidKs = kFilter.ks.filter((k) => !Number.isInteger(k) || k < 0 || k > 99);
+    if (invalidKs.length > 0) {
+      throw new Error(`Continente(s) inválido(s) no filtro K (use inteiros de 0 a 99): ${invalidKs.join(', ')}.`);
+    }
+  }
+  const kSet = kFilter !== undefined ? new Set(kFilter.ks) : null;
   // Snapshots de RESUMO (por jogador, sem aldeia) não suportam consultas por
   // aldeia nem classificação — fail-closed com orientação, nunca número errado.
   const isSummary = snapshot.entries.some((entry) => entry.coord.x < 0);
-  if (isSummary && (!hasMinimumFilters || filters.scope === 'aldeia' || (coordsFilter.length > 0) || (filters.axesRange !== undefined))) {
+  if (
+    isSummary &&
+    (!hasMinimumFilters ||
+      filters.scope === 'aldeia' ||
+      coordsFilter.length > 0 ||
+      filters.axesRange !== undefined ||
+      kSet !== null)
+  ) {
     throw new Error(
       'A coleta em modo Resumo (1 requisição) não traz aldeias — use "Coletar Informações de Tropas" (por membro) para filtro/classificação por aldeia. O resumo só suporta filtro simples por jogador.',
     );
@@ -109,11 +136,16 @@ export function filterTroops(snapshot: TroopSnapshot, filters: Sg2Filters): Sg2F
 
   const classification = { offensive: 0, defensive: 0, empty: 0 };
 
-  /** Filtros de coordenada e eixo são COMBINÁVEIS: a aldeia precisa passar nos dois. */
+  /** Filtros de coordenada, eixo e continente são COMBINÁVEIS: a aldeia precisa passar em todos. */
   const passesGeo = (entry: TroopEntry): boolean => {
     if (entry.coord.x < 0) return true; // resumo: sem geo
     if (coordSet.size > 0 && !coordSet.has(`${entry.coord.x}|${entry.coord.y}`)) return false;
     if (filters.axesRange && !inAxesRange(entry.coord, filters.axesRange)) return false;
+    if (kSet !== null && kFilter !== undefined) {
+      const k = continentOf(entry.coord);
+      // 'incluir' com ks vazio: o conjunto vazio não contém nenhum K → nada passa (fail-closed).
+      if (kFilter.mode === 'incluir' ? !kSet.has(k) : kSet.has(k)) return false;
+    }
     return true;
   };
 

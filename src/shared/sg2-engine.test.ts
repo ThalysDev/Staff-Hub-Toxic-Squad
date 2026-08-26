@@ -135,6 +135,63 @@ describe('filterTroops', () => {
   });
 });
 
+describe('filterTroops — kFilter (continente K)', () => {
+  // continentOf({555,555}) = 55 · continentOf({777,777}) = 77 · continentOf({111,111}) = 11
+  const entries: TroopEntry[] = [
+    { playerId: 1, playerName: 'ana', coord: { x: 555, y: 555 }, villageName: 'k55', units: { spear: 9000 } },
+    { playerId: 1, playerName: 'ana', coord: { x: 777, y: 777 }, villageName: 'k77', units: { spear: 8000 } },
+    { playerId: 2, playerName: 'bia', coord: { x: 111, y: 111 }, villageName: 'k11', units: { spear: 7000 } },
+  ];
+
+  it('incluir [55,77]: só passam K55 e K77', () => {
+    const result = filterTroops(snapshot(entries), {
+      mode: 'possuem', scope: 'aldeia', unitMinimums: { spear: 100 }, kFilter: { ks: [55, 77], mode: 'incluir' },
+    });
+    expect(result.totalVillages).toBe(2);
+    const ana = result.players.find((p) => p.playerName === 'ana');
+    expect(ana?.coords).toEqual(['555|555', '777|777']);
+    expect(result.players.some((p) => p.playerName === 'bia')).toBe(false);
+  });
+
+  it('excluir [55,77]: inverso — só resta fora da lista', () => {
+    const result = filterTroops(snapshot(entries), {
+      mode: 'possuem', scope: 'aldeia', unitMinimums: { spear: 100 }, kFilter: { ks: [55, 77], mode: 'excluir' },
+    });
+    expect(result.totalVillages).toBe(1);
+    expect(result.players[0]?.playerName).toBe('bia');
+    expect(result.players[0]?.coords).toEqual(['111|111']);
+  });
+
+  it('ks vazio com incluir → NADA passa (fail-closed, nunca "tudo")', () => {
+    const result = filterTroops(snapshot(entries), {
+      mode: 'possuem', scope: 'aldeia', unitMinimums: { spear: 100 }, kFilter: { ks: [], mode: 'incluir' },
+    });
+    expect(result.totalVillages).toBe(0);
+    expect(result.players).toEqual([]);
+  });
+
+  it('K fora de 0–99 → erro fail-closed', () => {
+    expect(() =>
+      filterTroops(snapshot(entries), {
+        mode: 'possuem', scope: 'aldeia', unitMinimums: { spear: 100 }, kFilter: { ks: [55, 120], mode: 'incluir' },
+      }),
+    ).toThrow(/inválido/i);
+  });
+
+  it('kFilter é COMBINÁVEL com axesRange', () => {
+    const result = filterTroops(snapshot(entries), {
+      mode: 'possuem',
+      scope: 'aldeia',
+      unitMinimums: { spear: 100 },
+      kFilter: { ks: [55, 77], mode: 'incluir' },
+      axesRange: { minX: 600 },
+    });
+    // K55 (x<600) cai no eixo; só sobra a aldeia de K77
+    expect(result.totalVillages).toBe(1);
+    expect(result.players[0]?.coords).toEqual(['777|777']);
+  });
+});
+
 describe('integração parser+engine (fixture real)', () => {
   it('filtra spear>=200 nas aldeias reais do Rebouças', () => {
     const parsed = parseMemberVillageTroops(fixture('troops-reboucas-rows.html'));

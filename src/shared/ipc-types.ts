@@ -14,6 +14,9 @@ import type {
 import type { Sg2FilterResult, Sg2Filters, TroopSnapshot } from './sg2-engine';
 import type { BlindCheckInput, BlindVillageResult } from './sg3-engine';
 import type { IncomingCommandRow, PlayerCommandTotal } from './parsers/village-parsers';
+import type { GroupEntry, GroupSaveInput } from './groups-rules';
+
+export type { GroupEntry, GroupSaveInput };
 
 export interface Sg5VerifyEntry {
   playerName: string;
@@ -268,6 +271,10 @@ export interface StaffHubApi {
     nobleMinutes(): Promise<number>;
     /** Bônus noturno do mundo (get_config): se ativo e a janela de horas. */
     nightBonus(): Promise<{ active: boolean; startHour: number; endHour: number }>;
+    /** Moral por pontos do mundo (get_config disable_morale): mundos clássicos NÃO têm. */
+    moraleInfo(): Promise<{ active: boolean }>;
+    /** População por unidade do mundo (unit-info) — contadores FULL/SEMI e medidas por população. */
+    unitPops(): Promise<Record<string, number>>;
     /** Relações diplomáticas da tribo do jogador (página autenticada). */
     relations(): Promise<DiplomacyRelations>;
   };
@@ -328,6 +335,18 @@ export interface StaffHubApi {
     attachConference(id: string, conference: OpConferenceSnapshot, totals?: OpTotalsSnapshot[]): Promise<OpArchiveEntry>;
     /** Remove uma OP do arquivo (confirmação na UI). */
     remove(id: string): Promise<void>;
+  };
+  groups: {
+    /** Grupos salvos (persistentes entre sessões/contas), mais recentes primeiro. */
+    list(): Promise<GroupEntry[]>;
+    /** Cria/atualiza um grupo (snapshot congelado de coordenadas). */
+    save(input: GroupSaveInput): Promise<GroupEntry>;
+    /** Remove um grupo. */
+    remove(id: string): Promise<void>;
+    /** Exporta um grupo para arquivo JSON (diálogo nativo de salvar). */
+    exportGroup(id: string): Promise<{ ok: boolean; path?: string; detail: string }>;
+    /** Importa grupo de arquivo JSON (diálogo nativo de abrir) — multi-tribo/backup. */
+    importGroup(): Promise<{ ok: boolean; entry?: GroupEntry; detail: string }>;
   };
   window: {
     /** Titlebar personalizada (frame:false). */

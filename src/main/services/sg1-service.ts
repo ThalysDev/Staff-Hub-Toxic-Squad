@@ -143,6 +143,24 @@ export class Sg1Service {
     return { active: config.nightBonusActive, startHour: config.nightStartHour, endHour: config.nightEndHour };
   }
 
+  /** Moral por pontos do mundo (get_config): Clássicos trazem disable_morale=1. */
+  async moraleInfo(): Promise<{ active: boolean }> {
+    const world = this.worldData.world();
+    const config = await this.worldConfig(world);
+    return { active: config.moralActive };
+  }
+
+  /** População por unidade do mundo (unit-info, cache 1 dia) — sem hardcode. */
+  async unitPops(): Promise<Record<string, number>> {
+    const world = this.worldData.world();
+    const units = await this.unitInfo(world);
+    const pops: Record<string, number> = {};
+    for (const [id, info] of Object.entries(units)) {
+      pops[id] = info.pop;
+    }
+    return pops;
+  }
+
   /** Unidades do mundo (interface.php?func=get_unit_info), cache 1 dia por mundo. */
   private async unitInfo(world: string): Promise<Record<string, UnitInfo>> {
     const cached = await this.unitInfoStore.load();

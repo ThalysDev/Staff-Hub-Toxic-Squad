@@ -66,7 +66,9 @@ const api = {
     players: () => invoke('world:players'),
     nobleMinutes: () => invoke('world:noble-minutes'),
     nightBonus: () =>
-      invoke('world:night-bonus') as Promise<{ active: boolean; startHour: number; endHour: number }>,
+      ipcRenderer.invoke('world:night-bonus') as Promise<{ active: boolean; startHour: number; endHour: number }>,
+    moraleInfo: () => invoke('world:morale-info'),
+    unitPops: () => invoke('world:unit-pops'),
     relations: () => invoke('world:relations'),
   },
   sg1: {
@@ -102,7 +104,14 @@ const api = {
     save: (input: OpSaveInput) => invoke('oparchive:save', input) as Promise<OpArchiveEntry>,
     attachConference: (id: string, conference: OpConferenceSnapshot, totals?: OpTotalsSnapshot[]) =>
       invoke('oparchive:attach-conference', id, conference, totals) as Promise<OpArchiveEntry>,
-    remove: (id: string) => invoke('oparchive:remove', id) as Promise<void>,
+    remove: (id: string) => invoke('oparchive:remove', id),
+  },
+  groups: {
+    list: () => invoke('groups:list'),
+    save: (input: import('@shared/groups-rules').GroupSaveInput) => invoke('groups:save', input),
+    remove: (id: string) => invoke('groups:remove', id),
+    exportGroup: (id: string) => invoke('groups:export', id),
+    importGroup: () => invoke('groups:import'),
   },
   sg5: {
     verify: (entries: import('@shared/ipc-types').Sg5VerifyEntry[]) =>

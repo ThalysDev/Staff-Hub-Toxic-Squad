@@ -65,10 +65,33 @@ describe('parseOriginsInput', () => {
 });
 
 describe('moraleOf', () => {
-  it('penaliza atacar alvo menor; atacar alvo maior dá 100', () => {
-    expect(moraleOf(1000, 500)).toBeLessThan(100); // alvo menor → moral baixa
-    expect(moraleOf(500, 1000)).toBe(100); // alvo maior → moral cheia
+  it('fórmula por pontos do jogo: 1M atacando 100k → 60', () => {
+    expect(moraleOf(1_000_000, 100_000)).toBe(60);
+  });
+
+  it('pontos iguais ou alvo maior → moral cheia 100', () => {
+    expect(moraleOf(500_000, 500_000)).toBe(100);
+    expect(moraleOf(100_000, 1_000_000)).toBe(100);
+  });
+
+  it('atacante menor que o alvo não é penalizado', () => {
+    expect(moraleOf(50_000, 200_000)).toBe(100);
+    expect(moraleOf(1, 2)).toBe(100);
+  });
+
+  it('alvo muito menor bate no piso implícito ~30', () => {
+    // (1000/1M × 3 + 0,3) × 100 = 30,3 → 30
+    expect(moraleOf(1_000_000, 1_000)).toBe(30);
+    expect(moraleOf(1_000_000, 10)).toBe(30);
+  });
+
+  it('def/att = 0,2 → 90', () => {
+    expect(moraleOf(500_000, 100_000)).toBe(90);
+  });
+
+  it('sem pontos (bárbaros/dados ausentes) → sem penalidade', () => {
     expect(moraleOf(1000, 0)).toBe(100);
+    expect(moraleOf(0, 1000)).toBe(100);
   });
 });
 
@@ -115,7 +138,7 @@ describe('distributeTargets', () => {
       originPoints: new Map([['ana', 10000], ['bia', 100]]),
       targetPoints: new Map([['502|500', 100], ['504|500', 10000], ['522|500', 100]]),
     });
-    // ana (10000) vs 502|500 (100): (100/10000)^0.75 ≈ 6% → barrado; vs 504 (10000): 100% ok
+    // ana (10000) vs 502|500 (100): (100/10000×3+0,3) ≈ 33% → barrado; vs 504 (10000): 100% ok
     const ana = result.assignments.find((a) => a.playerName === 'ana');
     expect(ana?.target).toBe('504|500');
   });

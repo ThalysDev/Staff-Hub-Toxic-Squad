@@ -100,6 +100,22 @@ export function registerWorldIpc(deps: WorldIpcDeps): void {
     }
   });
 
+  ipcMain.handle('world:morale-info', async () => {
+    try {
+      return await sg1.moraleInfo();
+    } catch (error) {
+      fail('Falha ao obter a moral do mundo', error);
+    }
+  });
+
+  ipcMain.handle('world:unit-pops', async () => {
+    try {
+      return await sg1.unitPops();
+    } catch (error) {
+      fail('Falha ao obter a população das unidades do mundo', error);
+    }
+  });
+
   ipcMain.handle('world:relations', async () => {
     if (queue.isRunning) {
       fail('Falha ao ler as relações diplomáticas', new Error('Uma operação está em andamento — aguarde terminar antes de ler a diplomacia.'));

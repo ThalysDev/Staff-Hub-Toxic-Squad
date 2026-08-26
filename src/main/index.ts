@@ -21,6 +21,8 @@ import { Sg7Service } from './mutations/sg7-service';
 import { registerSg7Ipc } from './ipc-sg7';
 import { OpArchiveService } from './services/op-archive-service';
 import { registerOpIpc } from './ipc-op';
+import { GroupsService } from './services/groups-service';
+import { registerGroupsIpc } from './ipc-groups';
 import { UpdaterService } from './updater-service';
 import { registerSg5Ipc } from './ipc-sg5';
 import { DEFAULT_SETTINGS, type AppSettings, type QueueProgress } from '@shared/ipc-types';
@@ -184,13 +186,13 @@ function registerIpc(): void {
       // Allowlist rígida: só páginas do Tribal Wars BR aceitas (mundos br142 e
       // clássicos brc2) — renderer comprometido não transforma o app em proxy
       // autenticado (SSRF).
-      if (!/^https:\/\/brc?\d+\.tribalwars\.com\.br\//.test(url)) {
+      if (!/^https:\/\/br[a-z]?\d+\.tribalwars\.com\.br\//.test(url)) {
         return { ok: false as const, name, error: 'URL fora do allowlist — use https://br###.tribalwars.com.br/…' };
       }
       const response = await twSession.fetchForQueue(url);
       // Pós-fetch: se o servidor redirecionou para fora do domínio do jogo,
       // o corpo não vira fixture (defesa contra redirect cross-origin).
-      if (!/^https:\/\/brc?\d+\.tribalwars\.com\.br\//.test(response.url)) {
+      if (!/^https:\/\/br[a-z]?\d+\.tribalwars\.com\.br\//.test(response.url)) {
         return { ok: false as const, name, error: `Redirecionou para fora do jogo (${response.url}) — fixture descartada.` };
       }
       // Fail-closed: página de erro HTTP ou formulário de login/captcha NÃO é
@@ -291,6 +293,7 @@ registerIpc();
   registerSg6Ipc({ sg6: sg6Service, journal });
   registerSg7Ipc(new Sg7Service(twSession, journal, queue as RequestQueue, settingsStore));
   registerOpIpc({ journal, opArchive: new OpArchiveService(journal) });
+  registerGroupsIpc({ journal, groups: new GroupsService(journal) });
   createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

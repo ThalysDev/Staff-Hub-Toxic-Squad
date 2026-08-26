@@ -130,12 +130,13 @@ export interface TargetLine {
   targets: { x: number; y: number; points?: number }[];
 }
 
-/** Moral TW: quem ataca alvo MENOR é penalizado — moral = (def/att)^0.75, teto
- * 100. (Sentido confirmado na revisão; calibração fina contra o jogo pendente.) */
+/** Moral TW do jogo (POR PONTOS): moral = (def/att × 3 + 0,3) × 100, teto 100.
+ * Confirmada por membro da staff contra o jogo (1M atacando 100k → 60%).
+ * A constante 0,3 dá o piso implícito de ~30 — a própria fórmula nunca desce abaixo disso. */
 export function moraleOf(attackerPoints: number, defenderPoints: number): number {
   // Sem pontos (bárbaros/dados ausentes) não há penalidade de moral.
   if (attackerPoints <= 0 || defenderPoints <= 0) return 100;
-  return Math.min(100, Math.round((defenderPoints / attackerPoints) ** 0.75 * 100));
+  return Math.min(100, Math.round((defenderPoints / attackerPoints * 3 + 0.3) * 100));
 }
 
 export interface DistributionInput {

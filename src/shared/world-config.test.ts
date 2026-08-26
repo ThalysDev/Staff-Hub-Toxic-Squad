@@ -58,12 +58,19 @@ describe('parseWorldConfigXml', () => {
     expect(parseWorldConfigXml('br142', xml).moralActive).toBe(false);
   });
 
-  it('tags ausentes recebem fallback (speed 1, flags false)', () => {
+  it('moral vem da tag REAL disable_morale (1 = mundo clássico sem moral)', () => {
+    const xmlCom = SAMPLE_XML.replace('<moral>1</moral>', '<moral>1</moral><disable_morale>0</disable_morale>');
+    expect(parseWorldConfigXml('br142', xmlCom).moralActive).toBe(true);
+    const xmlClássico = SAMPLE_XML.replace('<moral>1</moral>', '<moral>1</moral><disable_morale>1</disable_morale>');
+    expect(parseWorldConfigXml('brc2', xmlClássico).moralActive).toBe(false);
+  });
+
+  it('tags ausentes recebem fallback (speed 1, moral ATIVA por padrão)', () => {
     expect(parseWorldConfigXml('br142', '<config></config>')).toEqual({
       world: 'br142',
       speed: 1,
       unitSpeed: 1,
-      moralActive: false,
+      moralActive: true,
       nightBonusActive: false,
       nightStartHour: 0,
       nightEndHour: 0,

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ChevronDown,
@@ -30,6 +30,7 @@ import type { QueueProgress } from '@shared/ipc-types';
 //   export function playersSummary(result: Sg2FilterResult): string; // linhas "nick;qtde;coord coord"
 import { filterTroops, playersSummary } from '@shared/sg2-engine';
 import type { Sg2FilterResult, Sg2Filters, TroopSnapshot } from '@shared/sg2-engine';
+import { fullSemiByPlayer, formatFullSemi, type PlayerFullSemi } from '@shared/full-semi';
 import { UNITS, type UnitCounts, type UnitId } from '@shared/units';
 import { TW_UNIT_ICONS } from '../../assets';
 import EmptyState from '../../components/EmptyState';
@@ -38,6 +39,7 @@ import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
 import StatBlock from '../../components/StatBlock';
 import ToastViewport from '../../components/Toast';
+import { useSessionStatus } from '../../hooks/useSessionStatus';
 import { useToast } from '../../hooks/useToast';
 import { MODULES } from '../../modules';
 
@@ -107,6 +109,21 @@ export default function Sg2Page() {
   const [mode, setMode] = useState<'has' | 'lacks'>('has');
   const [scope, setScope] = useState<'village' | 'player'>('village');
   const [coordsText, setCoordsText] = useState('');
+  const [kText, setKText] = useState('');
+  const [kMode, setKMode] = useState<'incluir' | 'excluir'>('incluir');
+  // ---- Contador Full/Semi + Grupos ----
+  const [fullPopText, setFullPopText] = useState('18000');
+  const [semiPopText, setSemiPopText] = useState('12000');
+  const [fullSemiResult, setFullSemiResult] = useState<PlayerFullSemi[] | null>(null);
+  const [fullSemiText, setFullSemiText] = useState('');
+  const [fullSemiUnknown, setFullSemiUnknown] = useState<string[]>([]);
+  const [fullSemiBusy, setFullSemiBusy] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [groupPapel, setGroupPapel] = useState<'origem' | 'alvo'>('origem');
+  const [groupAuthor, setGroupAuthor] = useState('');
+  const [groupBusy, setGroupBusy] = useState(false);
+  const unitPopsRef = useRef<Record<string, number> | null>(null);
+  const session = useSessionStatus();
   const [minXText, setMinXText] = useState('');
   const [maxXText, setMaxXText] = useState('');
   const [minYText, setMinYText] = useState('');
@@ -231,6 +248,8 @@ export default function Sg2Page() {
     if (minY !== null) axesRange.minY = minY;
     if (maxY !== null) axesRange.maxY = maxY;
     if (Object.keys(axesRange).length > 0) filters.axesRange = axesRange;
+    const ks = [...new Set((kText.match(/\d{1,2}/g) ?? []).map((value) => Number(value)).filter((k) => k >= 0 && k <= 99))];
+    if (ks.length > 0) filters.kFilter = { ks, mode: kMode };
     return filters;
   }
 
@@ -264,6 +283,106 @@ export default function Sg2Page() {
       }
       return next;
     });
+  }
+
+  /** Entradas do snapshot restritas ao resultado da filtragem corrente. */
+  function resultEntries(): { playerName: string; coord: { x: number; y: number }; units: Record<string, number> }[] {
+    if (snapshot === null || result === null) return [];
+    const porJogador = new Map(result.players.map((player) => [player.playerName, new Set(player.coords)]));
+    return snapshot.entries
+      .filter((entry) => entry.coord.x >= 0)
+      .filter((entry) => porJogador.get(entry.playerName)?.has(`${entry.coord.x}|${entry.coord.y}`) === true)
+      .map((entry) => ({ playerName: entry.playerName, coord: entry.coord, units: entry.units as Record<string, number> }));
+  }
+
+  async function runFullSemi(): Promise<void> {
+    if (result === null || snapshot === null) return;
+    const fullPop = Number(fullPopText);
+    const semiPop = Number(semiPopText);
+    setFullSemiBusy(true);
+    try {
+      if (unitPopsRef.current === null) {
+        unitPopsRef.current = await window.staffhub.world.unitPops();
+      }
+      const { players, unknownUnits } = fullSemiByPlayer({
+        entries: resultEntries(),
+        fullPop,
+        semiPop,
+        popByUnit: unitPopsRef.current ?? {},
+      });
+      setFullSemiResult(players);
+      setFullSemiText(formatFullSemi(players));
+      setFullSemiUnknown(unknownUnits);
+      push('ok', `Contagem pronta: ${players.length} jogador(es).`);
+    } catch (error) {
+      const message = errorMessage(error);
+      push('error', message);
+    } finally {
+      setFullSemiBusy(false);
+    }
+  }
+
+  /** Critério PT-BR dos filtros atuais — vai congelado no grupo. */
+  function criterioText(): string {
+    const parts: string[] = [];
+    const minimums = buildFilters().unitMinimums ?? {};
+    const minDesc = Object.entries(minimums).map(([unit, min]) => `${min}+ ${UNITS[unit as UnitId]?.name ?? unit}`).join(', ');
+    if (minDesc !== '') parts.push(mode === 'has' ? `possui ${minDesc}` : `não possui ${minDesc}`);
+    const ks = (kText.match(/\d{1,2}/g) ?? []).join(',');
+    if (ks !== '') parts.push(`K ${kMode} ${ks}`);
+    if (coordsText.trim() !== '') parts.push('lista de coordenadas');
+    parts.push(`FULL≥${fullPopText}, SEMI≥${semiPopText}`);
+    return parts.join('; ');
+  }
+
+  async function saveGroup(): Promise<void> {
+    if (result === null) return;
+    const nome = groupName.trim();
+    if (nome === '') {
+      push('error', 'Dê um nome ao grupo antes de salvar.');
+      return;
+    }
+    const mundo = session.world ?? '';
+    if (mundo === '') {
+      push('error', 'Sessão sem mundo identificado — faça login antes de salvar o grupo.');
+      return;
+    }
+    setGroupBusy(true);
+    try {
+      const fullSemiPorNick = new Map((fullSemiResult ?? []).map((player) => [player.playerName, player]));
+      const perPlayer = result.players.map((player) => {
+        const contagem = fullSemiPorNick.get(player.playerName);
+        return {
+          playerName: player.playerName,
+          fulls: contagem?.fulls ?? 0,
+          semis: contagem?.semis ?? 0,
+          coords: contagem?.coords ?? player.coords,
+        };
+      });
+      const entry = await window.staffhub.groups.save({
+        nome,
+        mundo,
+        autor: groupAuthor.trim() === '' ? (session.player ?? 'staff') : groupAuthor.trim(),
+        papel: groupPapel,
+        coords: result.players.flatMap((player) => player.coords),
+        perPlayer,
+        criterio: criterioText(),
+      });
+      push('ok', `Grupo "${entry.nome}" salvo (${entry.coords.length} coordenadas) — disponível na Sala de Guerra.`);
+    } catch (error) {
+      push('error', errorMessage(error));
+    } finally {
+      setGroupBusy(false);
+    }
+  }
+
+  async function copyText(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      push('ok', 'Copiado para a área de transferência.');
+    } catch {
+      push('error', 'Não foi possível copiar — selecione e use Ctrl+C.');
+    }
   }
 
   async function copySummary(): Promise<void> {
@@ -601,6 +720,29 @@ export default function Sg2Page() {
                       </div>
                     </div>
 
+                    <div className="field">
+                      <span className="field-label">Continentes K (ex.: 55 77)</span>
+                      <div className="sg2-axis-inputs">
+                        <input
+                          className="input"
+                          placeholder="55 77"
+                          value={kText}
+                          aria-label="Continentes K"
+                          onChange={(event) => setKText(event.target.value)}
+                        />
+                        <div className="sg2-radio-row" role="radiogroup" aria-label="Modo do filtro por continente">
+                          <label className="checkbox-field">
+                            <input type="radio" name="sg2-kmode" checked={kMode === 'incluir'} onChange={() => setKMode('incluir')} />
+                            incluir apenas
+                          </label>
+                          <label className="checkbox-field">
+                            <input type="radio" name="sg2-kmode" checked={kMode === 'excluir'} onChange={() => setKMode('excluir')} />
+                            excluir
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="sg2-span-2 sg2-form-actions">
                       <button type="submit" className="btn">
                         <Swords size={15} aria-hidden="true" />
@@ -612,6 +754,88 @@ export default function Sg2Page() {
                       </span>
                     </div>
                   </form>
+                </div>
+              </div>
+            )}
+
+            {result !== null && (
+              <div className="card">
+                <div className="card-header">
+                  <h3 className="card-title">Contador Full/Semi</h3>
+                  <span className="spacer" />
+                  <span className="pill pill--muted">{result.totalVillages} aldeia(s) no filtro</span>
+                </div>
+                <div className="card-body">
+                  <div className="sg4-params">
+                    <label className="field">
+                      <span className="field-label">Pop. ofensiva mínima FULL</span>
+                      <input className="input" type="number" min={1} value={fullPopText} aria-label="População ofensiva mínima para FULL" onChange={(event) => setFullPopText(event.target.value)} />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Pop. ofensiva mínima SEMI</span>
+                      <input className="input" type="number" min={1} value={semiPopText} aria-label="População ofensiva mínima para SEMI" onChange={(event) => setSemiPopText(event.target.value)} />
+                    </label>
+                    <div className="field">
+                      <span className="field-label">Contagem</span>
+                      <button type="button" className="btn" onClick={runFullSemi} disabled={fullSemiBusy}>
+                        {fullSemiBusy ? <><span className="btn-spinner" aria-hidden="true" /> Contando…</> : 'Contar Full/Semi'}
+                      </button>
+                    </div>
+                  </div>
+                  {fullSemiResult !== null && (
+                    <>
+                      {fullSemiUnknown.length > 0 && (
+                        <div className="callout callout--warn" role="alert">
+                          <AlertTriangle size={16} className="callout-icon" aria-hidden="true" />
+                          <span>
+                            Unidades sem população no unit-info do mundo ({fullSemiUnknown.join(', ')}) — as contagens podem subestimar.
+                          </span>
+                        </div>
+                      )}
+                      <label className="field">
+                        <span className="field-label">nick;fulls;semis;coords ({fullSemiResult.length} jogador(es))</span>
+                        <textarea className="textarea" rows={Math.min(10, fullSemiResult.length + 1)} readOnly value={fullSemiText} aria-label="Contagem Full/Semi por jogador" />
+                        <div>
+                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyText(fullSemiText)}>
+                            <Copy size={14} aria-hidden="true" />
+                            Copiar contagem
+                          </button>
+                        </div>
+                      </label>
+                    </>
+                  )}
+
+                  <h4 className="section-title" style={{ marginTop: 16 }}>Salvar como grupo</h4>
+                  <p className="muted">Congela as coordenadas do resultado atual para reutilizar na montagem de OPs (Sala de Guerra → Grupos).</p>
+                  <div className="sg4-params">
+                    <label className="field">
+                      <span className="field-label">Nome do grupo</span>
+                      <input className="input" value={groupName} aria-label="Nome do grupo" placeholder="Ofensivos K55" onChange={(event) => setGroupName(event.target.value)} />
+                    </label>
+                    <div className="field">
+                      <span className="field-label">Papel na OP</span>
+                      <div className="sg2-radio-row" role="radiogroup" aria-label="Papel do grupo">
+                        <label className="checkbox-field">
+                          <input type="radio" name="group-papel" checked={groupPapel === 'origem'} onChange={() => setGroupPapel('origem')} />
+                          origem
+                        </label>
+                        <label className="checkbox-field">
+                          <input type="radio" name="group-papel" checked={groupPapel === 'alvo'} onChange={() => setGroupPapel('alvo')} />
+                          alvo
+                        </label>
+                      </div>
+                    </div>
+                    <label className="field">
+                      <span className="field-label">Autor</span>
+                      <input className="input" value={groupAuthor} aria-label="Autor do grupo" onChange={(event) => setGroupAuthor(event.target.value)} />
+                    </label>
+                    <div className="field">
+                      <span className="field-label">Salvar</span>
+                      <button type="button" className="btn btn-ghost" onClick={() => void saveGroup()} disabled={groupBusy}>
+                        {groupBusy ? <><span className="btn-spinner" aria-hidden="true" /> Salvando…</> : 'Salvar como grupo'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ClipboardCopy, Radar, ShieldAlert, ShieldCheck, Users } from 'lucide-react';
 import type { BlindVillageResult } from '@shared/ipc-types';
 import type { SupportersResult } from '@shared/types';
-import { parseCoordList } from '@shared/coords';
+import { blindBbcodeTable } from '@shared/sg3-engine';
+import { normalizeCoordText, coordCountLabel, type NormalizedCoords } from '@shared/coord-input';
 import { rankVillagesByThreat, threatSummary, type VillageThreat, type VillageThreatInput } from '@shared/incoming-risk';
 import { TW_UNIT_ICONS } from '../../assets';
 import { UNITS, defensivePopulation, type UnitCounts, type UnitId } from '@shared/units';
+import type { TroopSnapshot } from '@shared/sg2-engine';
 import { useToast } from '../../hooks/useToast';
 import ToastViewport from '../../components/Toast';
 import EmptyState from '../../components/EmptyState';
@@ -15,7 +17,34 @@ import { MODULES } from '../../modules';
 
 type CountMode = 'paradas' | 'paradas-e-transito';
 
+/** Métrica de "tamanho" da aldeia para filtrar a blindagem. */
+type SizeMetric = 'pontos' | 'populacao';
+
 const BLIND_UNITS: readonly UnitId[] = ['spear', 'sword', 'archer', 'heavy'];
+
+/** Trecho incompleto no fim do campo (ex.: "123|") — presente enquanto o usuário digita. */
+const PARTIAL_TOKEN_TAIL = /[^\t ;,\r\n]+$/;
+
+/** Converte os tokens "x|y" do parser normalizado para o filtro {x,y} do engine. */
+function coordsToFilter(coords: readonly string[]): { x: number; y: number }[] {
+  return coords.map((token) => {
+    const [x, y] = token.split('|');
+    return { x: Number(x), y: Number(y) };
+  });
+}
+
+/**
+ * População da aldeia somando unidades × população por unidade do mundo
+ * (unitPops); unidade ausente no dump do mundo cai no catálogo fixo pt-BR.
+ */
+function villagePopulation(units: UnitCounts, popsByUnit: Record<string, number>): number {
+  let total = 0;
+  for (const [unit, count] of Object.entries(units)) {
+    const pop = popsByUnit[unit] ?? UNITS[unit as UnitId]?.population ?? 0;
+    total += (count ?? 0) * pop;
+  }
+  return total;
+}
 
 export default function Sg3Page() {
   const { toasts, push, dismiss } = useToast();
@@ -28,9 +57,23 @@ export default function Sg3Page() {
   const [defenseAt, setDefenseAt] = useState<string | null>(null);
   const [collecting, setCollecting] = useState(false);
   const [coordsText, setCoordsText] = useState('');
+  // Parser normalizado do campo "Coordenadas do front" — contador e ignorados.
+  const [coordsMeta, setCoordsMeta] = useState<NormalizedCoords>(() => normalizeCoordText(''));
+  // Campo próprio dos apoiadores (vazio = usar o front de cima).
+  const [supportersCoordsText, setSupportersCoordsText] = useState('');
+  const [supportersCoordsMeta, setSupportersCoordsMeta] = useState<NormalizedCoords>(() => normalizeCoordText(''));
+  // ---- Tamanho mínimo da blindagem (entrega 2) ----
+  const [sizeMetric, setSizeMetric] = useState<SizeMetric>('pontos');
+  const [minSizeText, setMinSizeText] = useState('');
   const [desired, setDesired] = useState<Partial<Record<UnitId, string>>>({});
   const [countMode, setCountMode] = useState<CountMode>('paradas');
-  const [results, setResults] = useState<BlindVillageResult[] | null>(null);
+  // Resultado da blindagem já filtrado pelo tamanho mínimo: valor "Tam." por
+  // aldeia na métrica escolhida (null = tamanho desconhecido, ex.: fora do dump).
+  const [results, setResults] = useState<{
+    rows: BlindVillageResult[];
+    tamByKey: Record<string, number | null>;
+    metric: SizeMetric;
+  } | null>(null);
   const [bbcode, setBbcode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -42,6 +85,12 @@ export default function Sg3Page() {
   const [scanError, setScanError] = useState('');
   const [threats, setThreats] = useState<VillageThreat[] | null>(null);
 const [progress, setProgress] = useState<{ label: string; done: number; total: number } | null>(null);
+  // Caches de dados auxiliares da consulta de blindagem — cada fonte carrega UMA vez.
+  const unitPopsRef = useRef<Record<string, number>>({});
+  const worldPointsRef = useRef<Map<string, number> | null>(null);
+  const worldPointsStateRef = useRef<'idle' | 'ok' | 'failed'>('idle');
+  const defenseRef = useRef<TroopSnapshot | null>(null);
+  const defenseLoadedRef = useRef(false);
 
   useEffect(() => {
     void window.staffhub.troops
@@ -57,6 +106,8 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
       await window.staffhub.troops.collectMembers('defense');
       const status = await window.staffhub.troops.status();
       setDefenseAt(status.defenseAt);
+      defenseRef.current = null; // coleta nova substitui o snapshot em memória
+      defenseLoadedRef.current = false;
       push('ok', 'Defesa coletada por aldeia — dados em memória.');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -64,6 +115,44 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
       push('error', message);
     } finally {
       setCollecting(false);
+    }
+  }
+
+  /** População por unidade do mundo — 1 IPC na sessão; fallback = catálogo fixo. */
+  async function ensureUnitPops(): Promise<void> {
+    if (Object.keys(unitPopsRef.current).length > 0) return;
+    try {
+      unitPopsRef.current = await window.staffhub.world.unitPops();
+    } catch {
+      push('info', 'População por unidade do mundo indisponível — usando os valores padrão do catálogo.');
+    }
+  }
+
+  /** Snapshot de defesa em memória (fonte da população por aldeia). */
+  async function ensureDefense(): Promise<boolean> {
+    if (defenseLoadedRef.current) return defenseRef.current !== null;
+    defenseLoadedRef.current = true;
+    try {
+      defenseRef.current = await window.staffhub.troops.get('defense');
+    } catch {
+      push('error', 'Não consegui ler a coleta de defesa em memória — consulte sem filtro ou colete novamente.');
+    }
+    return defenseRef.current !== null;
+  }
+
+  /** Pontos das aldeias pelo mapa do mundo — 1 download (cacheado no main). */
+  async function ensureWorldPoints(): Promise<boolean> {
+    if (worldPointsStateRef.current === 'ok') return true;
+    if (worldPointsStateRef.current === 'failed') return false;
+    try {
+      const villages = await window.staffhub.world.villages();
+      worldPointsRef.current = new Map(villages.map((village) => [`${village.x}|${village.y}`, village.points]));
+      worldPointsStateRef.current = 'ok';
+      return true;
+    } catch {
+      push('error', 'Não consegui os pontos das aldeias do mundo — o filtro/coluna por pontos ficam sem dados nesta consulta.');
+      worldPointsStateRef.current = 'failed';
+      return false;
     }
   }
 
@@ -82,14 +171,71 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
       if (Object.keys(desiredUnits).length === 0) {
         throw new Error('Informe ao menos uma unidade desejada (ex.: lanceiros/espadachins).');
       }
+      // Parser normalizado é a fonte da verdade (o campo já reescrito pode ter
+      // sido alterado à mão entre renders).
+      const parsedCoords = normalizeCoordText(coordsText);
+      const minSizeRaw = Number(minSizeText.trim() === '' ? '0' : minSizeText.replace(/\./g, ''));
+      if (!Number.isFinite(minSizeRaw) || minSizeRaw < 0) {
+        throw new Error('Tamanho mínimo deve ser um número maior ou igual a 0 (0 = todas as aldeias).');
+      }
+      const minSize = Math.floor(minSizeRaw);
+
       const response = await window.staffhub.sg3.checkBlind({
         desiredUnits,
         countMode,
-        coordsFilter: parseCoordList(coordsText),
+        coordsFilter: coordsToFilter(parsedCoords.coords),
       });
-      setResults(response.results);
-      setBbcode(response.bbcode);
-      push('ok', `${response.results.length} aldeia(s) com falta.`);
+
+      // Tamanho por aldeia na métrica escolhida (carrega cada fonte uma vez).
+      let sizeSourceOk = true;
+      const tamByKey: Record<string, number | null> = {};
+      if (sizeMetric === 'populacao') {
+        await ensureUnitPops();
+        sizeSourceOk = await ensureDefense();
+        if (sizeSourceOk && defenseRef.current !== null) {
+          for (const entry of defenseRef.current.entries) {
+            if (entry.coord.x < 0) continue; // linha de resumo por jogador
+            const key = `${entry.coord.x}|${entry.coord.y}`;
+            tamByKey[key] =
+              (tamByKey[key] ?? 0) + villagePopulation(entry.units, unitPopsRef.current);
+          }
+        }
+      } else {
+        sizeSourceOk = await ensureWorldPoints();
+        if (worldPointsRef.current !== null) {
+          for (const [key, points] of worldPointsRef.current) tamByKey[key] = points;
+        }
+      }
+
+      let rows = response.results;
+      let excluded = 0;
+      if (minSize > 0) {
+        if (!sizeSourceOk) {
+          push('info', 'Filtro de tamanho ignorado nesta consulta — fonte de dados indisponível.');
+        } else {
+          const before = rows.length;
+          rows = rows.filter((row) => {
+            const size = tamByKey[`${row.coord.x}|${row.coord.y}`];
+            return typeof size === 'number' && size >= minSize;
+          });
+          excluded = before - rows.length;
+        }
+      }
+
+      setResults({ rows, tamByKey, metric: sizeMetric });
+      // BBCode regenerado localmente JÁ filtrado — fórum e tabela nunca divergem.
+      setBbcode(blindBbcodeTable(rows));
+      push(
+        'ok',
+        `${rows.length} aldeia(s) com falta${
+          minSize > 0
+            ? ` · tamanho mínimo ${minSize.toLocaleString('pt-BR')} ${sizeMetric === 'pontos' ? 'pontos' : 'pop.'}`
+            : ''
+        }.`,
+      );
+      if (excluded > 0) {
+        push('info', `${excluded} aldeia(s) ficaram fora: abaixo do tamanho mínimo ou sem tamanho conhecido.`);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
@@ -140,9 +286,11 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
     setSupportersBusy(true);
     setSupportersError('');
     try {
-      const coords = parseCoordList(coordsText).map((c) => `${c.x}|${c.y}`);
-      if (coords.length === 0) throw new Error('Cole as coordenadas no campo do front acima (ou a lista que quiser consultar).');
-      const result = await window.staffhub.sg3.supporters(coords);
+      // Campo próprio dos apoiadores tem prioridade; vazio = herda o front.
+      const source = supportersCoordsText.trim() === '' ? coordsText : supportersCoordsText;
+      const parsed = normalizeCoordText(source);
+      if (parsed.count === 0) throw new Error('Nenhuma coordenada reconhecida — cole as aldeias no campo do front ou no dos apoiadores.');
+      const result = await window.staffhub.sg3.supporters(parsed.coords);
       setSupportersResult(result);
       push('ok', `Apoiadores: ${result.villages.length} aldeia(s) consultadas.`);
     } catch (err) {
@@ -152,6 +300,36 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
     } finally {
       setSupportersBusy(false);
     }
+  }
+
+  /**
+   * Normalização que respeita a digitação: cola/blur/limpeza reescrevem o
+   * campo com a linha limpa do parser; tecla a tecla, o contador atualiza e o
+   * texto só é reescrito quando termina em separador (nunca come um "123|"
+   * pela metade).
+   */
+  function handleCoordTyping(
+    raw: string,
+    setText: (next: string) => void,
+    setMeta: (meta: NormalizedCoords) => void,
+  ): void {
+    const parsed = normalizeCoordText(raw);
+    setMeta(parsed);
+    if (!PARTIAL_TOKEN_TAIL.test(raw) && parsed.display !== raw) setText(parsed.display);
+  }
+
+  /** Cola nas coordenadas: insere o clipboard normalizado direto na linha limpa. */
+  function handleCoordPaste(
+    event: React.ClipboardEvent<HTMLTextAreaElement>,
+    currentText: string,
+    setText: (next: string) => void,
+    setMeta: (meta: NormalizedCoords) => void,
+  ): void {
+    event.preventDefault();
+    const pasted = event.clipboardData.getData('text');
+    const parsed = normalizeCoordText(`${currentText} ${pasted}`);
+    setText(parsed.display);
+    setMeta(parsed);
   }
 
   const formatted = defenseAt === null ? '—' : new Date(defenseAt).toLocaleString('pt-BR');
@@ -230,8 +408,51 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
                 rows={3}
                 placeholder="123|456 456|123 111|222 ..."
                 value={coordsText}
-                onChange={(event) => setCoordsText(event.target.value)}
+                onChange={(event) => handleCoordTyping(event.target.value, setCoordsText, setCoordsMeta)}
+                onPaste={(event) => handleCoordPaste(event, coordsText, setCoordsText, setCoordsMeta)}
+                onBlur={() => handleCoordTyping(`${coordsText} `, setCoordsText, setCoordsMeta)}
               />
+              {(coordsMeta.count > 0 || coordsMeta.duplicatesRemoved > 0 || coordsMeta.invalidTokens > 0) && (
+                <p className="field-hint" aria-live="polite">{coordCountLabel(coordsMeta)}</p>
+              )}
+            </label>
+            <fieldset className="field">
+              <legend className="field-label" id="sg3-size-metric-label">Medir tamanho por</legend>
+              <div className="sg4-radio-row" role="radiogroup" aria-labelledby="sg3-size-metric-label">
+                <label className="checkbox-field">
+                  <input
+                    type="radio"
+                    name="sg3-size-metric"
+                    checked={sizeMetric === 'pontos'}
+                    onChange={() => setSizeMetric('pontos')}
+                  />
+                  Pontos da aldeia
+                </label>
+                <label className="checkbox-field">
+                  <input
+                    type="radio"
+                    name="sg3-size-metric"
+                    checked={sizeMetric === 'populacao'}
+                    onChange={() => setSizeMetric('populacao')}
+                  />
+                  População de tropas
+                </label>
+              </div>
+            </fieldset>
+            <label className="field">
+              <span className="field-label">Tamanho mínimo (0 = todas)</span>
+              <input
+                className="input input--num"
+                type="text"
+                inputMode="numeric"
+                placeholder="0"
+                value={minSizeText}
+                aria-describedby="sg3-minsize-hint"
+                onChange={(event) => setMinSizeText(event.target.value)}
+              />
+              <p className="field-hint" id="sg3-minsize-hint">
+                Na consulta, aldeias menores ficam fora da tabela e do BBCode. População usa a última coleta de defesa.
+              </p>
             </label>
             {error !== '' && <p className="error" role="alert">{error}</p>}
             <button type="button" className="btn" onClick={() => void runBlind()} disabled={busy}>
@@ -244,7 +465,7 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
 
       {results !== null && (
         <section className="page-section" aria-labelledby="sg3-results-title">
-          <h2 className="section-title" id="sg3-results-title">Aldeias com falta ({results.length})</h2>
+          <h2 className="section-title" id="sg3-results-title">Aldeias com falta ({results.rows.length})</h2>
           <div className="card card--flush">
             <div className="card-header">
               <h3 className="card-title">BBCode para o fórum</h3>
@@ -261,7 +482,7 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
                 Copiar tabela BBCode
               </button>
             </div>
-            {results.length === 0 ? (
+            {results.rows.length === 0 ? (
               <div className="card-body">
                 <EmptyState icon={ShieldCheck} title="Blindagem completa" hint="Nenhuma aldeia do filtro ficou devendo tropas." />
               </div>
@@ -272,23 +493,32 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
                     <tr>
                       <th>Jogador</th>
                       <th>Aldeia</th>
+                      <th>{results.metric === 'pontos' ? 'Tam. (pontos)' : 'Tam. (população)'}</th>
                       <th>Falta</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {results.map((result) => (
-                      <tr key={`${result.playerId}-${result.coord.x}-${result.coord.y}`}>
-                        <td className="cell-nowrap">{result.playerName}</td>
-                        <td className="cell-nowrap">
-                          {result.villageName} ({result.coord.x}|{result.coord.y})
-                        </td>
-                        <td className="cell-detail">
-                          {Object.entries(result.missing)
-                            .map(([unit, amount]) => `${UNITS[unit as UnitId]?.name ?? unit}: ${amount?.toLocaleString('pt-BR')}`)
-                            .join(' · ')}
-                        </td>
-                      </tr>
-                    ))}
+                    {results.rows.map((result) => {
+                      const tam = results.tamByKey[`${result.coord.x}|${result.coord.y}`] ?? null;
+                      return (
+                        <tr key={`${result.playerId}-${result.coord.x}-${result.coord.y}`}>
+                          <td className="cell-nowrap">{result.playerName}</td>
+                          <td className="cell-nowrap">
+                            {result.villageName} ({result.coord.x}|{result.coord.y})
+                          </td>
+                          <td className="cell-num">
+                            {tam === null
+                              ? <span className="muted" title="Tamanho desconhecido nesta métrica">—</span>
+                              : tam.toLocaleString('pt-BR')}
+                          </td>
+                          <td className="cell-detail">
+                            {Object.entries(result.missing)
+                              .map(([unit, amount]) => `${UNITS[unit as UnitId]?.name ?? unit}: ${amount?.toLocaleString('pt-BR')}`)
+                              .join(' · ')}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -302,10 +532,25 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
         <div className="card">
           <div className="card-body">
             <p className="muted">
-              Usa as coordenadas do campo do front acima. <strong>1 requisição por aldeia</strong> — para listas grandes
-              confira o teto em Configurações. Mostra quem tem suportes compartilhados chegando, totais por apoiador
-              e marca auto-apoio (dono da aldeia).
+              Consulta aldeia por aldeia (<strong>1 requisição por aldeia</strong>) — para listas grandes confira o
+              teto em Configurações. Mostra quem tem suportes compartilhados chegando, totais por apoiador e marca
+              auto-apoio (dono da aldeia).
             </p>
+            <label className="field">
+              <span className="field-label">Coordenadas das aldeias (vazio = usar o campo do front)</span>
+              <textarea
+                className="textarea"
+                rows={3}
+                placeholder="123|456 456|123 111|222 ..."
+                value={supportersCoordsText}
+                onChange={(event) => handleCoordTyping(event.target.value, setSupportersCoordsText, setSupportersCoordsMeta)}
+                onPaste={(event) => handleCoordPaste(event, supportersCoordsText, setSupportersCoordsText, setSupportersCoordsMeta)}
+                onBlur={() => handleCoordTyping(`${supportersCoordsText} `, setSupportersCoordsText, setSupportersCoordsMeta)}
+              />
+              {(supportersCoordsMeta.count > 0 || supportersCoordsMeta.duplicatesRemoved > 0 || supportersCoordsMeta.invalidTokens > 0) && (
+                <p className="field-hint" aria-live="polite">{coordCountLabel(supportersCoordsMeta)}</p>
+              )}
+            </label>
             {supportersError !== '' && <p className="error" role="alert">{supportersError}</p>}
             <div className="row">
               <button type="button" className="btn" onClick={() => void runSupporters()} disabled={supportersBusy}>

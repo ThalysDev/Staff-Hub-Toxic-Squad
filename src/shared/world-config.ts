@@ -89,11 +89,17 @@ function parseNightBlock(xml: string): NightWindow {
 // get_config normalmente traz todas; o fallback é apenas defensivo.
 export function parseWorldConfigXml(world: string, xml: string): WorldConfig {
   const night = parseNightBlock(xml);
+  // Moral por pontos: o get_config real expõe <disable_morale>1</disable_morale>
+  // nos mundos SEM moral (Clássicos). A tag plana <moral> não existe no XML
+  // atual — mantida apenas como fallback legado. Default: moral ATIVA
+  // (mundos regulares; fail-open aqui é o correto: desligar moral por engano
+  // liberaria ataques que o jogo puniria, o contrário só superestima o filtro).
+  const disableMorale = tagContent(xml, 'disable_morale');
   return {
     world,
     speed: parseNumber(tagContent(xml, 'speed'), 1),
     unitSpeed: parseNumber(tagContent(xml, 'unit_speed'), 1),
-    moralActive: parseFlag(tagContent(xml, 'moral'), false),
+    moralActive: disableMorale !== null ? disableMorale.trim() !== '1' : parseFlag(tagContent(xml, 'moral'), true),
     nightBonusActive: night.active,
     nightStartHour: night.startHour,
     nightEndHour: night.endHour,

@@ -104,6 +104,10 @@ export default function Sg4Page() {
   // Caches de dump para a seção B (moral da distribuição).
   const [playersCache, setPlayersCache] = useState<WorldPlayer[] | null>(null);
 
+  // Moral do mundo: false = clássico SEM moral por pontos — o campo "Moral
+  // aceita" desabilita e a distribuição roda com moral 0.
+  const [moraleActive, setMoraleActive] = useState(true);
+
   // ---- Seção B — Distribuição de Alvos de OP ----
   const [originsText, setOriginsText] = useState('');
   const [lines, setLines] = useState<OriginLine[]>([
@@ -147,6 +151,20 @@ export default function Sg4Page() {
       .catch(() => {
         if (!cancelled) setRelationsFailed(true);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fail-soft: mundo sem resposta conta COM moral (comportamento atual).
+  useEffect(() => {
+    let cancelled = false;
+    void window.staffhub.world
+      .moraleInfo()
+      .then((info) => {
+        if (!cancelled) setMoraleActive(info.active);
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
@@ -472,7 +490,9 @@ export default function Sg4Page() {
       for (const enemy of enemyVillages) {
         if (enemy.points !== undefined) targetPoints.set(`${enemy.coord.x}|${enemy.coord.y}`, playerPointsById.get(enemy.playerId) ?? enemy.points ?? 0);
       }
-      const minMorale = Math.min(100, Math.max(0, Math.round(minMoraleRaw)));
+      // Mundo clássico (sem moral por pontos): nunca envia minMorale > 0,
+      // mesmo que o campo tenha guardado um valor antes de desabilitar.
+      const minMorale = moraleActive ? Math.min(100, Math.max(0, Math.round(minMoraleRaw))) : 0;
       const input: DistributionInput = {
         origins,
         lines: builtLines,
@@ -954,8 +974,15 @@ export default function Sg4Page() {
                   min={0}
                   max={100}
                   value={minMoraleText}
+                  disabled={!moraleActive}
+                  aria-describedby={!moraleActive ? 'sg4-morale-hint' : undefined}
                   onChange={(event) => setMinMoraleText(event.target.value)}
                 />
+                {!moraleActive && (
+                  <p className="field-hint" id="sg4-morale-hint">
+                    Mundo clássico — sem moral por pontos
+                  </p>
+                )}
               </label>
               <label className="field">
                 <span className="field-label">Distância aceita (campos)</span>
