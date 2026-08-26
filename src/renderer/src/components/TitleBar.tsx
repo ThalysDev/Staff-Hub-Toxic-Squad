@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Copy, Minus, Square, X } from 'lucide-react';
 import { BRAND_LOGO_SQUARE } from '../assets';
+import { useSessionStatus } from '../hooks/useSessionStatus';
 
 /**
- * Titlebar personalizada (frame:false na janela): barra arrastável com a logo
- * e o nome do app + controles minimizar/maximizar/fechar no tema pergaminho.
- * Região drag segue a doc do Electron (app-region); botões são no-drag.
+ * Titlebar personalizada (frame:false na janela): barra arrastável com a logo,
+ * nome do app e NICK DO JOGADOR quando logado + controles de janela.
  */
 export default function TitleBar() {
   const [maximized, setMaximized] = useState(false);
+  const session = useSessionStatus();
+  const isLogged = session.state === 'logged-in';
 
   useEffect(() => {
     let cancelled = false;
@@ -27,6 +29,12 @@ export default function TitleBar() {
       <div className="titlebar-brand">
         <img src={BRAND_LOGO_SQUARE} alt="" width={18} height={18} style={{ borderRadius: 4 }} />
         <span className="titlebar-title">Staff Hub Toxic Squad</span>
+        {isLogged && session.player && (
+          <span className="titlebar-player" title={`Logado como ${session.player} (${session.world ?? '?'})`}>
+            <span className="titlebar-player-dot" aria-hidden="true" />
+            {session.player}
+          </span>
+        )}
       </div>
       <div className="titlebar-actions">
         <button

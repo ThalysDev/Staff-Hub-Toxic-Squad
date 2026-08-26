@@ -1,4 +1,5 @@
 import { Search } from 'lucide-react';
+import { useSessionStatus } from '../hooks/useSessionStatus';
 import { BRAND_LOGO_SQUARE } from '../assets';
 import type { LucideIcon } from 'lucide-react';
 import type { PageId } from '../modules';
@@ -32,6 +33,7 @@ export default function Sidebar({ groups, active, onNavigate }: SidebarProps) {
           <span className="brand-subtitle">Toxic Squad</span>
         </div>
       </div>
+      <PlayerBadge />
       <nav className="sidebar-nav" aria-label="Navegação principal">
         {groups.map((group) => (
           <section key={group.label} className="nav-group">
@@ -63,5 +65,19 @@ export default function Sidebar({ groups, active, onNavigate }: SidebarProps) {
       </div>
       <div className="sidebar-foot">Quartel-general · Tribal Wars BR</div>
     </aside>
+  );
+}
+
+function PlayerBadge() {
+  const session = useSessionStatus();
+  if (session.state !== 'logged-in' || !session.player) return null;
+  return (
+    <div className="sidebar-player">
+      <span className="sidebar-player-dot" aria-hidden="true" />
+      <div className="sidebar-player-info">
+        <span className="sidebar-player-nick">{session.player}</span>
+        <span className="sidebar-player-world">{session.world?.toUpperCase()}</span>
+      </div>
+    </div>
   );
 }
