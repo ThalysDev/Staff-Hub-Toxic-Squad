@@ -68,11 +68,11 @@ export default function SessionPage() {
     <section className="page">
       <PageHeader
         kicker="Sistema"
-        title="Sessão do jogo"
+        title="Sessão"
         description="Conecte o hub à sua conta do Tribal Wars BR: janela de login oficial ou import do cookie sid."
       />
 
-      <div className="card card--narrow">
+      <div className="card">
         <div className="card-header">
           <span className="icon-badge">
             <ShieldCheck size={17} aria-hidden="true" />
@@ -136,12 +136,12 @@ export default function SessionPage() {
         </div>
       </div>
 
-      <div className="card card--narrow">
+      <div className="card">
         <div className="card-header">
           <span className="icon-badge">
             <KeyRound size={17} aria-hidden="true" />
           </span>
-          <h2 className="card-title">Entrar com SID (estilo EditThisCookie)</h2>
+          <h2 className="card-title">Entrar com SID</h2>
         </div>
         <div className="card-body">
           <form
@@ -182,15 +182,24 @@ export default function SessionPage() {
                 onChange={(event) => setSidValue(event.target.value)}
               />
             </Field>
+            <ol className="step-list">
+              <li>Faça login no jogo pelo navegador, normalmente.</li>
+              <li>
+                Na extensão de cookies (EditThisCookie), clique em <strong>Export</strong>.
+              </li>
+              <li>
+                Cole o resultado no campo acima — o hub extrai o <strong>sid</strong> de
+                br###.tribalwars.com.br sozinho.
+              </li>
+            </ol>
             <p className="hint-note">
-              No navegador logado no jogo, abra a extensão de cookies (EditThisCookie) e use{' '}
-              <strong>Export</strong> — cole o JSON inteiro aqui (o hub extrai o{' '}
-              <strong>sid</strong> de br###.tribalwars.com.br sozinho). Também aceita só o valor
-              do sid (0%3Aabc… ou 0:abc…). O hub só grava os cookies que você colar — nunca gera
-              ou renova sid.
+              Só o valor do sid também serve:{' '}
+              <code className="code-chip">0%3A2e4a9f77b1c3…</code> ou{' '}
+              <code className="code-chip">0:2e4a9f77b1c3…</code>. O hub grava apenas os cookies
+              que você colar — nunca gera ou renova sid.
             </p>
             <div className="row">
-              <button type="submit" className="btn" disabled={sidBusy}>
+              <button type="submit" className="btn btn-ghost" disabled={sidBusy}>
                 {sidBusy ? (
                   <>
                     <span className="btn-spinner" aria-hidden="true" />

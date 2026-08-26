@@ -20,9 +20,106 @@ const KIND_PILLS: Record<JournalEntry['kind'], string> = {
   system: 'pill--muted',
 };
 
-function formatTs(ts: string): string {
+/** Ações internas → rótulo que o líder entende. O que não está na tabela
+ * permanece com o código original (contrato com o journal do main). */
+const ACTION_LABELS: Record<string, string> = {
+  'settings-boot': 'Configurações carregadas',
+  'settings-update': 'Configurações salvas',
+  'world-relations': 'Diplomacia lida',
+  'world-refresh': 'Dados do mundo atualizados',
+  'queue-started': 'Coleta iniciada',
+  'queue-finished': 'Coleta concluída',
+  'queue-failed': 'Coleta falhou',
+  'collect-members': 'Coleta por membro',
+  'collect-summary': 'Coleta resumida',
+  'sg1-analyze': 'Análise de aldeias',
+  'sg5-verify': 'Conferência de comandos',
+  'sg5-scan-own': 'Varredura de ataques',
+  'sg5-totals': 'Totalização',
+  'sg7-conference': 'Conferência do fórum',
+  session: 'Login',
+  login: 'Login',
+  'login-sid': 'Login',
+  reserve: 'Reserva',
+  'reserve-halt': 'Reserva interrompida',
+  'mp-send': 'MP enviada',
+  'mp-halt': 'MPs interrompidas',
+  'forum-adjust': 'Fórum ajustado',
+  'forum-delete-posts': 'Posts apagados',
+  'forum-post-plan': 'Plano postado',
+  'op-archive-save': 'OP arquivada',
+  'op-archive-conference': 'OP conferida',
+  'op-archive-remove': 'OP removida',
+  'capture-fixture': 'Captura de tela',
+};
+
+/** Ações do SG2 compartilham o rótulo; "-erro" = rodou sem confirmação. */
+function journalActionLabel(action: string): string {
+  const uncertain = action.endsWith('-erro');
+  const base = uncertain ? action.slice(0, -'-erro'.length) : action;
+  const known: string | undefined = Object.prototype.hasOwnProperty.call(ACTION_LABELS, base)
+    ? ACTION_LABELS[base]
+    : undefined;
+  const label = known ?? (base.startsWith('sg2-') ? 'Análise de tropas' : action);
+  return uncertain && label !== action ? `${label} (resultado incerto)` : label;
+}
+
+/** Só hh:mm:ss — o dia vive no header de seção. */
+function formatTime(ts: string): string {
   const date = new Date(ts);
-  return Number.isNaN(date.getTime()) ? ts : date.toLocaleString('pt-BR');
+  return Number.isNaN(date.getTime())
+    ? ts
+    : date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+}
+
+interface DayGroup {
+  key: string;
+  label: string;
+  entries: JournalEntry[];
+}
+
+const DAY_MS = 86_400_000;
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Agrupa por dia (data local) com header "Hoje"/"Ontem"/data por extenso. */
+function groupByDay(entries: readonly JournalEntry[]): DayGroup[] {
+  const startOfDay = (date: Date): number =>
+    new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const todayStart = startOfDay(new Date());
+  const groups = new Map<string, DayGroup>();
+  for (const entry of entries) {
+    const date = new Date(entry.ts);
+    const valid = !Number.isNaN(date.getTime());
+    const dayStart = valid ? startOfDay(date) : 0;
+    const key = valid ? String(dayStart) : 'data-indisponivel';
+    let group = groups.get(key);
+    if (group === undefined) {
+      let label = 'Data indisponível';
+      if (valid) {
+        const daysAgo = Math.round((todayStart - dayStart) / DAY_MS);
+        label =
+          daysAgo === 0
+            ? 'Hoje'
+            : daysAgo === 1
+              ? 'Ontem'
+              : capitalize(
+                  date.toLocaleDateString('pt-BR', {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                  }),
+                );
+      }
+      group = { key, label, entries: [] };
+      groups.set(key, group);
+    }
+    group.entries.push(entry);
+  }
+  return [...groups.values()];
 }
 
 function JournalSkeleton() {
@@ -80,6 +177,8 @@ export default function JournalPage() {
     }
   }
 
+  const groups = entries === null ? [] : groupByDay(entries);
+
   return (
     <section className="page">
       <PageHeader
@@ -100,7 +199,8 @@ export default function JournalPage() {
             </button>
             <button
               type="button"
-              className="btn btn-danger btn-sm"
+              className="btn btn-ghost btn-ghost--danger btn-sm"
+              data-tip="Apagar todas as entradas"
               onClick={() => void handleClear()}
               disabled={busy || (entries?.length ?? 0) === 0}
             >
@@ -139,24 +239,35 @@ export default function JournalPage() {
                 <th>Tipo</th>
                 <th>Ação</th>
                 <th>Detalhe</th>
-                <th>DRY-RUN</th>
+                <th>Teste?</th>
               </tr>
             </thead>
-            <tbody>
-              {entries.map((entry) => (
-                <tr key={entry.id}>
-                  <td className="cell-nowrap tabular">{formatTs(entry.ts)}</td>
-                  <td>
-                    <span className={`pill ${KIND_PILLS[entry.kind]}`}>{KIND_LABELS[entry.kind]}</span>
-                  </td>
-                  <td>{entry.action}</td>
-                  <td className="cell-detail">{entry.detail}</td>
-                  <td className="cell-nowrap">
-                    {entry.dryRun ? <span className="text-warn">Sim</span> : <span className="muted">Não</span>}
-                  </td>
+            {groups.map((group) => (
+              <tbody key={group.key}>
+                <tr className="table-group-row">
+                  <th colSpan={5} scope="rowgroup">
+                    {group.label}
+                  </th>
                 </tr>
-              ))}
-            </tbody>
+                {group.entries.map((entry) => (
+                  <tr key={entry.id}>
+                    <td className="cell-nowrap tabular">{formatTime(entry.ts)}</td>
+                    <td>
+                      <span className={`pill ${KIND_PILLS[entry.kind]}`}>{KIND_LABELS[entry.kind]}</span>
+                    </td>
+                    <td>
+                      <span title={`Ação interna: ${entry.action}`}>{journalActionLabel(entry.action)}</span>
+                    </td>
+                    <td className="cell-detail cell-detail--clamp" title={entry.detail}>
+                      {entry.detail}
+                    </td>
+                    <td className="cell-nowrap">
+                      {entry.dryRun ? <span className="text-warn">Sim</span> : <span className="muted">Não</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            ))}
           </table>
         </div>
       )}

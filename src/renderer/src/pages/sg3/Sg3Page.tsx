@@ -9,7 +9,9 @@ import { UNITS, defensivePopulation, type UnitCounts, type UnitId } from '@share
 import { useToast } from '../../hooks/useToast';
 import ToastViewport from '../../components/Toast';
 import EmptyState from '../../components/EmptyState';
+import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
+import { MODULES } from '../../modules';
 
 type CountMode = 'paradas' | 'paradas-e-transito';
 
@@ -17,6 +19,7 @@ const BLIND_UNITS: readonly UnitId[] = ['spear', 'sword', 'archer', 'heavy'];
 
 export default function Sg3Page() {
   const { toasts, push, dismiss } = useToast();
+  const moduleInfo = MODULES.find((module) => module.id === 'sg3');
 
   useEffect(() => {
     const unsubscribe = window.staffhub.events.onQueueProgress(setProgress);
@@ -154,252 +157,270 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
   const formatted = defenseAt === null ? '—' : new Date(defenseAt).toLocaleString('pt-BR');
 
   return (
-    <div className="col" style={{ gap: 16 }}>
-      <header className="page-header">
-        <div>
-          <p className="kicker">Análise de Defesa das Aldeias</p>
-          <h1>Defesa & Blind</h1>
-        </div>
-      </header>
+    <section className="page">
+      <PageHeader
+        kicker={moduleInfo !== undefined ? `Módulo ${moduleInfo.id.toUpperCase()} — Fase ${moduleInfo.phase}` : 'Módulo SG3 — Fase 3'}
+        title={moduleInfo?.originalLabel ?? 'Análise de Defesa das Aldeias'}
+        description="Tropas presentes em cada aldeia — paradas e a caminho —, verificação de blindagem com BBCode para o fórum e apoiadores por aldeia."
+      />
 
-      <section className="card">
-        <div className="card-header">
-          <h2 className="card-title">Dados em Memória</h2>
-          <span className="spacer" />
-          <span className="muted">Data da Última Atualização: {formatted}</span>
-          {(collecting || supportersBusy) && progress !== null && (
-            <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
-          )}
-          <button type="button" className="btn" onClick={() => void collectDefense()} disabled={collecting}>
-            {collecting ? <><span className="btn-spinner" aria-hidden="true" /> Coletando…</> : 'Coletar Informações de Defesa'}
-          </button>
+      <section className="page-section" aria-labelledby="sg3-memory-title">
+        <h2 className="section-title" id="sg3-memory-title">Dados em Memória</h2>
+        <div className="card">
+          <div className="card-body">
+            <div className="row">
+              <p className="muted">
+                Data da última atualização: <strong>{formatted}</strong>
+              </p>
+              <button type="button" className="btn" onClick={() => void collectDefense()} disabled={collecting}>
+                {collecting ? <><span className="btn-spinner" aria-hidden="true" /> Coletando…</> : 'Coletar Informações de Defesa'}
+              </button>
+              {(collecting || supportersBusy) && progress !== null && (
+                <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
+              )}
+            </div>
+            <p className="hint-note muted">
+              A coleta passa por todos os membros com pacing humano (1 requisição por membro) e guarda as tropas
+              na aldeia e a caminho. A consulta de apoiadores é feita aldeia por aldeia (1 requisição cada,
+              com pacing).
+            </p>
+          </div>
         </div>
-        <p className="muted">
-          A coleta passa por todos os membros com pacing humano (1 requisição por membro). Tropas NA aldeia
-          e a caminho são guardadas. O botão <strong>Exibir Apoiadores</strong> abaixo consulta aldeia por
-          aldeia (1 requisição cada, com pacing).
-        </p>
       </section>
 
-      <section className="card">
-        <div className="card-header">
-          <h2 className="card-title">Verificação de Blind</h2>
-        </div>
-        <div className="sg2-units-grid">
-          {BLIND_UNITS.map((unit) => (
-            <label key={unit} className="field">
-              <span className="field-label sg2-unit-label">
-                <img src={TW_UNIT_ICONS[unit]} width={18} height={18} alt="" aria-hidden="true" />
-                {UNITS[unit].name}
-              </span>
-              <input
-                className="input"
-                type="text"
-                inputMode="numeric"
-                placeholder="quantidade desejada"
-                value={desired[unit] ?? ''}
-                onChange={(event) => setDesired((prev) => ({ ...prev, [unit]: event.target.value }))}
+      <section className="page-section" aria-labelledby="sg3-blind-title">
+        <h2 className="section-title" id="sg3-blind-title">Verificação de Blindagem</h2>
+        <div className="card">
+          <div className="card-body">
+            <div className="sg2-units-grid">
+              {BLIND_UNITS.map((unit) => (
+                <label key={unit} className="field">
+                  <span className="field-label sg2-unit-label">
+                    <img src={TW_UNIT_ICONS[unit]} width={18} height={18} alt="" aria-hidden="true" />
+                    {UNITS[unit].name}
+                  </span>
+                  <input
+                    className="input"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="quantidade desejada"
+                    value={desired[unit] ?? ''}
+                    onChange={(event) => setDesired((prev) => ({ ...prev, [unit]: event.target.value }))}
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="field">
+              <span className="field-label" id="sg3-count-label">Contagem</span>
+              <div className="sg2-radio-row" role="radiogroup" aria-labelledby="sg3-count-label">
+                <label className="checkbox-field">
+                  <input type="radio" name="sg3-count" checked={countMode === 'paradas'} onChange={() => setCountMode('paradas')} />
+                  Paradas (só tropas na aldeia)
+                </label>
+                <label className="checkbox-field">
+                  <input type="radio" name="sg3-count" checked={countMode === 'paradas-e-transito'} onChange={() => setCountMode('paradas-e-transito')} />
+                  Paradas + a caminho (desconta apoio chegando)
+                </label>
+              </div>
+            </div>
+            <label className="field">
+              <span className="field-label">Coordenadas do front (cole da análise SG1 — vazio = todas)</span>
+              <textarea
+                className="textarea"
+                rows={3}
+                placeholder="123|456 456|123 111|222 ..."
+                value={coordsText}
+                onChange={(event) => setCoordsText(event.target.value)}
               />
             </label>
-          ))}
+            {error !== '' && <p className="error" role="alert">{error}</p>}
+            <button type="button" className="btn" onClick={() => void runBlind()} disabled={busy}>
+              <ShieldAlert size={16} aria-hidden="true" />
+              {busy ? <><span className="btn-spinner" aria-hidden="true" /> Consultando…</> : 'Realizar Consulta de Blindagem'}
+            </button>
+          </div>
         </div>
-        <fieldset className="field">
-          <legend className="field-label">Contagem</legend>
-          <label className="checkbox-field">
-            <input type="radio" name="sg3-count" checked={countMode === 'paradas'} onChange={() => setCountMode('paradas')} />
-            Paradas (só tropas na aldeia)
-          </label>
-          <label className="checkbox-field">
-            <input type="radio" name="sg3-count" checked={countMode === 'paradas-e-transito'} onChange={() => setCountMode('paradas-e-transito')} />
-            Paradas + a caminho (desconta apoio chegando)
-          </label>
-        </fieldset>
-        <label className="field">
-          <span className="field-label">Coordenadas do front (cole da análise SG_1 — vazio = todas)</span>
-          <textarea
-            className="textarea"
-            rows={3}
-            placeholder="123|456 456|123 111|222 ..."
-            value={coordsText}
-            onChange={(event) => setCoordsText(event.target.value)}
-          />
-        </label>
-        {error !== '' && <p className="error" role="alert">{error}</p>}
-        <button type="button" className="btn" onClick={() => void runBlind()} disabled={busy}>
-          <ShieldAlert size={16} aria-hidden="true" />
-          {busy ? <><span className="btn-spinner" aria-hidden="true" /> Consultando…</> : 'Realizar Consulta de Blind'}
-        </button>
       </section>
 
       {results !== null && (
-        <section className="card">
-          <div className="card-header">
-            <h2 className="card-title">Aldeias com falta ({results.length})</h2>
-            <span className="spacer" />
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              disabled={bbcode === ''}
-              onClick={() => {
-                void navigator.clipboard.writeText(bbcode).then(() => push('ok', 'Tabela BBCode copiada — cole no tópico de blindagem.')).catch(() => push('error', 'Não consegui copiar — selecione o texto e use Ctrl+C.'));
-              }}
-            >
-              <ClipboardCopy size={14} aria-hidden="true" />
-              Copiar tabela BBCode
-            </button>
-          </div>
-          {results.length === 0 ? (
-            <EmptyState icon={ShieldCheck} title="Blind completo" hint="Nenhuma aldeia do filtro ficou devendo tropas." />
-          ) : (
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Jogador</th>
-                    <th>Aldeia</th>
-                    <th>Falta</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((result) => (
-                    <tr key={`${result.playerId}-${result.coord.x}-${result.coord.y}`}>
-                      <td className="cell-nowrap">{result.playerName}</td>
-                      <td className="cell-nowrap">
-                        
-                        {result.villageName} ({result.coord.x}|{result.coord.y})
-                      </td>
-                      <td className="cell-detail">
-                        {Object.entries(result.missing)
-                          .map(([unit, amount]) => `${UNITS[unit as UnitId]?.name ?? unit}: ${amount?.toLocaleString('pt-BR')}`)
-                          .join(' · ')}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      )}
-
-      <section className="card">
-        <div className="card-header">
-          <h2 className="card-title">Exibir Apoiadores</h2>
-        </div>
-        <p className="muted">
-          Usa as coordenadas do campo de front acima. <strong>1 requisição por aldeia</strong> — para listas grandes
-          confira o teto em Configurações. Mostra quem tem suportes compartilhados chegando, totais por apoiador
-          e marca auto-apoio (dono da aldeia).
-        </p>
-        {supportersError !== '' && <p className="error" role="alert">{supportersError}</p>}
-        <button type="button" className="btn" onClick={() => void runSupporters()} disabled={supportersBusy}>
-          <Users size={16} aria-hidden="true" />
-          {supportersBusy ? <><span className="btn-spinner" aria-hidden="true" /> Consultando…</> : 'Exibir Apoiadores'}
-        </button>
-        {supportersResult !== null && (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Aldeia</th>
-                  <th>Apoiadores</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {supportersResult.villages.map((village) => (
-                  <tr key={village.coord}>
-                    <td className="cell-nowrap">
-                      {village.villageName} ({village.coord}){village.ownerName !== null ? <span className="muted"> · {village.ownerName}</span> : null}
-                    </td>
-                    <td className="cell-detail">
-                      {village.supporters.length === 0
-                        ? <span className="muted">Nenhum suporte compartilhado visível.</span>
-                        : village.supporters.map((sup) => (
-                            <span key={sup.playerName} className={sup.selfSupport ? 'ok' : ''} title={sup.selfSupport ? 'Auto-apoio (dono da aldeia)' : undefined}>
-                              {sup.playerName} ({sup.count}){sup.selfSupport ? ' ★' : ''}
-                            </span>
-                          )).reduce<React.ReactNode[]>((acc, item, index) => (index === 0 ? [item] : [...acc, ' · ', item]), [])}
-                    </td>
-                    <td className="cell-nowrap">{village.totalSupports}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <section className="card">
-        <div className="card-header">
-          <h2 className="card-title">Ataques Recebidos (aldeias próprias)</h2>
-        </div>
-        <p className="muted">
-          Varre as aldeias do jogador logado (1 requisição por aldeia, com pacing) e cruza com a última coleta de
-          defesa: <strong>esta aldeia vai cair</strong> quando chega nobre/ataque grande e a defesa presente está
-          abaixo do patamar. Sem coleta de defesa, a aldeia fica "sem dados" (nunca chutado).
-        </p>
-        <div className="row">
-          <button type="button" className="btn" disabled={scanBusy} onClick={() => void runScanIncoming()}>
-            <Radar size={16} aria-hidden="true" />
-            {scanBusy ? <><span className="btn-spinner" aria-hidden="true" /> Varrendo…</> : 'Varrer ataques recebidos'}
-          </button>
-          {scanBusy && progress !== null && (
-            <>
-              <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
+        <section className="page-section" aria-labelledby="sg3-results-title">
+          <h2 className="section-title" id="sg3-results-title">Aldeias com falta ({results.length})</h2>
+          <div className="card card--flush">
+            <div className="card-header">
+              <h3 className="card-title">BBCode para o fórum</h3>
+              <span className="spacer" />
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
+                disabled={bbcode === ''}
                 onClick={() => {
-                  void window.staffhub.queue
-                    .cancel()
-                    .then(() => push('info', 'Cancelamento pedido — a varredura para na próxima requisição.'))
-                    .catch(() => push('error', 'Não foi possível pedir o cancelamento.'));
+                  void navigator.clipboard.writeText(bbcode).then(() => push('ok', 'Tabela BBCode copiada — cole no tópico de blindagem.')).catch(() => push('error', 'Não consegui copiar — selecione o texto e use Ctrl+C.'));
                 }}
               >
-                Cancelar
+                <ClipboardCopy size={14} aria-hidden="true" />
+                Copiar tabela BBCode
               </button>
-            </>
-          )}
-        </div>
-        {scanError !== '' && <p className="error" role="alert">{scanError}</p>}
-        {threats !== null && (
-          <>
-            <p className={threats.some((threat) => threat.level === 'vai-cair') ? 'error' : 'ok'}>{threatSummary(threats)}</p>
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Aldeia</th>
-                    <th>Triagem</th>
-                    <th className="cell-num">Ataques</th>
-                    <th className="cell-num">Com nobre</th>
-                    <th>Detalhe</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {threats.map((threat) => (
-                    <tr key={threat.coord}>
-                      <td className="cell-nowrap">{threat.coord}</td>
-                      <td className="cell-nowrap">
-                        {threat.level === 'vai-cair' && <span className="error">VAI CAIR</span>}
-                        {threat.level === 'pressionada' && <span className="text-warn">Pressionada</span>}
-                        {threat.level === 'resistente' && <span className="ok">Resistente</span>}
-                        {threat.level === 'sem-dados' && <span className="muted">Sem dados</span>}
-                      </td>
-                      <td className="cell-num">{threat.attackCount}</td>
-                      <td className="cell-num">{threat.nobleCount > 0 ? <strong>{threat.nobleCount}</strong> : 0}</td>
-                      <td className="cell-detail">{threat.detail}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
-          </>
-        )}
+            {results.length === 0 ? (
+              <div className="card-body">
+                <EmptyState icon={ShieldCheck} title="Blindagem completa" hint="Nenhuma aldeia do filtro ficou devendo tropas." />
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Jogador</th>
+                      <th>Aldeia</th>
+                      <th>Falta</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.map((result) => (
+                      <tr key={`${result.playerId}-${result.coord.x}-${result.coord.y}`}>
+                        <td className="cell-nowrap">{result.playerName}</td>
+                        <td className="cell-nowrap">
+                          {result.villageName} ({result.coord.x}|{result.coord.y})
+                        </td>
+                        <td className="cell-detail">
+                          {Object.entries(result.missing)
+                            .map(([unit, amount]) => `${UNITS[unit as UnitId]?.name ?? unit}: ${amount?.toLocaleString('pt-BR')}`)
+                            .join(' · ')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      <section className="page-section" aria-labelledby="sg3-supporters-title">
+        <h2 className="section-title" id="sg3-supporters-title">Exibir Apoiadores</h2>
+        <div className="card">
+          <div className="card-body">
+            <p className="muted">
+              Usa as coordenadas do campo do front acima. <strong>1 requisição por aldeia</strong> — para listas grandes
+              confira o teto em Configurações. Mostra quem tem suportes compartilhados chegando, totais por apoiador
+              e marca auto-apoio (dono da aldeia).
+            </p>
+            {supportersError !== '' && <p className="error" role="alert">{supportersError}</p>}
+            <div className="row">
+              <button type="button" className="btn" onClick={() => void runSupporters()} disabled={supportersBusy}>
+                <Users size={16} aria-hidden="true" />
+                {supportersBusy ? <><span className="btn-spinner" aria-hidden="true" /> Consultando…</> : 'Exibir Apoiadores'}
+              </button>
+            </div>
+            {supportersResult !== null && (
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Aldeia</th>
+                      <th>Apoiadores</th>
+                      <th>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {supportersResult.villages.map((village) => (
+                      <tr key={village.coord}>
+                        <td className="cell-nowrap">
+                          {village.villageName} ({village.coord}){village.ownerName !== null ? <span className="muted"> · {village.ownerName}</span> : null}
+                        </td>
+                        <td className="cell-detail">
+                          {village.supporters.length === 0
+                            ? <span className="muted">Nenhum suporte compartilhado visível.</span>
+                            : village.supporters.map((sup) => (
+                                <span key={sup.playerName} className={sup.selfSupport ? 'ok' : ''} title={sup.selfSupport ? 'Auto-apoio (dono da aldeia)' : undefined}>
+                                  {sup.playerName} ({sup.count}){sup.selfSupport ? ' ★' : ''}
+                                </span>
+                              )).reduce<React.ReactNode[]>((acc, item, index) => (index === 0 ? [item] : [...acc, ' · ', item]), [])}
+                        </td>
+                        <td className="cell-nowrap">{village.totalSupports}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="page-section" aria-labelledby="sg3-incoming-title">
+        <h2 className="section-title" id="sg3-incoming-title">Ataques Recebidos (aldeias próprias)</h2>
+        <div className="card">
+          <div className="card-body">
+            <p className="muted">
+              Varre as aldeias do jogador logado (1 requisição por aldeia, com pacing) e cruza com a última coleta de
+              defesa: <strong>esta aldeia vai cair</strong> quando chega nobre/ataque grande e a defesa presente está
+              abaixo do patamar. Sem coleta de defesa, a aldeia fica "sem dados" (nunca chutado).
+            </p>
+            <div className="row">
+              <button type="button" className="btn" disabled={scanBusy} onClick={() => void runScanIncoming()}>
+                <Radar size={16} aria-hidden="true" />
+                {scanBusy ? <><span className="btn-spinner" aria-hidden="true" /> Varrendo…</> : 'Varrer ataques recebidos'}
+              </button>
+              {scanBusy && progress !== null && (
+                <>
+                  <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      void window.staffhub.queue
+                        .cancel()
+                        .then(() => push('info', 'Cancelamento pedido — a varredura para na próxima requisição.'))
+                        .catch(() => push('error', 'Não foi possível pedir o cancelamento.'));
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                </>
+              )}
+            </div>
+            {scanError !== '' && <p className="error" role="alert">{scanError}</p>}
+            {threats !== null && (
+              <>
+                <p className={threats.some((threat) => threat.level === 'vai-cair') ? 'error' : 'ok'}>{threatSummary(threats)}</p>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Aldeia</th>
+                        <th>Triagem</th>
+                        <th className="cell-num">Ataques</th>
+                        <th className="cell-num">Com nobre</th>
+                        <th>Detalhe</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {threats.map((threat) => (
+                        <tr key={threat.coord}>
+                          <td className="cell-nowrap">{threat.coord}</td>
+                          <td className="cell-nowrap">
+                            {threat.level === 'vai-cair' && <span className="error">VAI CAIR</span>}
+                            {threat.level === 'pressionada' && <span className="text-warn">Pressionada</span>}
+                            {threat.level === 'resistente' && <span className="ok">Resistente</span>}
+                            {threat.level === 'sem-dados' && <span className="muted">Sem dados</span>}
+                          </td>
+                          <td className="cell-num">{threat.attackCount}</td>
+                          <td className="cell-num">{threat.nobleCount > 0 ? <strong>{threat.nobleCount}</strong> : 0}</td>
+                          <td className="cell-detail">{threat.detail}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </section>
 
       <ToastViewport toasts={toasts} onDismiss={dismiss} />
-    </div>
+    </section>
   );
 }

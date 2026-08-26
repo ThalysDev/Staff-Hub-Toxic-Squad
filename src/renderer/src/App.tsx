@@ -105,7 +105,7 @@ export default function App() {
           })}
           {mountedModules.has('guerra') && (
             <div className="sg-page" hidden={page !== 'guerra'}>
-              <WarRoomPage />
+              <WarRoomPage onNavigate={navigate} />
             </div>
           )}
           {!isModulePage(page) && renderSystemPage(page, navigate)}

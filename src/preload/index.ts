@@ -14,89 +14,104 @@ import type {
   TroopKind,
 } from '@shared/ipc-types';
 
+/**
+ * invoke com envelope de erro legível (C10): o Electron prefixa erros do main
+ * com "Error invoking remote method 'canal': Error: …" — o usuário só precisa
+ * da mensagem PT-BR que o service lançou. O tipo T é inferido do contrato
+ * (satisfies StaffHubApi) em cada call site.
+ */
+async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
+  try {
+    return (await ipcRenderer.invoke(channel, ...args)) as T;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, ''));
+  }
+}
+
 const api = {
   session: {
-    openLogin: () => ipcRenderer.invoke('session:open-login'),
-    logout: () => ipcRenderer.invoke('session:logout'),
-    status: () => ipcRenderer.invoke('session:status'),
-    loginWithSid: (world: string, sid: string) => ipcRenderer.invoke('session:login-sid', world, sid),
+    openLogin: () => invoke('session:open-login'),
+    logout: () => invoke('session:logout'),
+    status: () => invoke('session:status'),
+    loginWithSid: (world: string, sid: string) => invoke('session:login-sid', world, sid),
   },
   settings: {
-    get: () => ipcRenderer.invoke('settings:get'),
-    update: (patch: Partial<AppSettings>) => ipcRenderer.invoke('settings:update', patch),
+    get: () => invoke('settings:get'),
+    update: (patch: Partial<AppSettings>) => invoke('settings:update', patch),
   },
   journal: {
-    list: (limit: number) => ipcRenderer.invoke('journal:list', limit),
-    clear: () => ipcRenderer.invoke('journal:clear'),
+    list: (limit: number) => invoke('journal:list', limit),
+    clear: () => invoke('journal:clear'),
   },
   app: {
-    getVersion: () => ipcRenderer.invoke('app:get-version'),
+    getVersion: () => invoke('app:get-version'),
   },
   queue: {
-    cancel: () => ipcRenderer.invoke('queue:cancel'),
+    cancel: () => invoke('queue:cancel'),
   },
   dev: {
-    captureFixture: (name: string, url: string) => ipcRenderer.invoke('dev:capture-fixture', name, url),
+    captureFixture: (name: string, url: string) => invoke('dev:capture-fixture', name, url),
   },
   world: {
-    refresh: () => ipcRenderer.invoke('world:refresh'),
-    status: () => ipcRenderer.invoke('world:status'),
-    tribes: () => ipcRenderer.invoke('world:tribes'),
-    villages: () => ipcRenderer.invoke('world:villages'),
-    players: () => ipcRenderer.invoke('world:players'),
-    nobleMinutes: () => ipcRenderer.invoke('world:noble-minutes'),
+    refresh: () => invoke('world:refresh'),
+    status: () => invoke('world:status'),
+    tribes: () => invoke('world:tribes'),
+    villages: () => invoke('world:villages'),
+    players: () => invoke('world:players'),
+    nobleMinutes: () => invoke('world:noble-minutes'),
     nightBonus: () =>
-      ipcRenderer.invoke('world:night-bonus') as Promise<{ active: boolean; startHour: number; endHour: number }>,
-    relations: () => ipcRenderer.invoke('world:relations'),
+      invoke('world:night-bonus') as Promise<{ active: boolean; startHour: number; endHour: number }>,
+    relations: () => invoke('world:relations'),
   },
   sg1: {
-    analyze: (input: Sg1Input) => ipcRenderer.invoke('sg1:analyze', input),
+    analyze: (input: Sg1Input) => invoke('sg1:analyze', input),
   },
   troops: {
-    collectSummary: (kind: TroopKind) => ipcRenderer.invoke('troops:collect-summary', kind),
-    collectMembers: (kind: TroopKind) => ipcRenderer.invoke('troops:collect-members', kind),
-    status: () => ipcRenderer.invoke('troops:status'),
-    get: (kind: TroopKind) => ipcRenderer.invoke('troops:get', kind),
+    collectSummary: (kind: TroopKind) => invoke('troops:collect-summary', kind),
+    collectMembers: (kind: TroopKind) => invoke('troops:collect-members', kind),
+    status: () => invoke('troops:status'),
+    get: (kind: TroopKind) => invoke('troops:get', kind),
   },
   sg3: {
     checkBlind: (input: Omit<BlindCheckInput, 'defense'>) =>
-      ipcRenderer.invoke('sg3:check-blind', input) as Promise<{ results: BlindVillageResult[]; bbcode: string }>,
-    supporters: (coords: string[]) => ipcRenderer.invoke('sg3:supporters', coords) as Promise<import('@shared/types').SupportersResult>,
+      invoke('sg3:check-blind', input) as Promise<{ results: BlindVillageResult[]; bbcode: string }>,
+    supporters: (coords: string[]) => invoke('sg3:supporters', coords) as Promise<import('@shared/types').SupportersResult>,
   },
   sg7: {
-    conference: (threadUrl: string) => ipcRenderer.invoke("sg7:conference", threadUrl),
-    adjust: (threadUrl: string, confirm: boolean) => ipcRenderer.invoke("sg7:adjust", threadUrl, confirm),
-    deletePosts: (threadUrl: string, postIds: number[], confirm: boolean) => ipcRenderer.invoke("sg7:delete-posts", threadUrl, postIds, confirm),
+    conference: (threadUrl: string) => invoke("sg7:conference", threadUrl),
+    adjust: (threadUrl: string, confirm: boolean) => invoke("sg7:adjust", threadUrl, confirm),
+    deletePosts: (threadUrl: string, postIds: number[], confirm: boolean) => invoke("sg7:delete-posts", threadUrl, postIds, confirm),
     postPlan: (input: { threadUrl: string; bbcode: string }, confirm: boolean) =>
-      ipcRenderer.invoke("sg7:post-plan", input, confirm) as Promise<{ ok: boolean; detail: string }>,
+      invoke("sg7:post-plan", input, confirm) as Promise<{ ok: boolean; detail: string }>,
   },
   sg6: {
-    reserveMass: (coords: string[], confirm: boolean) => ipcRenderer.invoke("sg6:reserve-mass", coords, confirm),
+    reserveMass: (coords: string[], confirm: boolean) => invoke("sg6:reserve-mass", coords, confirm),
     sendMps: (
       input: { subject: string; body: string; entries: { playerName: string; coords: string[]; horarios?: string[] }[] },
       confirm: boolean,
-    ) => ipcRenderer.invoke("sg6:send-mps", input, confirm),
+    ) => invoke("sg6:send-mps", input, confirm),
   },
   opArchive: {
-    list: () => ipcRenderer.invoke('oparchive:list') as Promise<OpArchiveEntry[]>,
-    save: (input: OpSaveInput) => ipcRenderer.invoke('oparchive:save', input) as Promise<OpArchiveEntry>,
+    list: () => invoke('oparchive:list') as Promise<OpArchiveEntry[]>,
+    save: (input: OpSaveInput) => invoke('oparchive:save', input) as Promise<OpArchiveEntry>,
     attachConference: (id: string, conference: OpConferenceSnapshot, totals?: OpTotalsSnapshot[]) =>
-      ipcRenderer.invoke('oparchive:attach-conference', id, conference, totals) as Promise<OpArchiveEntry>,
-    remove: (id: string) => ipcRenderer.invoke('oparchive:remove', id) as Promise<void>,
+      invoke('oparchive:attach-conference', id, conference, totals) as Promise<OpArchiveEntry>,
+    remove: (id: string) => invoke('oparchive:remove', id) as Promise<void>,
   },
   sg5: {
     verify: (entries: import('@shared/ipc-types').Sg5VerifyEntry[]) =>
-      ipcRenderer.invoke('sg5:verify', entries) as Promise<import('@shared/ipc-types').Sg5VerifyResult>,
+      invoke('sg5:verify', entries) as Promise<import('@shared/ipc-types').Sg5VerifyResult>,
     totals: (coords: string[]) =>
-      ipcRenderer.invoke('sg5:totals', coords) as Promise<import('@shared/ipc-types').Sg5TotalsResult>,
+      invoke('sg5:totals', coords) as Promise<import('@shared/ipc-types').Sg5TotalsResult>,
     scanOwnVillages: () =>
-      ipcRenderer.invoke('sg5:scan-own') as Promise<import('@shared/ipc-types').Sg5VerifyResult & { player: string }>,
+      invoke('sg5:scan-own') as Promise<import('@shared/ipc-types').Sg5VerifyResult & { player: string }>,
   },
   window: {
-    minimize: () => ipcRenderer.invoke('win:min'),
-    toggleMaximize: () => ipcRenderer.invoke('win:max-toggle') as Promise<boolean>,
-    close: () => ipcRenderer.invoke('win:close'),
-    isMaximized: () => ipcRenderer.invoke('win:is-max') as Promise<boolean>,
+    minimize: () => invoke('win:min'),
+    toggleMaximize: () => invoke('win:max-toggle') as Promise<boolean>,
+    close: () => invoke('win:close'),
+    isMaximized: () => invoke('win:is-max') as Promise<boolean>,
   },
   events: {
     onQueueProgress: (cb: (progress: QueueProgress) => void) => {

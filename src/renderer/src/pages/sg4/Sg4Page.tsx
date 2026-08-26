@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { Clock, Copy, Crosshair, Plus, Radar, Share2, Swords } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { AlertTriangle, Clock, Copy, Crosshair, Plus, Radar, Share2, Swords } from 'lucide-react';
 import { parseCoord, parseCoordList } from '@shared/coords';
 import {
   centralOpAnalysis,
@@ -290,12 +290,18 @@ export default function Sg4Page() {
     }
   }
 
+  /** Estável entre renders: o DistributionMap refaz o fetch do mapa se o
+   * callback mudar a cada render do pai (toasts/progresso). */
+  const handleMapError = useCallback((message: string): void => {
+    push('error', message);
+  }, [push]);
+
   /** P0-7: origens "nick;fulls;coords" direto do snapshot de tropas do SG_2. */
   async function fillOriginsFromSnapshot(): Promise<void> {
     try {
       const snapshot = await window.staffhub.troops.get('troops');
       if (snapshot === null) {
-        push('error', 'Nenhum snapshot de tropas — rode a coleta no SG_2 antes de preencher.');
+        push('error', 'Nenhum snapshot de tropas — rode a coleta no SG2 antes de preencher.');
         return;
       }
       const text = originsFromSnapshot(snapshot);
@@ -305,7 +311,7 @@ export default function Sg4Page() {
       }
       setOriginsText(text);
       const playerCount = text.split('\n').filter((line) => line.trim() !== '').length;
-      push('ok', `Origens preenchidas do SG_2: ${playerCount} jogador(es) com aldeia full.`);
+      push('ok', `Origens preenchidas do SG2: ${playerCount} jogador(es) com aldeia full.`);
     } catch (error) {
       push('error', errorMessage(error));
     }
@@ -618,11 +624,20 @@ export default function Sg4Page() {
         <h2 className="section-title" id="sg4-op-title">Criação de OP com Coordenada Central</h2>
         <div className="card">
           <div className="card-body">
+            {relationsFailed && (
+              <div className="callout callout--danger">
+                <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
+                <div className="callout-body">
+                  <p className="callout-title">Diplomacia indisponível</p>
+                  <p>Faça login no jogo para preencher as tags inimigas com a diplomacia.</p>
+                </div>
+              </div>
+            )}
             <div className="sg4-form-grid">
               <div className="sg4-span-2">
                 <Field
                   id="sg4-enemyTags"
-                  label="TAG TRIBOS INIMIGAS (TAG;TAG;TAG)"
+                  label="Tags das tribos inimigas"
                   hint="Separe as tags com ; ou use o botão abaixo para preencher com a diplomacia."
                   error={errorsA.tags}
                 >
@@ -630,19 +645,20 @@ export default function Sg4Page() {
                     id="sg4-enemyTags"
                     className="textarea"
                     rows={2}
+                    placeholder="DARK;SAV;NEW"
                     value={enemyTagsText}
                     aria-describedby={errorsA.tags !== undefined ? 'sg4-enemyTags-error' : 'sg4-enemyTags-hint'}
                     onChange={(event) => setEnemyTagsText(event.target.value)}
                   />
-                  <div>
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={useEnemyTagsFromDiplomacy}>
-                      <Swords size={14} aria-hidden="true" />
-                      Usar inimigas da diplomacia
-                    </button>
-                  </div>
                 </Field>
+                <div>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={useEnemyTagsFromDiplomacy}>
+                    <Swords size={14} aria-hidden="true" />
+                    Usar inimigas da diplomacia
+                  </button>
+                </div>
               </div>
-              <Field id="sg4-central" label="COORDENADA OP (123|456)" error={errorsA.central}>
+              <Field id="sg4-central" label="Coordenada central da OP" error={errorsA.central}>
                 <input
                   id="sg4-central"
                   className="input"
@@ -685,7 +701,7 @@ export default function Sg4Page() {
               <h3 className="card-title">Análise por Jogador ({opRows.length})</h3>
               <span className="spacer" />
               <div className="sg4-cutoff">
-                <label className="field-label" htmlFor="sg4-cutoff">Utilizar Coordenadas Até (1-5 horas)</label>
+                <label className="field-label" htmlFor="sg4-cutoff">Utilizar coordenadas até (1-5 horas)</label>
                 <select
                   id="sg4-cutoff"
                   className="select"
@@ -830,7 +846,7 @@ export default function Sg4Page() {
           <div className="card-body">
             <Field
               id="sg4-origins"
-              label="INFORMAÇÕES ORIGEM (Nick;Nro Fulls;Coordenadas Origem)"
+              label="Informações de origem"
               hint="Cada coordenada de origem = 1 NT estacionado (1 alvo a receber)."
               error={errorsB.origins}
             >
@@ -846,7 +862,7 @@ export default function Sg4Page() {
               <div>
                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => void fillOriginsFromSnapshot()}>
                   <Swords size={14} aria-hidden="true" />
-                  Preencher do snapshot do SG_2 (aldeias com nobre)
+                  Preencher do snapshot do SG2 (aldeias com nobre)
                 </button>
               </div>
             </Field>
@@ -854,7 +870,7 @@ export default function Sg4Page() {
             {lines.map((line, index) => (
               <div className="sg4-line-grid" key={index}>
                 <label className="field">
-                  <span className="field-label">FULLS DE</span>
+                  <span className="field-label">Fulls de</span>
                   <input
                     className="input"
                     type="number"
@@ -866,7 +882,7 @@ export default function Sg4Page() {
                   />
                 </label>
                 <label className="field">
-                  <span className="field-label">ATÉ</span>
+                  <span className="field-label">Até</span>
                   <input
                     className="input"
                     type="number"
@@ -879,7 +895,7 @@ export default function Sg4Page() {
                 </label>
                 <label className="field">
                   <span className="field-label">
-                    COORDENADAS DESTINO {LINE_NAMES[index] ?? `${index + 1}ª`} LINHA (123|456 456|123 111|222)
+                    Coordenadas de destino ({(LINE_NAMES[index] ?? `${index + 1}ª linha`).toLowerCase()})
                   </span>
                   <textarea
                     className="textarea"
@@ -1242,7 +1258,7 @@ export default function Sg4Page() {
                       onClick={() => void copyText(sg6EntriesText(commsPlayers))}
                     >
                       <Copy size={14} aria-hidden="true" />
-                      Copiar destinatários (SG_6)
+                      Copiar destinatários (SG6)
                     </button>
                     <button
                       type="button"
@@ -1277,7 +1293,7 @@ export default function Sg4Page() {
               </div>
               <div className="sg4-params" style={{ marginTop: 12 }}>
                 <label className="field">
-                  <span className="field-label">URL do tópico do plano (o 1º post será SUBSTITUÍDO)</span>
+                  <span className="field-label">URL do tópico do plano (o 1º post será substituído)</span>
                   <input
                     className="input"
                     placeholder="https://br142.tribalwars.com.br/game.php?screen=forum&screenmode=view_thread&forum_id=…&thread_id=…"
@@ -1287,7 +1303,7 @@ export default function Sg4Page() {
                   />
                 </label>
                 <div className="field">
-                  <span className="field-label">Postar no fórum — MUTAÇÃO REAL</span>
+                  <span className="field-label">Postar no fórum — mutação real</span>
                   {!planPending ? (
                     <button
                       type="button"
@@ -1326,7 +1342,9 @@ export default function Sg4Page() {
           </div>
         )}
 
-        {distribution !== null && distribution.assignments.length > 0 && <DistributionMap assignments={distribution.assignments} onError={(message) => push('error', message)} />}
+        {distribution !== null && distribution.assignments.length > 0 && (
+          <DistributionMap assignments={distribution.assignments} onError={handleMapError} />
+        )}
       </section>
 
       <ToastViewport toasts={toasts} onDismiss={dismiss} />

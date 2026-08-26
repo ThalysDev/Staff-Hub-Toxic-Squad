@@ -232,8 +232,10 @@ h2 {
   transition: background-color var(--t-fast), color var(--t-fast), border-color var(--t-fast);
 }
 
+/* Hover residual discreto: um véu translúcido que nunca compete com o
+   fundo sólido do item ativo — só UM item pode parecer destacado. */
 .nav-item:hover {
-  background: var(--bg-page);
+  background: rgba(61, 46, 28, 0.06);
   color: var(--text-strong);
 }
 
@@ -403,7 +405,7 @@ h2 {
   border: 1px solid var(--border-card);
   border-radius: var(--r-lg);
   box-shadow: var(--elev-1);
-  padding: var(--sp-5);
+  padding: var(--sp-6); /* 32px — padding interno padrão de card */
 }
 
 .card--flush {
@@ -419,7 +421,7 @@ h2 {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  padding: var(--sp-4) var(--sp-5);
+  padding: var(--sp-4) var(--sp-6);
   border-bottom: 1px solid var(--divider);
   background: #f6efdd;
 }
@@ -433,8 +435,15 @@ h2 {
   flex: 1;
 }
 
+/* Header vira faixa full-bleed no card padded: título alinha com o conteúdo
+   e a barra "amarra" o card (cards flush mantêm o header embutido). */
+.card:not(.card--flush) > .card-header {
+  margin: calc(-1 * var(--sp-6)) calc(-1 * var(--sp-6)) var(--sp-5);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+}
+
 .card-body {
-  padding: var(--sp-5);
+  padding: var(--sp-6);
 }
 
 .card-title {
@@ -505,6 +514,19 @@ h2 {
   background: #f6efdd;
   color: var(--accent-ink);
   border-color: var(--border-strong);
+}
+
+/* Ghost-vermelho: destrutivo de menor peso (ex.: limpar journal) —
+   mantém o volume do ghost, mas sinaliza a consequência. */
+.btn-ghost--danger {
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+
+.btn-ghost--danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 /* Vermelho-guerra: ações destrutivas. */
@@ -604,10 +626,76 @@ h2 {
 }
 
 .settings-form {
-  max-width: 520px;
   display: flex;
   flex-direction: column;
   gap: var(--sp-5);
+}
+
+/* Input numérico curto + help correndo ao lado (Configurações). */
+.field-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.field-inline .field-hint {
+  margin: 0;
+}
+
+.input--num {
+  width: 150px;
+  flex: none;
+}
+
+/* Passos numerados curtos (Sessão — import de SID). */
+.step-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  counter-reset: passo;
+}
+
+.step-list li {
+  position: relative;
+  padding-left: 32px;
+  counter-increment: passo;
+  font-size: var(--fs-small);
+  color: var(--text);
+}
+
+.step-list li::before {
+  content: counter(passo);
+  position: absolute;
+  left: 0;
+  top: 1px;
+  width: 21px;
+  height: 21px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+/* Exemplo literal (cookie/valor técnico) em mono sobre o pergaminho. */
+.code-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--r-sm);
+  background: var(--bg-inset);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fs-caption);
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
 }
 
 .checkbox-field {
@@ -663,6 +751,16 @@ h2 {
   margin: 0;
   font-size: var(--fs-small);
   color: var(--text);
+}
+
+/* Atenção (âmbar): mutação real, aviso que exige leitura antes de agir. */
+.callout--warn {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+
+.callout--warn .callout-icon {
+  color: var(--warn-ink);
 }
 
 .callout--danger {
@@ -739,6 +837,29 @@ h2 {
 .cell-detail {
   max-width: 420px;
   overflow-wrap: anywhere;
+}
+
+/* Variante do journal: detalhe em no máximo 2 linhas — o texto completo
+   fica no title (hover/leitor de tela). */
+.cell-detail--clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+/* Header de seção por dia dentro da tabela (Hoje / Ontem / data). */
+.table-group-row th,
+.table-group-row td {
+  padding: 7px 14px;
+  background: #f6efdd;
+  border-bottom: 1px solid var(--border-card);
+  text-align: left;
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--accent-ink);
 }
 
 .cell-num {
@@ -900,6 +1021,32 @@ h2 {
   margin-top: var(--sp-2);
 }
 
+/* Variante compacta: dentro de cards (ex.: Sala de Guerra), sem a altura
+   vazia do estado de página inteira. */
+.empty-state--compact {
+  padding: var(--sp-5) var(--sp-4);
+  gap: var(--sp-2);
+}
+
+.empty-state--compact .empty-state-icon {
+  width: 44px;
+  height: 44px;
+  margin-bottom: 0;
+}
+
+.empty-state--compact .empty-state-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.empty-state--compact .empty-state-title {
+  font-size: var(--fs-h3);
+}
+
+.empty-state--compact .empty-state-hint {
+  font-size: var(--fs-small);
+}
+
 .empty-state-list {
   margin: 0;
   padding: 0;
@@ -959,7 +1106,7 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: var(--sp-5);
-  max-width: 520px;
+  max-width: 420px;
 }
 
 .skeleton-form .skeleton-title {
@@ -991,14 +1138,16 @@ h2 {
 }
 
 /* =====================================================================
-   Toasts — canto inferior direito
+   Toasts — container FIXO no canto superior direito (nunca no fluxo
+   da página: não empurra nem cobre o conteúdo sendo lido)
    ===================================================================== */
 .toast-viewport {
   position: fixed;
+  top: var(--sp-5);
   right: var(--sp-5);
-  bottom: var(--sp-5);
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
   gap: var(--sp-2);
   z-index: 1000;
   pointer-events: none;
@@ -1148,21 +1297,29 @@ h2 {
 /* =====================================================================
    Hero — boas-vindas do dashboard
    ===================================================================== */
-/* Hero compacto: kicker+título, descrição de 1 linha e ação na mesma faixa. */
+/* Hero compacto: marca à esquerda, coluna kicker→título→descrição e a ação
+   à direita, centrada verticalmente. A descrição nunca é truncada. */
 .hero {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--sp-4) var(--sp-5);
-  padding: var(--sp-4) var(--sp-6);
+  gap: var(--sp-4) var(--sp-6);
+  padding: var(--sp-5) var(--sp-6);
   border: 1px solid var(--border-card);
   border-radius: var(--r-lg);
   background: var(--bg-card);
   box-shadow: var(--elev-1);
 }
 
-.hero-main {
+.hero-logo {
   flex: none;
+  align-self: center;
+}
+
+/* Coluna de texto domina a largura; descrição quebra em até 2 linhas. */
+.hero-main {
+  flex: 1 1 320px;
+  min-width: 0;
 }
 
 .hero-title {
@@ -1171,18 +1328,15 @@ h2 {
 }
 
 .hero-desc {
-  flex: 1;
-  min-width: 220px;
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin: var(--sp-2) 0 0;
+  max-width: 62ch;
   font-size: var(--fs-small);
   color: var(--text);
 }
 
 .hero-login {
   flex: none;
+  margin-left: auto;
 }
 
 .hero-kicker {
@@ -1271,6 +1425,20 @@ h2 {
   box-shadow: none;
 }
 
+/* Tile "em breve": parecido com o CTA, mas inerte — sem cursor de clique,
+   sem hover de ação. O pill "Em breve" explica o estado. */
+.module-card--soon {
+  cursor: default;
+}
+
+.module-card--soon,
+.module-card--soon:hover {
+  border-color: var(--border-card);
+  background: var(--bg-card);
+  transform: none;
+  box-shadow: none;
+}
+
 .module-card .icon-badge {
   margin-bottom: var(--sp-1);
 }
@@ -1305,14 +1473,14 @@ h2 {
   width: 100%;
 }
 
+/* Link de abertura do tile: sentence-case 13px, mesma gramática dos
+   botões ghost (peso 600) — nada de caps decorativo. */
 .module-open {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: var(--fs-caption);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: var(--fs-small);
+  font-weight: 600;
   color: var(--accent-ink);
   transition: color var(--t-fast);
 }
@@ -1322,14 +1490,15 @@ h2 {
 }
 
 .module-card:hover .module-open {
-  color: var(--ok-ink);
+  color: var(--accent-ink);
 }
 
 .module-card:hover .module-open svg {
   transform: translateX(2px);
 }
 
-/* Botão visual do tile de ação — a ação é do card inteiro (span, não button). */
+/* Botão visual do tile de ação — a ação é do card inteiro (span, não button).
+   Mesma gramática do .module-open: sentence-case 13px, peso 600. */
 .module-cta-btn {
   display: inline-flex;
   align-items: center;
@@ -1338,10 +1507,9 @@ h2 {
   border-radius: var(--r-pill);
   background: var(--action);
   color: var(--action-ink);
-  font-size: var(--fs-caption);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  letter-spacing: 0.01em;
   transition: background-color var(--t-fast);
 }
 

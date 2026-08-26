@@ -293,10 +293,11 @@ export default function Sg1Page() {
                 void runAnalyze();
               }}
             >
-              <Field id="ownTag" label="TAG TRIBO ANALISADA (TAG)" error={errors.ownTag} hint={prefillBusy ? 'Carregando a tag da sua tribo (baixa os dados do mundo na 1ª vez)…' : undefined}>
+              <Field id="ownTag" label="Tag da tribo analisada" error={errors.ownTag} hint={prefillBusy ? 'Carregando a tag da sua tribo (baixa os dados do mundo na 1ª vez)…' : undefined}>
                 <input
                   id="ownTag"
                   className="input"
+                  placeholder="TOX"
                   value={ownTag}
                   aria-describedby={errors.ownTag !== undefined ? 'ownTag-error' : undefined}
                   onChange={(event) => setOwnTag(event.target.value)}
@@ -306,7 +307,7 @@ export default function Sg1Page() {
               <div className="sg1-span-2">
                 <Field
                   id="enemyTags"
-                  label="TAG TRIBOS INIMIGAS (TAG;TAG;TAG)"
+                  label="Tags das tribos inimigas"
                   hint="Separe as tags com ; ou use o botão abaixo para preencher com a diplomacia."
                   error={errors.enemyTags}
                 >
@@ -314,29 +315,31 @@ export default function Sg1Page() {
                     id="enemyTags"
                     className="textarea"
                     rows={2}
+                    placeholder="DARK;SAV;NEW"
                     value={enemyTagsText}
                     aria-describedby={
                       errors.enemyTags !== undefined ? 'enemyTags-error' : 'enemyTags-hint'
                     }
                     onChange={(event) => setEnemyTagsText(event.target.value)}
                   />
-                  <div>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={useEnemyTagsFromDiplomacy}
-                    >
-                      <Swords size={14} aria-hidden="true" />
-                      Usar inimigas da diplomacia
-                    </button>
-                  </div>
                 </Field>
+                <div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={useEnemyTagsFromDiplomacy}
+                  >
+                    <Swords size={14} aria-hidden="true" />
+                    Usar inimigas da diplomacia
+                  </button>
+                </div>
               </div>
 
-              <Field id="kDesired" label="K DESEJADO (45 46 55)">
+              <Field id="kDesired" label="Ks desejados">
                 <input
                   id="kDesired"
                   className="input"
+                  placeholder="45 46 55"
                   value={kDesiredText}
                   onChange={(event) => setKDesiredText(event.target.value)}
                 />
@@ -345,12 +348,13 @@ export default function Sg1Page() {
               <div className="sg1-span-2">
                 <Field
                   id="enemyCoordsDiscard"
-                  label="COORDENADAS INIMIGAS DESCONSIDERADAS (123|456 456|123 111|222)"
+                  label="Coordenadas inimigas desconsideradas"
                 >
                   <textarea
                     id="enemyCoordsDiscard"
                     className="textarea sg1-coords"
                     rows={3}
+                    placeholder="123|456 456|123 111|222"
                     value={enemyCoordsDiscardText}
                     onChange={(event) => setEnemyCoordsDiscardText(event.target.value)}
                   />
@@ -359,11 +363,12 @@ export default function Sg1Page() {
 
               <Field
                 id="kEnemyDiscard"
-                label="K ALDEIAS INIMIGAS DESCONSIDERADAS (45 46 55)"
+                label="Ks das aldeias inimigas desconsideradas"
               >
                 <input
                   id="kEnemyDiscard"
                   className="input"
+                  placeholder="45 46 55"
                   value={kEnemyDiscardText}
                   onChange={(event) => setKEnemyDiscardText(event.target.value)}
                 />
@@ -372,13 +377,14 @@ export default function Sg1Page() {
               <div className="sg1-span-2">
                 <Field
                   id="enemyCoordsConsider"
-                  label="COORDENADAS INIMIGAS CONSIDERADAS (123|456 456|123 111|222)"
+                  label="Coordenadas inimigas consideradas"
                   hint="Se informadas, substituem as aldeias das tags inimigas."
                 >
                   <textarea
                     id="enemyCoordsConsider"
                     className="textarea sg1-coords"
                     rows={3}
+                    placeholder="123|456 456|123 111|222"
                     value={enemyCoordsConsiderText}
                     aria-describedby="enemyCoordsConsider-hint"
                     onChange={(event) => setEnemyCoordsConsiderText(event.target.value)}
@@ -389,13 +395,14 @@ export default function Sg1Page() {
               <div className="sg1-span-2">
                 <Field
                   id="allyCoordsConsider"
-                  label="COORDENADAS ALIADAS CONSIDERADAS (123|456 456|123 111|222)"
+                  label="Coordenadas aliadas consideradas"
                   hint="Acrescentam ao conjunto de aldeias da tribo analisada."
                 >
                   <textarea
                     id="allyCoordsConsider"
                     className="textarea sg1-coords"
                     rows={3}
+                    placeholder="123|456 456|123 111|222"
                     value={allyCoordsConsiderText}
                     aria-describedby="allyCoordsConsider-hint"
                     onChange={(event) => setAllyCoordsConsiderText(event.target.value)}
@@ -598,13 +605,14 @@ export default function Sg1Page() {
             <div className="card-body">
               <Field
                 id="highlightCoords"
-                label="Aldeias Destacadas (123|456 456|321 999|444...)"
+                label="Aldeias destacadas"
                 hint="Separadas por espaço ou Enter. Aparecem em branco no mapa."
               >
                 <textarea
                   id="highlightCoords"
                   className="textarea sg1-coords"
                   rows={3}
+                  placeholder="123|456 456|321 999|444"
                   value={highlightText}
                   aria-describedby="highlightCoords-hint"
                   onChange={(event) => setHighlightText(event.target.value)}

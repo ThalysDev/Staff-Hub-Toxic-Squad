@@ -4,7 +4,6 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
-  Database,
   Eye,
   Layers,
   ShieldCheck,
@@ -334,26 +333,22 @@ export default function Sg2Page() {
         <div className="card">
           <div className="card-body">
             <div className="sg2-memory-bar">
-              <span className="pill pill--gold">
-                <Database size={12} aria-hidden="true" />
-                Dados em Memória
-              </span>
               <p className="sg2-memory-date muted">
-                Data da Última Atualização: <strong>{updatedLabel}</strong>
+                Data da última atualização: <strong>{updatedLabel}</strong>
               </p>
               <div className="sg2-memory-actions">
                 <button
                   type="button"
                   className="btn btn-ghost"
                   onClick={() => void exhibit()}
-                  disabled={collecting !== null}
+                  disabled={collecting !== null || snapshot === null}
                 >
                   <Eye size={14} aria-hidden="true" />
                   Exibir Dados
                 </button>
                 <button
                   type="button"
-                  className="btn"
+                  className="btn btn-ghost"
                   onClick={() => void startCollect('members')}
                   disabled={collecting !== null}
                 >
@@ -366,7 +361,7 @@ export default function Sg2Page() {
                 </button>
                 <button
                   type="button"
-                  className="btn btn-ghost"
+                  className="btn"
                   onClick={() => void startCollect('summary')}
                   disabled={collecting !== null}
                 >
@@ -529,7 +524,7 @@ export default function Sg2Page() {
                       <Field
                         id="sg2-coords"
                         label="Coordenadas Filtradas (123|456 456|123 ...)"
-                        hint="Separadas por espaço ou Enter — normalmente a saída do SG_1."
+                        hint="Separadas por espaço ou Enter — normalmente a saída do SG1."
                       >
                         <textarea
                           id="sg2-coords"

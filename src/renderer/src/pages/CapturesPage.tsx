@@ -83,9 +83,9 @@ export default function CapturesPage() {
   return (
     <section className="page">
       <PageHeader
-        kicker="Fase 0.5"
-        title="Capturas do mundo"
-        description="Baixa páginas do jogo com a sua sessão e salva como fixtures para os testes dos parsers. Somente leitura — nada é enviado ao jogo."
+        kicker="Sistema"
+        title="Capturas de tela"
+        description="Baixa páginas do jogo com a sua sessão para conferência offline — somente leitura, nada é enviado ao jogo."
       />
 
       {needsLogin ? (

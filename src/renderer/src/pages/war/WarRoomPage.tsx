@@ -1,16 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Paperclip, RefreshCw } from 'lucide-react';
+import { Crosshair, Paperclip, RefreshCw } from 'lucide-react';
 import type { OpArchiveEntry, OpConferenceSnapshot, OpTotalsSnapshot, Sg5VerifyResult } from '@shared/ipc-types';
 import { buildArrivalTimeline, formatCountdown } from '@shared/sg5-arrivals';
 import { formatHms } from '@shared/sg4-timing';
 import { buildScorecard, parseDistribution, warRoomStatus } from '@shared/war-room';
-import { useToast } from '../../hooks/useToast';
-
+import EmptyState from '../../components/EmptyState';
+import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
 import ToastViewport from '../../components/Toast';
+import { useToast } from '../../hooks/useToast';
+import type { PageId } from '../../modules';
 
 type DistributionEntry = ReturnType<typeof parseDistribution>[number];
 type ParsedDistribution = { entries: DistributionEntry[] } | { error: string };
+
+interface WarRoomPageProps {
+  /** Leva o líder à criação de OP quando a sala está vazia. */
+  onNavigate: (page: PageId) => void;
+}
+
+/** 1 jogador / 2 jogadores — sem "(s)" de sistema. */
+function pluralize(count: number, singular: string, plural: string): string {
+  return count === 1 ? `1 ${singular}` : `${count} ${plural}`;
+}
 
 /** Alvos sem comando e jogadores com falta ≥1 ficam em vermelho. */
 function coverageClass(coveragePct: number): string {
@@ -19,7 +31,7 @@ function coverageClass(coveragePct: number): string {
   return 'error';
 }
 
-export default function WarRoomPage() {
+export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
   const { toasts, push, dismiss } = useToast();
   const [ops, setOps] = useState<OpArchiveEntry[]>([]);
   const [selectedId, setSelectedId] = useState('');
@@ -124,7 +136,10 @@ export default function WarRoomPage() {
       const result = await window.staffhub.sg5.verify(entries);
       setVerifyResult(result);
       const totalCommands = result.villages.reduce((sum, village) => sum + village.commands.length, 0);
-      push('ok', `Reverificação concluída: ${totalCommands} comando(s) em ${result.villages.length} aldeia(s).`);
+      push(
+        'ok',
+        `Reverificação concluída: ${pluralize(totalCommands, 'comando', 'comandos')} em ${pluralize(result.villages.length, 'aldeia', 'aldeias')}.`,
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
@@ -172,13 +187,12 @@ export default function WarRoomPage() {
   }
 
   return (
-    <div className="col" style={{ gap: 16 }}>
-      <header className="page-header">
-        <div>
-          <p className="kicker">Sala de Guerra</p>
-          <h1>Monitoramento da OP</h1>
-        </div>
-      </header>
+    <div className="col">
+      <PageHeader
+        kicker="Sala de Guerra"
+        title="Monitoramento da OP"
+        description="Acompanhe a OP arquivada ao vivo: cobertura dos alvos, próximas chegadas e scorecard da equipe."
+      />
 
       {/* ---- Seletor da OP ativa ---- */}
       <section className="card">
@@ -187,7 +201,17 @@ export default function WarRoomPage() {
         </div>
         <div className="card-body">
           {ops.length === 0 ? (
-            <p className="muted">Nenhuma OP arquivada — crie a OP no SG_4 e arquive.</p>
+            <EmptyState
+              icon={Crosshair}
+              title="Nenhuma OP arquivada ainda"
+              hint="Crie a operação e arquive-a para acompanhar aqui, ao vivo."
+              action={
+                <button type="button" className="btn" onClick={() => onNavigate('sg4')}>
+                  <Crosshair size={15} aria-hidden="true" />
+                  Criar OP
+                </button>
+              }
+            />
           ) : (
             <>
               <label className="field" style={{ maxWidth: 420 }}>
@@ -221,7 +245,7 @@ export default function WarRoomPage() {
                         <span className="btn-spinner" aria-hidden="true" /> Reverificando…
                       </>
                     ) : (
-                      'RE-VERIFICAR AGORA'
+                      'Reverificar agora'
                     )}
                   </button>
                   {busy !== null && progress !== null && (
@@ -250,7 +274,8 @@ export default function WarRoomPage() {
             <h2 className="card-title">Painel de guerra</h2>
             <span className="spacer" />
             <span className="pill pill--muted">
-              {commandCount} comando(s) · {timeline?.unresolved ?? 0} sem horário
+              {pluralize(commandCount, 'comando', 'comandos')} ·{' '}
+              {pluralize(timeline?.unresolved ?? 0, 'sem horário', 'sem horários')}
             </span>
           </div>
 
@@ -266,7 +291,7 @@ export default function WarRoomPage() {
             {/* (b) Alvos sem comando */}
             {warRoom.targetsWithoutCommand.length > 0 ? (
               <div className="col" style={{ gap: 6 }}>
-                <strong>ALVOS SEM COMANDO ({warRoom.targetsWithoutCommand.length})</strong>
+                <strong>Alvos sem comando ({warRoom.targetsWithoutCommand.length})</strong>
                 <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
                   {warRoom.targetsWithoutCommand.map((coord) => (
                     <span key={coord} className="pill cell-nowrap">{coord}</span>
@@ -306,7 +331,7 @@ export default function WarRoomPage() {
 
             {/* (d) Próximas chegadas */}
             <div className="col" style={{ gap: 6 }}>
-              <strong>PRÓXIMAS CHEGADAS</strong>
+              <strong>Próximas chegadas</strong>
               {upcomingArrivals.length === 0 ? (
                 <p className="muted">Nenhum comando com horário em formato máquina para contar chegadas.</p>
               ) : (
@@ -350,14 +375,21 @@ export default function WarRoomPage() {
         <div className="card-header">
           <h2 className="card-title">Scorecard de participação</h2>
           <span className="spacer" />
-          <span className="pill pill--muted">{scorecard.rows?.length ?? 0} jogador(es)</span>
+          <span className="pill pill--muted">
+            {pluralize(scorecard.rows?.length ?? 0, 'jogador', 'jogadores')}
+          </span>
         </div>
         {scorecard.error !== '' ? (
           <p className="error" role="alert">
             Arquivo de OPs com distribuição malformada: {scorecard.error}
           </p>
         ) : (scorecard.rows ?? []).length === 0 ? (
-          <p className="muted">Sem conferências arquivadas ainda — anexe uma conferência para alimentar o scorecard.</p>
+          <EmptyState
+            compact
+            icon={Paperclip}
+            title="Sem conferências ainda"
+            hint="Anexe uma conferência a partir do monitoramento acima."
+          />
         ) : (
           <div className="table-wrap">
             <table className="table">

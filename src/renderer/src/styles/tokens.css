@@ -39,7 +39,7 @@
   /* ===== Texto ===== */
   --text-strong: #3d2e1c; /* títulos e números */
   --text: #4a3a26; /* corpo */
-  --text-muted: #6f6049; /* secundário */
+  --text-muted: #6b5d49; /* secundário — escurecido p/ contraste AA confortável */
   --text-meta: #9b8b72; /* apenas decorativo/hairline — nunca texto pequeno */
 
   /* ===== Marca — marrom-dourado ===== */
@@ -109,5 +109,5 @@
 
   /* ===== Layout ===== */
   --sidebar-width: 236px;
-  --content-max: 1160px;
+  --content-max: 1080px; /* container padrão de conteúdo de TODAS as páginas */
 }

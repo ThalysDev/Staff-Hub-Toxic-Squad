@@ -1,21 +1,23 @@
 import { useEffect, useState } from 'react';
 import { ArrowRight, Camera, Info, LogIn, Map, User } from 'lucide-react';
-import type { SessionState } from '@shared/ipc-types';
-import StatBlock, { type StatTone } from '../components/StatBlock';
-import StatusPill from '../components/StatusPill';
+import StatBlock from '../components/StatBlock';
 import { useSessionStatus } from '../hooks/useSessionStatus';
-import { MODULES, type PageId } from '../modules';
+import { MODULES, type ModuleId, type PageId } from '../modules';
 import { BRAND_LOGO_WIDE } from '../assets';
 
-const SESSION_TONE: Record<SessionState, StatTone> = {
-  'logged-in': 'ok',
-  'logged-out': 'danger',
-  'logging-in': 'info',
-  unknown: 'default',
-};
-
 const HERO_DESC =
-  'Análise de aldeias e tropas, planejamento de operações, conferência de comandos e blindagem — tudo em um só lugar.';
+  'Análise de aldeias e tropas, operações, conferência e blindagem — a central da sua tribo.';
+
+/** Resumo de 1 linha por módulo: o que ele faz de fato (sem repetir o título). */
+const MODULE_BLURBS: Record<ModuleId, string> = {
+  sg1: 'Distâncias e tempo de marcha',
+  sg2: 'Tropas por jogador e aldeia',
+  sg3: 'Blind e apoiadores no front',
+  sg4: 'Alvos e distribuição por jogador',
+  sg5: 'Conferência alvo a alvo e totalizador',
+  sg6: 'Reservas em massa e MPs personalizadas',
+  sg7: 'Pedidos do fórum conferidos e ajustados',
+};
 
 interface DashboardPageProps {
   onNavigate: (page: PageId) => void;
@@ -25,6 +27,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const [version, setVersion] = useState<string | null>(null);
   const status = useSessionStatus();
   const hasSession = status.state === 'logged-in';
+  const isLoggingIn = status.state === 'logging-in';
 
   useEffect(() => {
     let cancelled = false;
@@ -41,17 +44,30 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     };
   }, []);
 
+  // Gramática de vazio uniforme nos 3 cartões de jogo: valor serif "—" +
+  // badge de estado. Nada de "DESCONHECIDO".
+  const offlineBadge = (
+    <span className="pill pill--muted">
+      <span className="pill-dot" aria-hidden="true" />
+      Desconectado
+    </span>
+  );
+  const connectingBadge = (
+    <span className="pill pill--info">
+      <span className="pill-dot pill-dot--pulse" aria-hidden="true" />
+      Conectando…
+    </span>
+  );
+
   return (
     <section className="page">
       <div className="hero">
+        <img className="hero-logo" src={BRAND_LOGO_WIDE} alt="" height={56} style={{ borderRadius: 8 }} />
         <div className="hero-main">
-          <img src={BRAND_LOGO_WIDE} alt="" height={64} style={{ borderRadius: 8, marginBottom: 6 }} />
           <p className="hero-kicker">Quartel-general da liderança</p>
           <h1 className="hero-title">Staff Hub Toxic Squad</h1>
+          <p className="hero-desc">{HERO_DESC}</p>
         </div>
-        <p className="hero-desc" title={HERO_DESC}>
-          {HERO_DESC}
-        </p>
         {!hasSession && (
           <button type="button" className="btn hero-login" onClick={() => onNavigate('sessao')}>
             <LogIn size={15} aria-hidden="true" />
@@ -61,7 +77,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       </div>
 
       {status.state !== 'logged-in' && (
-        <div className="callout callout--info" style={{ marginBottom: 16 }}>
+        <div className="callout callout--info">
           <Info size={18} className="callout-icon" aria-hidden="true" />
           <div className="callout-body">
             <p className="callout-title">Faça login primeiro</p>
@@ -73,33 +89,61 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       <div className="stat-row">
         <StatBlock
           label="Sessão do jogo"
-          tone={SESSION_TONE[status.state]}
+          tone={hasSession ? 'ok' : isLoggingIn ? 'info' : 'default'}
           icon={LogIn}
-          value={<StatusPill state={status.state} />}
+          value={hasSession ? 'Ativa' : '—'}
           delta={
-            status.checkedAt
-              ? `Verificada em ${new Date(status.checkedAt).toLocaleTimeString('pt-BR')}`
-              : 'Ainda sem verificação'
+            hasSession ? (
+              status.checkedAt ? (
+                `Verificada às ${new Date(status.checkedAt).toLocaleTimeString('pt-BR')}`
+              ) : (
+                'Sessão ativa no jogo'
+              )
+            ) : isLoggingIn ? (
+              connectingBadge
+            ) : (
+              offlineBadge
+            )
           }
         />
         <StatBlock
           label="Mundo"
-          tone="gold"
+          tone={hasSession ? 'gold' : 'default'}
           icon={Map}
-          value={status.world ?? '—'}
-          delta={status.world ? 'Desenvolvimento' : 'Faça login'}
+          value={(hasSession && status.world) || '—'}
+          delta={
+            hasSession ? (
+              status.world ? (
+                'Desenvolvimento'
+              ) : (
+                'Mundo não identificado'
+              )
+            ) : (
+              offlineBadge
+            )
+          }
         />
         <StatBlock
           label="Jogador"
           icon={User}
-          value={status.player ?? '—'}
-          delta={status.player ? 'Conta ativa nesta sessão' : 'Faça login'}
+          value={(hasSession && status.player) || '—'}
+          delta={
+            hasSession ? (
+              status.player ? (
+                'Conta ativa nesta sessão'
+              ) : (
+                'Jogador não identificado'
+              )
+            ) : (
+              offlineBadge
+            )
+          }
         />
         <StatBlock
           label="Versão do hub"
           icon={Info}
           value={version ?? '…'}
-          delta="7 frentes · v0.8.0"
+          delta="7 frentes entregues"
         />
       </div>
 
@@ -119,35 +163,29 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                   <Icon size={18} aria-hidden="true" />
                 </span>
                 <span className="module-title">{module.title}</span>
-                <span className="module-original">{module.originalLabel}</span>
+                <span className="module-original">{MODULE_BLURBS[module.id]}</span>
                 <span className="module-foot">
                   <span className="pill pill--ok">Fase {module.phase} · ativo</span>
                   <span className="module-open">
                     Abrir
-                    <ArrowRight size={12} aria-hidden="true" />
+                    <ArrowRight size={13} aria-hidden="true" />
                   </span>
                 </span>
               </button>
             );
           })}
-          {/* 8º tile: ação real em vez de buraco no grid. */}
-          <button
-            type="button"
-            className="module-card module-card--cta"
-            onClick={() => onNavigate('captures')}
-          >
+          {/* 8º tile: "em breve" — Capturas de tela ganhará entrada própria;
+              enquanto isso, o tile explica o estado em vez de fingir ação. */}
+          <div className="module-card module-card--soon" aria-disabled="true">
             <span className="icon-badge">
               <Camera size={18} aria-hidden="true" />
             </span>
             <span className="module-title">Preparar terreno</span>
-            <span className="module-original">Capturas de tela — fixtures para os parsers</span>
+            <span className="module-original">Capturas de tela para conferência offline</span>
             <span className="module-foot">
-              <span className="module-cta-btn">
-                Começar
-                <ArrowRight size={12} aria-hidden="true" />
-              </span>
+              <span className="pill pill--warn">Em breve</span>
             </span>
-          </button>
+          </div>
         </div>
       </div>
     </section>

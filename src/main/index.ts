@@ -88,7 +88,13 @@ function createMainWindow(): void {
   if (process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
+    // SHS_PAGE=<id> abre direto numa página (deep link ?page=) — usado com
+    // SHS_CAPTURE para capturar telas específicas no QA visual.
+    const page = process.env.SHS_PAGE;
+    void mainWindow.loadFile(
+      join(__dirname, '../renderer/index.html'),
+      page !== undefined && page !== '' ? { query: { page } } : undefined,
+    );
   }
   // Modo dev: SHS_CAPTURE=<caminho> tira um screenshot da janela e encerra
   // (usado para inspeção visual e futuros baselines de regressão).

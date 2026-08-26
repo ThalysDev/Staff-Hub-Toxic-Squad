@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, RotateCcw, Save } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Lock, RotateCcw, Save } from 'lucide-react';
 import type { AppSettings } from '@shared/ipc-types';
 import { DEFAULT_SETTINGS } from '@shared/ipc-types';
-import Field from '../components/Field';
 import PageHeader from '../components/PageHeader';
 import ToastViewport from '../components/Toast';
 import { useToast } from '../hooks/useToast';
@@ -44,9 +43,49 @@ function describedBy(id: string, hasError: boolean): string {
   return hasError ? `${id}-error` : `${id}-hint`;
 }
 
+/** Campo numérico curto (150px) com o help correndo ao lado — o card usa a
+ * largura do container em vez de deixar 430px vazios. */
+function NumberField(props: {
+  id: string;
+  label: string;
+  hint: string;
+  error: string | undefined;
+  value: string;
+  min: number;
+  onChange: (value: string) => void;
+}) {
+  const { id, label, hint, error, value, min, onChange } = props;
+  return (
+    <div className="field">
+      <label className="field-label" htmlFor={id}>
+        {label}
+      </label>
+      <div className="field-inline">
+        <input
+          id={id}
+          className="input input--num"
+          type="number"
+          min={min}
+          value={value}
+          aria-describedby={describedBy(id, error !== undefined)}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <p className="field-hint" id={`${id}-hint`}>
+          {hint}
+        </p>
+      </div>
+      {error !== undefined && (
+        <p className="field-error" id={`${id}-error`} role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function SettingsSkeleton() {
   return (
-    <div className="card card--narrow">
+    <div className="card">
       <div className="card-body">
         <div className="skeleton-form" aria-hidden="true">
           <div className="skeleton skeleton-title" />
@@ -127,7 +166,7 @@ export default function SettingsPage() {
     return (
       <section className="page">
         <PageHeader kicker="Sistema" title="Configurações" />
-        <div className="card card--narrow">
+        <div className="card">
           <div className="card-body">
             <p className="inline-error">
               <AlertTriangle size={16} aria-hidden="true" />
@@ -159,7 +198,7 @@ export default function SettingsPage() {
         title="Configurações"
         description="Pacing e limites das requisições ao jogo — proteção contra bloqueio da sua conta."
       />
-      <div className="card card--narrow">
+      <div className="card">
         <div className="card-body">
           <form
             className="settings-form"
@@ -168,60 +207,38 @@ export default function SettingsPage() {
               void handleSave();
             }}
           >
-            <Field
+            <NumberField
               id="requestMinIntervalMs"
               label="Intervalo mínimo entre requisições (ms)"
               hint="Pausa mínima entre uma requisição e outra ao jogo."
               error={errors.min}
-            >
-              <input
-                id="requestMinIntervalMs"
-                className="input"
-                type="number"
-                min={1}
-                value={draft.requestMinIntervalMs}
-                aria-describedby={describedBy('requestMinIntervalMs', errors.min !== undefined)}
-                onChange={(event) => setDraft({ ...draft, requestMinIntervalMs: event.target.value })}
-              />
-            </Field>
-            <Field
+              value={draft.requestMinIntervalMs}
+              min={1}
+              onChange={(value) => setDraft({ ...draft, requestMinIntervalMs: value })}
+            />
+            <NumberField
               id="requestJitterMs"
               label="Jitter (ms)"
               hint="Variação aleatória somada ao intervalo, para o ritmo parecer humano."
               error={errors.jitter}
-            >
-              <input
-                id="requestJitterMs"
-                className="input"
-                type="number"
-                min={0}
-                value={draft.requestJitterMs}
-                aria-describedby={describedBy('requestJitterMs', errors.jitter !== undefined)}
-                onChange={(event) => setDraft({ ...draft, requestJitterMs: event.target.value })}
-              />
-            </Field>
-            <Field
+              value={draft.requestJitterMs}
+              min={0}
+              onChange={(value) => setDraft({ ...draft, requestJitterMs: value })}
+            />
+            <NumberField
               id="requestCeiling"
               label="Teto de requisições por operação"
               hint="Limite por operação de coleta — trava antes de virar ruído no servidor."
               error={errors.ceiling}
-            >
-              <input
-                id="requestCeiling"
-                className="input"
-                type="number"
-                min={1}
-                value={draft.requestCeiling}
-                aria-describedby={describedBy('requestCeiling', errors.ceiling !== undefined)}
-                onChange={(event) => setDraft({ ...draft, requestCeiling: event.target.value })}
-              />
-            </Field>
+              value={draft.requestCeiling}
+              min={1}
+              onChange={(value) => setDraft({ ...draft, requestCeiling: value })}
+            />
 
-            <div className="callout callout--info">
+            <div className="callout callout--warn">
+              <Lock size={18} className="callout-icon" aria-hidden="true" />
               <div className="callout-body">
-                <p className="callout-title">
-                  Mutações rodam sempre em modo real — confirmação dupla e journal seguem ativos.
-                </p>
+                <p>Mutações rodam sempre em modo real — a confirmação dupla e o journal seguem ativos.</p>
               </div>
             </div>
 
