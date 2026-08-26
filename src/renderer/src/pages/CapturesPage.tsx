@@ -9,7 +9,7 @@ import { useToast } from '../hooks/useToast';
 import { useSessionStatus } from '../hooks/useSessionStatus';
 
 /**
- * Alvos de captura para fixtures do BR142 (Fase 0.5). O sufixo `{world}` é
+ * Alvos de captura para fixtures do do mundo (Fase 0.5). O sufixo `{world}` é
  * substituído pelo mundo da sessão ativa. IDs de tribo/jogador/tópico ficam
  * com placeholder para preencher no dia da captura — cada tela nova de módulo
  * entra aqui antes de ganhar parser.
@@ -84,7 +84,7 @@ export default function CapturesPage() {
     <section className="page">
       <PageHeader
         kicker="Fase 0.5"
-        title="Capturas BR142"
+        title="Capturas do mundo"
         description="Baixa páginas do jogo com a sua sessão e salva como fixtures para os testes dos parsers. Somente leitura — nada é enviado ao jogo."
       />
 

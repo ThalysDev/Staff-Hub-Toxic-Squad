@@ -214,10 +214,10 @@ function wireEvents(): void {
 }
 
 if (process.platform === 'win32') app.setAppUserModelId('com.toxicsquad.staffhub');
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await journal.load();
   void twSession.restoreFromPartition();
-  void journal.load();
-  registerIpc();
+registerIpc();
   wireEvents();
   registerWorldIpc({ twSession, queue: queue as RequestQueue, journal, worldData, sg1: sg1Service });
   const troopsService = new TroopsService(twSession, queue as RequestQueue, journal);

@@ -69,6 +69,10 @@ export class Sg7Service {
 
   /** Lê o tópico (page=last) e roda a conferência sobre os posts. */
   async conference(threadUrl: string): Promise<ForumConferenceResult> {
+    const world = this.world();
+    if (!threadUrl.includes(`${world}.tribalwars.com.br`)) {
+      throw new Error(`A URL do tópico deve apontar para ${world}.tribalwars.com.br — a sessão atual é do mundo ${world}.`);
+    }
     const path = threadUrl.replace(/^https?:\/\/[^/]+\//, '');
     const pathLast = path.replace(/[?&]page=[^&]*/g, '').replace(/\?$/, '');
     const html = await this.getHtml(`${pathLast}${pathLast.includes('?') ? '&' : '?'}page=last`);

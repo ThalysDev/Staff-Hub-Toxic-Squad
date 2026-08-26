@@ -13,6 +13,7 @@ import { parseContracts } from '@shared/parsers/ally-parsers';
 
 /** Cache persistido dos map dumps do mundo ativo. */
 interface WorldDataCache {
+  world: string | null;
   fetchedAt: string | null;
   villages: WorldVillage[];
   players: WorldPlayer[];
@@ -24,7 +25,7 @@ const EMPTY_WORLD_CACHE: WorldDataCache = {
   villages: [],
   players: [],
   allies: [],
-};
+ world: null };
 
 /** Relações diplomáticas cacheadas em memória (TTL de 5 minutos). */
 const RELATIONS_CACHE_MS = 5 * 60_000;
@@ -145,7 +146,7 @@ export class WorldDataService {
       village.allyId = playerAlly.get(village.playerId) ?? 0;
     }
 
-    await this.store.save({ fetchedAt: new Date().toISOString(), villages, players, allies });
+    await this.store.save({ world, fetchedAt: new Date().toISOString(), villages, players, allies });
     return this.status();
   }
 
@@ -159,21 +160,33 @@ export class WorldDataService {
     };
   }
 
-  /** Aldeias do cache; erro claro se o mundo ainda não foi baixado. */
+  /** Aldeias do cache; erro claro se o mundo ainda não foi baixado ou é de outro mundo. */
   async villages(): Promise<WorldVillage[]> {
     const data = await this.requireCache();
+    const currentWorld = this.world();
+    if (data.world && data.world !== currentWorld) {
+      throw new Error(`Dados do mundo em cache são de ${data.world} — a sessão atual é ${currentWorld}. Clique em "Atualizar dados do mundo".`);
+    }
     return data.villages;
   }
 
   /** Jogadores do cache (uso interno do SG_1: tribo → jogadores → aldeias). */
   async players(): Promise<WorldPlayer[]> {
     const data = await this.requireCache();
+    const currentWorld = this.world();
+    if (data.world && data.world !== currentWorld) {
+      throw new Error(`Dados do mundo em cache são de ${data.world} — a sessão atual é ${currentWorld}. Atualize os dados do mundo.`);
+    }
     return data.players;
   }
 
   /** Tribos do cache. */
   async tribes(): Promise<WorldAlly[]> {
     const data = await this.requireCache();
+    const currentWorld = this.world();
+    if (data.world && data.world !== currentWorld) {
+      throw new Error(`Dados do mundo em cache são de ${data.world} — a sessão atual é ${currentWorld}. Atualize os dados do mundo.`);
+    }
     return data.allies;
   }
 

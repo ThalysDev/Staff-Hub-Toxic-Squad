@@ -77,7 +77,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           tone="gold"
           icon={Map}
           value={status.world ?? '—'}
-          delta={status.world ? 'Canário de desenvolvimento' : 'Faça login'}
+          delta={status.world ? 'Desenvolvimento' : 'Faça login'}
         />
         <StatBlock
           label="Jogador"
@@ -130,7 +130,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
               <Camera size={18} aria-hidden="true" />
             </span>
             <span className="module-title">Preparar terreno</span>
-            <span className="module-original">Capturas BR142 — fixtures para os parsers</span>
+            <span className="module-original">Capturas de tela — fixtures para os parsers</span>
             <span className="module-foot">
               <span className="module-cta-btn">
                 Começar

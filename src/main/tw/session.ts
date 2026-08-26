@@ -109,10 +109,10 @@ export class TwSessionManager {
     try {
       const cookies = await this.ses.cookies.get({});
       const sidCookie = cookies.find(
-        (cookie) => cookie.name === 'sid' && cookie.domain !== undefined && /^br\d{1,4}\.tribalwars\.com\.br$/.test(cookie.domain),
+        (cookie) => cookie.name === 'sid' && cookie.domain !== undefined && /(br\d{1,4}\.)?tribalwars\.com\.br$/.test(cookie.domain),
       );
       if (sidCookie === undefined) return; // nada persistido: segue logged-out
-      const world = /^br\d{1,4}/.exec(sidCookie.domain ?? '')?.[0] ?? null;
+      const world = /br(\d{1,4})/.exec(sidCookie.domain ?? '')?.[0] ?? null;
       if (world === null) return;
       this.status = { state: 'unknown', world, player: this.status.player, checkedAt: null };
       await this.refreshStatus();

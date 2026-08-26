@@ -25,13 +25,14 @@ import type { DefenseSnapshot, TroopSnapshot } from '@shared/sg2-engine';
 
 /** Cache persistido das coletas — uma posição por tipo de coleta. */
 interface TroopsSnapshotsStore {
+  world: string | null;
   troops: TroopSnapshot | null;
   defense: TroopSnapshot | null;
   /** Defesa completa por aldeia (com trânsito) — consumido pelo SG_3 (blind). */
   defenseVillages: DefenseSnapshot | null;
 }
 
-const EMPTY_TROOPS_STORE: TroopsSnapshotsStore = { troops: null, defense: null, defenseVillages: null };
+const EMPTY_TROOPS_STORE: TroopsSnapshotsStore = { troops: null, defense: null, defenseVillages: null, world: null };
 
 const KIND_PAGE_MODE: Record<TroopKind, string> = {
   troops: 'members_troops',
@@ -180,6 +181,8 @@ export class TroopsService {
   /** Snapshot completo de defesa por aldeia (com trânsito) para o SG_3. */
   async getDefenseVillages(): Promise<DefenseSnapshot | null> {
     const data = await this.store.load();
+    const currentWorld = this.world();
+    if (data.world && data.world !== currentWorld) return null;
     return data.defenseVillages;
   }
 
@@ -193,13 +196,17 @@ export class TroopsService {
   async get(kind: TroopKind): Promise<TroopSnapshot | null> {
     assertKind(kind);
     const data = await this.store.load();
+    const currentWorld = this.world();
+    if (data.world && data.world !== currentWorld) {
+      return null; // dados de outro mundo = como se não tivesse coletado
+    }
     return data[kind];
   }
 
   /** Grava o snapshot na posição do tipo, preservando a outra coleta salva. */
   private async saveSnapshot(snapshot: TroopSnapshot, defenseVillages?: DefenseSnapshot | null): Promise<void> {
     const current = await this.store.load();
-    const next: TroopsSnapshotsStore = { ...current };
+    const next: TroopsSnapshotsStore = { ...current, world: this.world() };
     if (snapshot.kind === 'troops') {
       next.troops = snapshot;
     } else {

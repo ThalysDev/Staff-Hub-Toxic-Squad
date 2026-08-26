@@ -13,7 +13,7 @@ interface SidErrors {
   sid?: string;
 }
 
-const WORLD_PATTERN = /^br\d{2,4}$/;
+const WORLD_PATTERN = /^br\\d{1,4}$/;
 
 export default function SessionPage() {
   const status = useSessionStatus();

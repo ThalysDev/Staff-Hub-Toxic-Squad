@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, FlaskConical, RotateCcw, Save } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, RotateCcw, Save } from 'lucide-react';
 import type { AppSettings } from '@shared/ipc-types';
 import { DEFAULT_SETTINGS } from '@shared/ipc-types';
 import Field from '../components/Field';
@@ -11,15 +11,13 @@ interface SettingsDraft {
   requestMinIntervalMs: string;
   requestJitterMs: string;
   requestCeiling: string;
-  dryRun: boolean;
-}
+  }
 
 function toDraft(settings: AppSettings): SettingsDraft {
   return {
     requestMinIntervalMs: String(settings.requestMinIntervalMs),
     requestJitterMs: String(settings.requestJitterMs),
     requestCeiling: String(settings.requestCeiling),
-    dryRun: settings.dryRun,
   };
 }
 
@@ -110,7 +108,6 @@ export default function SettingsPage() {
     if (min !== settings.requestMinIntervalMs) patch.requestMinIntervalMs = min;
     if (jitter !== settings.requestJitterMs) patch.requestJitterMs = jitter;
     if (ceiling !== settings.requestCeiling) patch.requestCeiling = ceiling;
-    if (draft.dryRun !== settings.dryRun) patch.dryRun = draft.dryRun;
 
     setSaving(true);
     try {
@@ -220,30 +217,11 @@ export default function SettingsPage() {
               />
             </Field>
 
-            <div className={`callout ${draft.dryRun ? '' : 'callout--danger'}`}>
-              {draft.dryRun ? (
-                <FlaskConical size={18} className="callout-icon" aria-hidden="true" />
-              ) : (
-                <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-              )}
+            <div className="callout callout--info">
               <div className="callout-body">
                 <p className="callout-title">
-                  {draft.dryRun
-                    ? 'DRY-RUN ativo — mutações apenas simuladas'
-                    : 'DRY-RUN desligado — ações serão enviadas ao jogo de verdade'}
+                  Mutações rodam sempre em modo real — confirmação dupla e journal seguem ativos.
                 </p>
-                <label className="field checkbox-field">
-                  <input
-                    type="checkbox"
-                    checked={draft.dryRun}
-                    onChange={(event) => setDraft({ ...draft, dryRun: event.target.checked })}
-                  />
-                  <span>
-                    Simular mutações (DRY-RUN)
-                    <br />
-                    <span className="muted">Mantenha ligado até validar os fluxos na sua tribo.</span>
-                  </span>
-                </label>
               </div>
             </div>
 

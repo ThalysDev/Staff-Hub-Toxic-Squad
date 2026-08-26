@@ -22,7 +22,7 @@ const SYSTEM_ITEMS: readonly SidebarItem[] = [
   { id: 'sessao', label: 'Sessão', icon: LogIn },
   { id: 'config', label: 'Configurações', icon: Settings2 },
   { id: 'journal', label: 'Journal', icon: History },
-  { id: 'captures', label: 'Capturas BR142', icon: Camera },
+  { id: 'captures', label: 'Capturas de tela', icon: Camera },
 ];
 
 const NAV_GROUPS: readonly SidebarGroup[] = [
