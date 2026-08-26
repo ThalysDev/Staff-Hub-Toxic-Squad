@@ -264,7 +264,13 @@ export class TroopsService {
         continue;
       }
       try {
-        if (isMemberSummaryPage(body) || (kind === 'defense' && !body.includes('vis w100'))) {
+        // Própria conta: o jogo devolve o resumo por jogador (sem tabela por
+        // aldeia) quando o player_id é o da sessão. Detectamos pela AUSÊNCIA
+        // da tabela "vis w100" com <th> (mais robusto que padrões de URL).
+        const isOwnAccount =
+          !body.includes('vis w100') ||
+          isMemberSummaryPage(body);
+        if (isOwnAccount) {
           // Própria conta logada: usa a visão de unidades da conta.
           const own = await ownUnits();
           for (const village of own.villages) {
