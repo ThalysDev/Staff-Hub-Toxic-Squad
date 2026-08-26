@@ -56,6 +56,7 @@ export function parseSendSchedule(text: string): { playerName: string; targetCoo
     if (
       playerName === undefined ||
       playerName.length < 2 ||
+      playerName.length > 40 ||
       targetCoord === undefined ||
       !COORD_RE.test(targetCoord) ||
       time === undefined ||

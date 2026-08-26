@@ -32,8 +32,7 @@ export interface ArrivalTimeline {
  * crescentemente. Linhas com arrivalSecFromLoad null entram só na contagem
  * unresolved (fail-closed: ausência de dado nunca vira horário chutado).
  */
-export function buildArrivalTimeline(villages: VillageArrivalsInput[], opts?: { now?: number }): ArrivalTimeline {
-  void opts; // reservado: referência de agora ainda não altera a agenda pura
+export function buildArrivalTimeline(villages: VillageArrivalsInput[]): ArrivalTimeline {
   let unresolved = 0;
   const entries: ArrivalEntry[] = [];
   for (const village of villages) {

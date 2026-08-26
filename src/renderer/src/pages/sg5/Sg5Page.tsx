@@ -143,7 +143,21 @@ export default function Sg5Page() {
             {busy === 'verify' ? <><span className="btn-spinner" aria-hidden="true" /> Verificando…</> : 'Obter Verificação'}
           </button>
           {busy !== null && progress !== null && (
+          <>
           <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              void window.staffhub.queue
+                .cancel()
+                .then(() => push('info', 'Cancelamento pedido — a coleta para na próxima requisição.'))
+                .catch(() => push('error', 'Não foi possível pedir o cancelamento.'));
+            }}
+          >
+            Cancelar
+          </button>
+          </>
         )}
 
         {verifyResult !== null && (

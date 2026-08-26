@@ -48,7 +48,7 @@ export class Sg6Service {
   /** C4: coleta/mutação em andamento = esta mutação NÃO executa (pacing somado = risco de ban). */
   private assertQueueIdle(): void {
     if (this.queue.isRunning) {
-      throw new Error('Uma operação está em andamento — aguarde terminar (ou cancele) antes de executar mutações no jogo.');
+      throw new Error('Uma operação está em andamento — aguarde terminar (ou cancele a coleta na barra de progresso) antes de executar mutações no jogo.');
     }
   }
 

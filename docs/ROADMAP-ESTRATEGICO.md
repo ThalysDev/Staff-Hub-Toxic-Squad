@@ -1,5 +1,10 @@
 # Staff Hub Toxic Squad — Análise Estratégica e Roadmap
 
+> **✅ STATUS 26/08/2026: Sprints 1–4 CONCLUÍDAS** (v0.13.2, commits `2d4485a`→`06a2830` + revisão geral) —
+> todos os itens C1–C9, U1/U3/U5 e P0-1..P0-10 entregues, testados (285 testes) e no GitHub.
+> Pendências conhecidas: fixture do formulário de novo tópico (post do plano usa edição do 1º post,
+> validada por fixture real), QA em jogo das mutações novas com a sessão do dono logada, P1/P2 futuros.
+
 > Síntese de 3 análises independentes: Produto (25 features), Código (15 achados técnicos), UX (15 propostas)
 > Data: 26/08/2026 · Versão atual: 0.9.1 · 169 testes · 7 módulos funcionais
 

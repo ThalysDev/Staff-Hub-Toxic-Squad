@@ -106,7 +106,7 @@ export class RequestQueue {
   /** Executa N requisições em sequência com pacing; retorna corpos em ordem. */
   async run(urls: string[], options: QueueOptions): Promise<string[]> {
     if (this.operationId !== null || this.externalOperations > 0) {
-      throw new QueueError('aborted', 'Outra operação está em andamento — aguarde terminar (ou cancele) antes de iniciar outra.');
+      throw new QueueError('aborted', 'Outra operação está em andamento — aguarde terminar (ou cancele na barra de progresso) antes de iniciar outra.');
     }
     if (urls.length > options.ceiling) {
       throw new QueueError('ceiling-exceeded', `Operação excede o teto de ${options.ceiling} requisições (${urls.length}).`);

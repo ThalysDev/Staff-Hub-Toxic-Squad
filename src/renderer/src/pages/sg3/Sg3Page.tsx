@@ -344,7 +344,23 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
             <Radar size={16} aria-hidden="true" />
             {scanBusy ? <><span className="btn-spinner" aria-hidden="true" /> Varrendo…</> : 'Varrer ataques recebidos'}
           </button>
-          {scanBusy && progress !== null && <ProgressBar done={progress.done} total={progress.total} label={progress.label} />}
+          {scanBusy && progress !== null && (
+            <>
+              <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  void window.staffhub.queue
+                    .cancel()
+                    .then(() => push('info', 'Cancelamento pedido — a varredura para na próxima requisição.'))
+                    .catch(() => push('error', 'Não foi possível pedir o cancelamento.'));
+                }}
+              >
+                Cancelar
+              </button>
+            </>
+          )}
         </div>
         {scanError !== '' && <p className="error" role="alert">{scanError}</p>}
         {threats !== null && (

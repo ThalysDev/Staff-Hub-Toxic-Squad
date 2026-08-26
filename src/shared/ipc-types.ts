@@ -203,6 +203,10 @@ export interface StaffHubApi {
   app: {
     getVersion(): Promise<string>;
   };
+  queue: {
+    /** Cancela a operação de coleta em andamento na RequestQueue. */
+    cancel(): Promise<void>;
+  };
   dev: {
     /** Baixa uma URL do jogo com a sessão atual e salva como fixture em userData/fixtures. */
     captureFixture(name: string, url: string): Promise<FixtureCaptureResult>;

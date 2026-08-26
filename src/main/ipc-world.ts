@@ -101,12 +101,20 @@ export function registerWorldIpc(deps: WorldIpcDeps): void {
   });
 
   ipcMain.handle('world:relations', async () => {
+    if (queue.isRunning) {
+      fail('Falha ao ler as relações diplomáticas', new Error('Uma operação está em andamento — aguarde terminar antes de ler a diplomacia.'));
+    }
+    // Ocupação (C4): a página de contratos é um GET direto fora da fila —
+    // não pode correr junto com coleta/mutação (pacing somado = risco).
+    queue.beginOperation();
     try {
       const relations = await worldData.relations();
       await journal.append('read', 'world-relations', `inimigos=${relations.enemies.length} aliados=${relations.allies.length} pna=${relations.naps.length}`, false);
       return relations;
     } catch (error) {
       fail('Falha ao ler as relações diplomáticas', error);
+    } finally {
+      queue.endOperation();
     }
   });
 

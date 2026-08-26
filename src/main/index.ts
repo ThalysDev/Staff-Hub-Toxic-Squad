@@ -252,7 +252,7 @@ registerIpc();
   registerSg5Ipc({ sg5: sg5Service, journal });
   const sg6Service = new Sg6Service(twSession, journal, settingsStore, queue as RequestQueue);
   registerSg6Ipc({ sg6: sg6Service, journal });
-  registerSg7Ipc(new Sg7Service(twSession, journal, queue as RequestQueue));
+  registerSg7Ipc(new Sg7Service(twSession, journal, queue as RequestQueue, settingsStore));
   registerOpIpc({ journal, opArchive: new OpArchiveService(journal) });
   createMainWindow();
   app.on('activate', () => {

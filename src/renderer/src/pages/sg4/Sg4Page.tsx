@@ -1292,7 +1292,7 @@ export default function Sg4Page() {
                     <button
                       type="button"
                       className="btn btn-danger"
-                      disabled={planPosting || !/thread_id=\d+/.test(planThreadUrl)}
+                      disabled={planPosting || !/thread_id=\d+/.test(planThreadUrl) || scheduleRows === null || scheduleRows.length === 0}
                       onClick={() => {
                         setPlanResult(null);
                         setPlanPending(true);
@@ -1315,6 +1315,9 @@ export default function Sg4Page() {
                         </button>
                       </div>
                     </div>
+                  )}
+                  {(scheduleRows === null || scheduleRows.length === 0) && (
+                    <p className="muted">Calcule a Agenda de Envio antes de postar — o plano do fórum sem horários não serve ao time.</p>
                   )}
                 </div>
               </div>

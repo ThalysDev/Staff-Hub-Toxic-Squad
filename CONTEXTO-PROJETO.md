@@ -1,6 +1,6 @@
 # Staff Hub Toxic Squad — Documento de Contexto Completo
 
-> **Versão**: 0.9.1 · **Data**: 25/08/2026 · **Stack**: Electron 43 + React 19 + TypeScript strict
+> **Versão**: 0.13.2 · **Data**: 26/08/2026 · **Stack**: Electron 43 + React 19 + TypeScript strict
 > **Público**: desenvolvedores que vão entender, manter ou evoluir o projeto
 
 ---
@@ -174,7 +174,7 @@ pnpm dev
 
 # Gates (antes de qualquer commit)
 pnpm typecheck   # tsc x2 (node + web)
-pnpm test        # vitest (169 testes)
+pnpm test        # vitest (285 testes)
 pnpm build       # electron-vite build
 
 # Empacotar portable Windows
@@ -198,7 +198,8 @@ stores/
 ├─ world-data.json        # cache dos dumps (TTL 6h)
 ├─ troops-snapshots.json  # tropas + defesa + defenseVillages
 ├─ unit-info.json         # velocidades das unidades (TTL 24h)
-├─ world-config.json      # config do mundo (TTL 24h)
+├─ world-config.json      # config do mundo, incl. janela de bônus noturno (TTL 24h)
+├─ op-archive.json        # arquivo de OPs (título, alvos, distribuição, agenda, conferência)
 ├─ settings.json          # pacing, teto, etc.
 └─ journal.json           # journal auditável
 fixtures/                  # capturas de tela do jogo (para testes)
@@ -206,13 +207,22 @@ fixtures/                  # capturas de tela do jogo (para testes)
 
 ---
 
-## 8. Estado atual (25/08/2026)
+## 8. Estado atual (26/08/2026)
 
 ### ✅ Entregue e funcionando
-- Todos os 7 módulos SG implementados, testados (169 testes), revisados e corrigidos;
-- Tema pergaminho medieval com a logo da tribo (titlebar personalizada, sidebar, hero);
-- Login por janela real **ou** import de sid (EditThisCookie), com restauração automática ao reiniciar;
-- Portable Windows funcional (`dist/packages-v*/Staff Hub Toxic Squad-win32-x64/` + `.zip` no Desktop);
+- Todos os 7 módulos SG implementados, testados (285 testes), revisados e corrigidos;
+- **Roadmap Estratégico Sprints 1–4 CONCLUÍDAS** (commits `2d4485a` → `06a2830`):
+  - **Timing**: bônus noturno (janela real do get_config), calculadora de envio ("OP bate às" → `nick;alvo;HH:MM:SS`), trem de nobres, Gantt de chegadas com countdown ao vivo;
+  - **Memória**: arquivo de OPs (`op-archive`) + scorecard de participação por membro;
+  - **Sala de Guerra** (rota `guerra`): % de cobertura, alvos sem comando, re-verificar com 1 clique, countdown, anexo da conferência à OP;
+  - **Defesa**: varredura de ataques recebidos nas aldeias próprias com triagem "VAI CAIR" (cruzando o peso defensivo do SG_3);
+  - **Comunicação**: MPs com `#alvos#`+`#horarios#` (prévia + validação de nicks contra o dump), BBCode do plano, lista de reservas e **post automático do plano no fórum** (substitui o 1º post do tópico-alvo, com verificação real);
+  - **Dureza**: single-flight global real (mutações/refresh ocupam a fila), confirmação nativa do Windows em toda mutação, journal inclusive em resultado incerto pós-POST;
+- Navegação sem perda de estado (páginas SG e Sala de Guerra ficam montadas);
+- Indicador global de operações na titlebar (`useQueueActivity`);
+- Cancelamento de coleta pelo usuário (botão na barra de progresso do SG_3/SG_5);
+- Login por janela real **ou** import de sid, com restauração automática ao reiniciar;
+- Portable Windows funcional e no GitHub (origin = ThalysDev/Staff-Hub-Toxic-Squad);
 - Ícone customizado no executável (multi-tamanho BMP real).
 
 ### ⚠️ Limitações conhecidas

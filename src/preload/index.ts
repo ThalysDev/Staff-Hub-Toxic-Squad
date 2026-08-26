@@ -32,6 +32,9 @@ const api = {
   app: {
     getVersion: () => ipcRenderer.invoke('app:get-version'),
   },
+  queue: {
+    cancel: () => ipcRenderer.invoke('queue:cancel'),
+  },
   dev: {
     captureFixture: (name: string, url: string) => ipcRenderer.invoke('dev:capture-fixture', name, url),
   },
