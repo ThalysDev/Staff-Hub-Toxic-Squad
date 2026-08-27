@@ -369,16 +369,7 @@ export class UpdaterService {
       await this.journal.append('system', 'update-ready', `versão ${manifest.version} preparada — aguardando reinício`, false);
       return { ok: true, detail: `Versão ${manifest.version} pronta — clique em Reiniciar e atualizar.` };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const location = error instanceof Error && error.stack !== undefined ? (error.stack.split('\n')[1] ?? '').trim() : '';
-      debugLog(`ERRO: ${message} @ ${location}`);
-      try {
-        await this.journal.append('system', 'update-error', `${message} @ ${location}`, false);
-      } catch {
-        // journal também falhou? o debugLog já registrou no arquivo próprio.
-      }
-      this.emit({ phase: 'error', detail: message });
-      return { ok: false, detail: message };
+      return this.handlePrepareError(error);
     }
   }
 

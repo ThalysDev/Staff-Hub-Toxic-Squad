@@ -18,6 +18,8 @@ interface WorldMapCanvasProps {
   highlights: ReadonlySet<string>;
   /** Origens (NTs) no formato "x|y" — círculos verdes (Visualização da Distribuição). */
   origins?: ReadonlySet<string>;
+  /** Linhas origem→alvo para overlay da OP (setas amarelas). */
+  connections?: ReadonlyArray<{ from: string; to: string }>;
 }
 
 export const MARKING_COLORS: Record<TribeMarking, string> = {
@@ -52,7 +54,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-export default function WorldMapCanvas({ villages, markings, highlights, origins }: WorldMapCanvasProps) {
+export default function WorldMapCanvas({ villages, markings, highlights, origins, connections }: WorldMapCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const layers = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const villagesRef = useRef(villages);
@@ -243,6 +245,41 @@ export default function WorldMapCanvas({ villages, markings, highlights, origins
       ctx.lineWidth = 1.5;
       ctx.strokeStyle = '#10331f';
       ctx.stroke();
+    }
+
+    // Conexões (overlay da OP): setas amarelas de origem → alvo.
+    if (connections !== undefined && connections.length > 0) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(240, 198, 116, 0.85)';
+      ctx.lineWidth = Math.max(1, z * 0.4);
+      ctx.setLineDash([6, 4]);
+      for (const conn of connections) {
+        // Origem: parse do "x|y" e usa a mesma chave numérica do Map (x*1000+y).
+        const [fromXStr, fromYStr] = conn.from.split('|');
+        if (fromXStr === undefined || fromYStr === undefined) continue;
+        const fx = Number(fromXStr);
+        const fy = Number(fromYStr);
+        if (!Number.isInteger(fx) || !Number.isInteger(fy)) continue;
+        const from = originsByCoord.get(fx * 1000 + fy);
+        if (from === undefined) continue;
+        // Alvo: parse direto.
+        const [toXStr, toYStr] = conn.to.split('|');
+        if (toXStr === undefined || toYStr === undefined) continue;
+        const toX = Number(toXStr);
+        const toY = Number(toYStr);
+        if (!Number.isFinite(toX) || !Number.isFinite(toY)) continue;
+        const x1 = (from.x + 0.5 - view.x) * z;
+        const y1 = (from.y + 0.5 - view.y) * z;
+        const x2 = (toX + 0.5 - view.x) * z;
+        const y2 = (toY + 0.5 - view.y) * z;
+        // Skip se fora da tela
+        if (Math.max(x1, x2) < 0 || Math.max(y1, y2) < 0 || Math.min(x1, x2) > w || Math.min(y1, y2) > h) continue;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
   }
 

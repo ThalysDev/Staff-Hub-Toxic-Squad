@@ -1547,7 +1547,13 @@ function DistributionMap({ assignments, onError }: { assignments: { playerName: 
         <span className="muted">● origens (NTs) · □ alvos</span>
       </div>
       <div className="card-body">
-        <WorldMapCanvas villages={villages} markings={EMPTY_MARKINGS} highlights={targets} origins={origins} />
+        <WorldMapCanvas
+          villages={villages}
+          markings={EMPTY_MARKINGS}
+          highlights={targets}
+          origins={origins}
+          connections={assignments.map((a) => ({ from: a.origin, to: a.target }))}
+        />
       </div>
     </div>
   );
