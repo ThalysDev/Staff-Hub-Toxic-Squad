@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { AlertTriangle, Bell, Clock, Copy, Crosshair, Plus, Radar, Share2, Swords } from 'lucide-react';
 import { parseCoord, parseCoordList } from '@shared/coords';
 import {
@@ -25,8 +25,10 @@ import PageHeader from '../../components/PageHeader';
 import ToastViewport from '../../components/Toast';
 import WorldMapCanvas from '../sg1/WorldMapCanvas';
 import { useDiplomacyRelations } from '../../hooks/useDiplomacyRelations';
+import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
 import { MODULES } from '../../modules';
+import FakesIntelligentSection from './FakesIntelligentSection';
 
 const HOUR_LABELS = [
   '1 Hora',
@@ -48,6 +50,72 @@ interface OriginLine {
   semisFrom: string;
   semisTo: string;
   coordsText: string;
+}
+
+/** Campos do SG_4 persistidos entre sessões (só ENTRADAS de formulário —
+ * splitResult, planning, distribution, agenda, ações e estados de busy ficam
+ * voláteis). Nome da chave = nome exato do estado correspondente. */
+type Sg4Prefs = {
+  enemyTagsText: string;
+  centralCoordText: string;
+  cutoffHours: number;
+  originsText: string;
+  /** Array INTEIRO das linhas de alvo (JSON puro de objetos rasos). */
+  lines: OriginLine[];
+  priority: 'nearest' | 'farthest';
+  minMoraleText: string;
+  maxFieldsText: string;
+  opTimeText: string;
+  noblesText: string;
+  spacingText: string;
+  opTitle: string;
+  commsTemplate: string;
+  planThreadUrl: string;
+  sepByEnter: boolean;
+};
+
+/** Padrões de fábrica dos campos persistidos do módulo sg4. */
+function buildSg4Defaults(): Sg4Prefs {
+  return {
+    enemyTagsText: '',
+    centralCoordText: '',
+    cutoffHours: 5,
+    originsText: '',
+    lines: [
+      { fullsFrom: '', fullsTo: '', semisFrom: '', semisTo: '', coordsText: '' },
+      { fullsFrom: '', fullsTo: '', semisFrom: '', semisTo: '', coordsText: '' },
+    ],
+    priority: 'nearest',
+    minMoraleText: '0',
+    maxFieldsText: '70',
+    opTimeText: '22:00',
+    noblesText: '1',
+    spacingText: '300',
+    opTitle: `OP do ${new Date().toLocaleDateString('pt-BR')}`,
+    commsTemplate:
+      'OP marcada!\n\nSeus alvos:\n#alvos#\n\nEnvie cada comando para bater no horário combinado:\n#horarios#\n\nBoa sorte!',
+    planThreadUrl: '',
+    sepByEnter: true,
+  };
+}
+
+/** Rehidrata as linhas de alvo gravadas em JSON: descarta lixo e normaliza cada
+ * campo para string (o storage pode conter qualquer coisa de sessões antigas). */
+function sanitizeLines(raw: unknown): OriginLine[] {
+  if (!Array.isArray(raw)) return [];
+  const lines: OriginLine[] = [];
+  for (const item of raw) {
+    if (item === null || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    lines.push({
+      fullsFrom: typeof record.fullsFrom === 'string' ? record.fullsFrom : '',
+      fullsTo: typeof record.fullsTo === 'string' ? record.fullsTo : '',
+      semisFrom: typeof record.semisFrom === 'string' ? record.semisFrom : '',
+      semisTo: typeof record.semisTo === 'string' ? record.semisTo : '',
+      coordsText: typeof record.coordsText === 'string' ? record.coordsText : '',
+    });
+  }
+  return lines;
 }
 
 function parseTags(text: string): string[] {
@@ -89,13 +157,16 @@ function heatStyle(t: number): CSSProperties {
 export default function Sg4Page() {
   const { toasts, push, dismiss } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg4');
+  // Preferências do módulo: os campos de entrada sobrevivem a F5/reinício.
+  const [sg4Defaults] = useState(buildSg4Defaults);
+  const { prefs, savePrefs, resetPrefs } = usePreferences('sg4', sg4Defaults);
 
   // ---- Seção A — OP com coordenada central ----
   // Diplomacia: carrega no boot, refaz quando a sessão entra em logged-in e
   // expõe retry manual — ver useDiplomacyRelations.
   const { relations, relationsFailed, relationsBusy, retryRelations } = useDiplomacyRelations();
-  const [enemyTagsText, setEnemyTagsText] = useState('');
-  const [centralCoordText, setCentralCoordText] = useState('');
+  const [enemyTagsText, setEnemyTagsText] = useState(sg4Defaults.enemyTagsText);
+  const [centralCoordText, setCentralCoordText] = useState(sg4Defaults.centralCoordText);
   const [errorsA, setErrorsA] = useState<{ tags?: string; central?: string }>({});
   const [runErrorA, setRunErrorA] = useState('');
   const [loadingVillages, setLoadingVillages] = useState(false);
@@ -103,9 +174,9 @@ export default function Sg4Page() {
   const [enemyVillages, setEnemyVillages] = useState<EnemyVillageRef[]>([]);
   const [nobleMinutes, setNobleMinutes] = useState(0);
   const [actions, setActions] = useState<Map<number, 'alvo' | 'fake'>>(new Map());
-  const [cutoffHours, setCutoffHours] = useState(5);
+  const [cutoffHours, setCutoffHours] = useState(sg4Defaults.cutoffHours);
   const [splitResult, setSplitResult] = useState<{ targets: string[]; fakes: string[] } | null>(null);
-  const [sepByEnter, setSepByEnter] = useState(true);
+  const [sepByEnter, setSepByEnter] = useState(sg4Defaults.sepByEnter);
 
   // Caches de dump para a seção B (moral da distribuição).
   const [playersCache, setPlayersCache] = useState<WorldPlayer[] | null>(null);
@@ -115,14 +186,11 @@ export default function Sg4Page() {
   const [moraleActive, setMoraleActive] = useState(true);
 
   // ---- Seção B — Distribuição de Alvos de OP ----
-  const [originsText, setOriginsText] = useState('');
-  const [lines, setLines] = useState<OriginLine[]>([
-    { fullsFrom: '', fullsTo: '', semisFrom: '', semisTo: '', coordsText: '' },
-    { fullsFrom: '', fullsTo: '', semisFrom: '', semisTo: '', coordsText: '' },
-  ]);
-  const [priority, setPriority] = useState<'nearest' | 'farthest'>('nearest');
-  const [minMoraleText, setMinMoraleText] = useState('0');
-  const [maxFieldsText, setMaxFieldsText] = useState('70');
+  const [originsText, setOriginsText] = useState(sg4Defaults.originsText);
+  const [lines, setLines] = useState<OriginLine[]>(sg4Defaults.lines);
+  const [priority, setPriority] = useState<'nearest' | 'farthest'>(sg4Defaults.priority);
+  const [minMoraleText, setMinMoraleText] = useState(sg4Defaults.minMoraleText);
+  const [maxFieldsText, setMaxFieldsText] = useState(sg4Defaults.maxFieldsText);
   const [errorsB, setErrorsB] = useState<{ origins?: string }>({});
   const [runErrorB, setRunErrorB] = useState('');
   const [busyB, setBusyB] = useState(false);
@@ -130,22 +198,87 @@ export default function Sg4Page() {
   const [distribution, setDistribution] = useState<DistributionResult | null>(null);
 
   // ---- Seção C — Agenda de envio (timing da OP: P0-1/P0-2/P0-6) ----
-  const [opTimeText, setOpTimeText] = useState('22:00');
-  const [noblesText, setNoblesText] = useState('1');
-  const [spacingText, setSpacingText] = useState('300');
+  const [opTimeText, setOpTimeText] = useState(sg4Defaults.opTimeText);
+  const [noblesText, setNoblesText] = useState(sg4Defaults.noblesText);
+  const [spacingText, setSpacingText] = useState(sg4Defaults.spacingText);
   const [scheduleRows, setScheduleRows] = useState<SendScheduleRow[] | null>(null);
   const [timingError, setTimingError] = useState('');
   // ---- P0-9 — Arquivo de OPs ----
-  const [opTitle, setOpTitle] = useState(`OP do ${new Date().toLocaleDateString('pt-BR')}`);
+  const [opTitle, setOpTitle] = useState(sg4Defaults.opTitle);
   const [archiving, setArchiving] = useState(false);
   // ---- P0-8 — Pacote de comunicação ----
-  const [commsTemplate, setCommsTemplate] = useState(
-    'OP marcada!\n\nSeus alvos:\n#alvos#\n\nEnvie cada comando para bater no horário combinado:\n#horarios#\n\nBoa sorte!',
-  );
-  const [planThreadUrl, setPlanThreadUrl] = useState('');
+  const [commsTemplate, setCommsTemplate] = useState(sg4Defaults.commsTemplate);
+  const [planThreadUrl, setPlanThreadUrl] = useState(sg4Defaults.planThreadUrl);
   const [planPending, setPlanPending] = useState(false);
   const [planPosting, setPlanPosting] = useState(false);
   const [planResult, setPlanResult] = useState<string | null>(null);
+
+  // Hidratação das preferências (uma única vez, após prefs chegar do main):
+  // aplica só as chaves presentes e válidas, para não pisar em estado que o
+  // usuário já editou e não reabrir o formulário com lixo de storage antigo.
+  const prefsHydrated = useRef(false);
+  useEffect(() => {
+    if (prefs === null || prefsHydrated.current) return;
+    prefsHydrated.current = true;
+    if (typeof prefs.enemyTagsText === 'string') setEnemyTagsText(prefs.enemyTagsText);
+    if (typeof prefs.centralCoordText === 'string') setCentralCoordText(prefs.centralCoordText);
+    if (Number.isInteger(prefs.cutoffHours) && prefs.cutoffHours >= 1 && prefs.cutoffHours <= 5) {
+      setCutoffHours(prefs.cutoffHours);
+    }
+    if (typeof prefs.originsText === 'string') setOriginsText(prefs.originsText);
+    const restoredLines = sanitizeLines(prefs.lines);
+    if (restoredLines.length > 0) setLines(restoredLines);
+    if (prefs.priority === 'nearest' || prefs.priority === 'farthest') setPriority(prefs.priority);
+    if (typeof prefs.minMoraleText === 'string') setMinMoraleText(prefs.minMoraleText);
+    if (typeof prefs.maxFieldsText === 'string') setMaxFieldsText(prefs.maxFieldsText);
+    if (typeof prefs.opTimeText === 'string') setOpTimeText(prefs.opTimeText);
+    if (typeof prefs.noblesText === 'string') setNoblesText(prefs.noblesText);
+    if (typeof prefs.spacingText === 'string') setSpacingText(prefs.spacingText);
+    if (typeof prefs.opTitle === 'string' && prefs.opTitle.trim() !== '') setOpTitle(prefs.opTitle);
+    if (typeof prefs.commsTemplate === 'string' && prefs.commsTemplate !== '') setCommsTemplate(prefs.commsTemplate);
+    if (typeof prefs.planThreadUrl === 'string') setPlanThreadUrl(prefs.planThreadUrl);
+    if (typeof prefs.sepByEnter === 'boolean') setSepByEnter(prefs.sepByEnter);
+  }, [prefs]);
+
+  // Persistência com guard: só grava DEPOIS da hidratação — nunca sobrescreve o
+  // storage com os defaults do primeiro render. savePrefs é debounced.
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({
+      enemyTagsText,
+      centralCoordText,
+      cutoffHours,
+      originsText,
+      lines,
+      priority,
+      minMoraleText,
+      maxFieldsText,
+      opTimeText,
+      noblesText,
+      spacingText,
+      opTitle,
+      commsTemplate,
+      planThreadUrl,
+      sepByEnter,
+    });
+  }, [
+    enemyTagsText,
+    centralCoordText,
+    cutoffHours,
+    originsText,
+    lines,
+    priority,
+    minMoraleText,
+    maxFieldsText,
+    opTimeText,
+    noblesText,
+    spacingText,
+    opTitle,
+    commsTemplate,
+    planThreadUrl,
+    sepByEnter,
+    savePrefs,
+  ]);
 
   // Fail-soft: mundo sem resposta conta COM moral (comportamento atual).
   useEffect(() => {
@@ -297,6 +430,33 @@ export default function Sg4Page() {
     } catch {
       push('error', 'Não foi possível copiar — permissão de área de transferência negada.');
     }
+  }
+
+  /** P1-16: aplica as linhas "x|y" vindas dos fakes inteligentes na caixa
+   * ALDEIAS FAKES (substitui o resultado do split preservando os alvos). */
+  function applyIntelligentFakes(fakeLines: string[]): void {
+    setSplitResult((current) => (current === null ? current : { ...current, fakes: fakeLines }));
+    push('ok', 'Fakes inteligentes aplicados na caixa.');
+  }
+
+  /** Restaura os campos persistidos do módulo para os padrões de fábrica. */
+  function restoreDefaults(): void {
+    setEnemyTagsText(sg4Defaults.enemyTagsText);
+    setCentralCoordText(sg4Defaults.centralCoordText);
+    setCutoffHours(sg4Defaults.cutoffHours);
+    setOriginsText(sg4Defaults.originsText);
+    setLines(sg4Defaults.lines.map((line) => ({ ...line })));
+    setPriority(sg4Defaults.priority);
+    setMinMoraleText(sg4Defaults.minMoraleText);
+    setMaxFieldsText(sg4Defaults.maxFieldsText);
+    setOpTimeText(sg4Defaults.opTimeText);
+    setNoblesText(sg4Defaults.noblesText);
+    setSpacingText(sg4Defaults.spacingText);
+    setOpTitle(sg4Defaults.opTitle);
+    setCommsTemplate(sg4Defaults.commsTemplate);
+    setPlanThreadUrl(sg4Defaults.planThreadUrl);
+    setSepByEnter(sg4Defaults.sepByEnter);
+    void resetPrefs();
   }
 
   /** Estável entre renders: o DistributionMap refaz o fetch do mapa se o
@@ -673,6 +833,12 @@ export default function Sg4Page() {
         description="OP por coordenada central com camadas de 1 a 8 horas, separação de alvos e fakes, e distribuição origem × alvo com moral."
       />
 
+      <div className="row">
+        <button type="button" className="btn btn-ghost btn-sm" onClick={restoreDefaults}>
+          Restaurar padrões do módulo
+        </button>
+      </div>
+
       {/* ===== Seção A — Criação de OP com Coordenada Central ===== */}
       <section className="page-section" aria-labelledby="sg4-op-title">
         <h2 className="section-title" id="sg4-op-title">Criação de OP com Coordenada Central</h2>
@@ -902,6 +1068,13 @@ export default function Sg4Page() {
             </div>
           </div>
         )}
+
+        {/* P1-16 — Fakes inteligentes: logo abaixo das caixas ALDEIAS ALVOS/FAKES. */}
+        <FakesIntelligentSection
+          targetCoords={splitResult?.targets ?? []}
+          originsText={originsText}
+          onApply={applyIntelligentFakes}
+        />
       </section>
 
       {/* ===== Seção B — Distribuição de Alvos de OP ===== */}

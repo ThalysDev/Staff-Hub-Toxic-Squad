@@ -1,15 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ClipboardCopy, ScrollText, ShieldAlert } from 'lucide-react';
 import type { ForumConferenceResult } from '@shared/ipc-types';
+import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
 import PageHeader from '../../components/PageHeader';
 import ToastViewport from '../../components/Toast';
 import { MODULES } from '../../modules';
 
+/** Padrões dos campos persistidos do módulo sg7 (só a URL do tópico — posts e
+ * reconhecidos ficam voláteis). */
+const SG7_DEFAULTS = {
+  threadUrl: '',
+};
+
 export default function Sg7Page() {
   const { toasts, push, dismiss } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg7');
-  const [threadUrl, setThreadUrl] = useState('');
+  const { prefs, savePrefs, resetPrefs } = usePreferences('sg7', SG7_DEFAULTS);
+  const [threadUrl, setThreadUrl] = useState(SG7_DEFAULTS.threadUrl);
   const [conference, setConference] = useState<ForumConferenceResult | null>(null);
   const [adjustResult, setAdjustResult] = useState<{ ok: boolean; detail: string } | null>(null);
   const [pendingAdjust, setPendingAdjust] = useState(false);
@@ -18,6 +26,24 @@ export default function Sg7Page() {
   const [deleteResult, setDeleteResult] = useState<{ ok: boolean; detail: string } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Preferências do módulo: a URL do tópico sobrevive a F5/reinício.
+  const prefsHydrated = useRef(false);
+
+  // Hidratação (uma única vez, após prefs chegar do main): aplica só as chaves
+  // presentes, para não pisar em estado que o usuário já editou.
+  useEffect(() => {
+    if (prefs === null || prefsHydrated.current) return;
+    prefsHydrated.current = true;
+    if (typeof prefs.threadUrl === 'string') setThreadUrl(prefs.threadUrl);
+  }, [prefs]);
+
+  // Persistência com guard: só grava DEPOIS da hidratação — nunca sobrescreve o
+  // storage com o default vazio do primeiro render. savePrefs é debounced.
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ threadUrl });
+  }, [threadUrl, savePrefs]);
 
   async function runConference(): Promise<void> {
     setBusy(true);
@@ -81,6 +107,19 @@ export default function Sg7Page() {
         title={moduleInfo?.originalLabel ?? 'Atualização de Blindagem no Fórum'}
         description="Conferência dos pedidos de blindagem no tópico, com tabela atualizada e limpeza dos comentários processados."
       />
+
+      <div className="row">
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => {
+            setThreadUrl(SG7_DEFAULTS.threadUrl);
+            void resetPrefs();
+          }}
+        >
+          Restaurar padrões do módulo
+        </button>
+      </div>
 
       <div className="callout" role="note">
         <ShieldAlert size={18} className="callout-icon" aria-hidden="true" />

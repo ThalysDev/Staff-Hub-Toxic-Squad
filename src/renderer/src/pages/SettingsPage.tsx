@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS } from '@shared/ipc-types';
 import PageHeader from '../components/PageHeader';
 import ToastViewport from '../components/Toast';
 import { useToast } from '../hooks/useToast';
+import { currentThemeChoice, setThemeChoice, THEME_EVENT, type ThemeChoice } from '../theme';
 
 interface SettingsDraft {
   requestMinIntervalMs: string;
@@ -123,12 +124,25 @@ export default function SettingsPage() {
 
   // ---- Seção Atualizações -------------------------------------------------
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [themeChoice, setThemeChoiceState] = useState<ThemeChoice>(currentThemeChoice);
   const [updateUrlDraft, setUpdateUrlDraft] = useState('');
   const [savingChannel, setSavingChannel] = useState(false);
   const [checkBusy, setCheckBusy] = useState(false);
   const [checkResult, setCheckResult] = useState<UpdateCheckResult | null>(null);
 
   const { toasts, push, dismiss } = useToast();
+
+  // Tema mudou pela paleta/outra tela com Configurações aberta → select sincroniza.
+  useEffect(() => {
+    const onThemeEvent = (event: Event): void => {
+      const detail = (event as CustomEvent<ThemeChoice>).detail;
+      if (detail !== undefined) setThemeChoiceState(detail);
+    };
+    window.addEventListener(THEME_EVENT, onThemeEvent);
+    return () => {
+      window.removeEventListener(THEME_EVENT, onThemeEvent);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -341,6 +355,37 @@ export default function SettingsPage() {
           </form>
         </div>
       </div>
+
+      <section className="page-section">
+        <h2 className="section-title">Aparência</h2>
+        <div className="card">
+          <div className="card-body">
+            <div className="field">
+              <label className="field-label" htmlFor="theme-choice">
+                Tema
+              </label>
+              <select
+                id="theme-choice"
+                className="select"
+                value={themeChoice}
+                onChange={(event) => {
+                  const choice = event.target.value as ThemeChoice;
+                  setThemeChoice(choice);
+                  setThemeChoiceState(choice);
+                }}
+              >
+                <option value="system">Seguir o sistema</option>
+                <option value="claro">Claro (pergaminho)</option>
+                <option value="escuro">Escuro (Nexus escuro)</option>
+              </select>
+              <p className="field-hint">
+                Aplicado na hora e lembrado entre sessões. "Seguir o sistema" acompanha a
+                preferência claro/escuro do Windows.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className="page-section">
         <h2 className="section-title">Atualizações</h2>

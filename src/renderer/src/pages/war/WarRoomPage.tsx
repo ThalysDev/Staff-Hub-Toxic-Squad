@@ -12,6 +12,8 @@ import ToastViewport from '../../components/Toast';
 import { useSessionStatus } from '../../hooks/useSessionStatus';
 import { useToast, type ToastVariant } from '../../hooks/useToast';
 import type { PageId } from '../../modules';
+import OpShareSection from './OpShareSection';
+import PostOpSection from './PostOpSection';
 
 type DistributionEntry = ReturnType<typeof parseDistribution>[number];
 type ParsedDistribution = { entries: DistributionEntry[] } | { error: string };
@@ -270,6 +272,9 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
         <p className="error" role="alert">{error}</p>
       )}
 
+      {/* ---- Compartilhar OP (export/import .json) ---- */}
+      <OpShareSection ops={ops} onImported={() => void loadOps()} />
+
       {/* ---- Grupos salvos (Análise de Tropas) ---- */}
       <GroupsCard world={session.world} push={push} />
 
@@ -374,6 +379,12 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
             </div>
           </div>
         </section>
+      )}
+
+      {/* ---- Verificação Pós-OP: só com OP selecionada e distribuição válida
+           (mesma condição do "Reverificar agora", acrescida da distribuição) ---- */}
+      {selected !== null && parsedDistribution !== null && !('error' in parsedDistribution) && (
+        <PostOpSection op={selected} onArchived={() => void loadOps()} />
       )}
 
       {/* ---- Scorecard de participação ---- */}

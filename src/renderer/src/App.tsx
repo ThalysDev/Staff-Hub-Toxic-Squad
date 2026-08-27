@@ -1,8 +1,9 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Camera, Flame, History, LayoutDashboard, LogIn, Settings2 } from 'lucide-react';
 import TitleBar from './components/TitleBar';
 import Sidebar, { type SidebarGroup, type SidebarItem } from './components/Sidebar';
+import CommandPalette, { type CommandItem } from './components/CommandPalette';
 import Sg1Page from './pages/sg1/Sg1Page';
 import Sg2Page from './pages/sg2/Sg2Page';
 import Sg3Page from './pages/sg3/Sg3Page';
@@ -13,6 +14,7 @@ import Sg7Page from './pages/sg7/Sg7Page';
 import WarRoomPage from './pages/war/WarRoomPage';
 import { MODULES, type ModuleId, type PageId, type SystemPageId, type WarPageId } from './modules';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { applyTheme, currentThemeChoice, resolveTheme, setThemeChoice, THEME_EVENT, type ThemeChoice } from './theme';
 
 // Code-split: páginas de sistema são switch-rendered (montam/desmontam) —
 // lazy reduz o bundle inicial (as SG ficam montadas por design U1, eager).
@@ -85,6 +87,8 @@ export default function App() {
   const [mountedModules, setMountedModules] = useState<ReadonlySet<ModuleId | WarPageId>>(
     () => (isModulePage(INITIAL_PAGE) ? new Set([INITIAL_PAGE]) : new Set<ModuleId | WarPageId>()),
   );
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [themeChoice, setThemeChoiceState] = useState<ThemeChoice>(currentThemeChoice);
 
   const navigate = (next: PageId): void => {
     if (isModulePage(next)) {
@@ -93,13 +97,83 @@ export default function App() {
     setPage(next);
   };
 
-  useKeyboardShortcuts(navigate);
+  // Tema: aplica na troca, segue o sistema em 'system' e sincroniza quando
+  // outra tela (Configurações/paleta) muda a escolha via theme.ts.
+  useEffect(() => {
+    applyTheme(themeChoice);
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (): void => applyTheme(themeChoice);
+    media.addEventListener('change', onChange);
+    const onThemeEvent = (event: Event): void => {
+      const detail = (event as CustomEvent<ThemeChoice>).detail;
+      if (detail !== undefined) setThemeChoiceState(detail);
+    };
+    window.addEventListener(THEME_EVENT, onThemeEvent);
+    return () => {
+      media.removeEventListener('change', onChange);
+      window.removeEventListener(THEME_EVENT, onThemeEvent);
+    };
+  }, [themeChoice]);
+
+  const setTheme = useCallback((choice: ThemeChoice): void => setThemeChoice(choice), []);
+
+  const commands = useMemo<CommandItem[]>(() => {
+    const nav: CommandItem[] = [
+      ...MODULES.map((module) => ({
+        id: `nav-${module.id}`,
+        label: module.navLabel,
+        hint: `Ir para o módulo ${module.id.toUpperCase()}`,
+        group: 'Navegação' as const,
+        keywords: `${module.originalLabel} módulo ir abrir`,
+        run: () => navigate(module.id as PageId),
+      })),
+      {
+        id: 'nav-guerra',
+        label: 'Sala de Guerra',
+        hint: 'Cobertura, scorecard e grupos',
+        group: 'Navegação',
+        keywords: 'guerra guerra room ir abrir',
+        run: () => navigate('guerra'),
+      },
+      ...SYSTEM_ITEMS.map((item) => ({
+        id: `nav-${item.id}`,
+        label: item.label,
+        hint: 'Página do sistema',
+        group: 'Navegação' as const,
+        keywords: 'sistema ir abrir',
+        run: () => navigate(item.id as PageId),
+      })),
+    ];
+    const acoes: CommandItem[] = [
+      {
+        id: 'acao-tema',
+        label: resolveTheme(themeChoice) === 'escuro' ? 'Mudar para tema claro' : 'Mudar para tema escuro',
+        group: 'Ações',
+        keywords: 'tema dark light escuro claro alternar',
+        run: () => setTheme(resolveTheme(themeChoice) === 'escuro' ? 'claro' : 'escuro'),
+      },
+      {
+        id: 'acao-atualizar',
+        label: 'Verificar atualizações',
+        hint: 'Checa o canal de atualização agora',
+        group: 'Ações',
+        keywords: 'update atualização verificar canal',
+        run: () => {
+          void window.staffhub.updater.check();
+          navigate('dashboard');
+        },
+      },
+    ];
+    return [...nav, ...acoes];
+  }, [navigate, themeChoice, setTheme]);
+
+  useKeyboardShortcuts(navigate, () => setPaletteOpen((open) => !open));
 
   return (
     <div className="app-shell">
       <TitleBar />
       <div className="app-main-row">
-        <Sidebar groups={NAV_GROUPS} active={page} onNavigate={navigate} />
+        <Sidebar groups={NAV_GROUPS} active={page} onNavigate={navigate} onOpenPalette={() => setPaletteOpen(true)} />
         <main className="content">
           {MODULES.filter((module) => mountedModules.has(module.id)).map((module) => {
             const SgPage = SG_PAGES[module.id];
@@ -121,6 +195,7 @@ export default function App() {
           )}
         </main>
       </div>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
     </div>
   );
 }

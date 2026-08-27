@@ -30,6 +30,7 @@ import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
 import StatBlock from '../../components/StatBlock';
 import ToastViewport from '../../components/Toast';
+import { usePreferences } from '../../hooks/usePreferences';
 import { useSessionStatus } from '../../hooks/useSessionStatus';
 import { useToast } from '../../hooks/useToast';
 import { MODULES } from '../../modules';
@@ -62,6 +63,29 @@ const FILTER_UNIT_ORDER: readonly UnitId[] = [
 function emptyUnitInputs(): Record<UnitId, string> {
   return Object.fromEntries(FILTER_UNIT_ORDER.map((id) => [id, ''])) as Record<UnitId, string>;
 }
+
+/** Campos de formulário do SG_2 que sobrevivem a F5/reinício (módulo "sg2"). */
+type Sg2Prefs = {
+  unitInputs: Record<UnitId, string>;
+  mode: 'has' | 'lacks';
+  scope: 'village' | 'player';
+  coordsText: string;
+  minXText: string;
+  maxXText: string;
+  minYText: string;
+  maxYText: string;
+  kText: string;
+  kMode: 'incluir' | 'excluir';
+  fullPopText: string;
+  semiPopText: string;
+  minFullsText: string;
+  minSemisText: string;
+  fsSort: FullSemiSortBy;
+  fsKText: string;
+  fsKMode: 'incluir' | 'excluir';
+  fsPlayersText: string;
+  fsPlayersMode: 'incluir' | 'excluir';
+};
 
 /** Unidades do conjunto OFENSIVO por padrão do contador Full/Semi. */
 const OFFENSIVE_UNIT_IDS: ReadonlySet<string> = new Set(['axe', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'snob']);
@@ -163,6 +187,133 @@ export default function Sg2Page() {
   const [maxXText, setMaxXText] = useState('');
   const [minYText, setMinYText] = useState('');
   const [maxYText, setMaxYText] = useState('');
+
+  // Preferências do módulo: os formulários sobrevivem a F5/reinício.
+  const { prefs, savePrefs, resetPrefs } = usePreferences<Sg2Prefs>('sg2', {
+    unitInputs: emptyUnitInputs(),
+    mode: 'has',
+    scope: 'village',
+    coordsText: '',
+    minXText: '',
+    maxXText: '',
+    minYText: '',
+    maxYText: '',
+    kText: '',
+    kMode: 'incluir',
+    fullPopText: '18000',
+    semiPopText: '12000',
+    minFullsText: '0',
+    minSemisText: '0',
+    fsSort: 'fulls',
+    fsKText: '',
+    fsKMode: 'incluir',
+    fsPlayersText: '',
+    fsPlayersMode: 'excluir',
+  });
+
+  // Hidratação única: aplica o que veio do store sobre os estados do formulário.
+  const prefsHydrated = useRef(false);
+  useEffect(() => {
+    if (prefs === null || prefsHydrated.current) return;
+    prefsHydrated.current = true;
+    if (prefs.unitInputs !== undefined) setUnitInputs({ ...emptyUnitInputs(), ...prefs.unitInputs });
+    if (prefs.mode !== undefined) setMode(prefs.mode);
+    if (prefs.scope !== undefined) setScope(prefs.scope);
+    if (prefs.coordsText !== undefined) setCoordsText(prefs.coordsText);
+    if (prefs.minXText !== undefined) setMinXText(prefs.minXText);
+    if (prefs.maxXText !== undefined) setMaxXText(prefs.maxXText);
+    if (prefs.minYText !== undefined) setMinYText(prefs.minYText);
+    if (prefs.maxYText !== undefined) setMaxYText(prefs.maxYText);
+    if (prefs.kText !== undefined) setKText(prefs.kText);
+    if (prefs.kMode !== undefined) setKMode(prefs.kMode);
+    if (prefs.fullPopText !== undefined) setFullPopText(prefs.fullPopText);
+    if (prefs.semiPopText !== undefined) setSemiPopText(prefs.semiPopText);
+    if (prefs.minFullsText !== undefined) setMinFullsText(prefs.minFullsText);
+    if (prefs.minSemisText !== undefined) setMinSemisText(prefs.minSemisText);
+    if (prefs.fsSort !== undefined) setFsSort(prefs.fsSort);
+    if (prefs.fsKText !== undefined) setFsKText(prefs.fsKText);
+    if (prefs.fsKMode !== undefined) setFsKMode(prefs.fsKMode);
+    if (prefs.fsPlayersText !== undefined) setFsPlayersText(prefs.fsPlayersText);
+    if (prefs.fsPlayersMode !== undefined) setFsPlayersMode(prefs.fsPlayersMode);
+  }, [prefs]);
+
+  // Persistência por campo (só depois de hidratado, para não sobrescrever o stored).
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ unitInputs });
+  }, [unitInputs, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ mode });
+  }, [mode, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ scope });
+  }, [scope, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ coordsText });
+  }, [coordsText, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ minXText });
+  }, [minXText, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ maxXText });
+  }, [maxXText, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ minYText });
+  }, [minYText, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ maxYText });
+  }, [maxYText, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ kText });
+  }, [kText, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ kMode });
+  }, [kMode, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ fullPopText });
+  }, [fullPopText, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ semiPopText });
+  }, [semiPopText, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ minFullsText });
+  }, [minFullsText, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ minSemisText });
+  }, [minSemisText, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ fsSort });
+  }, [fsSort, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ fsKText });
+  }, [fsKText, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ fsKMode });
+  }, [fsKMode, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ fsPlayersText });
+  }, [fsPlayersText, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ fsPlayersMode });
+  }, [fsPlayersMode, savePrefs]);
 
   // Resultado.
   const [result, setResult] = useState<Sg2FilterResult | null>(null);
@@ -455,6 +606,30 @@ export default function Sg2Page() {
     setUnitInputs((current) => ({ ...current, [id]: value }));
   }
 
+  /** Volta os formulários aos padrões e apaga as preferências persistidas do módulo. */
+  function resetFormPrefs(): void {
+    setUnitInputs(emptyUnitInputs());
+    setMode('has');
+    setScope('village');
+    setCoordsText('');
+    setMinXText('');
+    setMaxXText('');
+    setMinYText('');
+    setMaxYText('');
+    setKText('');
+    setKMode('incluir');
+    setFullPopText('18000');
+    setSemiPopText('12000');
+    setMinFullsText('0');
+    setMinSemisText('0');
+    setFsSort('fulls');
+    setFsKText('');
+    setFsKMode('incluir');
+    setFsPlayersText('');
+    setFsPlayersMode('excluir');
+    void resetPrefs();
+  }
+
   const updatedLabel =
     troopsAt !== null ? new Date(troopsAt).toLocaleString('pt-BR') : 'Nunca coletado';
 
@@ -588,6 +763,13 @@ export default function Sg2Page() {
           <section className="page-section" aria-labelledby="sg2-filter-title">
             <div className="sg2-filter-head">
               <h2 className="section-title" id="sg2-filter-title">Realizar Filtro de Tropas</h2>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={resetFormPrefs}
+              >
+                Restaurar padrões
+              </button>
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"

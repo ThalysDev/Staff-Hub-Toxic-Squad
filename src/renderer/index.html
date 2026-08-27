@@ -4,11 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Staff Hub Toxic Squad</title>
+    <script>
+      // Tema antes do CSS carregar (evita flash na cor errada): mesma chave
+      // que o App escreve ('shs-theme'); 'system' resolve via media query.
+      (function () {
+        try {
+          var choice = localStorage.getItem('shs-theme') || 'system';
+          var dark =
+            choice === 'escuro' ||
+            (choice !== 'claro' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'escuro' : 'claro';
+        } catch (e) {
+          document.documentElement.dataset.theme = 'claro';
+        }
+      })();
+    </script>
     <style>
-      /* Fundo obsidiana aplicado antes do CSS carregar (evita flash claro). */
+      /* Fundo coerente com o tema resolvido acima, antes do CSS carregar. */
       html,
       body {
-        background: #12100e;
+        background: #f2ead8;
+      }
+      html[data-theme='escuro'],
+      html[data-theme='escuro'] body {
+        background: #141210;
       }
     </style>
   </head>

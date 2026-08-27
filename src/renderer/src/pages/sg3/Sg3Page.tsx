@@ -8,6 +8,7 @@ import { rankVillagesByThreat, threatSummary, type VillageThreat, type VillageTh
 import { TW_UNIT_ICONS } from '../../assets';
 import { UNITS, defensivePopulation, type UnitCounts, type UnitId } from '@shared/units';
 import type { TroopSnapshot } from '@shared/sg2-engine';
+import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
 import ToastViewport from '../../components/Toast';
 import EmptyState from '../../components/EmptyState';
@@ -21,6 +22,17 @@ type CountMode = 'paradas' | 'paradas-e-transito';
 type SizeMetric = 'pontos' | 'populacao';
 
 const BLIND_UNITS: readonly UnitId[] = ['spear', 'sword', 'archer', 'heavy'];
+
+/** Padrões dos campos persistidos do módulo sg3 (só ENTRADAS de formulário —
+ * resultados de consulta, apoiadores, triagem e estados de ocupação ficam voláteis). */
+const SG3_DEFAULTS = {
+  desired: {} as Partial<Record<UnitId, string>>,
+  countMode: 'paradas' as CountMode,
+  sizeMetric: 'pontos' as SizeMetric,
+  minSizeText: '',
+  coordsText: '',
+  supportersCoordsText: '',
+};
 
 /** Trecho incompleto no fim do campo (ex.: "123|") — presente enquanto o usuário digita. */
 const PARTIAL_TOKEN_TAIL = /[^\t ;,\r\n]+$/;
@@ -49,6 +61,7 @@ function villagePopulation(units: UnitCounts, popsByUnit: Record<string, number>
 export default function Sg3Page() {
   const { toasts, push, dismiss } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg3');
+  const { prefs, savePrefs, resetPrefs } = usePreferences('sg3', SG3_DEFAULTS);
 
   useEffect(() => {
     const unsubscribe = window.staffhub.events.onQueueProgress(setProgress);
@@ -56,17 +69,17 @@ export default function Sg3Page() {
   }, []);
   const [defenseAt, setDefenseAt] = useState<string | null>(null);
   const [collecting, setCollecting] = useState(false);
-  const [coordsText, setCoordsText] = useState('');
+  const [coordsText, setCoordsText] = useState(SG3_DEFAULTS.coordsText);
   // Parser normalizado do campo "Coordenadas do front" — contador e ignorados.
-  const [coordsMeta, setCoordsMeta] = useState<NormalizedCoords>(() => normalizeCoordText(''));
+  const [coordsMeta, setCoordsMeta] = useState<NormalizedCoords>(() => normalizeCoordText(SG3_DEFAULTS.coordsText));
   // Campo próprio dos apoiadores (vazio = usar o front de cima).
-  const [supportersCoordsText, setSupportersCoordsText] = useState('');
-  const [supportersCoordsMeta, setSupportersCoordsMeta] = useState<NormalizedCoords>(() => normalizeCoordText(''));
+  const [supportersCoordsText, setSupportersCoordsText] = useState(SG3_DEFAULTS.supportersCoordsText);
+  const [supportersCoordsMeta, setSupportersCoordsMeta] = useState<NormalizedCoords>(() => normalizeCoordText(SG3_DEFAULTS.supportersCoordsText));
   // ---- Tamanho mínimo da blindagem (entrega 2) ----
-  const [sizeMetric, setSizeMetric] = useState<SizeMetric>('pontos');
-  const [minSizeText, setMinSizeText] = useState('');
-  const [desired, setDesired] = useState<Partial<Record<UnitId, string>>>({});
-  const [countMode, setCountMode] = useState<CountMode>('paradas');
+  const [sizeMetric, setSizeMetric] = useState<SizeMetric>(SG3_DEFAULTS.sizeMetric);
+  const [minSizeText, setMinSizeText] = useState(SG3_DEFAULTS.minSizeText);
+  const [desired, setDesired] = useState<Partial<Record<UnitId, string>>>(SG3_DEFAULTS.desired);
+  const [countMode, setCountMode] = useState<CountMode>(SG3_DEFAULTS.countMode);
   // Resultado da blindagem já filtrado pelo tamanho mínimo: valor "Tam." por
   // aldeia na métrica escolhida (null = tamanho desconhecido, ex.: fora do dump).
   const [results, setResults] = useState<{
@@ -85,6 +98,43 @@ export default function Sg3Page() {
   const [scanError, setScanError] = useState('');
   const [threats, setThreats] = useState<VillageThreat[] | null>(null);
 const [progress, setProgress] = useState<{ label: string; done: number; total: number } | null>(null);
+
+  // Preferências do módulo: os formulários sobrevivem a F5/reinício (resultados,
+  // apoiadores, triagem e estados de ocupação continuam voláteis).
+  const prefsHydrated = useRef(false);
+
+  // Hidratação (uma única vez, após prefs chegar do main): aplica só as chaves
+  // presentes, para não pisar em estado que o usuário já editou.
+  useEffect(() => {
+    if (prefs === null || prefsHydrated.current) return;
+    prefsHydrated.current = true;
+    if (prefs.desired !== null && typeof prefs.desired === 'object') {
+      const restored: Partial<Record<UnitId, string>> = {};
+      for (const [unit, value] of Object.entries(prefs.desired)) {
+        if (typeof value === 'string') restored[unit as UnitId] = value;
+      }
+      setDesired(restored);
+    }
+    if (prefs.countMode === 'paradas' || prefs.countMode === 'paradas-e-transito') setCountMode(prefs.countMode);
+    if (prefs.sizeMetric === 'pontos' || prefs.sizeMetric === 'populacao') setSizeMetric(prefs.sizeMetric);
+    if (typeof prefs.minSizeText === 'string') setMinSizeText(prefs.minSizeText);
+    if (typeof prefs.coordsText === 'string') {
+      setCoordsText(prefs.coordsText);
+      setCoordsMeta(normalizeCoordText(prefs.coordsText));
+    }
+    if (typeof prefs.supportersCoordsText === 'string') {
+      setSupportersCoordsText(prefs.supportersCoordsText);
+      setSupportersCoordsMeta(normalizeCoordText(prefs.supportersCoordsText));
+    }
+  }, [prefs]);
+
+  // Persistência com guard: só grava DEPOIS da hidratação — nunca sobrescreve o
+  // storage com os defaults do primeiro render. savePrefs é debounced.
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ desired, countMode, sizeMetric, minSizeText, coordsText, supportersCoordsText });
+  }, [desired, countMode, sizeMetric, minSizeText, coordsText, supportersCoordsText, savePrefs]);
+
   // Caches de dados auxiliares da consulta de blindagem — cada fonte carrega UMA vez.
   const unitPopsRef = useRef<Record<string, number>>({});
   const worldPointsRef = useRef<Map<string, number> | null>(null);
@@ -341,6 +391,26 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
         title={moduleInfo?.originalLabel ?? 'Análise de Defesa das Aldeias'}
         description="Tropas presentes em cada aldeia — paradas e a caminho —, verificação de blindagem com BBCode para o fórum e apoiadores por aldeia."
       />
+
+      <div className="row">
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => {
+            setDesired(SG3_DEFAULTS.desired);
+            setCountMode(SG3_DEFAULTS.countMode);
+            setSizeMetric(SG3_DEFAULTS.sizeMetric);
+            setMinSizeText(SG3_DEFAULTS.minSizeText);
+            setCoordsText(SG3_DEFAULTS.coordsText);
+            setCoordsMeta(normalizeCoordText(SG3_DEFAULTS.coordsText));
+            setSupportersCoordsText(SG3_DEFAULTS.supportersCoordsText);
+            setSupportersCoordsMeta(normalizeCoordText(SG3_DEFAULTS.supportersCoordsText));
+            void resetPrefs();
+          }}
+        >
+          Restaurar padrões do módulo
+        </button>
+      </div>
 
       <section className="page-section" aria-labelledby="sg3-memory-title">
         <h2 className="section-title" id="sg3-memory-title">Dados em Memória</h2>

@@ -19,9 +19,11 @@ interface SidebarProps {
   groups: readonly SidebarGroup[];
   active: PageId;
   onNavigate: (page: PageId) => void;
+  /** Abre a paleta de comandos (Ctrl+K) — a "busca rápida" da sidebar. */
+  onOpenPalette?: () => void;
 }
 
-export default function Sidebar({ groups, active, onNavigate }: SidebarProps) {
+export default function Sidebar({ groups, active, onNavigate, onOpenPalette }: SidebarProps) {
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
@@ -57,12 +59,17 @@ export default function Sidebar({ groups, active, onNavigate }: SidebarProps) {
           </section>
         ))}
       </nav>
-      {/* Assinatura visual da referência: busca rápida decorativa (sem função ainda). */}
-      <div className="sidebar-search" hidden aria-hidden="true">
-        <Search size={14} />
+      {/* Busca rápida = paleta de comandos (Ctrl+K): navegação e ações. */}
+      <button
+        type="button"
+        className="sidebar-search"
+        onClick={onOpenPalette}
+        aria-label="Abrir paleta de comandos (Ctrl+K)"
+      >
+        <Search size={14} aria-hidden="true" />
         <span className="sidebar-search-text">Busca rápida</span>
         <span className="kbd-mini">Ctrl K</span>
-      </div>
+      </button>
       <div className="sidebar-foot">Quartel-general · Tribal Wars BR</div>
     </aside>
   );

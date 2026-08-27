@@ -1,0 +1,242 @@
+/* Tema escuro — sobrepõe tokens (veja tokens.css). Ativado via data-theme="dark" no <html>. */
+
+/* ===== Tokens — os mesmos 62 de tokens.css; só cor/elevação mudam ===== */
+[data-theme='escuro'] {
+  color-scheme: dark;
+
+  /* Superfícies — marrom-carvão profundo (nunca cinza puro) */
+  --bg-page: #141210;
+  --bg-sidebar: #191613;
+  --bg-card: #1c1916;
+  --bg-card-hover: #24201b;
+  --bg-inset: #24201b;
+  --bg-field: #26221c;
+
+  /* Linhas — mais claras que o fundo: elevação por luminosidade */
+  --border-card: #3a332a;
+  --border-input: #463d31;
+  --divider: #2e2820;
+  --border-strong: #b08d5f;
+
+  /* Texto — claro quente (AA ≥ 4.5:1 sobre --bg-card/--bg-page) */
+  --text-strong: #f2e9d8;
+  --text: #e0d6c2;
+  --text-muted: #a99a80;
+  --text-meta: #7d6f59;
+
+  /* Marca — âmbar aceso */
+  --accent: #c9975c;
+  --accent-ink: #d9ab68;
+  --accent-soft: #2f2618;
+
+  /* Ação — verde-guerra (identidade mantida, branco AA sobre --action) */
+  --action: #3f7d38;
+  --action-hover: #48893f;
+  --action-ink: #ffffff;
+  --progress: #5aad52;
+  --ok-ink: #7fc97a;
+  --ok-bg: #1d2a1c;
+  --ok-border: #3e5c3c;
+
+  /* Erro / alerta — tintas escuras, texto claro o bastante p/ AA */
+  --danger: #e35c50;
+  --danger-hover: #e76e62;
+  --danger-bg: #2e1a17;
+  --danger-border: #6b3a33;
+  --warn-ink: #d9b45c;
+  --warn-bg: #2b2415;
+  --warn-border: #63552c;
+
+  /* Invariantes entre temas — tipografia, espaço, raio, movimento, layout */
+  --font-display: 'Cinzel', Georgia, 'Times New Roman', serif;
+  --font-body: 'Inter', 'Segoe UI', system-ui, sans-serif;
+
+  --fs-display: 1.625rem;
+  --fs-h1: 1.5rem;
+  --fs-h2: 1.125rem;
+  --fs-h3: 0.9375rem;
+  --fs-body: 0.875rem;
+  --fs-small: 0.8125rem;
+  --fs-caption: 0.6875rem;
+
+  --lh-tight: 1.25;
+  --lh-body: 1.6;
+
+  --track-caps: 0.08em;
+  --track-wide: 0.16em;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  /* Sombras mais fortes que no claro */
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --elev-2: 0 6px 18px rgba(0, 0, 0, 0.55);
+
+  --t-fast: 110ms ease-out;
+  --t-base: 180ms cubic-bezier(0.2, 0.6, 0.3, 1);
+
+  --sidebar-width: 236px;
+  --content-max: 1080px;
+}
+
+/* ===== Faixas "pergaminho" (#f6efdd) de app.css viram elevação escura =====
+   :not() preserva as variantes tokenizadas (callout--warn/danger/info,
+   btn-ghost--danger, nav-item--active), que já se adaptam sozinhas. */
+[data-theme='escuro'] .card-header,
+[data-theme='escuro'] .callout:not(.callout--warn):not(.callout--danger):not(.callout--info),
+[data-theme='escuro'] .table thead th,
+[data-theme='escuro'] .table-group-row th,
+[data-theme='escuro'] .table-group-row td,
+[data-theme='escuro'] .sg2-drilldown td,
+[data-theme='escuro'] .sg4-heat-origin,
+[data-theme='escuro'] .empty-state-icon,
+[data-theme='escuro'] .btn-ghost:not(.btn-ghost--danger):hover:not(:disabled),
+[data-theme='escuro'] .module-card--cta:hover {
+  background: var(--bg-inset);
+}
+
+/* ===== Scrollbar ===== */
+[data-theme='escuro'] ::-webkit-scrollbar-thumb {
+  background: #3d352a;
+  background-clip: content-box;
+}
+
+[data-theme='escuro'] ::-webkit-scrollbar-thumb:hover {
+  background: #4c4234;
+  background-clip: content-box;
+}
+
+/* ===== Sidebar — véu de hover agora é luz, não sombra ===== */
+[data-theme='escuro'] .nav-item:not(.nav-item--active):not([aria-current='page']):hover {
+  background: rgba(242, 233, 216, 0.05);
+}
+
+/* ===== Formulários — placeholder e brilho de foco ===== */
+[data-theme='escuro'] .input::placeholder,
+[data-theme='escuro'] .textarea::placeholder {
+  color: #6e6250;
+}
+
+[data-theme='escuro'] .input:focus,
+[data-theme='escuro'] .textarea:focus,
+[data-theme='escuro'] .select:focus {
+  box-shadow: 0 0 0 3px rgba(201, 151, 92, 0.22);
+}
+
+/* ===== Pills e kbd — hex fixos de app.css ===== */
+[data-theme='escuro'] .pill--info {
+  border-color: #5a4a33;
+}
+
+[data-theme='escuro'] .pill--muted {
+  border-color: #3d352a;
+  background: #26221c;
+}
+
+[data-theme='escuro'] kbd {
+  background: #26221c;
+}
+
+/* ===== Skeleton — shimmer em luz quente ===== */
+[data-theme='escuro'] .skeleton {
+  background: #26221c;
+}
+
+[data-theme='escuro'] .skeleton::after {
+  background: linear-gradient(90deg, transparent, rgba(242, 233, 216, 0.07), transparent);
+}
+
+/* ===== Titlebar — hex fixos quebrariam no escuro ===== */
+[data-theme='escuro'] .titlebar {
+  background: #191612;
+  border-bottom-color: #2e2820;
+}
+
+[data-theme='escuro'] .titlebar-title {
+  color: var(--text-strong);
+}
+
+[data-theme='escuro'] .titlebar-btn {
+  color: var(--text-muted);
+}
+
+/* --close mantém o vermelho de app.css (já funciona no escuro). */
+[data-theme='escuro'] .titlebar-btn:not(.titlebar-btn--close):hover {
+  background: #26221c;
+  color: var(--text-strong);
+}
+
+[data-theme='escuro'] .titlebar-btn:focus-visible {
+  outline-color: var(--accent);
+}
+
+[data-theme='escuro'] .titlebar-player {
+  color: #6fc06a;
+}
+
+[data-theme='escuro'] .titlebar-player-dot,
+[data-theme='escuro'] .sidebar-player-dot {
+  background: #5aad52;
+}
+
+[data-theme='escuro'] .sidebar-player-world {
+  color: var(--text-muted);
+}
+
+/* ===== Detalhes SG e tiles — hex/rgba fixos de app.css ===== */
+[data-theme='escuro'] .sg1-map-frame {
+  background: var(--bg-inset);
+}
+
+[data-theme='escuro'] .sg1-legend-swatch {
+  border-color: rgba(242, 233, 216, 0.35);
+}
+
+[data-theme='escuro'] .sg5-gantt {
+  border-color: rgba(242, 233, 216, 0.25);
+}
+
+[data-theme='escuro'] .sg6-confirm {
+  border-color: var(--danger);
+}
+
+[data-theme='escuro'] .sg7-code {
+  border-color: var(--border-card);
+}
+
+[data-theme='escuro'] .kicker {
+  color: var(--accent-ink);
+}
+
+[data-theme='escuro'] .fs-chip {
+  border-color: rgba(242, 233, 216, 0.18);
+  background: rgba(255, 244, 220, 0.05);
+}
+
+[data-theme='escuro'] .module-card::before {
+  background: linear-gradient(90deg, transparent, rgba(201, 151, 92, 0.45), transparent);
+}
+
+/* ===== Error Boundary — card de recuperação escuro ===== */
+[data-theme='escuro'] .error-boundary-card {
+  background: var(--bg-card);
+  border-color: #6b5335;
+}
+
+[data-theme='escuro'] .error-boundary-card h1 {
+  color: var(--danger);
+}
+
+/* Tooltip [data-tip] e toast não precisam de override: invertem sozinhos
+   (fundo --text-strong claro × texto --bg-page escuro) via tokens. */

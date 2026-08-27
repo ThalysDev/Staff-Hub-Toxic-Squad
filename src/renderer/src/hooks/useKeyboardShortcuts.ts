@@ -4,22 +4,21 @@ import { MODULES } from '../modules';
 
 /**
  * Atalhos globais de teclado:
+ * - Ctrl+K abre/alterna a paleta de comandos
  * - Alt+1..7 navega direto para os módulos SG_1..SG_7
- * - Alt+8 vai para a Sala de Guerra
- * - Ctrl+K abre a paleta de navegação (futura — por ora, foca na busca da sidebar)
+ * - Alt+8 vai para a Sala de Guerra · Alt+9 volta ao Início
  * - Esc fecha modais/painéis de confirmação (delegado ao componente ativo)
  */
-export function useKeyboardShortcuts(onNavigate: (page: PageId) => void): void {
+export function useKeyboardShortcuts(
+  onNavigate: (page: PageId) => void,
+  onTogglePalette: () => void = () => undefined,
+): void {
   useEffect(() => {
     const handler = (event: KeyboardEvent): void => {
-      // Ctrl+K: prevenir o default do browser e focar a busca da sidebar
+      // Ctrl+K: paleta de comandos (navegação + ações rápidas).
       if (event.ctrlKey === true && event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        const searchInput = document.querySelector<HTMLInputElement>('input[type="search"], [role="search"] input, .sidebar-search input');
-        if (searchInput !== null) {
-          searchInput.focus();
-          searchInput.select();
-        }
+        onTogglePalette();
         return;
       }
 
@@ -47,5 +46,5 @@ export function useKeyboardShortcuts(onNavigate: (page: PageId) => void): void {
     return () => {
       window.removeEventListener('keydown', handler);
     };
-  }, [onNavigate]);
+  }, [onNavigate, onTogglePalette]);
 }

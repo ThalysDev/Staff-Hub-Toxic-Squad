@@ -364,6 +364,20 @@ export interface StaffHubApi {
     /** Importa grupo de arquivo JSON (diálogo nativo de abrir) — multi-tribo/backup. */
     importGroup(): Promise<{ ok: boolean; entry?: GroupEntry; detail: string }>;
   };
+  preferences: {
+    /** Preferências do módulo (ex.: 'sg1', 'sg4', 'geral'); objeto vazio se nunca salvas. */
+    get(module: string): Promise<Record<string, unknown>>;
+    /** Mescla patch nas preferências do módulo (merge raso por chave) e devolve o estado final. */
+    save(module: string, patch: Record<string, unknown>): Promise<Record<string, unknown>>;
+    /** Apaga as preferências do módulo (volta ao default vazio). */
+    reset(module: string): Promise<void>;
+  };
+  opShare: {
+    /** Exporta uma OP arquivada para arquivo .json (diálogo nativo de salvar). */
+    exportOp(id: string): Promise<{ ok: boolean; path?: string; detail: string }>;
+    /** Importa OP de arquivo .json (diálogo nativo de abrir) — revalidação fail-closed. */
+    importOp(): Promise<{ ok: boolean; detail: string }>;
+  };
   window: {
     /** Titlebar personalizada (frame:false). */
     minimize(): Promise<void>;

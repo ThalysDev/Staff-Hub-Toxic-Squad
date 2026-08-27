@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ClipboardCopy, ListChecks, Printer, ShieldQuestion } from 'lucide-react';
 import type { Sg5TotalsResult, Sg5VerifyResult } from '@shared/ipc-types';
 import { parseCoordList } from '@shared/coords';
@@ -8,7 +8,23 @@ import { useToast } from '../../hooks/useToast';
 import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
 import ToastViewport from '../../components/Toast';
+import { usePreferences } from '../../hooks/usePreferences';
 import { MODULES } from '../../modules';
+import Sg5DiffSection from './Sg5DiffSection';
+
+/** Título padrão do documento de conferência (usado também no "Restaurar padrões"). */
+const DEFAULT_DOC_TITLE = `OP do ${new Date().toLocaleDateString('pt-BR')}`;
+
+/**
+ * Campos persistidos do SG_5 (módulo "sg5"): APENAS o título do documento.
+ * Resultados/conferências NÃO são preferências — o snapshot da última conferência
+ * é persistido pelo Sg5DiffSection na chave 'ultimaConferencia' deste MESMO módulo.
+ * O merge no main é raso por chave, então salvar só { tituloDoc } aqui preserva
+ * 'ultimaConferencia' (chave de nome distinto, nunca gravada por esta página).
+ */
+type Sg5Prefs = {
+  tituloDoc: string;
+};
 
 function parseEntries(text: string): { playerName: string; coords: string[] }[] {
   const entries: { playerName: string; coords: string[] }[] = [];
@@ -28,13 +44,34 @@ export default function Sg5Page() {
   const { toasts, push, dismiss } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg5');
   const [entriesText, setEntriesText] = useState('');
-  const [docTitle, setDocTitle] = useState(`OP do ${new Date().toLocaleDateString('pt-BR')}`);
+  const [docTitle, setDocTitle] = useState(DEFAULT_DOC_TITLE);
   const [coordsText, setCoordsText] = useState('');
   const [verifyResult, setVerifyResult] = useState<Sg5VerifyResult | null>(null);
   const [totalsResult, setTotalsResult] = useState<Sg5TotalsResult | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'verify' | 'totals' | null>(null);
   const [progress, setProgress] = useState<{ label: string; done: number; total: number } | null>(null);
+
+  // Preferências do módulo: o título do documento sobrevive a F5/reinício
+  // (resultados, conferências e o Gantt continuam voláteis).
+  const { prefs, savePrefs, resetPrefs } = usePreferences<Sg5Prefs>('sg5', { tituloDoc: DEFAULT_DOC_TITLE });
+
+  // Hidratação única: aplica o título persistido sobre o estado do formulário.
+  const prefsHydrated = useRef(false);
+  useEffect(() => {
+    if (prefs === null || prefsHydrated.current) return;
+    prefsHydrated.current = true;
+    if (typeof prefs.tituloDoc === 'string') setDocTitle(prefs.tituloDoc);
+  }, [prefs]);
+
+  // Persistência com guard: só grava DEPOIS da hidratação — nunca sobrescreve o
+  // storage com o default do primeiro render. savePrefs é debounced e o merge
+  // no main é raso por chave: 'ultimaConferencia' (gravada pelo Sg5DiffSection
+  // no mesmo módulo "sg5") não é tocada por este patch de { tituloDoc }.
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ tituloDoc: docTitle });
+  }, [docTitle, savePrefs]);
 
   useEffect(() => {
     const unsubscribe = window.staffhub.events.onQueueProgress(setProgress);
@@ -109,6 +146,21 @@ export default function Sg5Page() {
         title={moduleInfo?.originalLabel ?? 'Conferência de Comandos'}
         description="Verificação alvo-a-alvo dos comandos compartilhados com a liderança, totalizador por jogador e documento imprimível da OP."
       />
+
+      <div className="row">
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => {
+            setDocTitle(DEFAULT_DOC_TITLE);
+            // Reset do módulo "sg5" inteiro (inclui 'ultimaConferencia' do diff —
+            // comportamento padrão de "Restaurar padrões do módulo").
+            void resetPrefs();
+          }}
+        >
+          Restaurar padrões do módulo
+        </button>
+      </div>
 
       <div className="callout callout--danger" role="note">
         <ShieldQuestion size={18} className="callout-icon" aria-hidden="true" />
@@ -280,6 +332,10 @@ export default function Sg5Page() {
           </div>
         </section>
       )}
+
+      {/* Comparação com a conferência anterior: recebe o MESMO resultado que
+          alimenta o Gantt/documento (null enquanto não há verificação). */}
+      <Sg5DiffSection current={verifyResult} />
 
       <section className="page-section" aria-labelledby="sg5-totals-title">
         <h2 className="section-title" id="sg5-totals-title">Totalizador de Comandos</h2>

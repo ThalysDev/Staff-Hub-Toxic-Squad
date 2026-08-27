@@ -277,7 +277,7 @@ h2 {
   white-space: nowrap;
 }
 
-/* Busca rápida — assinatura visual da referência (decorativa por ora). */
+/* Busca rápida — botão que abre a paleta de comandos (Ctrl+K). */
 .sidebar-search {
   display: flex;
   align-items: center;
@@ -288,7 +288,16 @@ h2 {
   border-radius: var(--r-md);
   background: var(--bg-card);
   color: var(--text-meta);
+  font: inherit;
   font-size: var(--fs-small);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--t-fast), color var(--t-fast);
+}
+
+.sidebar-search:hover {
+  border-color: var(--accent);
+  color: var(--text-strong);
 }
 
 .sidebar-search-text {
@@ -2721,4 +2730,196 @@ kbd {
   .sg2-sum-filters {
     grid-template-columns: 1fr;
   }
+}
+
+/* ===== Paleta de comandos (Ctrl+K) ===== */
+.cmdk-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(20, 16, 12, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh var(--sp-4) var(--sp-6);
+}
+
+.cmdk-panel {
+  width: min(560px, 100%);
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.cmdk-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--divider);
+}
+
+.cmdk-search-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.cmdk-input {
+  flex: 1;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-body);
+  color: var(--text-strong);
+  outline: none;
+}
+
+.cmdk-input::placeholder {
+  color: var(--text-muted);
+}
+
+.cmdk-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-2);
+  margin: 0;
+  list-style: none;
+}
+
+.cmdk-group-title {
+  padding: var(--sp-2) var(--sp-2) var(--sp-1);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.cmdk-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.cmdk-item.is-active {
+  background: var(--accent-soft);
+}
+
+.cmdk-item-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.cmdk-item-label {
+  display: block;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.cmdk-item-hint {
+  display: block;
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
+}
+
+.cmdk-item-enter {
+  flex-shrink: 0;
+  color: var(--accent-ink);
+  opacity: 0;
+}
+
+.cmdk-item.is-active .cmdk-item-enter {
+  opacity: 1;
+}
+
+.cmdk-empty {
+  padding: var(--sp-5) var(--sp-3);
+  text-align: center;
+}
+
+.cmdk-footer {
+  padding: var(--sp-2) var(--sp-4);
+  border-top: 1px solid var(--divider);
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
+}
+
+.cmdk-footer kbd {
+  font-family: inherit;
+}
+
+/* ===== Pós-OP / Fakes inteligentes / Compartilhar OP / Diff SG_5 (v0.23) ===== */
+.postop-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.postop--conquistado {
+  background: var(--ok-bg);
+  color: var(--ok-ink);
+}
+
+.postop--defendido {
+  background: var(--info-bg, var(--accent-soft));
+  color: var(--accent-ink);
+}
+
+.postop--desperdiçado {
+  background: var(--danger-bg, var(--danger-soft));
+  color: var(--danger-ink, var(--danger));
+}
+
+.postop--sem-dados {
+  background: var(--bg-inset);
+  color: var(--text-muted);
+}
+
+.fkint-chevron {
+  transition: transform var(--t-fast);
+}
+
+.fkint-chevron--open {
+  transform: rotate(90deg);
+}
+
+.fkint-hint {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
+}
+
+.fkint-applied {
+  color: var(--ok-ink);
+  font-size: var(--fs-caption);
+}
+
+.opshare-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.opshare-select {
+  flex: 1;
+  min-width: 220px;
+}
+
+.opshare-hint {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
 }

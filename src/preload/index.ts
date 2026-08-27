@@ -119,6 +119,17 @@ const api = {
     exportGroup: (id: string) => invoke('groups:export', id),
     importGroup: () => invoke('groups:import'),
   },
+  preferences: {
+    get: (module: string) => invoke('preferences:get', module) as Promise<Record<string, unknown>>,
+    save: (module: string, patch: Record<string, unknown>) =>
+      invoke('preferences:save', module, patch) as Promise<Record<string, unknown>>,
+    reset: (module: string) => invoke('preferences:reset', module) as Promise<void>,
+  },
+  opShare: {
+    exportOp: (id: string) =>
+      invoke('opshare:export', id) as Promise<{ ok: boolean; path?: string; detail: string }>,
+    importOp: () => invoke('opshare:import') as Promise<{ ok: boolean; detail: string }>,
+  },
   sg5: {
     verify: (entries: import('@shared/ipc-types').Sg5VerifyEntry[]) =>
       invoke('sg5:verify', entries) as Promise<import('@shared/ipc-types').Sg5VerifyResult>,

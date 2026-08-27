@@ -142,9 +142,12 @@ export function parseOpExport(json: unknown): OpExportData {
   const distribution = record.distribution.map((rawRow) => {
     const row = asRecord(rawRow, 'linha da distribution');
     const playerName = asNonEmptyString(row.playerName, 'nick da distribuição');
+    // Origem OPCIONAL: o arquivo da OP guarda só alvos por jogador (sem
+    // origem), então o export do app grava origin="" — aceitar vazio/ausente.
+    const originRaw = typeof row.origin === 'string' ? row.origin.trim() : '';
     return {
       playerName,
-      origin: asCoord(row.origin, `origem de ${playerName}`),
+      origin: originRaw === '' ? '' : asCoord(originRaw, `origem de ${playerName}`),
       target: asCoord(row.target, `alvo de ${playerName}`),
     };
   });

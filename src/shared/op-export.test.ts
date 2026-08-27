@@ -92,4 +92,18 @@ describe('parseOpExport fail-closed', () => {
       /coords do grupo "G"/i,
     );
   });
+
+  it('origem VAZIA é aceita (formato que o próprio export do app produz — arquivo da OP não guarda origem)', () => {
+    const base = JSON.parse(serializeOpExport(input)) as Record<string, unknown>;
+    const semOrigem = parseOpExport({
+      ...base,
+      distribution: [
+        { playerName: 'alfa', origin: '', target: '450|450' },
+        { playerName: 'bravo', target: '451|449' },
+      ],
+    });
+    expect(semOrigem.distribution[0]!.origin).toBe('');
+    expect(semOrigem.distribution[1]!.origin).toBe('');
+    expect(semOrigem.distribution[0]!.target).toBe('450|450');
+  });
 });

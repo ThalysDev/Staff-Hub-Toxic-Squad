@@ -23,6 +23,7 @@ import { OpArchiveService } from './services/op-archive-service';
 import { registerOpIpc } from './ipc-op';
 import { GroupsService } from './services/groups-service';
 import { registerGroupsIpc } from './ipc-groups';
+import { registerPreferencesIpc } from './ipc-preferences';
 import { UpdaterService } from './updater-service';
 import { registerSg5Ipc } from './ipc-sg5';
 import { scheduleTMinusAlerts } from './tminus';
@@ -366,8 +367,9 @@ registerIpc();
   const sg6Service = new Sg6Service(twSession, journal, settingsStore, queue as RequestQueue);
   registerSg6Ipc({ sg6: sg6Service, journal });
   registerSg7Ipc(new Sg7Service(twSession, journal, queue as RequestQueue, settingsStore));
-  registerOpIpc({ journal, opArchive: new OpArchiveService(journal) });
+  registerOpIpc({ journal, opArchive: new OpArchiveService(journal), world: () => twSession.getStatus().world ?? 'desconhecido' });
   registerGroupsIpc({ journal, groups: new GroupsService(journal) });
+  registerPreferencesIpc({ journal });
   createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

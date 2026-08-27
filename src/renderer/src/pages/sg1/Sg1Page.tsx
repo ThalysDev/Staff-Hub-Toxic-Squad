@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Copy, Map as MapIcon, Radar, Swords } from 'lucide-react';
 import { parseCoordList } from '@shared/coords';
 import type { QueueProgress } from '@shared/ipc-types';
@@ -16,6 +16,7 @@ import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
 import ToastViewport from '../../components/Toast';
 import { loadRelationsShared, useDiplomacyRelations } from '../../hooks/useDiplomacyRelations';
+import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
 import { MODULES } from '../../modules';
 import WorldMapCanvas, { MARKING_OPTIONS } from './WorldMapCanvas';
@@ -77,6 +78,58 @@ export default function Sg1Page() {
   const [enemyCoordsConsiderText, setEnemyCoordsConsiderText] = useState('');
   const [allyCoordsConsiderText, setAllyCoordsConsiderText] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Preferências do módulo: o formulário sobrevive a F5/reinício. `sepByEnter`
+  // fica de fora de propósito — é estado efêmero do resultado.
+  const { prefs, savePrefs, resetPrefs } = usePreferences<Record<string, string>>('sg1', {
+    ownTag: '',
+    enemyTagsText: '',
+    kDesiredText: '',
+    enemyCoordsDiscardText: '',
+    kEnemyDiscardText: '',
+    enemyCoordsConsiderText: '',
+    allyCoordsConsiderText: '',
+  });
+  const prefsHydrated = useRef(false);
+
+  // Hidratação (uma única vez, quando as preferências chegam): cada chave salva
+  // sobrescreve o estado — a preferência do usuário vence, inclusive sobre o
+  // prefill da diplomacia.
+  useEffect(() => {
+    if (prefs === null || prefsHydrated.current) return;
+    if (prefs.ownTag !== undefined) setOwnTag(prefs.ownTag);
+    if (prefs.enemyTagsText !== undefined) setEnemyTagsText(prefs.enemyTagsText);
+    if (prefs.kDesiredText !== undefined) setKDesiredText(prefs.kDesiredText);
+    if (prefs.enemyCoordsDiscardText !== undefined) setEnemyCoordsDiscardText(prefs.enemyCoordsDiscardText);
+    if (prefs.kEnemyDiscardText !== undefined) setKEnemyDiscardText(prefs.kEnemyDiscardText);
+    if (prefs.enemyCoordsConsiderText !== undefined) setEnemyCoordsConsiderText(prefs.enemyCoordsConsiderText);
+    if (prefs.allyCoordsConsiderText !== undefined) setAllyCoordsConsiderText(prefs.allyCoordsConsiderText);
+    prefsHydrated.current = true;
+  }, [prefs]);
+
+  // Persistência: qualquer mudança nos campos dispara um save com todas as
+  // chaves (o hook agrupa as chamadas com debounce de 800ms).
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({
+      ownTag,
+      enemyTagsText,
+      kDesiredText,
+      enemyCoordsDiscardText,
+      kEnemyDiscardText,
+      enemyCoordsConsiderText,
+      allyCoordsConsiderText,
+    });
+  }, [
+    savePrefs,
+    ownTag,
+    enemyTagsText,
+    kDesiredText,
+    enemyCoordsDiscardText,
+    kEnemyDiscardText,
+    enemyCoordsConsiderText,
+    allyCoordsConsiderText,
+  ]);
 
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<Sg1Result | null>(null);
@@ -170,6 +223,19 @@ export default function Sg1Page() {
     }
     setEnemyTagsText(relations.enemies.map((enemy) => enemy.tag).join(';'));
     push('ok', `Inimigas da diplomacia preenchidas: ${relations.enemies.length} tribo(s).`);
+  }
+
+  /** Volta o formulário aos padrões originais e apaga as preferências salvas. */
+  function resetFormDefaults(): void {
+    setOwnTag('');
+    setEnemyTagsText('');
+    setKDesiredText('');
+    setEnemyCoordsDiscardText('');
+    setKEnemyDiscardText('');
+    setEnemyCoordsConsiderText('');
+    setAllyCoordsConsiderText('');
+    setErrors({});
+    void resetPrefs();
   }
 
   async function copyCoords(bucket: Sg1BucketResult): Promise<void> {
@@ -423,6 +489,9 @@ export default function Sg1Page() {
                 {analyzing && progress !== null && (
                   <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
                 )}
+                <button type="button" className="btn btn-ghost btn-sm" onClick={resetFormDefaults}>
+                  Restaurar padrões do módulo
+                </button>
               </div>
             </form>
 

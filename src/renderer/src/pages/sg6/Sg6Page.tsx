@@ -1,26 +1,58 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { KeyRound, MapPin } from 'lucide-react';
 import type { Sg6MutationOutcome } from '@shared/ipc-types';
 import { parseCoordList } from '@shared/coords';
 import { previewMps, validateNicks, type MpPreviewEntry, type NickValidation } from '@shared/mp-preview';
+import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
 import PageHeader from '../../components/PageHeader';
 import ToastViewport from '../../components/Toast';
 import { MODULES } from '../../modules';
 
+/** Padrões dos campos persistidos do módulo sg6 (só ENTRADAS: textos da MP e
+ * caixas de entrada — resultados/tabelas de envio ficam voláteis). */
+const SG6_DEFAULTS = {
+  reserveCoords: '',
+  mpSubject: '',
+  mpBody: '',
+  mpEntriesText: '',
+};
+
 export default function Sg6Page() {
   const { toasts, push, dismiss } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg6');
-  const [reserveCoords, setReserveCoords] = useState('');
+  const { prefs, savePrefs, resetPrefs } = usePreferences('sg6', SG6_DEFAULTS);
+  const [reserveCoords, setReserveCoords] = useState(SG6_DEFAULTS.reserveCoords);
   const [reservePending, setReservePending] = useState<string[] | null>(null);
   const [reserveResults, setReserveResults] = useState<Sg6MutationOutcome[] | null>(null);
-  const [mpSubject, setMpSubject] = useState('');
-  const [mpBody, setMpBody] = useState('');
-  const [mpEntriesText, setMpEntriesText] = useState('');
+  const [mpSubject, setMpSubject] = useState(SG6_DEFAULTS.mpSubject);
+  const [mpBody, setMpBody] = useState(SG6_DEFAULTS.mpBody);
+  const [mpEntriesText, setMpEntriesText] = useState(SG6_DEFAULTS.mpEntriesText);
   const [mpPending, setMpPending] = useState<{ playerName: string; coords: string[]; horarios?: string[] }[] | null>(null);
   const [mpResults, setMpResults] = useState<Sg6MutationOutcome[] | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Preferências do módulo: formulários sobrevivem a F5/reinício.
+  const prefsHydrated = useRef(false);
+
+  // Hidratação (uma única vez, após prefs chegar do main): aplica só as chaves
+  // presentes, para não pisar em estado que o usuário já editou.
+  useEffect(() => {
+    if (prefs === null || prefsHydrated.current) return;
+    prefsHydrated.current = true;
+    if (typeof prefs.reserveCoords === 'string') setReserveCoords(prefs.reserveCoords);
+    if (typeof prefs.mpSubject === 'string') setMpSubject(prefs.mpSubject);
+    if (typeof prefs.mpBody === 'string') setMpBody(prefs.mpBody);
+    if (typeof prefs.mpEntriesText === 'string') setMpEntriesText(prefs.mpEntriesText);
+  }, [prefs]);
+
+  // Persistência com guard: só grava DEPOIS da hidratação — nunca sobrescreve o
+  // storage com os defaults vazios do primeiro render. savePrefs é debounced.
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ reserveCoords, mpSubject, mpBody, mpEntriesText });
+  }, [reserveCoords, mpSubject, mpBody, mpEntriesText, savePrefs]);
 
   // U5: validação dos nicks contra o dump do mundo (players), para o painel de
   // confirmação. Sem dump disponível, a validação fica best-effort (aviso).
@@ -127,6 +159,22 @@ export default function Sg6Page() {
         title={moduleInfo?.originalLabel ?? 'Reservas e MPs'}
         description="Reserva em massa no planejador da tribo e MPs personalizadas em cadeia, sempre com confirmação dupla."
       />
+
+      <div className="row">
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => {
+            setReserveCoords(SG6_DEFAULTS.reserveCoords);
+            setMpSubject(SG6_DEFAULTS.mpSubject);
+            setMpBody(SG6_DEFAULTS.mpBody);
+            setMpEntriesText(SG6_DEFAULTS.mpEntriesText);
+            void resetPrefs();
+          }}
+        >
+          Restaurar padrões do módulo
+        </button>
+      </div>
 
       <div className="callout callout--warn" role="note">
         <KeyRound size={18} className="callout-icon" aria-hidden="true" />
