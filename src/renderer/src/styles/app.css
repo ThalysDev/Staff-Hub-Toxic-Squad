@@ -2420,3 +2420,41 @@ kbd {
   white-space: nowrap;
   user-select: none;
 }
+
+/* SG_2 — chips de unidades do contador Full/Semi (premium). */
+.fs-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.fs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid rgba(61, 46, 28, 0.25);
+  border-radius: 999px;
+  background: rgba(255, 252, 242, 0.6);
+  font-size: 0.78rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.fs-chip input {
+  margin: 0;
+}
+
+.fs-chip--on {
+  border-color: #4f8f4a;
+  background: rgba(79, 143, 74, 0.16);
+  font-weight: 600;
+}
+
+.fs-ks {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}

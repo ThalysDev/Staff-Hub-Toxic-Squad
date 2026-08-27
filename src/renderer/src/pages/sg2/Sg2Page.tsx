@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ChevronDown,
@@ -30,7 +30,13 @@ import type { QueueProgress } from '@shared/ipc-types';
 //   export function playersSummary(result: Sg2FilterResult): string; // linhas "nick;qtde;coord coord"
 import { filterTroops, playersSummary } from '@shared/sg2-engine';
 import type { Sg2FilterResult, Sg2Filters, TroopSnapshot } from '@shared/sg2-engine';
-import { fullSemiByPlayer, formatFullSemi, type PlayerFullSemi } from '@shared/full-semi';
+import {
+  fullSemiReport,
+  formatFullSemiRows,
+  formatOriginsRows,
+  type FullSemiReport,
+  type FullSemiSortBy,
+} from '@shared/full-semi';
 import { UNITS, type UnitCounts, type UnitId } from '@shared/units';
 import { TW_UNIT_ICONS } from '../../assets';
 import EmptyState from '../../components/EmptyState';
@@ -72,6 +78,19 @@ function emptyUnitInputs(): Record<UnitId, string> {
   return Object.fromEntries(FILTER_UNIT_ORDER.map((id) => [id, ''])) as Record<UnitId, string>;
 }
 
+/** Unidades do conjunto OFENSIVO por padrão do contador Full/Semi. */
+const OFFENSIVE_UNIT_IDS: ReadonlySet<string> = new Set(['axe', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'snob']);
+
+/** Ks 0-99 de um texto ("55 77" → [55, 77]). */
+function parseKs(text: string): number[] {
+  return [...new Set((text.match(/\d{1,2}/g) ?? []).map(Number).filter((k) => k >= 0 && k <= 99))];
+}
+
+/** Nicks de um texto colado (espaço/;/quebra de linha como separadores). */
+function parseNames(text: string): string[] {
+  return text.split(/[\s;]+/).map((name) => name.trim()).filter((name) => name.length > 0);
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Falha de comunicação com o processo principal.';
 }
@@ -111,12 +130,20 @@ export default function Sg2Page() {
   const [coordsText, setCoordsText] = useState('');
   const [kText, setKText] = useState('');
   const [kMode, setKMode] = useState<'incluir' | 'excluir'>('incluir');
-  // ---- Contador Full/Semi + Grupos ----
+  // ---- Contador Full/Semi (relatório premium) + Grupos ----
   const [fullPopText, setFullPopText] = useState('18000');
   const [semiPopText, setSemiPopText] = useState('12000');
-  const [fullSemiResult, setFullSemiResult] = useState<PlayerFullSemi[] | null>(null);
-  const [fullSemiText, setFullSemiText] = useState('');
-  const [fullSemiUnknown, setFullSemiUnknown] = useState<string[]>([]);
+  const [minFullsText, setMinFullsText] = useState('0');
+  const [minSemisText, setMinSemisText] = useState('0');
+  const [fsSort, setFsSort] = useState<FullSemiSortBy>('fulls');
+  const [fsUnitMode, setFsUnitMode] = useState<'ofensivas' | 'todas' | 'custom'>('ofensivas');
+  const [fsCustomUnits, setFsCustomUnits] = useState<Set<string>>(new Set());
+  const [fsKText, setFsKText] = useState('');
+  const [fsKMode, setFsKMode] = useState<'incluir' | 'excluir'>('incluir');
+  const [fsPlayersText, setFsPlayersText] = useState('');
+  const [fsPlayersMode, setFsPlayersMode] = useState<'incluir' | 'excluir'>('excluir');
+  const [report, setReport] = useState<FullSemiReport | null>(null);
+  const [fsExpanded, setFsExpanded] = useState<Set<number>>(new Set());
   const [fullSemiBusy, setFullSemiBusy] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [groupPapel, setGroupPapel] = useState<'origem' | 'alvo'>('origem');
@@ -124,6 +151,29 @@ export default function Sg2Page() {
   const [groupBusy, setGroupBusy] = useState(false);
   const unitPopsRef = useRef<Record<string, number> | null>(null);
   const session = useSessionStatus();
+
+  /** Unidades presentes no snapshot (ordem do formulário, depois as demais). */
+  const snapshotUnitIds = useMemo<string[]>(() => {
+    if (snapshot === null) return [];
+    const present = new Set<string>();
+    for (const entry of snapshot.entries) {
+      for (const [unit, count] of Object.entries(entry.units)) {
+        if (count > 0) present.add(unit);
+      }
+    }
+    const ordered: string[] = FILTER_UNIT_ORDER.filter((id) => present.has(id));
+    for (const unit of [...present].sort((a, b) => a.localeCompare(b, 'pt-BR'))) {
+      if (!ordered.includes(unit)) ordered.push(unit);
+    }
+    return ordered;
+  }, [snapshot]);
+
+  /** IDs contabilizados no modo atual (undefined = todas as unidades). */
+  function fsUnitIds(): string[] | undefined {
+    if (fsUnitMode === 'todas') return undefined;
+    if (fsUnitMode === 'ofensivas') return snapshotUnitIds.filter((id) => OFFENSIVE_UNIT_IDS.has(id));
+    return fsCustomUnits.size > 0 ? [...fsCustomUnits] : undefined;
+  }
   const [minXText, setMinXText] = useState('');
   const [maxXText, setMaxXText] = useState('');
   const [minYText, setMinYText] = useState('');
@@ -304,16 +354,25 @@ export default function Sg2Page() {
       if (unitPopsRef.current === null) {
         unitPopsRef.current = await window.staffhub.world.unitPops();
       }
-      const { players, unknownUnits } = fullSemiByPlayer({
-        entries: resultEntries(),
-        fullPop,
-        semiPop,
-        popByUnit: unitPopsRef.current ?? {},
-      });
-      setFullSemiResult(players);
-      setFullSemiText(formatFullSemi(players));
-      setFullSemiUnknown(unknownUnits);
-      push('ok', `Contagem pronta: ${players.length} jogador(es).`);
+      const ks = parseKs(fsKText);
+      const names = parseNames(fsPlayersText);
+      const units = fsUnitIds();
+      const next = fullSemiReport(
+        { entries: resultEntries(), popByUnit: unitPopsRef.current ?? {} },
+        {
+          fullPop,
+          semiPop,
+          ...(units !== undefined ? { unitIds: units } : {}),
+          ...(ks.length > 0 ? { kFilter: { ks, mode: fsKMode } } : {}),
+          ...(names.length > 0 ? { playerFilter: { names, mode: fsPlayersMode } } : {}),
+          sortBy: fsSort,
+          minFulls: Number.isFinite(Number(minFullsText)) ? Math.max(0, Math.round(Number(minFullsText))) : 0,
+          minSemis: Number.isFinite(Number(minSemisText)) ? Math.max(0, Math.round(Number(minSemisText))) : 0,
+        },
+      );
+      setReport(next);
+      setFsExpanded(new Set());
+      push('ok', `Contagem pronta: ${next.totals.players} jogador(es), ${next.totals.fulls} full(s), ${next.totals.semis} semi(s).`);
     } catch (error) {
       const message = errorMessage(error);
       push('error', message);
@@ -328,9 +387,13 @@ export default function Sg2Page() {
     const minimums = buildFilters().unitMinimums ?? {};
     const minDesc = Object.entries(minimums).map(([unit, min]) => `${min}+ ${UNITS[unit as UnitId]?.name ?? unit}`).join(', ');
     if (minDesc !== '') parts.push(mode === 'has' ? `possui ${minDesc}` : `não possui ${minDesc}`);
-    const ks = (kText.match(/\d{1,2}/g) ?? []).join(',');
-    if (ks !== '') parts.push(`K ${kMode} ${ks}`);
+    const ks = parseKs(kText);
+    if (ks.length > 0) parts.push(`K consulta ${kMode} ${ks.join(',')}`);
     if (coordsText.trim() !== '') parts.push('lista de coordenadas');
+    const fsKs = parseKs(fsKText);
+    if (fsKs.length > 0) parts.push(`K contador ${fsKMode} ${fsKs.join(',')}`);
+    const units = fsUnitIds();
+    if (units !== undefined) parts.push(`unidades: ${units.map((id) => UNITS[id as UnitId]?.name ?? id).join('+')}`);
     parts.push(`FULL≥${fullPopText}, SEMI≥${semiPopText}`);
     return parts.join('; ');
   }
@@ -349,22 +412,27 @@ export default function Sg2Page() {
     }
     setGroupBusy(true);
     try {
-      const fullSemiPorNick = new Map((fullSemiResult ?? []).map((player) => [player.playerName, player]));
-      const perPlayer = result.players.map((player) => {
-        const contagem = fullSemiPorNick.get(player.playerName);
-        return {
-          playerName: player.playerName,
-          fulls: contagem?.fulls ?? 0,
-          semis: contagem?.semis ?? 0,
-          coords: contagem?.coords ?? player.coords,
-        };
-      });
+      // Sem contador rodado: agrupa sem fulls/semis (0/0) com as coords do
+      // resultado; com contador: congelam as contagens e as coords full→semi.
+      const perPlayer = report !== null
+        ? report.players.map((player) => ({
+            playerName: player.playerName,
+            fulls: player.fulls,
+            semis: player.semis,
+            coords: player.villages.map((village) => village.coord),
+          }))
+        : result.players.map((player) => ({
+            playerName: player.playerName,
+            fulls: 0,
+            semis: 0,
+            coords: player.coords,
+          }));
       const entry = await window.staffhub.groups.save({
         nome,
         mundo,
         autor: groupAuthor.trim() === '' ? (session.player ?? 'staff') : groupAuthor.trim(),
         papel: groupPapel,
-        coords: result.players.flatMap((player) => player.coords),
+        coords: perPlayer.flatMap((player) => player.coords),
         perPlayer,
         criterio: criterioText(),
       });
@@ -768,40 +836,241 @@ export default function Sg2Page() {
                 <div className="card-body">
                   <div className="sg4-params">
                     <label className="field">
-                      <span className="field-label">Pop. ofensiva mínima FULL</span>
-                      <input className="input" type="number" min={1} value={fullPopText} aria-label="População ofensiva mínima para FULL" onChange={(event) => setFullPopText(event.target.value)} />
+                      <span className="field-label">População mínima FULL</span>
+                      <input className="input" type="number" min={1} value={fullPopText} aria-label="População mínima para FULL" onChange={(event) => setFullPopText(event.target.value)} />
                     </label>
                     <label className="field">
-                      <span className="field-label">Pop. ofensiva mínima SEMI</span>
-                      <input className="input" type="number" min={1} value={semiPopText} aria-label="População ofensiva mínima para SEMI" onChange={(event) => setSemiPopText(event.target.value)} />
+                      <span className="field-label">População mínima SEMI</span>
+                      <input className="input" type="number" min={1} value={semiPopText} aria-label="População mínima para SEMI" onChange={(event) => setSemiPopText(event.target.value)} />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Mín. de fulls por jogador</span>
+                      <input className="input" type="number" min={0} value={minFullsText} aria-label="Mínimo de aldeias full por jogador" onChange={(event) => setMinFullsText(event.target.value)} />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Mín. de semis por jogador</span>
+                      <input className="input" type="number" min={0} value={minSemisText} aria-label="Mínimo de aldeias semi por jogador" onChange={(event) => setMinSemisText(event.target.value)} />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Ordenar por</span>
+                      <select className="select" value={fsSort} aria-label="Ordenação do contador" onChange={(event) => setFsSort(event.target.value as FullSemiSortBy)}>
+                        <option value="fulls">Mais fulls</option>
+                        <option value="semis">Mais semis</option>
+                        <option value="total">Mais aldeias (full+semi)</option>
+                        <option value="nick">Nick (A–Z)</option>
+                      </select>
                     </label>
                     <div className="field">
                       <span className="field-label">Contagem</span>
-                      <button type="button" className="btn" onClick={runFullSemi} disabled={fullSemiBusy}>
+                      <button type="button" className="btn" onClick={() => void runFullSemi()} disabled={fullSemiBusy}>
                         {fullSemiBusy ? <><span className="btn-spinner" aria-hidden="true" /> Contando…</> : 'Contar Full/Semi'}
                       </button>
                     </div>
                   </div>
-                  {fullSemiResult !== null && (
+
+                  <div className="field" style={{ marginTop: 12 }}>
+                    <span className="field-label">Unidades contabilizadas na população</span>
+                    <div className="sg2-radio-row" role="radiogroup" aria-label="Conjunto de unidades contabilizadas" style={{ marginBottom: 6 }}>
+                      <label className="checkbox-field">
+                        <input type="radio" name="fs-units-mode" checked={fsUnitMode === 'ofensivas'} onChange={() => setFsUnitMode('ofensivas')} />
+                        ofensivas do mundo
+                      </label>
+                      <label className="checkbox-field">
+                        <input type="radio" name="fs-units-mode" checked={fsUnitMode === 'todas'} onChange={() => setFsUnitMode('todas')} />
+                        todas as unidades
+                      </label>
+                      <label className="checkbox-field">
+                        <input type="radio" name="fs-units-mode" checked={fsUnitMode === 'custom'} onChange={() => { setFsUnitMode('custom'); if (fsCustomUnits.size === 0) setFsCustomUnits(new Set(snapshotUnitIds.filter((id) => OFFENSIVE_UNIT_IDS.has(id)))); }} />
+                        personalizado
+                      </label>
+                    </div>
+                    {fsUnitMode === 'custom' && (
+                      <div className="fs-chips">
+                        {snapshotUnitIds.map((id) => {
+                          const on = fsCustomUnits.has(id);
+                          return (
+                            <label key={id} className={`fs-chip${on ? ' fs-chip--on' : ''}`}>
+                              <input
+                                type="checkbox"
+                                checked={on}
+                                aria-label={`Contabilizar ${UNITS[id as UnitId]?.name ?? id}`}
+                                onChange={() => {
+                                  setFsCustomUnits((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(id)) next.delete(id);
+                                    else next.add(id);
+                                    return next;
+                                  });
+                                }}
+                              />
+                              {TW_UNIT_ICONS[id as UnitId] !== undefined && <img src={TW_UNIT_ICONS[id as UnitId]} alt="" width={16} height={16} />}
+                              {UNITS[id as UnitId]?.name ?? id}
+                            </label>
+                          );
+                        })}
+                        <span className="muted">{fsCustomUnits.size === 0 ? 'nenhuma marcada = todas contam' : `${fsCustomUnits.size} marcada(s)`}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="sg4-params">
+                    <label className="field">
+                      <span className="field-label">Continentes K (ex.: 55 77)</span>
+                      <input className="input" placeholder="55 77" value={fsKText} aria-label="Continentes do contador" onChange={(event) => setFsKText(event.target.value)} />
+                      <div className="sg2-radio-row" role="radiogroup" aria-label="Modo do K do contador">
+                        <label className="checkbox-field">
+                          <input type="radio" name="fs-kmode" checked={fsKMode === 'incluir'} onChange={() => setFsKMode('incluir')} />
+                          incluir apenas
+                        </label>
+                        <label className="checkbox-field">
+                          <input type="radio" name="fs-kmode" checked={fsKMode === 'excluir'} onChange={() => setFsKMode('excluir')} />
+                          excluir
+                        </label>
+                      </div>
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Jogadores (nicks, um por linha ou espaço)</span>
+                      <textarea className="textarea" rows={2} placeholder="nick1 nick2" value={fsPlayersText} aria-label="Filtro por jogadores do contador" onChange={(event) => setFsPlayersText(event.target.value)} />
+                      <div className="sg2-radio-row" role="radiogroup" aria-label="Modo do filtro por jogadores">
+                        <label className="checkbox-field">
+                          <input type="radio" name="fs-pmode" checked={fsPlayersMode === 'incluir'} onChange={() => setFsPlayersMode('incluir')} />
+                          incluir apenas
+                        </label>
+                        <label className="checkbox-field">
+                          <input type="radio" name="fs-pmode" checked={fsPlayersMode === 'excluir'} onChange={() => setFsPlayersMode('excluir')} />
+                          excluir
+                        </label>
+                      </div>
+                    </label>
+                  </div>
+
+                  {report !== null && (
                     <>
-                      {fullSemiUnknown.length > 0 && (
+                      {report.unknownUnits.length > 0 && (
                         <div className="callout callout--warn" role="alert">
                           <AlertTriangle size={16} className="callout-icon" aria-hidden="true" />
                           <span>
-                            Unidades sem população no unit-info do mundo ({fullSemiUnknown.join(', ')}) — as contagens podem subestimar.
+                            Unidades sem população no unit-info do mundo ({report.unknownUnits.join(', ')}) — as contagens podem subestimar.
                           </span>
                         </div>
                       )}
-                      <label className="field">
-                        <span className="field-label">nick;fulls;semis;coords ({fullSemiResult.length} jogador(es))</span>
-                        <textarea className="textarea" rows={Math.min(10, fullSemiResult.length + 1)} readOnly value={fullSemiText} aria-label="Contagem Full/Semi por jogador" />
-                        <div>
-                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyText(fullSemiText)}>
-                            <Copy size={14} aria-hidden="true" />
-                            Copiar contagem
-                          </button>
-                        </div>
-                      </label>
+                      <div className="stat-row" style={{ marginTop: 12 }}>
+                        <StatBlock label="Jogadores" icon={Users} value={report.totals.players} delta="após os filtros do contador" />
+                        <StatBlock label="Fulls" icon={Swords} tone="ok" value={report.totals.fulls} delta={`pop ≥ ${fullPopText}`} />
+                        <StatBlock label="Semis" icon={ShieldCheck} tone="gold" value={report.totals.semis} delta={`pop ≥ ${semiPopText}`} />
+                        <StatBlock label="Aldeias" icon={Layers} value={report.totals.villages} delta="full + semi" />
+                      </div>
+
+                      <div className="table-wrap" style={{ marginTop: 12 }}>
+                        <table className="table">
+                          <thead>
+                            <tr>
+                              <th scope="col">Jogador</th>
+                              <th scope="col" className="cell-num">Fulls</th>
+                              <th scope="col" className="cell-num">Semis</th>
+                              <th scope="col" className="cell-num">Total</th>
+                              <th scope="col">Continentes</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {report.players.map((player, index) => {
+                              const isOpen = fsExpanded.has(index);
+                              return (
+                                <Fragment key={`${player.playerName}-${index}`}>
+                                  <tr>
+                                    <td>
+                                      <button
+                                        type="button"
+                                        className="sg2-row-toggle"
+                                        aria-expanded={isOpen}
+                                        aria-controls={`fs-drilldown-${index}`}
+                                        onClick={() => {
+                                          setFsExpanded((prev) => {
+                                            const next = new Set(prev);
+                                            if (next.has(index)) next.delete(index);
+                                            else next.add(index);
+                                            return next;
+                                          });
+                                        }}
+                                      >
+                                        {isOpen ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+                                        <span>{player.playerName}</span>
+                                      </button>
+                                    </td>
+                                    <td className="cell-num tabular"><strong>{player.fulls}</strong></td>
+                                    <td className="cell-num tabular">{player.semis}</td>
+                                    <td className="cell-num tabular muted">{player.fulls + player.semis}</td>
+                                    <td>
+                                      <span className="fs-ks">
+                                        {player.byK.map((k) => (
+                                          <span key={k.k} className="pill pill--muted cell-nowrap" title={`K${k.k}: ${k.fulls} full(s), ${k.semis} semi(s)`}>
+                                            K{k.k} · {k.fulls}F{k.semis > 0 ? `/${k.semis}S` : ''}
+                                          </span>
+                                        ))}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                  {isOpen && (
+                                    <tr id={`fs-drilldown-${index}`} className="sg2-drilldown">
+                                      <td colSpan={5} className="sg2-coords">
+                                        <div className="table-wrap">
+                                          <table className="table">
+                                            <thead>
+                                              <tr>
+                                                <th scope="col">Coordenada</th>
+                                                <th scope="col" className="cell-num">K</th>
+                                                <th scope="col" className="cell-num">População</th>
+                                                <th scope="col">Nível</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {player.villages.map((village) => (
+                                                <tr key={village.coord}>
+                                                  <td className="cell-nowrap">{village.coord}</td>
+                                                  <td className="cell-num">K{village.k}</td>
+                                                  <td className="cell-num tabular">{village.pop.toLocaleString('pt-BR')}</td>
+                                                  <td>{village.tier === 'full' ? <span className="ok">FULL</span> : <span className="text-warn">SEMI</span>}</td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="row" style={{ flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyText(formatFullSemiRows(report.players))}>
+                          <Copy size={14} aria-hidden="true" />
+                          Copiar contagem (nick;fulls;semis;coords)
+                        </button>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyText(formatOriginsRows(report.players))}>
+                          <Copy size={14} aria-hidden="true" />
+                          Copiar origens SG_4 (nick;fulls;coords)
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => void copyText(report.players.flatMap((player) => player.villages.filter((village) => village.tier === 'full').map((village) => village.coord)).join('\n'))}
+                        >
+                          <Copy size={14} aria-hidden="true" />
+                          Copiar alvos FULL (um por linha)
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => void copyText(report.players.flatMap((player) => player.villages.map((village) => village.coord)).join('\n'))}
+                        >
+                          <Copy size={14} aria-hidden="true" />
+                          Copiar alvos FULL+SEMI (um por linha)
+                        </button>
+                      </div>
                     </>
                   )}
 
@@ -882,11 +1151,16 @@ export default function Sg2Page() {
                       <tr>
                         <th scope="col">Jogador</th>
                         <th scope="col" className="cell-num">Aldeias</th>
+                        {report !== null && (<>
+                          <th scope="col" className="cell-num" title="Aldeias FULL no contador atual">Fulls</th>
+                          <th scope="col" className="cell-num" title="Aldeias SEMI no contador atual">Semis</th>
+                        </>)}
                       </tr>
                     </thead>
                     <tbody>
                       {result.players.map((player, index) => {
                         const isOpen = expanded.has(index);
+                        const fs = report?.players.find((p) => p.playerName === player.playerName);
                         return (
                           <Fragment key={`${player.playerName}-${index}`}>
                             <tr>
@@ -907,10 +1181,14 @@ export default function Sg2Page() {
                                 </button>
                               </td>
                               <td className="cell-num tabular">{player.villageCount}</td>
+                              {report !== null && (<>
+                                <td className="cell-num tabular">{fs !== undefined ? <strong>{fs.fulls}</strong> : <span className="muted">—</span>}</td>
+                                <td className="cell-num tabular">{fs !== undefined ? fs.semis : <span className="muted">—</span>}</td>
+                              </>)}
                             </tr>
                             {isOpen && (
                               <tr id={`sg2-drilldown-${index}`} className="sg2-drilldown">
-                                <td colSpan={2} className="sg2-coords">
+                                <td colSpan={report !== null ? 4 : 2} className="sg2-coords">
                                   {player.coords.length > 0
                                     ? player.coords.join(' ')
                                     : 'Sem coordenadas'}
