@@ -400,21 +400,34 @@ export class UpdaterService {
       throw new Error('Script de atualização sumiu da pasta temporária — baixe de novo.');
     }
     await this.journal.append('system', 'update-apply', `saindo para aplicar a versão ${version}`, false);
-    debugLog(`REINICIAR: spawn powershell.exe -File "${scriptPath}" e sair`);
-    // Detached: o script PowerShell sobrevive à saída do app (é ele quem troca
-    // as pastas). -ExecutionPolicy Bypass para scripts gerados localmente.
-    // cwd FORA da pasta do app: o Windows não renomeia a pasta que é CWD de
-    // um processo — herdar a pasta do app travava o Rename da FASE 2.
-    spawn('powershell.exe', [
+    debugLog(`REINICIAR: spawn cmd /c start powershell -File "${scriptPath}" e sair`);
+    // CRÍTICO: powershell spawnado como filho detached DIRETO morre quando o
+    // app sai (comprovado por harness — spawn-kill: filho não roda NADA, sem
+    // nem erro de spawn). O `start` do cmd.exe cria o processo num contexto
+    // independente que sobrevive à morte do pai — único caminho que funciona.
+    // /min + -WindowStyle Hidden: o console novo não pisca na tela do usuário.
+    const updatesDir = join(app.getPath('userData'), 'updates');
+    const child = spawn('cmd.exe', [
+      '/c', 'start', '', '/min', 'powershell.exe',
       '-NoProfile',
       '-ExecutionPolicy', 'Bypass',
+      '-WindowStyle', 'Hidden',
       '-File', scriptPath,
     ], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
-      cwd: join(app.getPath('userData'), 'updates'),
-    }).unref();
+      // cwd FORA da pasta do app: o Windows não renomeia a pasta que é CWD de
+      // um processo — herdar a pasta do app travava o Rename da FASE 2.
+      cwd: updatesDir,
+    });
+    // Falha de spawn sempre deixa rastro (journal + debug) — nunca silêncio.
+    child.on('error', (error) => {
+      const message = `Falha ao iniciar o script de troca: ${error.message}`;
+      debugLog(`REINICIAR-ERRO: ${message}`);
+      void this.journal.append('system', 'update-error', message, false).catch(() => undefined);
+    });
+    child.unref();
     for (const win of BrowserWindow.getAllWindows()) win.destroy();
     app.quit();
   }

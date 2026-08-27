@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync } from 'node:fs';
+import { copyFileSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { promises as fs } from 'node:fs';
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
@@ -28,6 +28,15 @@ import { registerSg5Ipc } from './ipc-sg5';
 import { scheduleTMinusAlerts } from './tminus';
 import { DEFAULT_SETTINGS, type AppSettings, type QueueProgress } from '@shared/ipc-types';
 
+// Gancho E2E do atualizador (scripts/e2e-update.mjs): isola o userData ANTES de
+// QUALQUER instância — JsonStore/TwSessionManager resolvem caminhos no
+// CONSTRUTOR; depois delas já seria tarde (e o teste tocaria os dados reais).
+// Sem a variável no ambiente, este bloco é inerte — produção intacta.
+const E2E_USERDATA = process.env.SHS_E2E_USERDATA;
+if (E2E_USERDATA !== undefined && E2E_USERDATA !== '') {
+  app.setPath('userData', E2E_USERDATA);
+}
+
 const twSession = new TwSessionManager();
 const journal = new Journal();
 const settingsStore = new JsonStore<AppSettings>('settings', DEFAULT_SETTINGS);
@@ -36,6 +45,51 @@ const sg1Service = new Sg1Service(worldData);
 
 let mainWindow: BrowserWindow | null = null;
 let queue: RequestQueue | null = null;
+let updaterService: UpdaterService | null = null;
+
+/**
+ * Gancho E2E do atualizador: com SHS_E2E_UPDATE_URL + SHS_E2E_MARKER_DIR no
+ * ambiente, o app baixa + prepara + reinicia sozinho contra um canal local.
+ * Antes de sair grava e2e-prepare.json no markerDir; o app RELANÇADO pela
+ * troca vê o marcador (o env é herdado, não dá para diferenciar fase por var)
+ * e grava e2e-success.txt — provar que TROCA + RELANÇAMENTO funcionaram.
+ */
+async function runUpdaterE2eHook(): Promise<void> {
+  const url = process.env.SHS_E2E_UPDATE_URL;
+  const markerDir = process.env.SHS_E2E_MARKER_DIR;
+  if (url === undefined || markerDir === undefined || updaterService === null) return;
+  const phase2 = existsSync(join(markerDir, 'e2e-prepare.json'));
+  try {
+    if (phase2) {
+      writeFileSync(
+        join(markerDir, 'e2e-success.txt'),
+        `relancado em ${new Date().toISOString()} — versao ${app.getVersion()}\n`,
+        'utf8',
+      );
+      console.log(`[SHS-E2E] PHASE2: app relancado pela troca — v${app.getVersion()}`);
+      setTimeout(() => app.exit(0), 2000);
+      return;
+    }
+    console.log(`[SHS-E2E] downloadAndPrepare de ${url}`);
+    const resultado = await updaterService.downloadAndPrepare();
+    console.log(`[SHS-E2E] preparo: ${resultado.ok ? 'OK' : 'FALHA'} — ${resultado.detail}`);
+    writeFileSync(join(markerDir, 'e2e-prepare.json'), JSON.stringify(resultado, null, 1), 'utf8');
+    if (!resultado.ok) {
+      writeFileSync(join(markerDir, 'e2e-failure.txt'), resultado.detail, 'utf8');
+      return;
+    }
+    console.log('[SHS-E2E] restartToUpdate — saindo para a troca');
+    await updaterService.restartToUpdate();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[SHS-E2E] erro: ${message}`);
+    try {
+      writeFileSync(join(markerDir, 'e2e-failure.txt'), message, 'utf8');
+    } catch {
+      // best-effort
+    }
+  }
+}
 
 /**
  * Sanitiza settings na fronteira do main: valores inválidos (arquivo editado,
@@ -237,6 +291,7 @@ function registerIpc(): void {
 
   // Atualização pelo canal oficial (VPS): handlers finos sobre o UpdaterService.
   const updater = new UpdaterService(settingsStore, journal, (progress) => send('updater:progress', progress));
+  updaterService = updater;
   ipcMain.handle('updater:check', async () => updater.check());
   ipcMain.handle('updater:download-prepare', async () => updater.downloadAndPrepare());
   ipcMain.handle('updater:list-versions', async () => updater.listAvailableVersions());
@@ -317,6 +372,7 @@ registerIpc();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
+  void runUpdaterE2eHook();
 });
 
 // Fail-closed: exceção não tratada no main encerra o app — nunca seguir rodando
