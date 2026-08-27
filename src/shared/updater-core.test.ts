@@ -195,4 +195,110 @@ describe('buildSwapScript (PowerShell .ps1)', () => {
     expect(() => buildSwapScript({ ...SWAP_BASE, stamp: 'a"b' })).toThrow(/proibido/);
     expect(() => buildSwapScript({ ...SWAP_BASE, maxWaitSeconds: -1 })).toThrow(/maxWaitSeconds/);
   });
+
+  it('muda de pasta ANTES de tudo (Set-Location + SetCurrentDirectory): o Windows não renomeia a pasta que é CWD de um processo', () => {
+    // Regressão do bug real: o powershell herda a pasta do app como CWD e o
+    // Rename-Item da FASE 2 falhava com "está em uso" — app fechava sem trocar.
+    // Set-Location sozinho NÃO libera o handle: precisa do SetCurrentDirectory
+    // do .NET. Alvo = PAI da pasta do app (longo/Unicode; $env:TEMP pode vir
+    // curto 8.3, que o -LiteralPath não resolve).
+    const script = buildSwapScript(SWAP_BASE);
+    expect(script).toContain('Set-Location -LiteralPath (Split-Path $AppDir -Parent)');
+    expect(script).toContain('[System.Environment]::CurrentDirectory = (Split-Path $AppDir -Parent)');
+    const posicaoSet = script.indexOf('[System.Environment]::CurrentDirectory');
+    const posicaoRename = script.indexOf('Rename-Item -LiteralPath $AppDir');
+    expect(posicaoRename).toBeGreaterThan(posicaoSet);
+  });
+
+  it('condições booleanas usam -not (nunca o minus unário acidental)', () => {
+    expect(buildSwapScript(SWAP_BASE)).not.toContain('-(Test-Path');
+    expect(buildSwapScript(SWAP_BASE)).toContain('-not (Test-Path');
+  });
+
+  it('registra o progresso em swap-debug.log (evidência quando stdio é ignore)', () => {
+    const script = buildSwapScript(SWAP_BASE);
+    expect(script).toContain("'swap-debug.log'");
+    expect(script).toContain('Log "FASE 1-OK');
+    expect(script).toContain('Log "FASE 2-OK');
+  });
+
+  it('falha de relançamento é logada e NÃO derruba a troca já feita (exit 3)', () => {
+    const script = buildSwapScript(SWAP_BASE);
+    expect(script).toContain('FALHA ao relancar');
+    expect(script).toContain('exit 3');
+  });
+
+  it('falha na troca tenta reabrir a versão antiga (usuário nunca fica sem app)', () => {
+    const script = buildSwapScript(SWAP_BASE);
+    expect(script).toContain('Start-Process -FilePath (Join-Path $AppDir $ExeName)');
+  });
+});
+
+describe.skipIf(process.platform !== 'win32')('buildSwapScript — funcional (executa o PowerShell de verdade)', () => {
+  it('troca as pastas MESMO com cwd herdado da pasta do app, e loga as fases', async () => {
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const execFileAsync = promisify(execFile);
+
+    // Sandbox sob o cwd (caminho LONGO, como app.getPath('exe') na produção):
+    // os.tmpdir() devolve forma curta 8.3 (C:\Users\USURIO~2) quando o nome do
+    // usuário tem acento — Set-Location -LiteralPath não resolve short names.
+    const raiz = fs.mkdtempSync(path.join(process.cwd(), '.shb-swap-test-'));
+    try {
+      // Sandbox: app "antigo" (com o marcador velho) + staging da "nova".
+      const appDir = path.join(raiz, 'Staff Hub Toxic Squad-win32-x64');
+      const updatesDir = path.join(raiz, 'updates');
+      const stagedDir = path.join(updatesDir, '0.99.9', 'Staff Hub Toxic Squad-win32-x64');
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.mkdirSync(stagedDir, { recursive: true });
+      fs.writeFileSync(path.join(appDir, 'marker-old.txt'), 'velho');
+      fs.writeFileSync(path.join(stagedDir, 'marker-new.txt'), 'novo');
+
+      // PID de um processo JÁ MORTO (FASE 1 passa na hora).
+      const dead = (await import('node:child_process')).spawn('cmd.exe', ['/c', 'exit'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      const pid = dead.pid ?? 0;
+      await new Promise<void>((resolve) => dead.on('exit', () => resolve()));
+      expect(pid).toBeGreaterThan(0);
+
+      // exe proposital INEXISTENTE no staging: FASE 3 falha controlada (exit 3)
+      // sem abrir janela nenhuma — a troca em si precisa ter acontecido.
+      const script = buildSwapScript({
+        pid,
+        appDir,
+        stagedDir,
+        exeName: 'exe-que-nao-existe.exe',
+        stamp: 'functest',
+      });
+      const scriptPath = path.join(raiz, 'swap-test.ps1');
+      fs.writeFileSync(scriptPath, script, 'utf8');
+
+      // cwd = a PRÓPRIA pasta do app: condição exata do bug de produção.
+      await execFileAsync(
+        'powershell.exe',
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+        { cwd: appDir, windowsHide: true, timeout: 30_000 },
+      ).catch((error: { code?: number | string; stderr?: string }) => {
+        // exit 3 é o desfecho esperado (relançamento falha no exe inexistente).
+        if (String(error.code) !== '3') console.error('powershell stderr:', error.stderr);
+        expect(String(error.code)).toBe('3');
+      });
+
+      // A troca aconteceu: pasta do app agora tem o conteúdo do staging.
+      expect(fs.existsSync(path.join(appDir, 'marker-new.txt'))).toBe(true);
+      expect(fs.existsSync(path.join(appDir, 'marker-old.txt'))).toBe(false);
+      // Backup preservado (FASE 4 não roda após falha de relançamento).
+      expect(fs.existsSync(path.join(raiz, 'shb-old-functest'))).toBe(true);
+      // Evidência no log.
+      const log = fs.readFileSync(path.join(updatesDir, 'swap-debug.log'), 'utf8');
+      expect(log).toContain('FASE 2-OK');
+      expect(log).toContain('FALHA ao relancar');
+    } finally {
+      fs.rmSync(raiz, { recursive: true, force: true });
+    }
+  });
 });

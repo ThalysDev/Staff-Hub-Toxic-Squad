@@ -1,6 +1,6 @@
 // Núcleo PURO do sistema de atualização do app portable (sem rede, sem fs, sem DOM).
 // Fluxo real: baixa zip novo → valida manifesto → extrai em userData/updates/<ver>/
-// → gera script .cmd externo que espera o processo sair, troca as pastas e relança.
+// → gera script .ps1 externo que espera o processo sair, troca as pastas e relança.
 
 /** Manifesto de atualização publicado pelo canal de releases. */
 export interface UpdateManifest {
@@ -78,11 +78,9 @@ export interface SwapScriptInput {
 }
 
 const DEFAULT_MAX_WAIT_SECONDS = 120;
-// Caracteres proibidos em caminhos embutidos no .cmd: quebrariam as linhas/aspas do script.
+// Caracteres proibidos em caminhos embutidos no script: quebrariam as linhas/
+// here-strings do .ps1. Acentos são OK (PowerShell lê Unicode com o BOM UTF-8).
 const CARACTERES_PROIBIDOS_RE = /["\r\n\0]/;
-// O cmd.exe lê o .cmd no CODEPAGE OEM, não em UTF-8 — acentos no caminho
-// (ex.: C:\Users\Usuário) viram mojibake e o ren/move procuram pasta
-// inexistente. Caminhos no script devem ser ASCII (use o path curto 8.3).
 
 function exigir(condicao: boolean, mensagem: string): void {
   if (!condicao) throw new Error(mensagem);
@@ -121,7 +119,7 @@ export function buildSwapScript(input: SwapScriptInput): string {
   const linhas = [
     '# Staff Hub Toxic Squad — script de troca de versão (PowerShell/Unicode)',
     '# Fases: 1) esperar o app sair  2) trocar pastas  3) relançar  4) limpeza.',
-    '# Falha = NÃO toca nas pastas (fail-closed).',
+    '# Falha = NÃO toca nas pastas (fail-closed) e tenta reabrir a versão antiga.',
     "$ErrorActionPreference = 'Stop'",
     // here-strings: caminhos literais, sem interpolação, aceitam acentos/espaços
     `$AppDir = @'`,
@@ -136,9 +134,23 @@ export function buildSwapScript(input: SwapScriptInput): string {
     `$BackupName = @'`,
     backupName,
     `'@`,
+    // Log da troca junto do staging (…\updates\swap-debug.log): a próxima
+    // falha deixa evidência (stdio é ignore — Write-Host não chega a ninguém).
+    `$LogPath = Join-Path (Split-Path (Split-Path $StagedDir -Parent) -Parent) 'swap-debug.log'`,
+    `function Log([string]$msg) { try { Add-Content -LiteralPath $LogPath -Value ("{0} {1}" -f (Get-Date -Format o), $msg) -Encoding UTF8 } catch {} }`,
     `$TargetPid = ${pid}`,
     `$MaxWait = ${maxWait}`,
+    // CRÍTICO: o Windows NÃO renomeia a pasta que é CWD de um processo. O
+    // powershell spawner pelo app herda a pasta do app como CWD → o Rename da
+    // FASE 2 falhava com "está em uso". Set-Location NÃO resolve sozinho (não
+    // altera o CWD do processo Win32!) — é preciso o SetCurrentDirectory do
+    // .NET para liberar o handle. Alvo = PAI da pasta do app (ex.: Desktop):
+    // caminho longo Unicode confiável — NÃO usar $env:TEMP, que pode vir na
+    // forma curta 8.3 e o -LiteralPath não resolve short names.
+    'Set-Location -LiteralPath (Split-Path $AppDir -Parent)',
+    '[System.Environment]::CurrentDirectory = (Split-Path $AppDir -Parent)',
     ``,
+    `Log "INICIO pid=$TargetPid app=$AppDir staged=$StagedDir"`,
     `# FASE 1: aguardar o processo sair (o .exe fica travado enquanto roda).`,
     `$Waited = 0`,
     `while ((Get-Process -Id $TargetPid -ErrorAction SilentlyContinue) -and ($Waited -lt $MaxWait)) {`,
@@ -146,9 +158,10 @@ export function buildSwapScript(input: SwapScriptInput): string {
     `    $Waited++`,
     `}`,
     `if ($Waited -ge $MaxWait) {`,
-    `    Write-Host "Processo $TargetPid nao saiu em $MaxWait segundos — abortando sem alterar pastas."`,
+    `    Log "FALHA: processo $TargetPid nao saiu em $MaxWait segundos — pastas intocadas"`,
     `    exit 1`,
     `}`,
+    `Log "FASE 1-OK: processo saiu apos $Waited s"`,
     ``,
     `# FASE 2: renomear a pasta atual para backup e mover a nova no lugar.`,
     `$BackupPath = Join-Path (Split-Path $AppDir -Parent) $BackupName`,
@@ -157,21 +170,32 @@ export function buildSwapScript(input: SwapScriptInput): string {
     `    Rename-Item -LiteralPath $AppDir -NewName $BackupName`,
     `    Move-Item -LiteralPath $StagedDir -Destination $AppDir`,
     `} catch {`,
-    `    Write-Host "Falha na troca: $($_.Exception.Message)"`,
+    `    Log ("FALHA na troca: " + $_.Exception.Message)`,
     `    # best-effort de rollback se o rename já aconteceu mas o move falhou`,
-    `    if ((Test-Path -LiteralPath $BackupPath) -and -(Test-Path -LiteralPath $AppDir)) {`,
+    `    if ((Test-Path -LiteralPath $BackupPath) -and -not (Test-Path -LiteralPath $AppDir)) {`,
     `        Rename-Item -LiteralPath $BackupPath -NewName (Split-Path $AppDir -Leaf)`,
     `    }`,
+    `    # Reabrir a versão antiga: falhar a troca não pode deixar o usuário sem app.`,
+    `    try { Start-Process -FilePath (Join-Path $AppDir $ExeName) } catch {}`,
     `    exit 2`,
     `}`,
+    `Log "FASE 2-OK: pastas trocadas (backup: $BackupName)"`,
     ``,
-    `# FASE 3: relançar o aplicativo já atualizado.`,
+    `# FASE 3: relançar o aplicativo já atualizado (best-effort: a troca já está`,
+    `# feita — falha aqui é registrada, não desfaz nada).`,
     `$ExePath = Join-Path $AppDir $ExeName`,
-    `Start-Process -FilePath $ExePath`,
+    `try {`,
+    `    Start-Process -FilePath $ExePath`,
+    `    Log "FASE 3-OK: relancado $ExePath"`,
+    `} catch {`,
+    `    Log ("FALHA ao relancar: " + $_.Exception.Message)`,
+    `    exit 3`,
+    `}`,
     ``,
     `# FASE 4: limpeza best-effort (backup + este script).`,
     `try { Remove-Item -LiteralPath $BackupPath -Recurse -Force -ErrorAction SilentlyContinue } catch {}`,
     `try { Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue } catch {}`,
+    `Log "FASE 4-OK: concluido"`,
     `exit 0`,
   ];
 

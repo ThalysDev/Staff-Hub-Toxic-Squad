@@ -351,7 +351,10 @@ export class UpdaterService {
       // ZERO problema de codepage, ZERO dependência de caminho curto 8.3.
       debugLog('ETAPA 7: gerar script PowerShell de troca');
       const stamp = `${Date.now()}`;
-      const scriptPath = join(app.getPath('temp'), `staffhub-update-${stamp}.ps1`);
+      // Script em userData/updates (caminho LONGO Unicode): app.getPath('temp')
+      // devolve forma curta 8.3 (C:\Users\USURIO~2\...) que o Set-Location
+      // -LiteralPath do PowerShell não resolve.
+      const scriptPath = join(updatesDir, `staffhub-update-${stamp}.ps1`);
       const currentAppDir = join(process.execPath, '..');
       const script = buildSwapScript({
         pid: process.pid,
@@ -400,6 +403,8 @@ export class UpdaterService {
     debugLog(`REINICIAR: spawn powershell.exe -File "${scriptPath}" e sair`);
     // Detached: o script PowerShell sobrevive à saída do app (é ele quem troca
     // as pastas). -ExecutionPolicy Bypass para scripts gerados localmente.
+    // cwd FORA da pasta do app: o Windows não renomeia a pasta que é CWD de
+    // um processo — herdar a pasta do app travava o Rename da FASE 2.
     spawn('powershell.exe', [
       '-NoProfile',
       '-ExecutionPolicy', 'Bypass',
@@ -408,6 +413,7 @@ export class UpdaterService {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
+      cwd: join(app.getPath('userData'), 'updates'),
     }).unref();
     for (const win of BrowserWindow.getAllWindows()) win.destroy();
     app.quit();
