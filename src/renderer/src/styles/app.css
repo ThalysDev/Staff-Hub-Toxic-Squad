@@ -1711,7 +1711,8 @@ kbd {
   font-size: var(--fs-caption);
   font-weight: 500;
   letter-spacing: 0.02em;
-  white-space: nowrap;
+  max-width: 280px;
+  white-space: normal;
   pointer-events: none;
   z-index: 50;
 }

@@ -219,6 +219,9 @@ export function formatHms(date: Date): string {
  * chegada desejada: como as linhas carregam apenas o sendAt, ela é reconstruída
  * (sendAt + viagem) da PRIMEIRA linha — a referência da OP. Nos trens, os nobres
  * seguintes chegam depois POR DESIGN (espaçamento); o rótulo segue a 1ª chegada.
+ * Quando um envio cai fora do dia da chegada (viagens longas, D-1/D-2), a linha
+ * ganha sufixo "@dd/MM" — sem isso o líder cola "enviar às 14:20" sem saber
+ * de qual dia (o HH:MM:SS puro também é o formato que o T-minus relê).
  */
 export function formatSendSchedule(rows: readonly SendScheduleRow[]): string {
   if (rows.length === 0) return '';
@@ -226,16 +229,18 @@ export function formatSendSchedule(rows: readonly SendScheduleRow[]): string {
   const referenceArrival = new Date(
     (reference?.sendAt.getTime() ?? 0) + Math.round((reference?.travelMinutes ?? 0) * 60_000),
   );
+  const arrivalDay = referenceArrival.toDateString();
+  const daySuffix = (date: Date): string => (date.toDateString() === arrivalDay ? '' : ` @${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`);
   const byNick = new Map<string, SendScheduleRow[]>();
   for (const row of rows) {
     const list = byNick.get(row.nick) ?? [];
     list.push(row);
     byNick.set(row.nick, list);
   }
-  const lines: string[] = [`# Chegada desejada: ${formatHms(referenceArrival)}`];
+  const lines: string[] = [`# Chegada desejada: ${formatHms(referenceArrival)} (${String(referenceArrival.getDate()).padStart(2, '0')}/${String(referenceArrival.getMonth() + 1).padStart(2, '0')})`];
   for (const [nick, nickRows] of byNick) {
     for (const row of nickRows) {
-      lines.push(`${nick};${row.targetCoord};${formatHms(row.sendAt)}`);
+      lines.push(`${nick};${row.targetCoord};${formatHms(row.sendAt)}${daySuffix(row.sendAt)}`);
     }
   }
   return lines.join('\n');

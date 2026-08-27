@@ -151,3 +151,14 @@ describe('sg6EntriesText', () => {
     );
   });
 });
+
+describe('parseSendSchedule — sufixo @dd/MM (v0.27: envio fora do dia da chegada)', () => {
+  it('aceita linha com sufixo @dd/MM e preserva o texto original', () => {
+    const entries = parseSendSchedule('joao;402|303;20:30:00 @14/08');
+    expect(entries).toEqual([{ playerName: 'joao', targetCoord: '402|303', time: '20:30:00 @14/08' }]);
+  });
+
+  it('continua rejeitando horário malformado mesmo com sufixo', () => {
+    expect(() => parseSendSchedule('joao;402|303;2030 @14/08')).toThrow(/inválida/);
+  });
+});

@@ -181,7 +181,7 @@ describe('formatSendSchedule', () => {
     const text = formatSendSchedule(rows);
     const lines = text.split('\n');
     // Cabeçalho-comentário com a chegada desejada reconstruída das linhas (22:00).
-    expect(lines[0]).toBe('# Chegada desejada: 22:00:00');
+    expect(lines[0]).toBe('# Chegada desejada: 22:00:00 (15/08)');
     // Agrupado por nick, ordem da 1ª aparição preservada.
     expect(lines.slice(1)).toEqual([
       'maria;555|444;21:10:00',
@@ -197,7 +197,7 @@ describe('formatSendSchedule', () => {
     const base = computeSendTimes([PAR], inputWith(90));
     const text = formatSendSchedule(nobleTrain(base, { noblesPerTarget: 3, spacingSec: 300 }));
     expect(text.split('\n')).toEqual([
-      '# Chegada desejada: 22:00:00',
+      '# Chegada desejada: 22:00:00 (15/08)',
       'joao;402|303;20:30:00',
       'joao;402|303;20:35:00',
       'joao;402|303;20:40:00',
@@ -206,5 +206,37 @@ describe('formatSendSchedule', () => {
 
   it('sem linhas não há texto para colar', () => {
     expect(formatSendSchedule([])).toBe('');
+  });
+});
+
+describe('formatSendSchedule — data nas linhas fora do dia da chegada (v0.27)', () => {
+  it('envio em D-1 ganha sufixo @dd/MM; envio no dia da chegada não ganha sufixo', () => {
+    // Chegada 15/08 22:00; uma viagem de 32h → envio 14/08 14:00.
+    const mk = (iso: string, travelMinutes: number, nick: string, coord: string) => {
+      const sendAt = new Date(iso);
+      return { nick, targetCoord: coord, sendAt, travelMinutes, nobles: 1, spacingSec: 0 } as never;
+    };
+    const rows = [
+      mk('2026-08-15T22:00:00', 0, 'curto', '500|500'),
+      mk('2026-08-14T14:00:00', 1920, 'longo', '501|501'),
+    ];
+    const lines = formatSendSchedule(rows).split('\n');
+    expect(lines[0]).toBe('# Chegada desejada: 22:00:00 (15/08)');
+    expect(lines[1]).toBe('curto;500|500;22:00:00');
+    expect(lines[2]).toBe('longo;501|501;14:00:00 @14/08');
+  });
+});
+
+describe('parseScheduleLine compat — texto com sufixo @dd/MM volta a ser lido pelos parsers', () => {
+  it('formatSendSchedule → parseSendSchedule round-trip sem perda (com e sem sufixo)', async () => {
+    const { parseSendSchedule } = await import('./comms-package');
+    const rows = [
+      { nick: 'curto', targetCoord: '500|500', sendAt: new Date('2026-08-15T22:00:00'), travelMinutes: 0, nobles: 1, spacingSec: 0 },
+      { nick: 'longo', targetCoord: '501|501', sendAt: new Date('2026-08-14T14:00:00'), travelMinutes: 1920, nobles: 1, spacingSec: 0 },
+    ] as never[];
+    const text = formatSendSchedule(rows);
+    const entries = parseSendSchedule(text); // NÃO lança com o sufixo @dd/MM
+    expect(entries).toHaveLength(2);
+    expect(entries[1]?.time).toContain('@14/08');
   });
 });

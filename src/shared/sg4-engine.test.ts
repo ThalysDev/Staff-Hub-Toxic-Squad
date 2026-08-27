@@ -292,3 +292,54 @@ describe('distributeTargets', () => {
     expect(byOrigin.get('520|500')).toBe('full'); // linha legada sempre 'full'
   });
 });
+
+describe('distributeTargets — dedup de duplicatas (v0.27)', () => {
+  it('origem com coord REPETIDA na mesma linha lança citando a coordenada', () => {
+    const input = {
+      origins: [{ playerName: 'ana', fulls: 2, origins: [{ x: 500, y: 500 }, { x: 500, y: 500 }] }],
+      lines: [{ targets: [{ x: 100, y: 100 }], fullsFrom: 0, fullsTo: 200 }],
+      nobleMinutesPerField: 30,
+      priority: 'nearest' as const,
+      minMorale: 0,
+      maxFields: 9999,
+    };
+    expect(() => distributeTargets(input)).toThrow(/Coordenada de origem repetida.*500\|500/);
+  });
+
+  it('alvo repetido ENTRE linhas lança citando as faixas conflitantes', () => {
+    const input = {
+      origins: [{ playerName: 'ana', fulls: 1, origins: [{ x: 500, y: 500 }] }],
+      lines: [
+        { targets: [{ x: 100, y: 100 }], fullsFrom: 0, fullsTo: 1 },
+        { targets: [{ x: 100, y: 100 }], fullsFrom: 2, fullsTo: 200 },
+      ],
+      nobleMinutesPerField: 30,
+      priority: 'nearest' as const,
+      minMorale: 0,
+      maxFields: 9999,
+    };
+    expect(() => distributeTargets(input)).toThrow(/Alvo repetido em duas linhas: 100\|100/);
+  });
+
+  it('centralOpAnalysis com nobleMinutes<=0 lança (antes: tudo caía em "1 Hora")', () => {
+    expect(() =>
+      centralOpAnalysis(
+        [{ playerId: 1, playerName: 'x', coord: { x: 500, y: 500 }, points: 100 }],
+        { x: 500, y: 500 },
+        0,
+      ),
+    ).toThrow(/Minutos de nobre.*inválidos/);
+  });
+
+  it('splitTargetsFakes com cutoff fora de 1–5 lança (contrato do motor)', () => {
+    expect(() =>
+      splitTargetsFakes(
+        [{ playerId: 1, playerName: 'x', coord: { x: 500, y: 500 }, points: 100 }],
+        { x: 500, y: 500 },
+        30,
+        new Map([[1, 'alvo' as const]]),
+        7,
+      ),
+    ).toThrow(/Corte de horas inválido: 7/);
+  });
+});

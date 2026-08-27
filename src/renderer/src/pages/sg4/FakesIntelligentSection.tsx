@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import { AlertTriangle, Check, ChevronDown, Crosshair, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, Crosshair, Info, Sparkles } from 'lucide-react';
 import { parseCoord, type Coord } from '@shared/coords';
 import { distributeFakes, type FakeAssignment, type FakeDistributionResult } from '@shared/fakes-intelligent';
 import { parseOriginsInput } from '@shared/sg4-engine';
@@ -9,17 +9,21 @@ import Field from '../../components/Field';
 /**
  * SG_4 — Distribuição inteligente de fakes (P1-16). Seção colapsável que consome
  * o motor puro '@shared/fakes-intelligent': origens com comando sobrando mandam
- * fakes para os alvos que sobraram da separação da Seção A, espalhando a ilusão
- * entre o máximo de vilas possível.
+ * fakes para os alvos que sobraram, espalhando a ilusão entre o máximo de vilas
+ * possível.
  *
- * - Alvos vêm da caixa ALDEIAS ALVOS (coords "x|y") via prop `targetCoords`.
- * - Origens vêm da MESMA caixa "Informações de origem" da distribuição principal
- *   (formato nick;fulls;coords ou nick;fulls;semis;coords) e são lidas com o
- *   parser canônico `parseOriginsInput` — cada coordenada de vila vira uma
- *   origem candidata com `distanceTo` euclidiana em campos.
+ * - Modo 'sem-distribuicao' (antes da etapa 2): alvos = caixa ALDEIAS ALVOS da
+ *   Seção A (prop `targetCoords`). Um callout avisa que distribuir primeiro é
+ *   mais seguro — sem distribuição os fakes podem colidir com ataques reais.
+ * - Modo 'pos-distribuicao' (após "Distribuir agora"): alvos = ÓRFÃOS da
+ *   distribuição (sem atacante, prop `orphanTargets`) e origens = o que sobrou
+ *   da caixa "Origens da tribo" depois de remover as coords já usadas (o pai
+ *   filtra; prop `usedOriginCoords` documenta as usadas).
  * - "Aplicar na caixa de fakes" devolve, via `onApply`, uma linha "x|y" por par
  *   origem→alvo (o alvo de cada par), exatamente o formato que a caixa
  *   ALDEIAS FAKES do SG_4 espera (`fakes.join('\n' | ' ')`).
+ * - Toda mudança de props (alvos/origens/modo) ZERA resultado e marca "aplicado"
+ *   — o resultado anterior nunca fica stale na tela.
  */
 
 /** Teto prático quando "Distância máxima" fica vazio: o motor exige um número
@@ -31,10 +35,18 @@ const NO_MAX_FIELDS = 9999;
 const DEC2_FMT = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export interface FakesIntelligentSectionProps {
-  /** Alvos (coordenadas "x|y") selecionados como ALVOS na seção A do SG_4. */
+  /** 'sem-distribuicao': alvos = caixa ALDEIAS ALVOS (etapa 1).
+   *  'pos-distribuicao': alvos = órfãos da distribuição (sem atacante). */
+  mode: 'sem-distribuicao' | 'pos-distribuicao';
+  /** Modo sem-distribuicao: alvos (coords "x|y") da caixa ALDEIAS ALVOS. */
   targetCoords: string[];
-  /** Origens disponíveis "nick;fulls;coords" (mesmo formato da caixa de distribuição). */
+  /** Origens disponíveis "nick;fulls;coords" — no modo pos-distribuicao o pai
+   *  já removeu as coordenadas usadas na distribuição. */
   originsText: string;
+  /** Modo pos-distribuicao: alvos SEM atacante na distribuição atual. */
+  orphanTargets?: string[];
+  /** Modo pos-distribuicao: coords de origem já usadas nos pares fechados. */
+  usedOriginCoords?: string[];
   /** Chamado com as linhas "x|y" (alvo de cada par origem→alvo) para preencher a caixa de FAKES. */
   onApply: (fakeLines: string[]) => void;
 }
@@ -61,8 +73,11 @@ function countPerOrigin(assignments: FakeAssignment[]): PerOriginCount[] {
 
 /** SG_4 — seção colapsável de distribuição inteligente de fakes. */
 export default function FakesIntelligentSection({
+  mode,
   targetCoords,
   originsText,
+  orphanTargets = [],
+  usedOriginCoords = [],
   onApply,
 }: FakesIntelligentSectionProps): JSX.Element {
   const [open, setOpen] = useState(false);
@@ -73,6 +88,20 @@ export default function FakesIntelligentSection({
   const [error, setError] = useState('');
   const [applied, setApplied] = useState(false);
 
+  // Alvos efetivos conforme o modo: pós-distribuição usa os ÓRFÃOS (quem ficou
+  // sem atacante) — nunca os alvos reais da caixa ALDEIAS ALVOS.
+  const effectiveTargets = mode === 'pos-distribuicao' ? orphanTargets : targetCoords;
+
+  // Fim do resultado stale: qualquer mudança nas entradas (alvos, origens, modo)
+  // zera resultado/marcações — nada calculado com dados antigos sobrevive.
+  const inputsKey = `${mode}|${effectiveTargets.join('|')}|${originsText}`;
+  useEffect(() => {
+    setResult(null);
+    setApplied(false);
+    setWarn('');
+    setError('');
+  }, [inputsKey]);
+
   /** Executa o motor: valida entradas (warn) e propaga erros do motor (danger). */
   function runDistribution(): void {
     setWarn('');
@@ -81,11 +110,15 @@ export default function FakesIntelligentSection({
     setResult(null);
 
     const missing: string[] = [];
-    if (!targetCoords.some((coord) => coord.trim() !== '')) {
-      missing.push('alvos — selecione jogadores como "alvo" e clique em "Obter Alvos e Fakes" (caixa ALDEIAS ALVOS)');
+    if (!effectiveTargets.some((coord) => coord.trim() !== '')) {
+      missing.push(
+        mode === 'pos-distribuicao'
+          ? 'alvos — a distribuição atual não tem alvos sem atacante (redistribua ou aumente as origens)'
+          : 'alvos — selecione jogadores como "alvo" e clique em "Separar alvos e fakes" (caixa ALDEIAS ALVOS)',
+      );
     }
     if (originsText.trim() === '') {
-      missing.push('origens — preencha a caixa "Informações de origem" (formato nick;fulls;coords)');
+      missing.push('origens — preencha a caixa "Origens da tribo (nick;fulls;coords)"');
     }
     if (missing.length > 0) {
       setWarn(`Para distribuir fakes falta: ${missing.join(' e ')}.`);
@@ -95,7 +128,7 @@ export default function FakesIntelligentSection({
     try {
       // Alvos: coords "x|y" válidas, sem duplicatas (primeira ocorrência vence).
       const targetMap = new Map<string, Coord>();
-      for (const raw of targetCoords) {
+      for (const raw of effectiveTargets) {
         const coord = parseCoord(raw);
         if (coord === null) continue;
         const key = `${coord.x}|${coord.y}`;
@@ -103,7 +136,7 @@ export default function FakesIntelligentSection({
         targetMap.set(key, coord);
       }
 
-      // Origens: o MESMO parser da caixa "Informações de origem" (legado e FULL/SEMI);
+      // Origens: o MESMO parser da caixa "Origens da tribo" (legado e FULL/SEMI);
       // cada vila listada = uma origem candidata a mandar fake.
       const players = parseOriginsInput(originsText);
       const origins = players.flatMap((player) =>
@@ -163,11 +196,30 @@ export default function FakesIntelligentSection({
 
         {open && (
           <div id="fkint-content" className="col fkint-content" style={{ gap: 12, marginTop: 10 }}>
-            <p className="muted fkint-hint">
-              Origens com comando sobrando mandam fakes para os alvos que ficaram de fora da distribuição
-              principal: a cada passo, a origem com menos fakes pega o alvo livre mais próximo — a ilusão
-              se espalha pelo máximo de vilas.
-            </p>
+            {mode === 'sem-distribuicao' ? (
+              <>
+                <p className="muted fkint-hint">
+                  Origens com comando sobrando mandam fakes para os alvos da caixa ALDEIAS ALVOS: a cada passo, a
+                  origem com menos fakes pega o alvo livre mais próximo — a ilusão se espalha pelo máximo de vilas.
+                </p>
+                <div className="callout callout--info">
+                  <Info size={18} className="callout-icon" aria-hidden="true" />
+                  <div className="callout-body">
+                    <p className="callout-title">Distribua primeiro (etapa 2)</p>
+                    <p>
+                      Os alvos que ficarem SEM atacante voltam aqui como candidatos a fake. Sem distribuição, os
+                      fakes podem colidir com ataques reais.
+                    </p>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="muted fkint-hint">
+                Modo pós-distribuição: cada alvo SEM atacante (órfão) recebe fakes de origens com comando sobrando —
+                as coordenadas já usadas nos pares fechados ficam de fora
+                {usedOriginCoords.length > 0 ? ` (${usedOriginCoords.length} origem(ns) em uso)` : ''}.
+              </p>
+            )}
 
             <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
               <Field

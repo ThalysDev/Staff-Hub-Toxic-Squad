@@ -127,13 +127,20 @@ export default function SpyReportSection({ onUseAsTarget }: SpyReportSectionProp
               rows={7}
               placeholder={REPORT_PLACEHOLDER}
               value={reportText}
+              data-tip="Cole o corpo do relatório de espionagem (defesa). O parser lê alvo, muralha e tropas."
               aria-describedby="sg4-spy-report-hint"
               onChange={(event) => setReportText(event.target.value)}
             />
           </Field>
 
           <div className="sg4-form-actions">
-            <button type="button" className="btn" disabled={analyzing} onClick={() => void runAnalysis()}>
+            <button
+              type="button"
+              className="btn"
+              data-tip="Extrai alvo, muralha, populações e tropas do relatório colado."
+              disabled={analyzing}
+              onClick={() => void runAnalysis()}
+            >
               {analyzing ? (
                 <>
                   <span className="btn-spinner" aria-hidden="true" />
@@ -185,7 +192,7 @@ export default function SpyReportSection({ onUseAsTarget }: SpyReportSectionProp
               </span>
               <span className="stat-block-value">{report.coord}</span>
             </div>
-            <div className="stat-block spy-stat">
+            <div className="stat-block spy-stat" data-tip="— significa que o relatório não trouxe o nível.">
               <span className="stat-block-label">
                 <BrickWall size={14} className="stat-block-icon" aria-hidden="true" />
                 Muralha
@@ -197,7 +204,7 @@ export default function SpyReportSection({ onUseAsTarget }: SpyReportSectionProp
                 {report.wallLevel === null ? '—' : `Nível ${report.wallLevel}`}
               </span>
             </div>
-            <div className="stat-block spy-stat">
+            <div className="stat-block spy-stat" data-tip="Base do cálculo de fulls recomendados.">
               <span className="stat-block-label">
                 <Shield size={14} className="stat-block-icon" aria-hidden="true" />
                 Pop. defensiva
@@ -214,7 +221,12 @@ export default function SpyReportSection({ onUseAsTarget }: SpyReportSectionProp
           </div>
 
           <div className="row spy-actions" style={{ gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" className="btn" onClick={useAsCentral}>
+            <button
+              type="button"
+              className="btn"
+              data-tip="Copia a coordenada espiada para o campo 'Coordenada central da OP' da etapa 1."
+              onClick={useAsCentral}
+            >
               <Crosshair size={15} aria-hidden="true" />
               Usar como coordenada central
             </button>
@@ -253,7 +265,7 @@ export default function SpyReportSection({ onUseAsTarget }: SpyReportSectionProp
             <div className="card-header">
               <h3 className="card-title">Sugestão de fulls</h3>
               <span className="spacer" />
-              <span className="pill pill--muted">regra-de-polegar</span>
+              <span className="pill pill--muted">estimativa aproximada</span>
             </div>
             <div className="card-body">
               <Field
@@ -268,6 +280,7 @@ export default function SpyReportSection({ onUseAsTarget }: SpyReportSectionProp
                   min={1}
                   step={1000}
                   value={popPerFullText}
+                  data-tip="População ofensiva que conta como 1 full no seu mundo (padrão 20.000). Recalcula ao vivo."
                   aria-describedby="sg4-spy-popfull-hint"
                   onChange={(event) => setPopPerFullText(event.target.value)}
                 />
@@ -294,9 +307,8 @@ export default function SpyReportSection({ onUseAsTarget }: SpyReportSectionProp
       )}
 
       <p className="muted spy-note">
-        ⚠ validar contra fixture real — o parser é sintético (reconhece pares “unidade
-        quantidade”, “Muralha Nível X” e coordenada “x|y”); confira o resultado na primeira
-        colagem real antes de confiar.
+        Análise em fase de validação — confira o resultado na primeira colagem real antes de
+        confiar.
       </p>
 
     </section>

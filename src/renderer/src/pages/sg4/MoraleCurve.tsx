@@ -69,7 +69,12 @@ export default function MoraleCurve(): JSX.Element {
   return (
     <div className="card mcurve">
       <div className="card-header">
-        <h3 className="card-title">Curva da moral</h3>
+        <h3
+          className="card-title"
+          data-tip="Como a moral varia com a diferença de pontos entre atacante e alvo — use para calibrar a moral mínima da Distribuição."
+        >
+          Curva da moral
+        </h3>
       </div>
       <div className="card-body">
         <svg
@@ -169,9 +174,8 @@ export default function MoraleCurve(): JSX.Element {
         </svg>
 
         <p className="muted mcurve-legend">
-          Fórmula: (alvo/atacante × 3 + 0,3) × 100, teto 100 — confirmada contra o jogo. Eixo com atacante exemplar de{' '}
-          {POINTS_FMT.format(EXEMPLAR_ATTACKER)} pontos (alvo = razão × {POINTS_FMT.format(EXEMPLAR_ATTACKER)}; 0,1× ={' '}
-          {POINTS_FMT.format(0.1 * EXEMPLAR_ATTACKER)}).
+          Fórmula: (alvo÷atacante × 3 + 0,3) × 100, teto 100. Cada ponto do eixo = alvo com aquele
+          tamanho relativo a um atacante de {POINTS_FMT.format(EXEMPLAR_ATTACKER)} pts.
         </p>
       </div>
     </div>

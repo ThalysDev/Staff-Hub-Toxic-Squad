@@ -45,6 +45,10 @@ export function centralOpAnalysis(
   central: { x: number; y: number },
   nobleMinutesPerField: number,
 ): CentralOpResult {
+  // Guard: noble<=0 colapsaria todas as aldeias em "1 Hora" silenciosamente.
+  if (!(nobleMinutesPerField > 0)) {
+    throw new Error('Minutos de nobre por campo inválidos — carregue os dados do mundo antes de analisar.');
+  }
   const byPlayer = new Map<number, CentralOpRow>();
   for (const enemy of enemies) {
     const row = byPlayer.get(enemy.playerId) ?? {
@@ -75,6 +79,13 @@ export function splitTargetsFakes(
   actions: Map<number, 'alvo' | 'fake'>,
   cutoffHours: number,
 ): { targets: string[]; fakes: string[] } {
+  // Contrato do motor: o corte é 1–5 horas (a UI limita; aqui fail-closed).
+  if (!Number.isInteger(cutoffHours) || cutoffHours < 1 || cutoffHours > 5) {
+    throw new Error(`Corte de horas inválido: ${cutoffHours} — use um inteiro de 1 a 5.`);
+  }
+  if (!(nobleMinutesPerField > 0)) {
+    throw new Error('Minutos de nobre por campo inválidos — carregue os dados do mundo antes de separar.');
+  }
   const targets: string[] = [];
   const fakes: string[] = [];
   for (const enemy of enemies) {
@@ -106,14 +117,26 @@ export interface OriginPlayer {
   semiOrigins?: { x: number; y: number }[];
 }
 
-/** Pares "x|y" separados por espaço → coordenadas numéricas (ordem preservada). */
+/** Pares "x|y" separados por espaço → coordenadas numéricas (ordem preservada).
+ *  Coord DUPLICADA na mesma linha lança: um NT não ataca dois alvos — aceitar
+ *  duplicata criava 2 linhas idênticas na matrix e 2 alvos consumidos pela
+ *  mesma vila (resultado mentiroso, sem aviso). */
 function parseCoordPairs(text: string): { x: number; y: number }[] {
+  const seen = new Set<string>();
   return text
     .trim()
     .split(/\s+/)
     .map((pair) => {
       const [x, y] = pair.split('|');
       return { x: Number(x), y: Number(y) };
+    })
+    .map((coord) => {
+      const key = coord.x + "|" + coord.y;
+      if (seen.has(key)) {
+        throw new Error("Coordenada de origem repetida na mesma linha: " + key + " — um NT não ataca dois alvos.");
+      }
+      seen.add(key);
+      return coord;
     });
 }
 
@@ -239,8 +262,20 @@ export interface DistributionResult {
 export function distributeTargets(input: DistributionInput): DistributionResult {
   const lineTargets: { x: number; y: number; fullsFrom: number; fullsTo: number; semisFrom: number; semisTo: number; points?: number }[] =
     [];
+  // Alvo em DUAS linhas diferentes = 2 atacantes no mesmo alvo (usedTargets é
+  // por índice) — NT desperdiçado e órfão inexplicável. Fail-closed citando
+  // a coordenada e as faixas das linhas conflitantes.
+  const seenTargets = new Map<string, string>();
   for (const line of input.lines) {
     for (const target of line.targets) {
+      const key = target.x + "|" + target.y;
+      const previousLine = seenTargets.get(key);
+      if (previousLine !== undefined) {
+        throw new Error(
+          "Alvo repetido em duas linhas: " + key + " (linhas com fulls " + previousLine + " e " + line.fullsFrom + "-" + line.fullsTo + "). Mantenha cada alvo em UMA linha apenas."
+        );
+      }
+      seenTargets.set(key, line.fullsFrom + "-" + line.fullsTo);
       // Faixas de semis ausentes = 0–200 (todos).
       lineTargets.push({
         ...target,
@@ -262,7 +297,15 @@ export function distributeTargets(input: DistributionInput): DistributionResult 
       );
     }
     const semiSet = new Set((player.semiOrigins ?? []).map((coord) => `${coord.x}|${coord.y}`));
+    const seenOrigins = new Set<string>();
     for (const origin of player.origins) {
+      // Mesma coord repetida para o MESMO jogador = 2 NTs na mesma vila (o
+      // input estruturado vem da UI/SG2, que pode duplicar num refetch).
+      const key = `${origin.x}|${origin.y}`;
+      if (seenOrigins.has(key)) {
+        throw new Error(`Coordenada de origem repetida para "${player.playerName}": ${key} — um NT não ataca dois alvos.`);
+      }
+      seenOrigins.add(key);
       flatOrigins.push({
         playerName: player.playerName,
         fulls: player.fulls,

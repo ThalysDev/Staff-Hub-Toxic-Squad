@@ -29,7 +29,9 @@ export interface PlayerComms {
 }
 
 const DISTRIBUTION_LINE_RE = /^([^;]{2,40});((?:\d{1,3}\|\d{1,3})(?:\s+\d{1,3}\|\d{1,3})*\s*)$/;
-const TIME_RE = /^\d{2}:\d{2}:\d{2}$/;
+/** HH:MM:SS, opcionalmente com sufixo "@dd/MM" — o formatSendSchedule grava o
+ *  sufixo quando o envio cai fora do dia da chegada (viagem longa, D-1/D-2). */
+const TIME_RE = /^\d{2}:\d{2}:\d{2}(?:\s+@\d{2}\/\d{2})?$/;
 const COORD_RE = /^\d{1,3}\|\d{1,3}$/;
 
 // ---------------------------------------------------------------------------
@@ -176,11 +178,17 @@ export function renderTemplate(template: string, player: PlayerComms): string {
 // Post BBCode do plano no fórum
 // ---------------------------------------------------------------------------
 
-/** Primeira linha "# Chegada desejada: HH:MM:SS" do texto da agenda (ou null). */
+/**
+ * Primeira linha "# Chegada desejada: HH:MM:SS" (com "(dd/MM)" opcional, novo
+ * formato do formatSendSchedule) do texto da agenda (ou null).
+ */
 function extractDesiredArrival(sendSchedule: string): string | null {
   for (const line of sendSchedule.split(/\r?\n/)) {
-    const match = /^#\s*Chegada desejada:\s*(\d{2}:\d{2}:\d{2})\s*$/.exec(line.trim());
-    if (match !== null) return match[1] ?? null;
+    const match = /^#\s*Chegada desejada:\s*(\d{2}:\d{2}:\d{2})(?:\s+\((\d{2}\/\d{2})\))?\s*$/.exec(line.trim());
+    if (match !== null) {
+      const day = match[2];
+      return day !== undefined ? `${match[1]} (${day})` : (match[1] ?? null);
+    }
   }
   return null;
 }
@@ -209,6 +217,12 @@ export function planBbcode(input: CommsTemplateInput & { arrivalHeader?: string 
   parts.push(bbcodeTable(['Jogador', 'Alvo', 'Enviar às'], rows));
   const desiredArrival = extractDesiredArrival(input.sendSchedule);
   if (desiredArrival !== null) parts.push('', `[b]Chegada desejada: ${desiredArrival}[/b]`);
+  const template = (input as { template?: string }).template?.trim();
+  if (template !== undefined && template !== '') {
+    parts.push('', '[b]Modelo de MP que cada jogador recebe:[/b]', '[quote]',
+      template.replace(/#alvos#/g, '(alvos do jogador)').replace(/#horarios#/g, '(horários do jogador)'),
+      '[/quote]');
+  }
   return parts.join('\n');
 }
 

@@ -28,7 +28,13 @@ export function validateAlertMinutes(marks: number[]): number[] {
   return [...marks].sort((a, b) => b - a);
 }
 
-/** Parseia "nick;alvo;HH:MM:SS" → TMinusEntry (fail-closed PT-BR). */
+/**
+ * Parseia "nick;alvo;HH:MM:SS" → TMinusEntry (fail-closed PT-BR).
+ * Aceita o sufixo "@dd/MM" que o formatSendSchedule grava quando o envio cai
+ * fora do dia da CHEGADA (viagens longas, D-1/D-2): o sufixo é a data VERDADEIRA
+ * do envio e vira a âncora — sem ele, o roll-to-tomorrow historico dispararia
+ * alertas no dia errado.
+ */
 export function parseScheduleLine(line: string): TMinusEntry | null {
   const trimmed = line.trim();
   if (trimmed === '' || trimmed.startsWith('#')) return null;
@@ -36,13 +42,21 @@ export function parseScheduleLine(line: string): TMinusEntry | null {
   if (parts.length !== 3) return null;
   const [nick, target, time] = [parts[0]?.trim(), parts[1]?.trim(), parts[2]?.trim()];
   if (nick === undefined || target === undefined || time === undefined) return null;
-  const match = /^(\d{2}):(\d{2}):(\d{2})$/.exec(time);
+  const match = /^(\d{2}):(\d{2}):(\d{2})(?:\s+@(\d{2})\/(\d{2}))?$/.exec(time);
   if (match === null) return null;
   const now = new Date();
-  const sendAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Number(match[1]), Number(match[2]), Number(match[3]));
-  // Se o horário já passou hoje, é amanhã
-  if (sendAt.getTime() < now.getTime()) {
-    sendAt.setDate(sendAt.getDate() + 1);
+  const dayPart = match[4];
+  const monthPart = match[5];
+  let sendAt: Date;
+  if (dayPart !== undefined && monthPart !== undefined) {
+    // Âncora explícita: ano corrente (a OP vive no horizonte de dias, não anos).
+    sendAt = new Date(now.getFullYear(), Number(monthPart) - 1, Number(dayPart), Number(match[1]), Number(match[2]), Number(match[3]));
+  } else {
+    sendAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Number(match[1]), Number(match[2]), Number(match[3]));
+    // Se o horário já passou hoje, é amanhã
+    if (sendAt.getTime() < now.getTime()) {
+      sendAt.setDate(sendAt.getDate() + 1);
+    }
   }
   return { nick, target, sendAt };
 }
