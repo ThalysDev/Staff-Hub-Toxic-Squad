@@ -66,7 +66,7 @@ export function registerOpIpc(deps: OpIpcDeps): void {
     }
   });
 
-  ipcMain.handle('opshare:export', async (event, id: string): Promise<DialogCancel | { ok: true; path: string }> => {
+  ipcMain.handle('opshare:export', async (event, id: string): Promise<DialogCancel | { ok: true; path: string; detail: string }> => {
     try {
       const ops = await deps.opArchive.list();
       const op = ops.find((candidate) => candidate.id === id);
@@ -99,7 +99,7 @@ export function registerOpIpc(deps: OpIpcDeps): void {
       }
       await writeFile(filePath, json, 'utf-8');
       await deps.journal.append('system', 'opshare-export', `arquivo=${filePath}`, false);
-      return { ok: true, path: filePath };
+      return { ok: true, path: filePath, detail: `OP exportada para ${filePath}` };
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : String(error));
     }

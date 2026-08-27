@@ -8,6 +8,7 @@ import { TW_PARTITION, type TwSessionManager } from '../tw/session';
 import { detectPageSentinels } from '../tw/request-queue';
 import { JsonStore } from '../stores/json-store';
 import type { DiplomacyRelations, WorldAlly, WorldDataStatus, WorldPlayer, WorldVillage } from '@shared/types';
+import type { Journal } from '../journal';
 import { parseMapAllyTxt, parseMapPlayerTxt, parseMapVillageTxt } from '@shared/parsers/world-parsers';
 import { parseContracts } from '@shared/parsers/ally-parsers';
 import {
@@ -54,7 +55,7 @@ export class WorldDataService {
   /** Refresh em andamento (single-flight): 2º chamador reusa a mesma promise. */
   private refreshing: Promise<WorldDataStatus> | null = null;
 
-  constructor(private readonly twSession: TwSessionManager) {
+  constructor(private readonly twSession: TwSessionManager, private readonly journal?: Journal) {
     this.store = new JsonStore<WorldDataCache>('world-data', EMPTY_WORLD_CACHE);
     this.historyStore = new JsonStore<WorldHistoryStore>('world-history', { versions: [] });
   }
@@ -193,10 +194,22 @@ export class WorldDataService {
       const history = await this.historyStore.load();
       // capWorldHistory espera ordem cronológica (mais recente no FIM).
       await this.historyStore.save({ versions: capWorldHistory([...history.versions, version]) });
+      // Arquivamento com rastro no journal (best-effort) — igual ao
+      // troops-history; falha do journal nunca derruba o refresh.
+      try {
+        await this.journal?.append('system', 'worldhistory-archive', `mundo=${world} tribos=${version.tribes.length} mudancas=${changes.length}`, false);
+      } catch {
+        // best-effort
+      }
     } catch (error) {
       // best-effort MAS nunca silencioso: dump repetidamente corrompido
       // (ex.: coord duplicada do fail-closed) pararia o histórico sem rastro.
       console.warn('[world-history] falha ao arquivar versão do mundo:', error);
+      try {
+        await this.journal?.append('system', 'worldhistory-archive-erro', error instanceof Error ? error.message : String(error), false);
+      } catch {
+        // best-effort
+      }
     }
 
     await this.store.save({ world, fetchedAt: new Date().toISOString(), villages, players, allies });

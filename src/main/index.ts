@@ -43,7 +43,7 @@ if (E2E_USERDATA !== undefined && E2E_USERDATA !== '') {
 const twSession = new TwSessionManager();
 const journal = new Journal();
 const settingsStore = new JsonStore<AppSettings>('settings', DEFAULT_SETTINGS);
-const worldData = new WorldDataService(twSession);
+const worldData = new WorldDataService(twSession, journal);
 const sg1Service = new Sg1Service(worldData);
 
 let mainWindow: BrowserWindow | null = null;

@@ -29,6 +29,7 @@ import type {
 import { UNITS, type UnitCounts, type UnitId } from '@shared/units';
 import { TW_UNIT_ICONS } from '../../assets';
 import { useToast } from '../../hooks/useToast';
+import ToastViewport from '../../components/Toast';
 
 /**
  * SG_2 — "Resumo Geral" dos dados de tropas em memória.
@@ -166,7 +167,7 @@ export interface MemorySummarySectionProps {
 }
 
 export default function MemorySummarySection({ snapshot, collectedLabel, sourceLabel }: MemorySummarySectionProps): JSX.Element {
-  const { push } = useToast();
+  const { toasts, push, dismiss } = useToast();
 
   // ---- Filtros internos (vivos — sem botão aplicar) ----
   const [playerQueryText, setPlayerQueryText] = useState('');
@@ -674,6 +675,7 @@ export default function MemorySummarySection({ snapshot, collectedLabel, sourceL
           </>
         )}
       </div>
+      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

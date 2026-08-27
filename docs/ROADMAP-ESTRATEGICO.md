@@ -140,7 +140,7 @@ Bugs de código que afetam a confiabilidade AGORA:
 > Status: **C1–C9 CONCLUÍDOS** (Sprint 1 + auditorias v0.19/v0.20). **C11** endereçado na
 > v0.26: mutações do SG_6/SG_7 ganharam testes com sessão mockada (`tests/main/electron-mock.ts`
 > + `sg6-service.test.ts`/`sg7-service.test.ts` contra fixtures reais do BR142). C10 e C12–C15
-> permanecem como achados abertos (sem verificação de fix no código).
+> C10 está ENTREGUE (envelope de erro no preload desde a v0.14 — strip do prefixo 'Error invoking remote method'); C12–C15 permanecem como achados abertos, sem verificação de fix no código (C15 tem mitigação prática: o mapa já pré-renderiza numa camada offscreen via canvas element — a API OffscreenCanvas nativa e o chunking por requestIdleCallback NÃO foram implementados).
 
 | # | Severidade | Problema | Fix | Esforço |
 |---|-----------|----------|-----|---------|
@@ -193,7 +193,7 @@ Bugs de código que afetam a confiabilidade AGORA:
 > entregue nas ondas v0.19–v0.25 (fakes inteligentes, diff, pós-OP, overlay e export na
 > v0.19–v0.21; templates, T-minus configurável e scorecard na v0.24; blind por nível,
 > débito, tópicos salvos, perfis no tempo e evolução do mundo na v0.25).
-> Próximo passo real: P2-23/24/25 e os UX pendentes (U2, U6, U9, U10, U11, U13, U15).
+> Próximo passo real: UX pendentes (U2, U6, U9, U10, U11, U13, U15) e a validação do parser de espionagem contra relatório real (P2-24 ⚠).
 
 ---
 

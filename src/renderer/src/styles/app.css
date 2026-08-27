@@ -2873,13 +2873,13 @@ kbd {
 }
 
 .postop--defendido {
-  background: var(--info-bg, var(--accent-soft));
+  background: var(--accent-soft);
   color: var(--accent-ink);
 }
 
 .postop--desperdiçado {
-  background: var(--danger-bg, var(--danger-soft));
-  color: var(--danger-ink, var(--danger));
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 .postop--sem-dados {
@@ -3060,7 +3060,7 @@ kbd {
 }
 
 .hist-delta--down {
-  color: var(--danger-ink, var(--danger));
+  color: var(--danger);
   font-weight: 600;
 }
 
@@ -3074,9 +3074,9 @@ kbd {
   gap: var(--sp-2);
   flex-wrap: wrap;
   padding: var(--sp-2);
-  border: 1px solid var(--danger-soft, var(--divider));
+  border: 1px solid var(--divider);
   border-radius: var(--radius-sm);
-  background: var(--danger-bg, transparent);
+  background: var(--danger-bg);
 }
 
 .hist-alert-item + .hist-alert-item {
@@ -3084,7 +3084,7 @@ kbd {
 }
 
 .bdebt-saldo-pos {
-  color: var(--danger-ink, var(--danger));
+  color: var(--danger);
   font-weight: 700;
 }
 

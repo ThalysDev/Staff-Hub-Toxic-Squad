@@ -142,6 +142,11 @@ export default function Sg2Page() {
   const [collectFailures, setCollectFailures] = useState<{ playerName: string; reason: string }[] | null>(null);
   const [showSummary, setShowSummary] = useState(false);
   const [snapshot, setSnapshot] = useState<TroopSnapshot | null>(null);
+  // Página keep-mounted: quando escondida (.sg-page[hidden] = display:none),
+  // TOASTS DAQUI são invisíveis. Fluxos em 2º plano (auto-coleta) só avisam
+  // com a página visível — a TitleBar (useQueueActivity) e o journal sinalizam
+  // o resto globalmente.
+  const sectionRef = useRef<HTMLElement | null>(null);
   const [collecting, setCollecting] = useState<'members' | 'summary' | null>(null);
   const [progress, setProgress] = useState<QueueProgress | null>(null);
   const [actionError, setActionError] = useState('');
@@ -398,10 +403,10 @@ export default function Sg2Page() {
         });
       }
       if (failed.length > 0) {
-        push('info', `Coleta concluída com ${failed.length} membro(s) com erro — lista abaixo do painel de memória.`);
+        (options?.silent === true ? pushIfVisible : push)('info', `Coleta concluída com ${failed.length} membro(s) com erro — lista abaixo do painel de memória.`);
         setCollectFailures(failed);
       } else {
-        push('ok', kind === 'members' ? 'Coleta de tropas concluída — dados em memória atualizados.' : 'Resumo coletado — dados em memória atualizados.');
+        (options?.silent === true ? pushIfVisible : push)('ok', kind === 'members' ? 'Coleta de tropas concluída — dados em memória atualizados.' : 'Resumo coletado — dados em memória atualizados.');
         setCollectFailures(null);
       }
     } catch (error) {
@@ -412,7 +417,7 @@ export default function Sg2Page() {
         return;
       }
       setActionError(message);
-      push('error', message);
+      (options?.silent === true ? pushIfVisible : push)('error', message);
     } finally {
       setCollecting(null);
     }
@@ -438,6 +443,13 @@ export default function Sg2Page() {
   const autoStateRef = useRef({ autoCollectHours, collecting, progress, session, troopsAt });
   autoStateRef.current = { autoCollectHours, collecting, progress, session, troopsAt };
 
+  /** Toast só se a página está visível (auto-coleta roda em 2º plano). */
+  function pushIfVisible(kind: 'info' | 'ok' | 'error', message: string): void {
+    const host = sectionRef.current?.closest<HTMLElement>('.sg-page');
+    if (host?.hidden === true) return;
+    pushRef.current(kind, message);
+  }
+
   function autoCollectTick(): void {
     const now = Date.now();
     lastAutoCheckRef.current = now;
@@ -456,7 +468,7 @@ export default function Sg2Page() {
     const base = Number.isFinite(lastMs) ? lastMs : mountedAtRef.current;
     if (now - base < hours * 60 * 60 * 1000) return;
     autoRunningRef.current = true;
-    pushRef.current('info', 'Coleta automática disparada (agendada).');
+    pushIfVisible('info', 'Coleta automática disparada (agendada).');
     void startCollectRef.current('members', { silent: true }).finally(() => {
       autoRunningRef.current = false;
     });
@@ -790,7 +802,7 @@ export default function Sg2Page() {
   }, [autoCollectHours, troopsAt]);
 
   return (
-    <section className="page">
+    <section className="page" ref={sectionRef}>
       <PageHeader
         kicker={moduleInfo !== undefined ? `Módulo ${moduleInfo.id.toUpperCase()} — Fase ${moduleInfo.phase}` : 'Módulo SG2 — Fase 2'}
         title={moduleInfo?.originalLabel ?? 'Análise de Tropas das Aldeias'}

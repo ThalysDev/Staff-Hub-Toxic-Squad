@@ -236,7 +236,7 @@ updates/                   # staging do atualizador + updater-debug.log
 
 ## 8. Estado atual (26/08/2026) — v0.26
 
-> v0.26 é a release de fechamento de documentação (este doc + `docs/MODULOS-SG.md` + `docs/ROADMAP-ESTRATEGICO.md`). O código da árvore está em 0.25.0; o bump para 0.26.0 acontece no corte da release via `scripts/release.mjs`.
+> v0.26 é a release de fechamento de documentação (este doc + `docs/MODULOS-SG.md` + `docs/ROADMAP-ESTRATEGICO.md`). A árvore está em 0.26.0 (commit de fechamento c97fb27); a partir daqui cada frente nova bumpa no corte via `scripts/release.mjs`.
 
 ### ✅ Entregue e funcionando
 
