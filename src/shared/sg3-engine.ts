@@ -12,6 +12,13 @@ export interface BlindCheckInput {
   /** "paradas" = só tropas na aldeia; "paradas-e-transito" soma o que está a caminho. */
   countMode: 'paradas' | 'paradas-e-transito';
   coordsFilter: { x: number; y: number }[];
+  /**
+   * Blind por nível de aldeia (roadmap 13): o desejado escala com os PONTOS da
+   * aldeia — fator = clamp(pontos / pontosReferencia, fatorMin, fatorMax).
+   * Aldeia com o dobro dos pontos de referência pede o dobro de blind (até o
+   * teto). Ausente = comportamento original (desejado fixo p/ todas).
+   */
+  levelScaling?: { referencePoints: number; minFactor: number; maxFactor: number };
 }
 
 export interface BlindVillageResult {
@@ -29,13 +36,19 @@ export function checkBlind(input: BlindCheckInput): BlindVillageResult[] {
   const results: BlindVillageResult[] = [];
   for (const entry of input.defense.entries) {
     if (coordSet.size > 0 && !coordSet.has(`${entry.coord.x}|${entry.coord.y}`)) continue;
+    // Escala por nível (pontos) quando configurado — senão fator 1 (original).
+    const scaling = input.levelScaling;
+    const factor =
+      scaling !== undefined && scaling.referencePoints > 0
+        ? Math.min(scaling.maxFactor, Math.max(scaling.minFactor, entry.points / scaling.referencePoints))
+        : 1;
     const missing: Partial<UnitCounts> = {};
     let lacksAny = false;
     for (const [unit, desired] of Object.entries(input.desiredUnits)) {
       const available =
         (entry.unitsInVillage[unit as keyof UnitCounts] ?? 0) +
         (input.countMode === 'paradas-e-transito' ? (entry.unitsInTransit[unit as keyof UnitCounts] ?? 0) : 0);
-      const lack = Math.max(0, (desired ?? 0) - available);
+      const lack = Math.max(0, Math.ceil((desired ?? 0) * factor) - available);
       if (lack > 0) {
         missing[unit as keyof UnitCounts] = lack;
         lacksAny = true;

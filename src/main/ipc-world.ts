@@ -116,6 +116,14 @@ export function registerWorldIpc(deps: WorldIpcDeps): void {
     }
   });
 
+  ipcMain.handle('worldhistory:list', async () => {
+    try {
+      return await worldData.history();
+    } catch (error) {
+      fail('Falha ao ler o histórico do mundo', error);
+    }
+  });
+
   ipcMain.handle('world:relations', async () => {
     if (queue.isRunning) {
       fail('Falha ao ler as relações diplomáticas', new Error('Uma operação está em andamento — aguarde terminar antes de ler a diplomacia.'));

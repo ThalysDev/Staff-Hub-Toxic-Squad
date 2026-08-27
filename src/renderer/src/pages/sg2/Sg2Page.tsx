@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { parseCoordList, type AxesRange } from '@shared/coords';
 import type { QueueProgress } from '@shared/ipc-types';
+import HistoryEvolutionSection from './HistoryEvolutionSection';
 import MemorySummarySection from './MemorySummarySection';
 import { filterTroops, playersSummary } from '@shared/sg2-engine';
 import type { Sg2FilterResult, Sg2Filters, TroopSnapshot } from '@shared/sg2-engine';
@@ -366,6 +367,15 @@ export default function Sg2Page() {
       const stored = await refreshMemory();
       const failed = stored?.failures ?? [];
       setShowSummary(true);
+      // Roadmap 19 — histórico: cada coleta POR MEMBRO bem-sucedida arquiva uma
+      // versão. Fail-soft de propósito: falha no arquivamento não derruba a
+      // coleta nem o toast de sucesso (e o ok não gera toast extra — a seção
+      // "Histórico e Evolução" mostra o resultado).
+      if (kind === 'members' && stored !== null) {
+        void window.staffhub.troopsHistory.archive(stored).catch((error: unknown) => {
+          console.warn('Falha ao arquivar versão do histórico de tropas:', error);
+        });
+      }
       if (failed.length > 0) {
         push('info', `Coleta concluída com ${failed.length} membro(s) com erro — lista abaixo do painel de memória.`);
         setCollectFailures(failed);
@@ -779,6 +789,10 @@ export default function Sg2Page() {
           sourceLabel={snapshot.source === 'summary' ? 'resumo (por jogador)' : 'por aldeia (por membro)'}
         />
       )}
+
+      {/* Roadmap 19 — histórico de coletas: autossuficiente (sem props), lê o
+          histórico arquivado pelas coletas por membro e compara duas versões. */}
+      <HistoryEvolutionSection />
 
       {actionError !== '' && (
         <div className="callout callout--danger">

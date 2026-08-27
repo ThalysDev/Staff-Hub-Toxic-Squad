@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ClipboardCopy, Radar, ShieldAlert, ShieldCheck, Users } from 'lucide-react';
 import type { BlindVillageResult } from '@shared/ipc-types';
 import type { SupportersResult } from '@shared/types';
-import { blindBbcodeTable } from '@shared/sg3-engine';
+import { blindBbcodeTable, type BlindCheckInput } from '@shared/sg3-engine';
 import { normalizeCoordText, coordCountLabel, type NormalizedCoords } from '@shared/coord-input';
 import { DEFAULT_THREAT_THRESHOLDS, rankVillagesByThreat, threatSummary, type VillageThreat, type VillageThreatInput } from '@shared/incoming-risk';
 import { TW_UNIT_ICONS } from '../../assets';
@@ -36,6 +36,11 @@ const SG3_DEFAULTS = {
   // digitação; a validação inteiro ≥0 só roda ao usar a varredura).
   threatMinResist: String(DEFAULT_THREAT_THRESHOLDS.minResistPop),
   threatNobleDanger: String(DEFAULT_THREAT_THRESHOLDS.nobleDangerPop),
+  // Escala do blind pelo tamanho da aldeia (roadmap 13): ligado/desligado em
+  // boolean JSON puro + pontos de referência como TEXTO (validação inteiro >0
+  // só roda ao consultar, mesma convenção dos demais campos numéricos).
+  blindScaleOn: false,
+  blindRefPoints: '9000',
 };
 
 /** Trecho incompleto no fim do campo (ex.: "123|") — presente enquanto o usuário digita. */
@@ -92,6 +97,9 @@ export default function Sg3Page() {
   // ---- Tamanho mínimo da blindagem (entrega 2) ----
   const [sizeMetric, setSizeMetric] = useState<SizeMetric>(SG3_DEFAULTS.sizeMetric);
   const [minSizeText, setMinSizeText] = useState(SG3_DEFAULTS.minSizeText);
+  // ---- Escala do blind pelo tamanho da aldeia (roadmap 13) ----
+  const [blindScaleOn, setBlindScaleOn] = useState(SG3_DEFAULTS.blindScaleOn);
+  const [blindRefPoints, setBlindRefPoints] = useState(SG3_DEFAULTS.blindRefPoints);
   const [desired, setDesired] = useState<Partial<Record<UnitId, string>>>(SG3_DEFAULTS.desired);
   const [countMode, setCountMode] = useState<CountMode>(SG3_DEFAULTS.countMode);
   // Resultado da blindagem já filtrado pelo tamanho mínimo: valor "Tam." por
@@ -145,6 +153,8 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
     }
     if (typeof prefs.threatMinResist === 'string') setThreatMinResistText(prefs.threatMinResist);
     if (typeof prefs.threatNobleDanger === 'string') setThreatNobleDangerText(prefs.threatNobleDanger);
+    if (typeof prefs.blindScaleOn === 'boolean') setBlindScaleOn(prefs.blindScaleOn);
+    if (typeof prefs.blindRefPoints === 'string') setBlindRefPoints(prefs.blindRefPoints);
   }, [prefs]);
 
   // Persistência com guard: só grava DEPOIS da hidratação — nunca sobrescreve o
@@ -160,8 +170,22 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
       supportersCoordsText,
       threatMinResist: threatMinResistText,
       threatNobleDanger: threatNobleDangerText,
+      blindScaleOn,
+      blindRefPoints,
     });
-  }, [desired, countMode, sizeMetric, minSizeText, coordsText, supportersCoordsText, threatMinResistText, threatNobleDangerText, savePrefs]);
+  }, [
+    desired,
+    countMode,
+    sizeMetric,
+    minSizeText,
+    coordsText,
+    supportersCoordsText,
+    threatMinResistText,
+    threatNobleDangerText,
+    blindScaleOn,
+    blindRefPoints,
+    savePrefs,
+  ]);
 
   // Caches de dados auxiliares da consulta de blindagem — cada fonte carrega UMA vez.
   const unitPopsRef = useRef<Record<string, number>>({});
@@ -258,10 +282,23 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
       }
       const minSize = Math.floor(minSizeRaw);
 
+      // Escala por nível (roadmap 13): levelScaling só vai na consulta quando a
+      // escala está LIGADA e os pontos de referência são um inteiro >0 — valor
+      // inválido cai no erro inline existente da consulta (throw → setError).
+      let levelScaling: BlindCheckInput['levelScaling'];
+      if (blindScaleOn) {
+        const refPointsRaw = Number(blindRefPoints.trim() === '' ? Number.NaN : blindRefPoints.replace(/\./g, ''));
+        if (!Number.isInteger(refPointsRaw) || refPointsRaw <= 0) {
+          throw new Error('Pontos de referência deve ser um inteiro maior que 0.');
+        }
+        levelScaling = { referencePoints: refPointsRaw, minFactor: 0.5, maxFactor: 2 };
+      }
+
       const response = await window.staffhub.sg3.checkBlind({
         desiredUnits,
         countMode,
         coordsFilter: coordsToFilter(parsedCoords.coords),
+        ...(levelScaling !== undefined ? { levelScaling } : {}),
       });
 
       // Tamanho por aldeia na métrica escolhida (carrega cada fonte uma vez).
@@ -447,6 +484,8 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
             setSupportersCoordsMeta(normalizeCoordText(SG3_DEFAULTS.supportersCoordsText));
             setThreatMinResistText(SG3_DEFAULTS.threatMinResist);
             setThreatNobleDangerText(SG3_DEFAULTS.threatNobleDanger);
+            setBlindScaleOn(SG3_DEFAULTS.blindScaleOn);
+            setBlindRefPoints(SG3_DEFAULTS.blindRefPoints);
             void resetPrefs();
           }}
         >
@@ -566,6 +605,37 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
                 Na consulta, aldeias menores ficam fora da tabela e do BBCode. População usa a última coleta de defesa.
               </p>
             </label>
+            <div className="field">
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={blindScaleOn}
+                  onChange={(event) => setBlindScaleOn(event.target.checked)}
+                />
+                <span>Escalar blind pelo tamanho da aldeia</span>
+              </label>
+              {blindScaleOn && (
+                <>
+                  <label className="field" htmlFor="sg3-blind-ref">
+                    <span className="field-label">Pontos de referência</span>
+                    <input
+                      id="sg3-blind-ref"
+                      className="input input--num"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="9000"
+                      value={blindRefPoints}
+                      aria-describedby="sg3-blind-ref-hint"
+                      onChange={(event) => setBlindRefPoints(event.target.value)}
+                    />
+                  </label>
+                  <p className="field-hint" id="sg3-blind-ref-hint">
+                    Aldeia com o dobro dos pontos de referência pede o dobro de blind
+                    (limitado por fator de 0,5× a 2×).
+                  </p>
+                </>
+              )}
+            </div>
             {error !== '' && <p className="error" role="alert">{error}</p>}
             <button type="button" className="btn" onClick={() => void runBlind()} disabled={busy}>
               <ShieldAlert size={16} aria-hidden="true" />

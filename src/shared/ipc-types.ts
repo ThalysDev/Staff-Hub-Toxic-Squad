@@ -16,6 +16,9 @@ import type { BlindCheckInput, BlindVillageResult } from './sg3-engine';
 import type { IncomingCommandRow, PlayerCommandTotal } from './parsers/village-parsers';
 import type { GroupEntry, GroupSaveInput } from './groups-rules';
 import type { MpTemplateEntry, MpTemplateSaveInput } from './mp-templates-rules';
+import type { TroopsHistoryVersion } from './snapshot-history';
+import type { WorldHistoryVersion } from './world-history';
+import type { BlindDebtEntry } from './blind-debt';
 
 export type { GroupEntry, GroupSaveInput };
 
@@ -262,6 +265,26 @@ export interface StaffHubApi {
     remove(id: string): Promise<void>;
     /** Marca um template como default (desmarca os demais). */
     setDefault(id: string): Promise<MpTemplateEntry | null>;
+  };
+  troopsHistory: {
+    /** Versões arquivadas (agregado por jogador), mais recente primeiro. */
+    list(): Promise<TroopsHistoryVersion[]>;
+    /** Arquiva o snapshot dado (agregado por jogador; cap 20 com rotação). */
+    archive(snapshot: TroopSnapshot): Promise<{ ok: boolean; detail: string }>;
+    /** Remove uma versão do histórico. */
+    remove(id: string): Promise<void>;
+  };
+  worldHistory: {
+    /** Versões arquivadas (agregados por tribo + mudanças de dono), mais recente primeiro. */
+    list(): Promise<WorldHistoryVersion[]>;
+  };
+  blindDebt: {
+    /** Débito acumulado por jogador (pediu vs enviou de blind). */
+    get(): Promise<BlindDebtEntry[]>;
+    /** Mescla uma rodada reconhecida (pedido por jogador + enviado) no débito. */
+    apply(round: { playerName: string; requested: number; sent: number }[]): Promise<BlindDebtEntry[]>;
+    /** Zera o débito (confirmação na UI). */
+    clear(): Promise<void>;
   };
   queue: {
     /** Cancela a operação de coleta em andamento na RequestQueue. */

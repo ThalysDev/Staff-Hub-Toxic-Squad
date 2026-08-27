@@ -89,3 +89,36 @@ describe('integração com parser real (defense reboucas)', () => {
     expect(results).toHaveLength(expected);
   });
 });
+describe("checkBlind — levelScaling (blind por nível de aldeia, roadmap 13)", () => {
+  const base = { defense: snapshot(ENTRIES), desiredUnits: { spear: 12000 } };
+
+  it("desejado escala pelos pontos com clamp nos fatores mínimo e máximo", () => {
+    // a1: 9000 pts, ref 6000 → fator 1.5 → desejado 18000; tem 12000 → falta 6000.
+    const results = checkBlind({ ...base, countMode: "paradas", coordsFilter: [], levelScaling: { referencePoints: 6000, minFactor: 0.5, maxFactor: 2 } });
+    const a1 = results.find((r) => r.villageName === "a1");
+    expect(a1?.missing.spear).toBe(6000);
+    // b1: 7000 pts → fator 7/6 → ceil(12000×7/6)=14000; tem 1087 → falta 12913.
+    const b1 = results.find((r) => r.villageName === "b1");
+    expect(b1?.missing.spear).toBe(12913);
+  });
+
+  it("clamp: pontos acima do teto não passam do fator máximo", () => {
+    // a1 9000 com ref 3000 seria 3× — teto 2× → desejado 24000 → falta 12000.
+    const results = checkBlind({ ...base, countMode: "paradas", coordsFilter: [], levelScaling: { referencePoints: 3000, minFactor: 0.5, maxFactor: 2 } });
+    const a1 = results.find((r) => r.villageName === "a1");
+    expect(a1?.missing.spear).toBe(12000);
+  });
+
+  it("clamp no piso: aldeia pequena pede menos", () => {
+    // b1 7000 com ref 28000 → fator bruto 0.25 → piso 0.5 → desejado 6000 → falta 4913.
+    const results = checkBlind({ ...base, countMode: "paradas", coordsFilter: [], levelScaling: { referencePoints: 28000, minFactor: 0.5, maxFactor: 2 } });
+    const b1 = results.find((r) => r.villageName === "b1");
+    expect(b1?.missing.spear).toBe(4913);
+  });
+
+  it("sem levelScaling o comportamento é o original (desejado fixo)", () => {
+    const results = checkBlind({ ...base, countMode: "paradas", coordsFilter: [] });
+    const a1 = results.find((r) => r.villageName === "a1");
+    expect(a1).toBeUndefined(); // 12000 desejados, 12000 paradas → completa
+  });
+});

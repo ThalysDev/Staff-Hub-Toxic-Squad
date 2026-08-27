@@ -25,6 +25,7 @@ import { GroupsService } from './services/groups-service';
 import { registerGroupsIpc } from './ipc-groups';
 import { registerPreferencesIpc } from './ipc-preferences';
 import { registerTemplatesIpc } from './ipc-templates';
+import { registerHistoryIpc } from './ipc-history';
 import { UpdaterService } from './updater-service';
 import { registerSg5Ipc } from './ipc-sg5';
 import { scheduleTMinusAlerts, validateAlertMinutes, parseScheduleLine } from './tminus';
@@ -394,6 +395,7 @@ registerIpc();
   registerGroupsIpc({ journal, groups: new GroupsService(journal) });
   registerPreferencesIpc({ journal });
   registerTemplatesIpc({ journal });
+  registerHistoryIpc({ journal });
   createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

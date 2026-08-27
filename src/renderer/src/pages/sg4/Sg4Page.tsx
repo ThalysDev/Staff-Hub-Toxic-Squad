@@ -30,6 +30,7 @@ import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
 import { MODULES } from '../../modules';
 import FakesIntelligentSection from './FakesIntelligentSection';
+import MoraleCurve from './MoraleCurve';
 
 const HOUR_LABELS = [
   '1 Hora',
@@ -1348,6 +1349,8 @@ export default function Sg4Page() {
                 />
               </label>
             </div>
+
+            {moraleActive && <MoraleCurve />}
 
             <div className="sg4-form-actions">
               <button type="button" className="btn" disabled={busyB} onClick={() => void runDistribution(true)}>

@@ -10,6 +10,13 @@ import { JsonStore } from '../stores/json-store';
 import type { DiplomacyRelations, WorldAlly, WorldDataStatus, WorldPlayer, WorldVillage } from '@shared/types';
 import { parseMapAllyTxt, parseMapPlayerTxt, parseMapVillageTxt } from '@shared/parsers/world-parsers';
 import { parseContracts } from '@shared/parsers/ally-parsers';
+import {
+  capWorldHistory,
+  computeOwnerChanges,
+  computeWorldAggregates,
+  newWorldVersionId,
+  type WorldHistoryVersion,
+} from '@shared/world-history';
 
 /** Cache persistido dos map dumps do mundo ativo. */
 interface WorldDataCache {
@@ -18,6 +25,11 @@ interface WorldDataCache {
   villages: WorldVillage[];
   players: WorldPlayer[];
   allies: WorldAlly[];
+}
+
+/** Histórico versionado do mundo (só agregados por tribo + delta de donos). */
+interface WorldHistoryStore {
+  versions: WorldHistoryVersion[];
 }
 
 const EMPTY_WORLD_CACHE: WorldDataCache = {
@@ -36,6 +48,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 export class WorldDataService {
   private readonly store: JsonStore<WorldDataCache>;
+  private readonly historyStore: JsonStore<WorldHistoryStore>;
   private relationsCache: { at: number; data: DiplomacyRelations } | null = null;
   private lastDirectFetchAt = 0;
   /** Refresh em andamento (single-flight): 2º chamador reusa a mesma promise. */
@@ -43,6 +56,7 @@ export class WorldDataService {
 
   constructor(private readonly twSession: TwSessionManager) {
     this.store = new JsonStore<WorldDataCache>('world-data', EMPTY_WORLD_CACHE);
+    this.historyStore = new JsonStore<WorldHistoryStore>('world-history', { versions: [] });
   }
 
   /** Mundo ativo da sessão; fail-closed com mensagem clara se não houver login. */
@@ -158,8 +172,46 @@ export class WorldDataService {
       village.allyId = playerAlly.get(village.playerId) ?? 0;
     }
 
+    // Histórico do mundo (roadmap 18): arquiva agregados por tribo + o DELTA de
+    // donos vs o dump anterior ANTES de sobrescrevê-lo — o dump completo (270k
+    // aldeias) nunca é versionado, só o que mudou. Falha aqui NÃO derruba o
+    // refresh (histórico é best-effort; o dump atual é o que importa).
+    try {
+      const previous = await this.store.load();
+      const collectedAt = new Date().toISOString();
+      const changes =
+        previous.world === world && previous.villages.length > 0
+          ? computeOwnerChanges(previous.villages, villages)
+          : [];
+      const version: WorldHistoryVersion = {
+        id: newWorldVersionId(),
+        collectedAt,
+        world,
+        tribes: computeWorldAggregates(villages, allies),
+        changesSincePrevious: changes,
+      };
+      const history = await this.historyStore.load();
+      // capWorldHistory espera ordem cronológica (mais recente no FIM).
+      await this.historyStore.save({ versions: capWorldHistory([...history.versions, version]) });
+    } catch (error) {
+      // best-effort MAS nunca silencioso: dump repetidamente corrompido
+      // (ex.: coord duplicada do fail-closed) pararia o histórico sem rastro.
+      console.warn('[world-history] falha ao arquivar versão do mundo:', error);
+    }
+
     await this.store.save({ world, fetchedAt: new Date().toISOString(), villages, players, allies });
     return this.status();
+  }
+
+  /** Versões do histórico do mundo ATIVO, mais recente primeiro (roadmap 18).
+   *  Nunca mistura mundos: versões de outro mundo ficam no store mas não são
+   *  expostas (o diff cruzado mostraria números sem sentido). */
+  async history(): Promise<WorldHistoryVersion[]> {
+    const history = await this.historyStore.load();
+    const currentWorld = this.world();
+    // Store em ordem cronológica (cap mantém as últimas no fim) — filtra pelo
+    // mundo atual e inverte p/ a UI.
+    return [...history.versions].reverse().filter((version) => version.world === currentWorld);
   }
 
   async status(): Promise<WorldDataStatus> {

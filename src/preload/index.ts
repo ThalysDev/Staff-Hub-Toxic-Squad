@@ -59,6 +59,21 @@ const api = {
     setDefault: (id: string) =>
       invoke('templates:set-default', id) as Promise<import('@shared/mp-templates-rules').MpTemplateEntry | null>,
   },
+  troopsHistory: {
+    list: () => invoke('troopshistory:list') as Promise<import('@shared/snapshot-history').TroopsHistoryVersion[]>,
+    archive: (snapshot: import('@shared/sg2-engine').TroopSnapshot) =>
+      invoke('troopshistory:archive', snapshot) as Promise<{ ok: boolean; detail: string }>,
+    remove: (id: string) => invoke('troopshistory:remove', id) as Promise<void>,
+  },
+  worldHistory: {
+    list: () => invoke('worldhistory:list') as Promise<import('@shared/world-history').WorldHistoryVersion[]>,
+  },
+  blindDebt: {
+    get: () => invoke('blinddebt:get') as Promise<import('@shared/blind-debt').BlindDebtEntry[]>,
+    apply: (round: { playerName: string; requested: number; sent: number }[]) =>
+      invoke('blinddebt:apply', round) as Promise<import('@shared/blind-debt').BlindDebtEntry[]>,
+    clear: () => invoke('blinddebt:clear') as Promise<void>,
+  },
   queue: {
     cancel: () => invoke('queue:cancel'),
   },

@@ -14,6 +14,7 @@ import { useToast, type ToastVariant } from '../../hooks/useToast';
 import type { PageId } from '../../modules';
 import OpShareSection from './OpShareSection';
 import PostOpSection from './PostOpSection';
+import WorldEvolutionSection from './WorldEvolutionSection';
 
 type DistributionEntry = ReturnType<typeof parseDistribution>[number];
 type ParsedDistribution = { entries: DistributionEntry[] } | { error: string };
@@ -434,6 +435,10 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
           </div>
         )}
       </section>
+
+      {/* ---- Evolução do Mundo: diff entre versões arquivadas do mundo (SG_1).
+           Sempre visível — a seção trata sozinha os estados sem histórico. ---- */}
+      <WorldEvolutionSection />
 
       <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </div>
