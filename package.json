@@ -1,7 +1,7 @@
 {
   "name": "staff-hub-toxic-squad",
   "productName": "Staff Hub Toxic Squad",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Ferramenta de liderança de tribo para Tribal Wars BR — Staff Hub Toxic Squad",
   "main": "out/main/index.js",
   "type": "module",

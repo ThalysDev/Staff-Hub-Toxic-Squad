@@ -311,9 +311,11 @@ export function formatFullSemiRows(players: PlayerFullSemiReport[]): string {
     .join('\n');
 }
 
-/** INFORMAÇÕES ORIGEM do SG_4 ("Nick;Nro Fulls;Coordenadas Origem"): origem do NT = só as aldeias FULL. */
+/** INFORMAÇÕES ORIGEM do SG_4 ("Nick;Nro Fulls;Coordenadas Origem"): origem do NT = só as aldeias FULL.
+ *  Jogador SEM aldeia full não é origem por definição — e a linha "nick;0;"
+ *  seria rejeitada pelo parser do SG_4 (quebrando a colagem inteira). */
 export function formatOriginsRows(players: PlayerFullSemiReport[]): string {
-  return players.map((p) => `${p.playerName};${p.fulls};${coordsOfTier(p, 'full').join(' ')}`).join('\n');
+  return players.filter((p) => p.fulls > 0).map((p) => `${p.playerName};${p.fulls};${coordsOfTier(p, 'full').join(' ')}`).join('\n');
 }
 
 /** Uma linha por jogador só com as coordenadas do tier pedido ('ambos' = fulls + semis, nessa ordem). */

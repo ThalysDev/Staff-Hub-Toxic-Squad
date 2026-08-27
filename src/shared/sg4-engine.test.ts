@@ -4,9 +4,11 @@ import {
   distributionSummary,
   distributeTargets,
   moraleOf,
+  originsSummary,
   parseOriginsInput,
   splitTargetsFakes,
   type EnemyVillageRef,
+  type OriginPlayer,
   type TargetLine,
 } from './sg4-engine';
 
@@ -61,6 +63,65 @@ describe('parseOriginsInput', () => {
   it('rejeita linha fora do formato', () => {
     expect(() => parseOriginsInput('sem sentido aqui')).toThrow(/inválida/i);
     expect(() => parseOriginsInput('')).toThrow(/Nenhuma origem/i);
+  });
+});
+
+describe('parseOriginsInput FULL/SEMI', () => {
+  it('aceita 4 segmentos: contagens e tiers certos (fulls primeiro, semis depois)', () => {
+    const [player] = parseOriginsInput('carol;1;2;500|500 520|500 540|500');
+    expect(player?.playerName).toBe('carol');
+    expect(player?.fulls).toBe(1);
+    expect(player?.semis).toBe(2);
+    expect(player?.origins).toEqual([{ x: 500, y: 500 }, { x: 520, y: 500 }, { x: 540, y: 500 }]);
+    // As PRIMEIRAS `fulls` coords são tier 'full'; as seguintes, 'semi'.
+    expect(player?.semiOrigins).toEqual([{ x: 520, y: 500 }, { x: 540, y: 500 }]);
+    expect(player?.semis ?? 0).toBe((player?.semiOrigins ?? []).length);
+  });
+
+  it('rejeita 4 segmentos com soma divergente citando o nick', () => {
+    const boom = (): OriginPlayer[] => parseOriginsInput('eve;2;2;900|900');
+    expect(boom).toThrow(/eve/);
+    expect(boom).toThrow(/a soma 2\+2 deve bater com 1/);
+  });
+
+  it('legado intacto: semis default 0 e semiOrigins vazio (sem chaves novas)', () => {
+    const [player] = parseOriginsInput('hasua;50;686|420 686|424');
+    expect(player?.semis ?? 0).toBe(0);
+    expect(player?.semiOrigins ?? []).toEqual([]);
+    // Round-trip exato exigido pelo originsFromSnapshot: objeto SEM chaves novas.
+    expect(player).toEqual({ playerName: 'hasua', fulls: 50, origins: [{ x: 686, y: 420 }, { x: 686, y: 424 }] });
+  });
+
+  it('formato novo com semis=0 equivale ao legado', () => {
+    const novo = parseOriginsInput('dave;2;0;400|400 401|400');
+    const legado = parseOriginsInput('dave;2;400|400 401|400');
+    const flat = (p?: OriginPlayer) =>
+      p === undefined
+        ? null
+        : { playerName: p.playerName, fulls: p.fulls, semis: p.semis ?? 0, semiOrigins: p.semiOrigins ?? [], origins: p.origins };
+    expect(flat(novo[0])).toEqual(flat(legado[0]));
+  });
+
+  it('mensagem de erro cita os DOIS formatos aceitos', () => {
+    expect(() => parseOriginsInput('nick ruim;1;;')).toThrow(
+      /"nick;fulls;coord coord" ou "nick;fulls;semis;coord coord"/,
+    );
+  });
+
+  it('aceita linhas mistas legado + FULL/SEMI preservando a ordem digitada', () => {
+    const players = parseOriginsInput('ana;100;500|500\nbia;1;2;520|500 530|500 540|500');
+    expect(players.map((p) => p.playerName)).toEqual(['ana', 'bia']);
+    expect((players[0]?.semiOrigins ?? []).length).toBe(0);
+    expect(players[1]?.semis).toBe(2);
+    expect(players[1]?.origins).toHaveLength(3);
+  });
+});
+
+describe('originsSummary', () => {
+  it('agrega players/fulls/semis/villages das INFORMAÇÕES ORIGEM', () => {
+    // aa: 4 seg com semis=0; bb: legado; cc: só semis.
+    const summary = originsSummary(parseOriginsInput('aa;2;0;100|100 101|100\nbb;1;101|200\ncc;0;1;300|300'));
+    expect(summary).toEqual({ players: 3, fulls: 3, semis: 1, villages: 4 });
   });
 });
 
@@ -162,5 +223,72 @@ describe('distributeTargets', () => {
     const secondCell = result.matrix[0]?.cells[1];
     expect(secondCell?.fields).toBeCloseTo(2, 1);
     expect(secondCell?.hours).toBeCloseTo((2 * NOBLE) / 60, 1);
+  });
+
+  it('semisFrom/semisTo filtra pelo semis DO JOGADOR: jogador na faixa é incluído', () => {
+    // leo tem 2 semis; linha aceita apenas jogadores com 1–3 semis.
+    const semisOrigins = parseOriginsInput('leo;1;2;600|600 620|600 640|600');
+    const result = distributeTargets({
+      origins: semisOrigins,
+      lines: [{ fullsFrom: 0, fullsTo: 200, semisFrom: 1, semisTo: 3, targets: [{ x: 601, y: 600 }, { x: 621, y: 600 }, { x: 641, y: 600 }] }],
+      nobleMinutesPerField: NOBLE,
+      priority: 'nearest',
+      minMorale: 0,
+      maxFields: 70,
+    });
+    // As 3 origens de leo (tier full e semi) participaram — nenhuma órfã.
+    expect(result.orphanOrigins).toEqual([]);
+    expect(result.assignments).toHaveLength(3);
+  });
+
+  it('semisFrom/semisTo exclui jogador fora da faixa → origem órfã', () => {
+    const mixed = parseOriginsInput('leo;1;2;600|600 620|600 640|600\nmia;1;605|600');
+    const result = distributeTargets({
+      origins: mixed,
+      lines: [{ fullsFrom: 0, fullsTo: 200, semisFrom: 0, semisTo: 0, targets: [{ x: 601, y: 600 }] }],
+      nobleMinutesPerField: NOBLE,
+      priority: 'nearest',
+      minMorale: 0,
+      maxFields: 70,
+    });
+    // Faixa exige 0 semis: mia (legado/0 semis) recebe o alvo; leo (2 semis) fica fora.
+    expect(result.assignments).toEqual([{ playerName: 'mia', origin: '605|600', target: '601|600' }]);
+    expect(result.orphanOrigins.map((o) => `${o.playerName};${o.origin}`)).toEqual([
+      'leo;600|600',
+      'leo;620|600',
+      'leo;640|600',
+    ]);
+  });
+
+  it('ausência de semisFrom/semisTo = todos (0–200), legado incluído', () => {
+    const mixed = parseOriginsInput('leo;1;2;600|600 620|600 640|600\nnia;2;520|500');
+    const result = distributeTargets({
+      origins: mixed,
+      lines: [{ fullsFrom: 0, fullsTo: 200, targets: [{ x: 601, y: 600 }, { x: 621, y: 600 }, { x: 641, y: 600 }, { x: 521, y: 500 }] }],
+      nobleMinutesPerField: NOBLE,
+      priority: 'nearest',
+      minMorale: 0,
+      maxFields: 70,
+    });
+    expect(result.assignments).toHaveLength(4); // origens de leo (com semis) E de nia
+    expect(result.orphanOrigins).toEqual([]);
+    expect(result.orphanTargets).toEqual([]);
+  });
+
+  it('matrix traz tier correto: origem semi de entrada 4-seg = "semi"; legado = "full"', () => {
+    const mixed = parseOriginsInput('leo;1;2;600|600 620|600 640|600\nnia;2;520|500');
+    const result = distributeTargets({
+      origins: mixed,
+      lines: [{ fullsFrom: 0, fullsTo: 200, targets: [{ x: 700, y: 700 }] }],
+      nobleMinutesPerField: NOBLE,
+      priority: 'nearest',
+      minMorale: 0,
+      maxFields: 70,
+    });
+    const byOrigin = new Map(result.matrix.map((row) => [row.origin, row.tier]));
+    expect(byOrigin.get('600|600')).toBe('full'); // primeira coord do 4-seg = tier full
+    expect(byOrigin.get('620|600')).toBe('semi');
+    expect(byOrigin.get('640|600')).toBe('semi');
+    expect(byOrigin.get('520|500')).toBe('full'); // linha legada sempre 'full'
   });
 });

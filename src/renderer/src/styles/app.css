@@ -2162,7 +2162,8 @@ kbd {
 
 .sg4-line-grid {
   display: grid;
-  grid-template-columns: 140px 140px minmax(0, 1fr);
+  /* 4 campos numéricos (fulls/semis de-até) + textarea de coordenadas. */
+  grid-template-columns: 130px 130px 130px 130px minmax(0, 1fr);
   gap: var(--sp-3);
   align-items: start;
   border: 1px dashed var(--border-card);

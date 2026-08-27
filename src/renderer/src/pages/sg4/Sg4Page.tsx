@@ -5,6 +5,7 @@ import {
   centralOpAnalysis,
   distributeTargets,
   distributionSummary,
+  originsSummary,
   parseOriginsInput,
   splitTargetsFakes,
   type CentralOpRow,
@@ -42,6 +43,9 @@ const LINE_NAMES = ['PRIMEIRA', 'SEGUNDA', 'TERCEIRA', 'QUARTA', 'QUINTA', 'SEXT
 interface OriginLine {
   fullsFrom: string;
   fullsTo: string;
+  /** Faixa opcional de SEMIS do jogador (vazio = 0–200 = todas). */
+  semisFrom: string;
+  semisTo: string;
   coordsText: string;
 }
 
@@ -111,8 +115,8 @@ export default function Sg4Page() {
   // ---- Seção B — Distribuição de Alvos de OP ----
   const [originsText, setOriginsText] = useState('');
   const [lines, setLines] = useState<OriginLine[]>([
-    { fullsFrom: '', fullsTo: '', coordsText: '' },
-    { fullsFrom: '', fullsTo: '', coordsText: '' },
+    { fullsFrom: '', fullsTo: '', semisFrom: '', semisTo: '', coordsText: '' },
+    { fullsFrom: '', fullsTo: '', semisFrom: '', semisTo: '', coordsText: '' },
   ]);
   const [priority, setPriority] = useState<'nearest' | 'farthest'>('nearest');
   const [minMoraleText, setMinMoraleText] = useState('0');
@@ -337,6 +341,30 @@ export default function Sg4Page() {
 
   /** P0-8: jogadores com alvos+horários prontos para o pacote de comunicação
    * (MPs com #horarios#, BBCode do plano e lista de reservas). */
+  /** Prévia das origens coladas: valida o formato na hora e mostra fulls/semis
+   *  por jogador ANTES de distribuir (erro aparece aqui, não só no submit). */
+  const originsPreview = useMemo<{ players: OriginPlayer[]; summary: ReturnType<typeof originsSummary> } | null>(() => {
+    if (originsText.trim() === '') return null;
+    try {
+      const players = parseOriginsInput(originsText);
+      return { players, summary: originsSummary(players) };
+    } catch {
+      return null; // erro completo só ao distribuir (a Field de origem mostra)
+    }
+  }, [originsText]);
+
+  /** Coordenadas de origem SEMI segundo a ÚLTIMA DISTRIBUIÇÃO REALIZADA (a
+   *  agenda é calculada sobre ela — marcar pelo texto vivo poderia mentir se
+   *  o usuário editasse as origens depois de distribuir). */
+  const semiOriginCoords = useMemo<Set<string>>(() => {
+    const set = new Set<string>();
+    if (distribution === null) return set;
+    for (const row of distribution.matrix) {
+      if (row.tier === 'semi') set.add(row.origin);
+    }
+    return set;
+  }, [distribution]);
+
   const commsPlayers = useMemo(() => {
     if (distribution === null || scheduleRows === null || scheduleRows.length === 0) return null;
     try {
@@ -426,7 +454,7 @@ export default function Sg4Page() {
   }
 
   function addLine(): void {
-    setLines((current) => [...current, { fullsFrom: '', fullsTo: '', coordsText: '' }]);
+    setLines((current) => [...current, { fullsFrom: '', fullsTo: '', semisFrom: '', semisTo: '', coordsText: '' }]);
   }
 
   async function runDistribution(planOnly: boolean): Promise<void> {
@@ -453,7 +481,19 @@ export default function Sg4Page() {
         messages.push('Confira a faixa FULLS DE/ATÉ (0–200) das linhas de coordenadas.');
         break;
       }
-      builtLines.push({ fullsFrom: from, fullsTo: to, targets });
+      // Faixa opcional de semis do jogador (vazio = 0–200 = todas).
+      const semiRange: { semisFrom?: number; semisTo?: number } = {};
+      if (line.semisFrom.trim() !== '' || line.semisTo.trim() !== '') {
+        const sFrom = line.semisFrom.trim() === '' ? 0 : Number(line.semisFrom);
+        const sTo = line.semisTo.trim() === '' ? 200 : Number(line.semisTo);
+        if (!Number.isInteger(sFrom) || !Number.isInteger(sTo) || sFrom < 0 || sTo > 200 || sFrom > sTo) {
+          messages.push('Confira a faixa SEMIS DE/ATÉ (0–200) das linhas — vazia significa todas.');
+          break;
+        }
+        semiRange.semisFrom = sFrom;
+        semiRange.semisTo = sTo;
+      }
+      builtLines.push({ fullsFrom: from, fullsTo: to, ...semiRange, targets });
     }
     if (builtLines.length === 0) {
       messages.push('Informe ao menos 1 coordenada de alvo nas linhas (123|456 456|123 …).');
@@ -867,14 +907,14 @@ export default function Sg4Page() {
             <Field
               id="sg4-origins"
               label="Informações de origem"
-              hint="Cada coordenada de origem = 1 NT estacionado (1 alvo a receber)."
+              hint="Cada coordenada de origem = 1 NT estacionado (1 alvo a receber). Formatos: nick;fulls;coords ou nick;fulls;semis;coords (coords fulls primeiro — saída do contador do SG2)."
               error={errorsB.origins}
             >
               <textarea
                 id="sg4-origins"
                 className="textarea sg4-coords"
                 rows={4}
-                placeholder="hasua;50;686|420 686|424"
+                placeholder={'hasua;50;686|420 686|424\nou com semis: hasua;3;2;686|420 686|424 690|430 691|431'}
                 value={originsText}
                 aria-describedby={errorsB.origins !== undefined ? 'sg4-origins-error' : 'sg4-origins-hint'}
                 onChange={(event) => setOriginsText(event.target.value)}
@@ -886,6 +926,49 @@ export default function Sg4Page() {
                 </button>
               </div>
             </Field>
+
+            {originsPreview !== null && (
+              <div className="col" style={{ gap: 8, marginBottom: 12 }}>
+                <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  <span className="pill pill--muted">{originsPreview.summary.players} jogador(es)</span>
+                  <span className="pill pill--muted">{originsPreview.summary.fulls} full(s)</span>
+                  {originsPreview.summary.semis > 0 && <span className="pill pill--muted">{originsPreview.summary.semis} semi(s)</span>}
+                  <span className="pill pill--muted">{originsPreview.summary.villages} origem(ns)</span>
+                </div>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Jogador</th>
+                        <th scope="col" className="cell-num">Fulls</th>
+                        <th scope="col" className="cell-num">Semis</th>
+                        <th scope="col">Origens (F = full · S = semi)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {originsPreview.players.map((player) => {
+                        const semiSet = new Set((player.semiOrigins ?? []).map((coord) => `${coord.x}|${coord.y}`));
+                        return (
+                          <tr key={player.playerName}>
+                            <td className="cell-nowrap">{player.playerName}</td>
+                            <td className="cell-num"><strong>{player.fulls}</strong></td>
+                            <td className="cell-num">{player.semis ?? 0}</td>
+                            <td className="cell-detail">
+                              {player.origins.map((coord) => {
+                                const label = `${coord.x}|${coord.y}`;
+                                return semiSet.has(label)
+                                  ? <span key={label} className="text-warn">S {label} </span>
+                                  : <span key={label}>F {label} </span>;
+                              })}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {lines.map((line, index) => (
               <div className="sg4-line-grid" key={index}>
@@ -911,6 +994,32 @@ export default function Sg4Page() {
                     placeholder="200"
                     value={line.fullsTo}
                     onChange={(event) => updateLine(index, 'fullsTo', event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Semis de (opcional)</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    max={200}
+                    placeholder="0"
+                    value={line.semisFrom}
+                    aria-label={`Semis mínimas da linha ${index + 1}`}
+                    onChange={(event) => updateLine(index, 'semisFrom', event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Semis até (opcional)</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    max={200}
+                    placeholder="200"
+                    value={line.semisTo}
+                    aria-label={`Semis máximas da linha ${index + 1}`}
+                    onChange={(event) => updateLine(index, 'semisTo', event.target.value)}
                   />
                 </label>
                 <label className="field">
@@ -1044,6 +1153,7 @@ export default function Sg4Page() {
                         <tr key={row.origin}>
                           <th scope="row" className="cell-nowrap sg4-heat-origin">
                             <span className="muted">{row.origin}</span> {row.player}
+                            {row.tier === 'semi' && <span className="text-warn" title="Origem SEMI (população ofensiva abaixo do limiar de full)"> semi</span>}
                           </th>
                           {row.cells.map((cell, index) => {
                             const span = heatRange.max - heatRange.min;
@@ -1207,7 +1317,12 @@ export default function Sg4Page() {
                         {scheduleRows.map((row, index) => (
                           <tr key={`${row.nick}-${row.targetCoord}-${index}`}>
                             <td className="cell-nowrap">{row.nick}</td>
-                            <td>{row.originCoord}</td>
+                            <td>
+                              {row.originCoord}
+                              {semiOriginCoords.has(row.originCoord) && (
+                                <span className="text-warn" title="Origem SEMI"> semi</span>
+                              )}
+                            </td>
                             <td>{row.targetCoord}</td>
                             <td className={row.sendAt.getTime() < Date.now() ? 'cell-nowrap text-warn' : 'cell-nowrap'}>
                               {formatHms(row.sendAt)}

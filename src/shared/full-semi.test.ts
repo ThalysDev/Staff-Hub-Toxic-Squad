@@ -320,8 +320,8 @@ describe('formatters do relatório', () => {
     expect(formatFullSemiRows(repPlayers())).toBe('ana;1;1;500|500 501|501\nbia;1;0;600|600\ncarlos;0;1;700|700');
   });
 
-  it('formatOriginsRows usa SÓ as aldeias FULL (Nick;Nro Fulls;Coordenadas Origem)', () => {
-    expect(formatOriginsRows(repPlayers())).toBe('ana;1;500|500\nbia;1;600|600\ncarlos;0;');
+  it('formatOriginsRows usa SÓ as aldeias FULL e OMITTE jogador sem full (linha nick;0; quebraria o parser do SG_4)', () => {
+    expect(formatOriginsRows(repPlayers())).toBe('ana;1;500|500\nbia;1;600|600');
     expect(formatOriginsRows([])).toBe('');
   });
 

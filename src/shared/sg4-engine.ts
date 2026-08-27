@@ -91,31 +91,72 @@ export function splitTargetsFakes(
 // (b) Distribuição de Alvos de OP
 // ---------------------------------------------------------------------------
 
-/** Linha "nick;nroFulls;coord coord" do formulário INFORMAÇÕES ORIGEM. */
+/** Linha "nick;nroFulls;coord coord" (LEGADO) ou "nick;nroFulls;nroSemis;coord
+ * coord" (FULL/SEMI, contagem do SG_2) do formulário INFORMAÇÕES ORIGEM. */
 export interface OriginPlayer {
   playerName: string;
   fulls: number;
-  /** Cada coordenada de origem = um NT estacionado (1 alvo a receber). */
+  /** Aldeias semi (ofensiva parcial) do jogador. Formato legado não traz a chave
+   * — leitura usa default 0. */
+  semis?: number;
+  /** Cada coordenada de origem = um NT estacionado (1 alvo a receber). No formato
+   * FULL/SEMI: fulls primeiro, semis depois (ordem digitada). */
   origins: { x: number; y: number }[];
+  /** Coordenadas de tier 'semi' (subset de origins). Legado: vazio (chave ausente). */
+  semiOrigins?: { x: number; y: number }[];
 }
+
+/** Pares "x|y" separados por espaço → coordenadas numéricas (ordem preservada). */
+function parseCoordPairs(text: string): { x: number; y: number }[] {
+  return text
+    .trim()
+    .split(/\s+/)
+    .map((pair) => {
+      const [x, y] = pair.split('|');
+      return { x: Number(x), y: Number(y) };
+    });
+}
+
+const ORIGIN_COORDS = '(?:\\d{1,3}\\|\\d{1,3})(?:\\s+\\d{1,3}\\|\\d{1,3})*\\s*';
+/** Novo FULL/SEMI: nick;fulls;semis;coords. */
+const LINE_WITH_SEMIS = new RegExp(`^([^;]{2,40});(\\d+);(\\d+);(${ORIGIN_COORDS})$`);
+/** Legado: nick;fulls;coords (fulls pode divergir do nº de coords — tolerância mantida). */
+const LINE_LEGACY = new RegExp(`^([^;]{2,40});(\\d+);(${ORIGIN_COORDS})$`);
 
 export function parseOriginsInput(text: string): OriginPlayer[] {
   const players: OriginPlayer[] = [];
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (trimmed === '') continue;
-    const match = /^([^;]{2,40});(\d+);((?:\d{1,3}\|\d{1,3})(?:\s+\d{1,3}\|\d{1,3})*\s*)$/.exec(trimmed);
-    if (match === null) {
-      throw new Error(`Linha de origem inválida (use "nick;fulls;coord coord"): "${trimmed.slice(0, 60)}"`);
+    const semisMatch = LINE_WITH_SEMIS.exec(trimmed);
+    if (semisMatch !== null) {
+      const playerName = semisMatch[1] ?? '';
+      const fulls = Number(semisMatch[2] ?? 0);
+      const semis = Number(semisMatch[3] ?? 0);
+      const coords = parseCoordPairs(semisMatch[4] ?? '');
+      if (fulls + semis !== coords.length) {
+        throw new Error(
+          `Linha de origem divergente para "${playerName}": ${playerName};${fulls} fulls;${semis} semis;${coords.length} coords — a soma ${fulls}+${semis} deve bater com ${coords.length}.`,
+        );
+      }
+      // FULL/SEMI: as PRIMEIRAS `fulls` coords são tier 'full'; as seguintes, 'semi'.
+      const semiOrigins = coords.slice(fulls);
+      players.push({ playerName, fulls, semis, origins: coords, semiOrigins });
+      continue;
     }
-    const origins = (match[3] ?? '')
-      .trim()
-      .split(/\s+/)
-      .map((pair) => {
-        const [x, y] = pair.split('|');
-        return { x: Number(x), y: Number(y) };
-      });
-    players.push({ playerName: match[1] ?? '', fulls: Number(match[2] ?? 0), origins });
+    const legacyMatch = LINE_LEGACY.exec(trimmed);
+    if (legacyMatch === null) {
+      throw new Error(
+        `Linha de origem inválida (use "nick;fulls;coord coord" ou "nick;fulls;semis;coord coord"): "${trimmed.slice(0, 60)}"`,
+      );
+    }
+    // Legado: SEM as chaves novas — default semis=0 / semiOrigins=[] na leitura e
+    // round-trip exato com originsFromSnapshot ("nick;fulls;coords").
+    players.push({
+      playerName: legacyMatch[1] ?? '',
+      fulls: Number(legacyMatch[2] ?? 0),
+      origins: parseCoordPairs(legacyMatch[3] ?? ''),
+    });
   }
   if (players.length === 0) {
     throw new Error('Nenhuma origem informada — cole as linhas "nick;fulls;coords de origem".');
@@ -123,10 +164,26 @@ export function parseOriginsInput(text: string): OriginPlayer[] {
   return players;
 }
 
+/** Contadores agregados das INFORMAÇÕES ORIGEM (espelha o contador FULL/SEMI do SG_2). */
+export function originsSummary(origins: OriginPlayer[]): { players: number; fulls: number; semis: number; villages: number } {
+  let fulls = 0;
+  let semis = 0;
+  let villages = 0;
+  for (const player of origins) {
+    fulls += player.fulls;
+    semis += player.semis ?? 0;
+    villages += player.origins.length;
+  }
+  return { players: origins.length, fulls, semis, villages };
+}
+
 export interface TargetLine {
   /** Faixa de fulls da linha (0–200 = todos). */
   fullsFrom: number;
   fullsTo: number;
+  /** Faixa de semis do JOGADOR (ausentes = 0–200 = todos). */
+  semisFrom?: number;
+  semisTo?: number;
   targets: { x: number; y: number; points?: number }[];
 }
 
@@ -162,7 +219,7 @@ export interface PlanCell {
 
 export interface DistributionResult {
   /** Matriz planilha: uma linha por origem (coord), uma coluna por alvo. */
-  matrix: { origin: string; player: string; cells: PlanCell[] }[];
+  matrix: { origin: string; player: string; tier: 'full' | 'semi'; cells: PlanCell[] }[];
   lineTargets: { x: number; y: number }[];
   assignments: { playerName: string; origin: string; target: string }[];
   orphanOrigins: { playerName: string; origin: string }[];
@@ -174,17 +231,47 @@ export interface DistributionResult {
  * linha do alvo, moral mínimo, distância máxima; alvo consumido por 1 atacante.
  * "Obter Planificação" = matrix; "Realizar Distribuição" = assignments.
  */
+/**
+ * Distribui cada ORIGEM (NT estacionado) a um ALVO elegível: faixa de fulls e de
+ * semis do JOGADOR na linha do alvo, moral mínimo, distância máxima; alvo consumido
+ * por 1 atacante. "Obter Planificação" = matrix; "Realizar Distribuição" = assignments.
+ */
 export function distributeTargets(input: DistributionInput): DistributionResult {
-  const lineTargets: { x: number; y: number; fullsFrom: number; fullsTo: number; points?: number }[] = [];
+  const lineTargets: { x: number; y: number; fullsFrom: number; fullsTo: number; semisFrom: number; semisTo: number; points?: number }[] =
+    [];
   for (const line of input.lines) {
     for (const target of line.targets) {
-      lineTargets.push({ ...target, fullsFrom: line.fullsFrom, fullsTo: line.fullsTo });
+      // Faixas de semis ausentes = 0–200 (todos).
+      lineTargets.push({
+        ...target,
+        fullsFrom: line.fullsFrom,
+        fullsTo: line.fullsTo,
+        semisFrom: line.semisFrom ?? 0,
+        semisTo: line.semisTo ?? 200,
+      });
     }
   }
 
-  const flatOrigins = input.origins.flatMap((player) =>
-    player.origins.map((origin) => ({ playerName: player.playerName, fulls: player.fulls, origin })),
-  );
+  const flatOrigins: { playerName: string; fulls: number; semis: number; origin: { x: number; y: number }; tier: 'full' | 'semi' }[] = [];
+  for (const player of input.origins) {
+    const semis = player.semis ?? 0;
+    const semiCount = player.semiOrigins?.length ?? 0;
+    if (semis !== semiCount) {
+      throw new Error(
+        `Origens inconsistentes para "${player.playerName}": ${semis} semis declarados, mas ${semiCount} coordenadas semi — corrija as INFORMAÇÕES ORIGEM.`,
+      );
+    }
+    const semiSet = new Set((player.semiOrigins ?? []).map((coord) => `${coord.x}|${coord.y}`));
+    for (const origin of player.origins) {
+      flatOrigins.push({
+        playerName: player.playerName,
+        fulls: player.fulls,
+        semis,
+        origin,
+        tier: semiSet.has(`${origin.x}|${origin.y}`) ? 'semi' : 'full',
+      });
+    }
+  }
 
   // Moral exigida sem pontos de origem/alvo → fail-closed com erro claro.
   if (input.minMorale > 0) {
@@ -199,10 +286,12 @@ export function distributeTargets(input: DistributionInput): DistributionResult 
     }
   }
 
-  // Planilha: horas/moral de cada origem×alvo (para o heatmap).
+  // Planilha: horas/moral de cada origem×alvo (para o heatmap). Tier da linha de
+  // origem = 'semi' quando a coord ∈ semiOrigins do jogador; senão 'full'.
   const matrix = flatOrigins.map((entry) => ({
     origin: `${entry.origin.x}|${entry.origin.y}`,
     player: entry.playerName,
+    tier: entry.tier,
     cells: lineTargets.map((target) => {
       const fields = fieldsBetween(entry.origin, target);
       const attPoints = input.originPoints?.get(entry.playerName);
@@ -223,6 +312,8 @@ export function distributeTargets(input: DistributionInput): DistributionResult 
         if (usedTargets.has(index)) return false;
         if (fields > input.maxFields) return false;
         if (entry.fulls < target.fullsFrom || entry.fulls > target.fullsTo) return false;
+        // Semis do JOGADOR fora da faixa da linha → inelegível (0–200 quando ausente).
+        if (entry.semis < target.semisFrom || entry.semis > target.semisTo) return false;
         if (input.minMorale > 0) {
           const attPoints = input.originPoints?.get(entry.playerName);
           const defPoints = target.points ?? input.targetPoints?.get(`${target.x}|${target.y}`);

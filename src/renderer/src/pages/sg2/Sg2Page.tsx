@@ -149,7 +149,7 @@ export default function Sg2Page() {
   const [groupPapel, setGroupPapel] = useState<'origem' | 'alvo'>('origem');
   const [groupAuthor, setGroupAuthor] = useState('');
   const [groupBusy, setGroupBusy] = useState(false);
-  const unitPopsRef = useRef<Record<string, number> | null>(null);
+  const unitPopsRef = useRef<{ world: string | null; pops: Record<string, number> } | null>(null);
   const session = useSessionStatus();
 
   /** Unidades presentes no snapshot (ordem do formulário, depois as demais). */
@@ -351,14 +351,22 @@ export default function Sg2Page() {
     const semiPop = Number(semiPopText);
     setFullSemiBusy(true);
     try {
-      if (unitPopsRef.current === null) {
-        unitPopsRef.current = await window.staffhub.world.unitPops();
+      // Populações por unidade DO MUNDO ATUAL — páginas nunca desmontam, então
+      // o cache guarda o mundo: trocar de sessão refaz o fetch (nunca classificar
+      // FULL/SEMI com a tabela do mundo antigo).
+      if (unitPopsRef.current === null || unitPopsRef.current.world !== session.world) {
+        unitPopsRef.current = { world: session.world, pops: await window.staffhub.world.unitPops() };
       }
       const ks = parseKs(fsKText);
       const names = parseNames(fsPlayersText);
       const units = fsUnitIds();
+      if (units !== undefined && units.length === 0) {
+        // 'ofensivas' sem nenhuma unidade ofensiva no snapshot (ou custom vazio):
+        // [] significaria TODAS na engine — inverteria a escolha em silêncio.
+        throw new Error('Nenhuma unidade contabilizável selecionada (o snapshot não tem unidades desse conjunto?) — use "todas as unidades" ou marque unidades no personalizado.');
+      }
       const next = fullSemiReport(
-        { entries: resultEntries(), popByUnit: unitPopsRef.current ?? {} },
+        { entries: resultEntries(), popByUnit: unitPopsRef.current?.pops ?? {} },
         {
           fullPop,
           semiPop,
@@ -394,6 +402,12 @@ export default function Sg2Page() {
     if (fsKs.length > 0) parts.push(`K contador ${fsKMode} ${fsKs.join(',')}`);
     const units = fsUnitIds();
     if (units !== undefined) parts.push(`unidades: ${units.map((id) => UNITS[id as UnitId]?.name ?? id).join('+')}`);
+    const fsNames = parseNames(fsPlayersText);
+    if (fsNames.length > 0) parts.push(`jogadores ${fsPlayersMode} ${fsNames.join(',')}`);
+    const minF = Number(minFullsText);
+    const minS = Number(minSemisText);
+    if (Number.isFinite(minF) && minF > 0) parts.push(`mín ${minF} full(s)`);
+    if (Number.isFinite(minS) && minS > 0) parts.push(`mín ${minS} semi(s)`);
     parts.push(`FULL≥${fullPopText}, SEMI≥${semiPopText}`);
     return parts.join('; ');
   }
