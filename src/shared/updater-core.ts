@@ -83,7 +83,6 @@ const CARACTERES_PROIBIDOS_RE = /["\r\n\0]/;
 // O cmd.exe lê o .cmd no CODEPAGE OEM, não em UTF-8 — acentos no caminho
 // (ex.: C:\Users\Usuário) viram mojibake e o ren/move procuram pasta
 // inexistente. Caminhos no script devem ser ASCII (use o path curto 8.3).
-const CARACTERE_NAO_ASCII_RE = /[^\x20-\x7E]/;
 
 function exigir(condicao: boolean, mensagem: string): void {
   if (!condicao) throw new Error(mensagem);
@@ -91,26 +90,17 @@ function exigir(condicao: boolean, mensagem: string): void {
 
 function validarString(valor: string, campo: string): void {
   exigir(typeof valor === 'string' && valor.trim().length > 0, `Campo ${campo} não pode ser vazio.`);
-  exigir(!CARACTERES_PROIBIDOS_RE.test(valor), `Campo ${campo} contém caractere proibido no .cmd.`);
-  exigir(!CARACTERE_NAO_ASCII_RE.test(valor), `Campo ${campo} contém caractere não-ASCII (acento?) — o cmd.exe leria errado; converta para caminho curto 8.3 antes.`);
-}
-
-// Último segmento do caminho Windows (aceita "\\" ou "/" como separador).
-function basename(dir: string): string {
-  const idx = Math.max(dir.lastIndexOf('\\'), dir.lastIndexOf('/'));
-  return idx === -1 ? dir : dir.slice(idx + 1);
-}
-
-// Em arquivo .cmd, "%" literal deve ser escrito como "%%".
-function escaparPercent(raw: string): string {
-  return raw.replace(/%/g, '%%');
+  exigir(!CARACTERES_PROIBIDOS_RE.test(valor), `Campo ${campo} contém caractere proibido no script de troca.`);
 }
 
 /**
- * Gera o CONTEÚDO do .cmd externo (salvo em %TEMP%) que troca as pastas do app portable:
- * espera o PID sair → renomeia appDir para .old-<stamp> → move a pasta staged (extraída
- * do zip) para o lugar → relança o exe → limpa backup e apaga a si mesmo. Determinístico:
- * nenhum timestamp é capturado aqui, o stamp vem do input.
+ * Gera o script PowerShell (.ps1) de troca de versão. PowerShell é ESCOLHIDO
+ * em vez de .cmd porque: (1) lê caminhos UNICODE nativamente (cmd.exe lê no
+ * codepage OEM e acentos como "Usuário" viram mojibake); (2) Start-Sleep
+ * funciona em qualquer contexto, inclusive detached (diferente de timeout.exe
+ * que exige console interativo); (3) Rename-Item/Move-Item com -LiteralPath
+ * não interpretam wildcards. O script usa here-strings (@'...'@) para os
+ * caminhos, imunes a espaços e caracteres especiais.
  */
 export function buildSwapScript(input: SwapScriptInput): string {
   const { pid, appDir, stagedDir, exeName, stamp } = input;
@@ -125,68 +115,68 @@ export function buildSwapScript(input: SwapScriptInput): string {
     Number.isInteger(maxWait) && maxWait >= 1,
     'maxWaitSeconds inválido — esperado inteiro >= 1.'
   );
-  const nomePasta = basename(appDir);
-  exigir(nomePasta.length > 0, 'Campo appDir não pode terminar com separador.');
+  exigir(!/[\\/]$/.test(appDir), 'Campo appDir não pode terminar com separador.');
 
-  const app = escaparPercent(appDir);
-  const staged = escaparPercent(stagedDir);
-  const exe = escaparPercent(exeName);
-  const selo = escaparPercent(stamp);
-  const pastaVelhaNome = `${escaparPercent(nomePasta)}.old-${selo}`;
-  const pastaVelhaCaminho = `${app}.old-${selo}`;
-
+  const backupName = `shb-old-${stamp}`;
   const linhas = [
-    '@echo off',
-    'rem ================================================================',
-    'rem Staff Hub Toxic Squad — script de troca gerado pelo updater.',
-    `rem App: "${app}"`,
-    `rem Nova pasta (extraída do zip): "${staged}"`,
-    'rem Fases: 1) esperar o processo sair  2) renomear pasta antiga',
-    'rem        3) mover pasta nova (fallback robocopy)  4) relançar o app',
-    'rem        5) limpeza (backup .old + o próprio script)',
-    'rem ================================================================',
-    'setlocal enableextensions',
-    `rem FASE 1: aguardar o processo atual (PID ${pid}) encerrar — o exe fica travado enquanto roda.`,
-    'set SH_ESPERA=0',
-    ':sh_aguarda_pid',
-    `tasklist /FI "PID eq ${pid}" 2>nul | find /I "${pid}" >nul`,
-    'if errorlevel 1 goto sh_pid_encerrado',
-    `if %SH_ESPERA% GEQ ${maxWait} goto sh_tempo_esgotado`,
-    // NUNCA usar `timeout /t 1` aqui: o script roda DETACHED (sem console),
-    // e o timeout.exe exige stdin de console — falha na hora e o laço giraria
-    // milhares de vezes por segundo até o tempo esgotar. O ping de loopback
-    // dorme ~1s sem depender de console (idiom clássico de batch).
-    'ping -n 2 127.0.0.1 >nul',
-    'set /a SH_ESPERA+=1',
-    'goto sh_aguarda_pid',
-    ':sh_tempo_esgotado',
-    `rem FASE 1 falhou: o processo não saiu em ${maxWait}s — abortar sem alterar pastas.`,
-    'endlocal',
-    'exit /b 1',
-    ':sh_pid_encerrado',
-    `rem FASE 2: renomear a pasta atual para "${pastaVelhaNome}" (só possível com o processo parado).`,
-    `ren "${app}" "${pastaVelhaNome}"`,
-    'if errorlevel 1 goto sh_limpeza',
-    'rem FASE 3: mover a pasta extraída do zip para o lugar da antiga.',
-    `move /Y "${staged}" "${app}" >nul`,
-    'if errorlevel 1 goto sh_fallback_robocopy',
-    'goto sh_iniciar_app',
-    ':sh_fallback_robocopy',
-    'rem Fallback da FASE 3: `move` falhou — mover a árvore completa com robocopy.',
-    `robocopy "${staged}" "${app}" /E /MOVE >nul`,
-    'if errorlevel 8 goto sh_limpeza',
-    ':sh_iniciar_app',
-    'rem FASE 4: relançar o aplicativo já atualizado.',
-    `start "" "${app}\\${exe}"`,
-    ':sh_limpeza',
-    `rem FASE 5: limpeza best-effort — remover o backup "${pastaVelhaCaminho}" e apagar este script.`,
-    `rd /s /q "${pastaVelhaCaminho}" >nul 2>&1`,
-    'del "%~f0" >nul 2>&1',
-    'endlocal',
-    'exit /b 0',
+    '# Staff Hub Toxic Squad — script de troca de versão (PowerShell/Unicode)',
+    '# Fases: 1) esperar o app sair  2) trocar pastas  3) relançar  4) limpeza.',
+    '# Falha = NÃO toca nas pastas (fail-closed).',
+    "$ErrorActionPreference = 'Stop'",
+    // here-strings: caminhos literais, sem interpolação, aceitam acentos/espaços
+    `$AppDir = @'`,
+    appDir,
+    `'@`,
+    `$StagedDir = @'`,
+    stagedDir,
+    `'@`,
+    `$ExeName = @'`,
+    exeName,
+    `'@`,
+    `$BackupName = @'`,
+    backupName,
+    `'@`,
+    `$TargetPid = ${pid}`,
+    `$MaxWait = ${maxWait}`,
+    ``,
+    `# FASE 1: aguardar o processo sair (o .exe fica travado enquanto roda).`,
+    `$Waited = 0`,
+    `while ((Get-Process -Id $TargetPid -ErrorAction SilentlyContinue) -and ($Waited -lt $MaxWait)) {`,
+    `    Start-Sleep -Seconds 1`,
+    `    $Waited++`,
+    `}`,
+    `if ($Waited -ge $MaxWait) {`,
+    `    Write-Host "Processo $TargetPid nao saiu em $MaxWait segundos — abortando sem alterar pastas."`,
+    `    exit 1`,
+    `}`,
+    ``,
+    `# FASE 2: renomear a pasta atual para backup e mover a nova no lugar.`,
+    `$BackupPath = Join-Path (Split-Path $AppDir -Parent) $BackupName`,
+    `try {`,
+    `    if (Test-Path -LiteralPath $BackupPath) { Remove-Item -LiteralPath $BackupPath -Recurse -Force }`,
+    `    Rename-Item -LiteralPath $AppDir -NewName $BackupName`,
+    `    Move-Item -LiteralPath $StagedDir -Destination $AppDir`,
+    `} catch {`,
+    `    Write-Host "Falha na troca: $($_.Exception.Message)"`,
+    `    # best-effort de rollback se o rename já aconteceu mas o move falhou`,
+    `    if ((Test-Path -LiteralPath $BackupPath) -and -(Test-Path -LiteralPath $AppDir)) {`,
+    `        Rename-Item -LiteralPath $BackupPath -NewName (Split-Path $AppDir -Leaf)`,
+    `    }`,
+    `    exit 2`,
+    `}`,
+    ``,
+    `# FASE 3: relançar o aplicativo já atualizado.`,
+    `$ExePath = Join-Path $AppDir $ExeName`,
+    `Start-Process -FilePath $ExePath`,
+    ``,
+    `# FASE 4: limpeza best-effort (backup + este script).`,
+    `try { Remove-Item -LiteralPath $BackupPath -Recurse -Force -ErrorAction SilentlyContinue } catch {}`,
+    `try { Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue } catch {}`,
+    `exit 0`,
   ];
 
-  return `${linhas.join('\r\n')}\r\n`;
+  // PowerShell exige BOM para ler UTF-8 com acentos corretamente.
+  return `\uFEFF${linhas.join('\r\n')}\r\n`;
 }
 
 /** Fases informativas do ciclo de atualização (helper p/ UI/logs). */

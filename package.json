@@ -1,7 +1,7 @@
 {
   "name": "staff-hub-toxic-squad",
   "productName": "Staff Hub Toxic Squad",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "description": "Ferramenta de liderança de tribo para Tribal Wars BR — Staff Hub Toxic Squad",
   "main": "out/main/index.js",
   "type": "module",
@@ -16,7 +16,6 @@
     "dist": "electron-vite build && electron-builder --win"
   },
   "dependencies": {
-    "extract-zip": "^2.0.1",
     "lucide-react": "^1.34.0"
   },
   "devDependencies": {

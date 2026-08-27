@@ -3,12 +3,18 @@
 // o executável ou pasta de staging corrompida ABORTEM sem tocar na instalação
 // atual. A troca de pasta só acontece pelo script .cmd externo (buildSwapScript
 // do @shared/updater-core) depois que o app sai — o .exe rodando fica travado.
-import { spawn, execSync } from 'node:child_process';
+//
+// REGRAS DE ROBUSTEZ (aprendidas com o E2E real):
+// - NUNCA usar execSync: bloqueia o event loop do main (journal, IPC, tudo
+//   congela — o usuário vê a UI morrendo sem erro em lugar nenhum).
+// - emit() NUNCA lança (webContents destruído não pode derrubar o catch).
+// - No catch: journal PRIMEIRO, emit depois — o journal é a fonte de verdade
+//   para diagnóstico póstumo.
+import { spawn, execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createWriteStream, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, rmSync, statSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { app, BrowserWindow } from 'electron';
-import extract from 'extract-zip';
 import type { Journal } from './journal';
 import type { JsonStore } from './stores/json-store';
 import type { AppSettings, UpdateCheckResult, UpdateManifest, UpdateProgress } from '@shared/ipc-types';
@@ -16,22 +22,39 @@ import { buildSwapScript, isNewerVersion, isValidManifest } from '@shared/update
 
 const EXE_NAME = 'Staff Hub Toxic Squad.exe';
 
-/** Caminho curto 8.3 (ASCII puro) de um caminho Windows — o cmd.exe lê o .cmd
- *  no codepage OEM e acentos do perfil (Usuário) corromperiam o ren/move.
- *  Fail-closed: se o volume não gerar path curto, erro claro (sem adivinhar). */
-function shortPathOf(absolutePath: string): string {
-  const result = execSync(`for %I in ("${absolutePath.replace(/"/g, '')}") do @echo %~sI`, {
-    shell: 'cmd.exe',
-    encoding: 'buffer',
-    windowsHide: true,
-    timeout: 10_000,
-  })
-    .toString('latin1')
-    .trim();
-  if (result === '' || /[^\x20-\x7E]/.test(result) || !existsSync(result)) {
-    throw new Error(`Não consegui o caminho curto (8.3) de ${absolutePath} — verifique se nomes curtos estão habilitados no disco (fsutil 8dot3name).`);
+/**
+ * Extração de zip via tar.exe NATIVO do Windows (10+ inclui bsdtar com
+ * suporte a zip). O extract-zip (npm) tem bug no Electron empacotado: a
+ * promise nunca resolve mesmo com a extração completa — o await trava para
+ * sempre (confirmado por debug-log: "ETAPA 6" gravada, arquivos extraídos,
+ * mas "ETAPA 6-OK" jamais escrita).
+ */
+function extractZip(zipPath: string, destDir: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    mkdirSync(destDir, { recursive: true });
+    execFile('C:\\Windows\\System32\\tar.exe', ['-xf', zipPath, '-C', destDir], {
+      windowsHide: true,
+      timeout: 120_000,
+    }, (error) => {
+      if (error !== null) {
+        reject(new Error(`Falha ao extrair o pacote: ${error.message}`));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+/** Log de diagnóstico do atualizador (fora do journal — sobrevive a travamentos
+ *  do event loop e da cadeia de persistência). Uma linha por etapa. */
+function debugLog(message: string): void {
+  try {
+    const dir = join(app.getPath('userData'), 'updates');
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, 'updater-debug.log'), `${new Date().toISOString()} ${message}\n`, 'utf8');
+  } catch {
+    // best-effort — nunca derrubar o fluxo por causa do log
   }
-  return result;
 }
 
 export class UpdaterService {
@@ -57,9 +80,14 @@ export class UpdaterService {
     return /^https?:\/\/\S+$/.test(url) ? url : 'http://74.0.5.75/staffhub/latest.json';
   }
 
+  /** NUNCA lança: webContents destruída não pode derrubar o fluxo de update. */
   private emit(progress: UpdateProgress): void {
     this.lastProgress = progress;
-    this.sendProgress(progress);
+    try {
+      this.sendProgress(progress);
+    } catch {
+      // janela fechada/destruída — o fluxo continua mesmo sem UI ouvindo
+    }
   }
 
   /** Verifica o canal (fail-soft): nunca lança — problemas voltam em `error`. */
@@ -115,6 +143,7 @@ export class UpdaterService {
       // Remonta do card (Início desmonta ao navegar) ou clique duplo: NÃO é
       // falha — re-emite o último progresso para qualquer ouvinte novo e devolve
       // o aviso informativo (a UI trata como informação, não como erro).
+      debugLog('MUTEX: download já em andamento');
       if (this.lastProgress !== null) this.emit(this.lastProgress);
       return { ok: false, detail: 'O download já está em andamento — acompanhe o progresso abaixo.' };
     }
@@ -130,31 +159,36 @@ export class UpdaterService {
   }
 
   private async doDownloadAndPrepare(): Promise<{ ok: boolean; detail: string }> {
+    debugLog('ETAPA 1: iniciar downloadAndPrepare');
     try {
       await this.journal.append('system', 'update-download-start', 'downloadAndPrepare iniciado', false);
+      debugLog('ETAPA 2: check do canal');
       const check = await this.check();
       const manifest = check.manifest;
       if (manifest === undefined) {
         const detail = check.error ?? `Você já está na versão mais recente (${check.currentVersion}).`;
+        debugLog(`ETAPA 2-FALHA: sem manifest (${detail})`);
         await this.journal.append('system', 'update-error', `check sem manifest: ${detail}`, false);
         return { ok: false, detail };
       }
-      // Idempotência: staging já preparado para ESTA versão (ex.: usuário
-      // navegou para outra página e voltou ao Início, que remonta o card) —
-      // não baixa de novo, só re-emite o estado pronto para a UI.
+      // Idempotência: staging já preparado para ESTA versão (ex.: usuário navegou
+      // e voltou ao Início, que remonta o card) — não baixa de novo.
       if (this.prepared !== null && this.prepared.version === manifest.version && existsSync(this.prepared.scriptPath)) {
+        debugLog(`ETAPA 2-IDEMPOTENTE: v${manifest.version} já preparada`);
         this.emit({ phase: 'ready', version: manifest.version });
         return { ok: true, detail: `Versão ${manifest.version} pronta — clique em Reiniciar e atualizar.` };
       }
       this.prepared = null;
 
       const updatesDir = join(app.getPath('userData'), 'updates');
+      debugLog('ETAPA 3: limpar staging anterior');
       rmSync(updatesDir, { recursive: true, force: true });
       mkdirSync(updatesDir, { recursive: true });
       const zipPath = join(updatesDir, `staffhub-${manifest.version}.zip`);
 
-      // 1. Download com progresso (stream → arquivo). Deadline TOTAL (não só
-      // a abertura): corpo travado no meio aborta em vez de pendurar a UI.
+      // 1. Download com progresso (stream → arquivo). Idle-timeout por chunk:
+      // 60s sem nada chegando = conexão travada → aborta limpo.
+      debugLog('ETAPA 4: baixar zip');
       this.emit({ phase: 'download', receivedBytes: 0, totalBytes: 0 });
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 120_000);
@@ -165,14 +199,13 @@ export class UpdaterService {
       } finally {
         clearTimeout(timer);
       }
+      debugLog(`ETAPA 4-OK: HTTP ${response.status}, content-length=${response.headers.get('content-length') ?? '?'}`);
       const totalBytes = Number(response.headers.get('content-length') ?? 0);
       let received = 0;
       const hash = createHash('sha256');
       const fileStream = createWriteStream(zipPath);
       const reader = response.body.getReader();
       let lastEmitAt = 0;
-      // Idle-timeout por chunk: 60s sem nada chegando = conexão travada →
-      // aborta limpo (conexões lentas legítimas não são punidas por tempo total).
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
       const clearIdle = (): void => {
         if (idleTimer !== undefined) clearTimeout(idleTimer);
@@ -201,24 +234,28 @@ export class UpdaterService {
         clearIdle();
         await new Promise<void>((resolve) => fileStream.end(resolve));
       }
+      debugLog(`ETAPA 4-FIM: ${received} bytes recebidos`);
       if (totalBytes > 0 && received !== totalBytes) {
         throw new Error(`download incompleto (${received} de ${totalBytes} bytes).`);
       }
       this.emit({ phase: 'download', receivedBytes: received, totalBytes: received || totalBytes });
 
       // 2. Integridade: SHA-256 do arquivo baixado × manifest.
+      debugLog('ETAPA 5: verificar SHA-256');
       this.emit({ phase: 'verify' });
       const sha256 = hash.digest('hex');
       if (sha256 !== manifest.sha256.toLowerCase()) {
         rmSync(zipPath, { force: true });
         throw new Error('integridade conferida e REPROVADA (SHA-256 divergente) — arquivo descartado, nada foi alterado.');
       }
+      debugLog('ETAPA 5-OK: sha confere');
 
       // 3. Extração para staging.
+      debugLog('ETAPA 6: extrair zip (tar.exe nativo)');
       this.emit({ phase: 'extract' });
       const stagedDir = join(updatesDir, manifest.version);
-      mkdirSync(stagedDir, { recursive: true });
-      await extract(zipPath, { dir: stagedDir });
+      await extractZip(zipPath, stagedDir);
+      debugLog('ETAPA 6-OK: extraído');
       // O zip do packager contém "Staff Hub Toxic Squad-win32-x64/…": achamos o
       // diretório que contém o .exe (fail-closed se não existir).
       let appDir: string | null = null;
@@ -231,32 +268,44 @@ export class UpdaterService {
       if (appDir === null || !statSync(appDir).isDirectory()) {
         throw new Error('pacote extraído sem o executável do app — atualização abortada.');
       }
+      debugLog(`ETAPA 6-OK: exe encontrado em ${appDir}`);
 
-      // 4. Script de troca (em %TEMP%): espera este processo sair, troca as
-      // pastas, relança a nova versão e apaga o resto de si. O cmd.exe lê o
-      // .cmd no codepage OEM — caminhos com ACENTO (ex.: C:\Users\Usuário)
-      // viram mojibake e o ren falha. Caminhos curtos 8.3 são ASCII puro.
+      // 4. Script PowerShell de troca (em %TEMP%): espera este processo sair,
+      // troca as pastas, relança e limpa. PowerShell lê Unicode nativamente —
+      // ZERO problema de codepage, ZERO dependência de caminho curto 8.3.
+      debugLog('ETAPA 7: gerar script PowerShell de troca');
       const stamp = `${Date.now()}`;
-      const scriptPath = join(app.getPath('temp'), `staffhub-update-${stamp}.cmd`);
+      const scriptPath = join(app.getPath('temp'), `staffhub-update-${stamp}.ps1`);
       const currentAppDir = join(process.execPath, '..');
       const script = buildSwapScript({
         pid: process.pid,
-        appDir: shortPathOf(currentAppDir),
-        stagedDir: shortPathOf(appDir),
+        appDir: currentAppDir,
+        stagedDir: appDir,
         exeName: EXE_NAME,
         stamp,
       });
-      writeFileSync(scriptPath, script, 'ascii');
+      writeFileSync(scriptPath, script, 'utf8');
+      debugLog(`ETAPA 7-OK: script .ps1 em ${scriptPath}`);
 
       this.prepared = { version: manifest.version, scriptPath };
+      debugLog(`ETAPA 8: PRONTO — v${manifest.version}`);
       this.emit({ phase: 'ready', version: manifest.version });
       await this.journal.append('system', 'update-ready', `versão ${manifest.version} preparada — aguardando reinício`, false);
       return { ok: true, detail: `Versão ${manifest.version} pronta — clique em Reiniciar e atualizar.` };
     } catch (error) {
-      const stack = error instanceof Error ? `${error.message} @ ${(error.stack ?? '').split('\n')[1]?.trim()}` : String(error);
-      this.emit({ phase: 'error', detail: error instanceof Error ? error.message : String(error) });
-      await this.journal.append('system', 'update-error', stack, false);
-      return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+      const message = error instanceof Error ? error.message : String(error);
+      const location = error instanceof Error && error.stack !== undefined ? (error.stack.split('\n')[1] ?? '').trim() : '';
+      debugLog(`ERRO: ${message} @ ${location}`);
+      // JOURNAL PRIMEIRO (o emit pode lançar se a janela morreu — nunca
+      // perder o registro de auditoria por causa disso).
+      try {
+        await this.journal.append('system', 'update-error', `${message} @ ${location}`, false);
+      } catch {
+        // journal também falhou? o debugLog já registrou no arquivo próprio.
+      }
+      // DEPOIS emit (protegido — nunca lança).
+      this.emit({ phase: 'error', detail: message });
+      return { ok: false, detail: message };
     }
   }
 
@@ -270,8 +319,14 @@ export class UpdaterService {
       throw new Error('Script de atualização sumiu da pasta temporária — baixe de novo.');
     }
     await this.journal.append('system', 'update-apply', `saindo para aplicar a versão ${version}`, false);
-    // Detached: o .cmd sobrevive à saída do app (é ele quem troca as pastas).
-    spawn('cmd.exe', ['/c', scriptPath], {
+    debugLog(`REINICIAR: spawn powershell.exe -File "${scriptPath}" e sair`);
+    // Detached: o script PowerShell sobrevive à saída do app (é ele quem troca
+    // as pastas). -ExecutionPolicy Bypass para scripts gerados localmente.
+    spawn('powershell.exe', [
+      '-NoProfile',
+      '-ExecutionPolicy', 'Bypass',
+      '-File', scriptPath,
+    ], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
