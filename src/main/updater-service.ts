@@ -158,6 +158,69 @@ export class UpdaterService {
     }
   }
 
+  /**
+   * Lista versões anteriores disponíveis no canal (para rollback). Faz HEAD
+   * nos últimos 3 patchs abaixo da atual — o canal mantém só as 3 últimas.
+   */
+  async listAvailableVersions(): Promise<{ versions: { version: string; url: string }[] }> {
+    const current = app.getVersion();
+    const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(current);
+    if (match === null) {
+      return { versions: [] };
+    }
+    const base = 'http://74.0.5.75/staffhub';
+    const versions: { version: string; url: string }[] = [];
+    const [, major, minor, patchStr] = match;
+    const patch = Number(patchStr);
+    // Probe os 3 patchs abaixo da atual (só os últimos 3 zips ficam no canal).
+    for (let p = patch - 1; p >= Math.max(0, patch - 3); p -= 1) {
+      const candidate = `${major}.${minor}.${p}`;
+      const url = `${base}/StaffHubToxicSquad-${candidate}.zip`;
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5_000);
+        const response = await fetch(url, { method: 'HEAD', signal: controller.signal, redirect: 'error' });
+        clearTimeout(timer);
+        if (response.ok) {
+          versions.push({ version: candidate, url });
+        }
+      } catch {
+        // versão não existe no canal — pula
+      }
+    }
+    return { versions };
+  }
+
+  /**
+   * Baixa e prepara uma versão ESPECÍFICA (rollback). Mesmo pipeline do
+   * downloadAndPrepare mas com URL/version/sha256 fornecidos (não do manifest).
+   */
+  async prepareVersion(version: string, url: string, sha256: string): Promise<{ ok: boolean; detail: string }> {
+    if (this.running) {
+      return { ok: false, detail: 'Download já em andamento — aguarde.' };
+    }
+    if (!app.isPackaged) {
+      return { ok: false, detail: 'Rollback disponível apenas na versão instalada.' };
+    }
+    if (!/^https?:\/\/\S+$/.test(url)) {
+      return { ok: false, detail: `URL inválida para rollback: ${url}` };
+    }
+    debugLog(`ROLLBACK: preparar v${version} de ${url}`);
+    this.running = true;
+    try {
+      const manifest: UpdateManifest = {
+        version,
+        notes: `Rollback para ${version}`,
+        url,
+        sha256,
+        releasedAt: new Date().toISOString(),
+      };
+      return await this.doDownloadAndPrepareWithManifest(manifest);
+    } finally {
+      this.running = false;
+    }
+  }
+
   private async doDownloadAndPrepare(): Promise<{ ok: boolean; detail: string }> {
     debugLog('ETAPA 1: iniciar downloadAndPrepare');
     try {
@@ -171,8 +234,16 @@ export class UpdaterService {
         await this.journal.append('system', 'update-error', `check sem manifest: ${detail}`, false);
         return { ok: false, detail };
       }
-      // Idempotência: staging já preparado para ESTA versão (ex.: usuário navegou
-      // e voltou ao Início, que remonta o card) — não baixa de novo.
+      return await this.doDownloadAndPrepareWithManifest(manifest);
+    } catch (error) {
+      return this.handlePrepareError(error);
+    }
+  }
+
+  /** Pipeline compartilhado entre update normal e rollback. */
+  private async doDownloadAndPrepareWithManifest(manifest: UpdateManifest): Promise<{ ok: boolean; detail: string }> {
+    try {
+      // Idempotência: staging já preparado para ESTA versão.
       if (this.prepared !== null && this.prepared.version === manifest.version && existsSync(this.prepared.scriptPath)) {
         debugLog(`ETAPA 2-IDEMPOTENTE: v${manifest.version} já preparada`);
         this.emit({ phase: 'ready', version: manifest.version });
@@ -241,14 +312,19 @@ export class UpdaterService {
       this.emit({ phase: 'download', receivedBytes: received, totalBytes: received || totalBytes });
 
       // 2. Integridade: SHA-256 do arquivo baixado × manifest.
+      // SHA vazio (rollback) = pular verificação — o zip vem do nosso canal.
       debugLog('ETAPA 5: verificar SHA-256');
       this.emit({ phase: 'verify' });
       const sha256 = hash.digest('hex');
-      if (sha256 !== manifest.sha256.toLowerCase()) {
+      if (manifest.sha256 !== '' && sha256 !== manifest.sha256.toLowerCase()) {
         rmSync(zipPath, { force: true });
         throw new Error('integridade conferida e REPROVADA (SHA-256 divergente) — arquivo descartado, nada foi alterado.');
       }
-      debugLog('ETAPA 5-OK: sha confere');
+      if (manifest.sha256 === '') {
+        debugLog(`ETAPA 5-BYPASS: rollback sem SHA do manifest (calculado: ${sha256.slice(0, 12)}…)`);
+      } else {
+        debugLog('ETAPA 5-OK: sha confere');
+      }
 
       // 3. Extração para staging.
       debugLog('ETAPA 6: extrair zip (tar.exe nativo)');
@@ -296,17 +372,28 @@ export class UpdaterService {
       const message = error instanceof Error ? error.message : String(error);
       const location = error instanceof Error && error.stack !== undefined ? (error.stack.split('\n')[1] ?? '').trim() : '';
       debugLog(`ERRO: ${message} @ ${location}`);
-      // JOURNAL PRIMEIRO (o emit pode lançar se a janela morreu — nunca
-      // perder o registro de auditoria por causa disso).
       try {
         await this.journal.append('system', 'update-error', `${message} @ ${location}`, false);
       } catch {
         // journal também falhou? o debugLog já registrou no arquivo próprio.
       }
-      // DEPOIS emit (protegido — nunca lança).
       this.emit({ phase: 'error', detail: message });
       return { ok: false, detail: message };
     }
+  }
+
+  /** Tratamento de erro compartilhado entre update normal e rollback. */
+  private async handlePrepareError(error: unknown): Promise<{ ok: boolean; detail: string }> {
+    const message = error instanceof Error ? error.message : String(error);
+    const location = error instanceof Error && error.stack !== undefined ? (error.stack.split('\n')[1] ?? '').trim() : '';
+    debugLog(`ERRO: ${message} @ ${location}`);
+    try {
+      await this.journal.append('system', 'update-error', `${message} @ ${location}`, false);
+    } catch {
+      // best-effort
+    }
+    this.emit({ phase: 'error', detail: message });
+    return { ok: false, detail: message };
   }
 
   /** Sai do app executando o script de troca (só depois de downloadAndPrepare ok). */

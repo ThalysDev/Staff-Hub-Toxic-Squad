@@ -58,6 +58,8 @@ const api = {
     check: () => invoke('updater:check'),
     downloadAndPrepare: () => invoke('updater:download-prepare'),
     restartToUpdate: () => invoke('updater:restart'),
+    listAvailableVersions: () => invoke('updater:list-versions'),
+    prepareVersion: (version: string, url: string, sha256: string) => invoke('updater:prepare-version', version, url, sha256),
   },
   dev: {
     captureFixture: (name: string, url: string) => invoke('dev:capture-fixture', name, url),

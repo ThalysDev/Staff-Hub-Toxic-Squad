@@ -470,7 +470,8 @@ export default function Sg4Page() {
 
     let origins: ReturnType<typeof parseOriginsInput> | null = null;
     try {
-      origins = parseOriginsInput(originsText);
+      // Se a prévia já parseou com sucesso, reusa (não re-parsear a cada consulta).
+      origins = originsPreview?.players ?? parseOriginsInput(originsText);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Linhas de origem inválidas.';
       nextErrors.origins = message;
@@ -652,7 +653,7 @@ export default function Sg4Page() {
         return solved.travelMs / 60_000;
       };
 
-      const origins = parseOriginsInput(originsText);
+      const origins = originsPreview?.players ?? parseOriginsInput(originsText);
       const baseRows = computeSendTimes(
         { distribution, origins },
         { desiredArrival: { hour, minute }, baseDate: base, travelMinutesPerPair },

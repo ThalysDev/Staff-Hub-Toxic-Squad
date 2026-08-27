@@ -239,6 +239,9 @@ function registerIpc(): void {
   const updater = new UpdaterService(settingsStore, journal, (progress) => send('updater:progress', progress));
   ipcMain.handle('updater:check', async () => updater.check());
   ipcMain.handle('updater:download-prepare', async () => updater.downloadAndPrepare());
+  ipcMain.handle('updater:list-versions', async () => updater.listAvailableVersions());
+  ipcMain.handle('updater:prepare-version', async (_event, version: string, url: string, sha256: string) =>
+    updater.prepareVersion(version, url, sha256));
   ipcMain.handle('updater:restart', async () => {
     await updater.restartToUpdate();
   });

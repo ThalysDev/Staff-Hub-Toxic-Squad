@@ -290,6 +290,84 @@ function UpdateCard() {
   );
 }
 
+/**
+ * Scorecard da tribo no Dashboard: agregado de participação nas OPs arquivadas.
+ * Reaproveita buildScorecard do war-room sobre opArchive.list() — sem rede.
+ */
+function ScoreboardSection() {
+  const [scorecard, setScorecard] = useState<{ playerName: string; opsParticipated: number; expected: number; sent: number; missed: number }[] | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.staffhub.opArchive
+      .list()
+      .then((ops) => {
+        if (cancelled) return;
+        // Import dinâmico para não pesar o bundle quando não há OPs
+        void import('@shared/war-room').then(({ buildScorecard }) => {
+          if (cancelled) return;
+          setScorecard(buildScorecard(ops));
+          setLoaded(true);
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!loaded || scorecard === null || scorecard.length === 0) return null;
+
+  const top = scorecard.slice(0, 5);
+  const totalMissed = scorecard.reduce((sum, p) => sum + p.missed, 0);
+
+  return (
+    <div className="page-section">
+      <h2 className="section-title">Scorecard da staff</h2>
+      <div className="card card--flush">
+        <div className="card-header">
+          <h3 className="card-title">Participação nas OPs</h3>
+          <span className="spacer" />
+          <span className="pill pill--muted">{scorecard.length} jogador(es)</span>
+          {totalMissed > 0 && <span className="pill pill--error">{totalMissed} falta(s) total(is)</span>}
+        </div>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th scope="col">Jogador</th>
+                <th scope="col" className="cell-num">OPs</th>
+                <th scope="col" className="cell-num">Enviado</th>
+                <th scope="col" className="cell-num">Faltou</th>
+              </tr>
+            </thead>
+            <tbody>
+              {top.map((row) => (
+                <tr key={row.playerName}>
+                  <td className="cell-nowrap">{row.playerName}</td>
+                  <td className="cell-num">{row.opsParticipated}</td>
+                  <td className="cell-num">{row.sent}</td>
+                  <td className={`cell-num${row.missed > 0 ? ' error' : ' ok'}`}>{row.missed}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {scorecard.length > 5 && (
+          <div className="card-body">
+            <p className="muted">
+              Mostrando os 5 com mais faltas — scorecard completo na Sala de Guerra.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage({ onNavigate }: DashboardPageProps) {
   const [version, setVersion] = useState<string | null>(null);
   const status = useSessionStatus();
@@ -415,6 +493,8 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           delta="7 frentes entregues"
         />
       </div>
+
+      <ScoreboardSection />
 
       <div className="page-section">
         <h2 className="section-title">Frente de operações</h2>

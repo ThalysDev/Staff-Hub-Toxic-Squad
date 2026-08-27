@@ -263,6 +263,10 @@ export interface StaffHubApi {
     downloadAndPrepare(): Promise<{ ok: boolean; detail: string }>;
     /** Sai do app executando a troca de pasta e relança a nova versão. */
     restartToUpdate(): Promise<void>;
+    /** Lista versões anteriores disponíveis no canal (para rollback). */
+    listAvailableVersions(): Promise<{ versions: { version: string; url: string }[] }>;
+    /** Baixa e prepara uma VERSÃO ESPECÍFICA (rollback). Mesmo pipeline do downloadAndPrepare. */
+    prepareVersion(version: string, url: string, sha256: string): Promise<{ ok: boolean; detail: string }>;
   };
   dev: {
     /** Baixa uma URL do jogo com a sessão atual e salva como fixture em userData/fixtures. */

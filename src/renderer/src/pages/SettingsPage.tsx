@@ -441,11 +441,79 @@ export default function SettingsPage() {
                 O download e a instalação acontecem pelo botão no Início; a versão só é trocada quando você clica
                 em Reiniciar e atualizar.
               </p>
+
+              <RollbackSection />
             </form>
           </div>
         </div>
       </section>
       <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
+  );
+}
+
+/** Seção de rollback: lista versões anteriores no canal e permite voltar. */
+function RollbackSection() {
+  const [busy, setBusy] = useState(false);
+  const [versions, setVersions] = useState<{ version: string; url: string }[] | null>(null);
+  const [error, setError] = useState('');
+  const [detail, setDetail] = useState('');
+
+  async function loadVersions(): Promise<void> {
+    setBusy(true);
+    setError('');
+    setDetail('');
+    try {
+      const result = await window.staffhub.updater.listAvailableVersions();
+      setVersions(result.versions);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rollback(version: string, url: string): Promise<void> {
+    if (!window.confirm(`Voltar para a versão ${version}? O hub vai baixar e reiniciar na versão anterior.`)) return;
+    setBusy(true);
+    setDetail('');
+    try {
+      const result = await window.staffhub.updater.prepareVersion(version, url, '');
+      if (result.ok) {
+        await window.staffhub.updater.restartToUpdate();
+      } else {
+        setDetail(result.detail);
+      }
+    } catch (err) {
+      setDetail(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <p className="field-label">Versões anteriores</p>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => void loadVersions()} disabled={busy}>
+          <RotateCcw size={14} aria-hidden="true" />
+          {busy ? 'Verificando…' : 'Ver versões anteriores'}
+        </button>
+        {versions?.map((v) => (
+          <button
+            key={v.version}
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => void rollback(v.version, v.url)}
+            disabled={busy}
+          >
+            Voltar para {v.version}
+          </button>
+        ))}
+      </div>
+      {versions?.length === 0 && <p className="muted">Nenhuma versão anterior disponível no canal.</p>}
+      {error !== '' && <p className="error" role="alert">{error}</p>}
+      {detail !== '' && <p className="error" role="alert">{detail}</p>}
+    </div>
   );
 }
