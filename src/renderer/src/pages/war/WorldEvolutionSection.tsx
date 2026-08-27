@@ -9,7 +9,6 @@ import {
 } from '@shared/world-history';
 import type { TribeMarking, WorldAlly, WorldVillage } from '@shared/types';
 import WorldMapCanvas from '../sg1/WorldMapCanvas';
-import ToastViewport from '../../components/Toast';
 import { useToast } from '../../hooks/useToast';
 
 /**
@@ -92,7 +91,7 @@ function ownerLabel(allyId: number, tribesById: ReadonlyMap<number, WorldAlly> |
 }
 
 export default function WorldEvolutionSection(): JSX.Element {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
 
   /** null = carregando; [] com erro = falha no IPC (callout danger, sem crash). */
   const [versions, setVersions] = useState<WorldHistoryVersion[] | null>(null);
@@ -595,7 +594,6 @@ export default function WorldEvolutionSection(): JSX.Element {
           </div>
         )}
       </div>
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

@@ -13,7 +13,6 @@ import {
 import { useToast } from '../../hooks/useToast';
 import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
-import ToastViewport from '../../components/Toast';
 import { usePreferences } from '../../hooks/usePreferences';
 import { MODULES } from '../../modules';
 import Sg5DiffSection from './Sg5DiffSection';
@@ -54,7 +53,7 @@ function typeLabel(type: string): string {
 }
 
 export default function Sg5Page() {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg5');
   const [entriesText, setEntriesText] = useState('');
   const [docTitle, setDocTitle] = useState(DEFAULT_DOC_TITLE);
@@ -532,7 +531,6 @@ export default function Sg5Page() {
         </div>
       </section>
 
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

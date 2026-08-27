@@ -3,7 +3,6 @@ import type { JSX } from 'react';
 import { AlertTriangle, ArrowRight, ChevronDown, Loader2, Save, Star, Trash2 } from 'lucide-react';
 import { MP_PLACEHOLDERS, sortTemplatesNewestFirst } from '@shared/mp-templates-rules';
 import type { MpTemplateEntry } from '@shared/mp-templates-rules';
-import ToastViewport from './Toast';
 import { useToast } from '../hooks/useToast';
 
 /**
@@ -40,7 +39,7 @@ export default function TemplateLibrary({
   currentBody,
   onApply,
 }: TemplateLibraryProps): JSX.Element {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
 
   /** Colapsada por padrão — a biblioteca é acessório, não o foco da página. */
   const [open, setOpen] = useState(false);
@@ -281,7 +280,6 @@ export default function TemplateLibrary({
         )}
       </div>
 
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

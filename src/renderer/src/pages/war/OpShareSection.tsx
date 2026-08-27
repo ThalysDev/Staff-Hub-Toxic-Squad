@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import { Download, Info, Upload } from 'lucide-react';
 import type { OpArchiveEntry } from '@shared/ipc-types';
-import ToastViewport from '../../components/Toast';
 import { useToast } from '../../hooks/useToast';
 
 export interface OpShareSectionProps {
@@ -26,7 +25,7 @@ function opLabel(op: OpArchiveEntry): string {
  * detalhe. `detail` do IPC é sempre PT-BR pronto para exibição.
  */
 export default function OpShareSection({ ops, onImported }: OpShareSectionProps): JSX.Element {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
   const [selectedId, setSelectedId] = useState('');
   const [busy, setBusy] = useState<'export' | 'import' | null>(null);
 
@@ -142,7 +141,6 @@ export default function OpShareSection({ ops, onImported }: OpShareSectionProps)
           </button>
         </div>
       </div>
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

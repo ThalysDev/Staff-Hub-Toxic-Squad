@@ -23,7 +23,6 @@ import type { WorldPlayer } from '@shared/types';
 import Field from '../../components/Field';
 import PageHeader from '../../components/PageHeader';
 import TemplateLibrary from '../../components/TemplateLibrary';
-import ToastViewport from '../../components/Toast';
 import WorldMapCanvas from '../sg1/WorldMapCanvas';
 import { useDiplomacyRelations } from '../../hooks/useDiplomacyRelations';
 import { usePreferences } from '../../hooks/usePreferences';
@@ -170,7 +169,7 @@ function heatStyle(t: number): CSSProperties {
 
 /** SG_4 — Criação de Operações (screen=ally&mode=contracts, grupo OP). */
 export default function Sg4Page() {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg4');
   // Preferências do módulo: os campos de entrada sobrevivem a F5/reinício.
   const [sg4Defaults] = useState(buildSg4Defaults);
@@ -1772,7 +1771,6 @@ export default function Sg4Page() {
         )}
       </section>
 
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

@@ -3,7 +3,6 @@ import type { JSX } from 'react';
 import { AlertTriangle, Plus, Scale, Trash2 } from 'lucide-react';
 import { blindBalance, type BlindDebtEntry } from '@shared/blind-debt';
 import { useToast } from '../../hooks/useToast';
-import ToastViewport from '../../components/Toast';
 
 /**
  * SG_7 — Débito de blind por jogador (roadmap item 14). Acumula, entre as
@@ -57,7 +56,7 @@ function SaldoCell({ entry }: { entry: BlindDebtEntry }): JSX.Element {
 
 /** Seção do débito de blind — leitura + mesclagem de rodadas reconhecidas. */
 export default function BlindDebtSection({ pendingRound, onApplied }: BlindDebtSectionProps): JSX.Element {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
   const [entries, setEntries] = useState<BlindDebtEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
@@ -217,7 +216,6 @@ export default function BlindDebtSection({ pendingRound, onApplied }: BlindDebtS
           trate o saldo por aldeia, não por pessoa.
         </p>
       </div>
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }

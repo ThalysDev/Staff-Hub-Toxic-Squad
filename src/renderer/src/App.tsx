@@ -4,6 +4,8 @@ import { Camera, Flame, History, LayoutDashboard, LogIn, Settings2 } from 'lucid
 import TitleBar from './components/TitleBar';
 import Sidebar, { type SidebarGroup, type SidebarItem } from './components/Sidebar';
 import CommandPalette, { type CommandItem } from './components/CommandPalette';
+import ToastViewport from './components/Toast';
+import { useToastViewport } from './hooks/useToast';
 import Sg1Page from './pages/sg1/Sg1Page';
 import Sg2Page from './pages/sg2/Sg2Page';
 import Sg3Page from './pages/sg3/Sg3Page';
@@ -83,6 +85,7 @@ const INITIAL_PAGE = ((): PageId => {
 })();
 
 export default function App() {
+  const globalToasts = useToastViewport();
   const [page, setPage] = useState<PageId>(INITIAL_PAGE);
   const [mountedModules, setMountedModules] = useState<ReadonlySet<ModuleId | WarPageId>>(
     () => (isModulePage(INITIAL_PAGE) ? new Set([INITIAL_PAGE]) : new Set<ModuleId | WarPageId>()),
@@ -196,6 +199,7 @@ export default function App() {
         </main>
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
+      <ToastViewport toasts={globalToasts.toasts} onDismiss={globalToasts.dismiss} />
     </div>
   );
 }

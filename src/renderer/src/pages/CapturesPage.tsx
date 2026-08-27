@@ -4,7 +4,6 @@ import type { FixtureCaptureResult } from '@shared/ipc-types';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
 import ProgressBar from '../components/ProgressBar';
-import ToastViewport from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { useSessionStatus } from '../hooks/useSessionStatus';
 
@@ -51,7 +50,7 @@ export default function CapturesPage() {
   const [selected, setSelected] = useState<Record<string, boolean>>(defaultSelection);
   const [results, setResults] = useState<FixtureCaptureResult[]>([]);
   const [running, setRunning] = useState(false);
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
 
   const world = session.world;
   const loggedIn = session.state === 'logged-in';
@@ -261,7 +260,6 @@ export default function CapturesPage() {
           </div>
         </>
       )}
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

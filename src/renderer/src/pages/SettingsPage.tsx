@@ -3,7 +3,6 @@ import { AlertTriangle, CheckCircle2, Lock, RefreshCw, RotateCcw, Save } from 'l
 import type { AppSettings, UpdateCheckResult } from '@shared/ipc-types';
 import { DEFAULT_SETTINGS } from '@shared/ipc-types';
 import PageHeader from '../components/PageHeader';
-import ToastViewport from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { currentThemeChoice, setThemeChoice, THEME_EVENT, type ThemeChoice } from '../theme';
 
@@ -130,7 +129,7 @@ export default function SettingsPage() {
   const [checkBusy, setCheckBusy] = useState(false);
   const [checkResult, setCheckResult] = useState<UpdateCheckResult | null>(null);
 
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
 
   // Tema mudou pela paleta/outra tela com Configurações aberta → select sincroniza.
   useEffect(() => {
@@ -280,6 +279,36 @@ export default function SettingsPage() {
         title="Configurações"
         description="Pacing e limites das requisições ao jogo — proteção contra bloqueio da sua conta."
       />
+      <section className="page-section">
+        <h2 className="section-title">Aparência</h2>
+        <div className="card">
+          <div className="card-body">
+            <div className="field">
+              <label className="field-label" htmlFor="theme-choice">
+                Tema
+              </label>
+              <select
+                id="theme-choice"
+                className="select"
+                value={themeChoice}
+                onChange={(event) => {
+                  const choice = event.target.value as ThemeChoice;
+                  setThemeChoice(choice);
+                  setThemeChoiceState(choice);
+                }}
+              >
+                <option value="system">Seguir o sistema</option>
+                <option value="claro">Claro (pergaminho)</option>
+                <option value="escuro">Escuro (Nexus escuro)</option>
+              </select>
+              <p className="field-hint">
+                Aplicado na hora e lembrado entre sessões. "Seguir o sistema" acompanha a
+                preferência claro/escuro do Windows.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
       <div className="card">
         <div className="card-body">
           <form
@@ -355,37 +384,6 @@ export default function SettingsPage() {
           </form>
         </div>
       </div>
-
-      <section className="page-section">
-        <h2 className="section-title">Aparência</h2>
-        <div className="card">
-          <div className="card-body">
-            <div className="field">
-              <label className="field-label" htmlFor="theme-choice">
-                Tema
-              </label>
-              <select
-                id="theme-choice"
-                className="select"
-                value={themeChoice}
-                onChange={(event) => {
-                  const choice = event.target.value as ThemeChoice;
-                  setThemeChoice(choice);
-                  setThemeChoiceState(choice);
-                }}
-              >
-                <option value="system">Seguir o sistema</option>
-                <option value="claro">Claro (pergaminho)</option>
-                <option value="escuro">Escuro (Nexus escuro)</option>
-              </select>
-              <p className="field-hint">
-                Aplicado na hora e lembrado entre sessões. "Seguir o sistema" acompanha a
-                preferência claro/escuro do Windows.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
 
       <section className="page-section">
         <h2 className="section-title">Atualizações</h2>
@@ -492,7 +490,6 @@ export default function SettingsPage() {
           </div>
         </div>
       </section>
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

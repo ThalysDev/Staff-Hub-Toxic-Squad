@@ -175,7 +175,9 @@ function createMainWindow(): void {
     const page = process.env.SHS_PAGE;
     void mainWindow.loadFile(
       join(__dirname, '../renderer/index.html'),
-      page !== undefined && page !== '' ? { query: { page } } : undefined,
+      page !== undefined && page !== ''
+        ? { query: { page, ...(process.env.SHS_THEME === 'escuro' || process.env.SHS_THEME === 'claro' ? { theme: process.env.SHS_THEME } : {}) } }
+        : undefined,
     );
   }
   // Modo dev: SHS_CAPTURE=<caminho> tira um screenshot da janela e encerra

@@ -125,7 +125,8 @@
 /* ===== Formulários — placeholder e brilho de foco ===== */
 [data-theme='escuro'] .input::placeholder,
 [data-theme='escuro'] .textarea::placeholder {
-  color: #6e6250;
+  /* #857763 sobre --bg-field #26221c ≈ 3.6:1 (era #6e6250 ≈ 2.9:1, fantasma). */
+  color: #857763;
 }
 
 [data-theme='escuro'] .input:focus,
@@ -197,6 +198,12 @@
 /* ===== Detalhes SG e tiles — hex/rgba fixos de app.css ===== */
 [data-theme='escuro'] .sg1-map-frame {
   background: var(--bg-inset);
+}
+
+/* Ícones do TW são PNGs de arte escura: sem isso viram manchas sobre o
+   pergaminho noturno (#1c1916). Ganham luminosidade sem lavar o contraste. */
+[data-theme='escuro'] .tw-icon {
+  filter: brightness(1.45) contrast(1.05);
 }
 
 [data-theme='escuro'] .sg1-legend-swatch {

@@ -10,7 +10,6 @@ import {
 import type { JournalFilterState } from '@shared/journal-filter';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
-import ToastViewport from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 
 const KIND_LABELS: Record<JournalEntry['kind'], string> = {
@@ -181,7 +180,7 @@ export default function JournalPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [limit, setLimit] = useState<JournalLimit>(JOURNAL_LIMIT_DEFAULT);
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
 
   // ---- Estado interno dos filtros (vivos — aplicam a cada tecla/clique) ----
   const [query, setQuery] = useState('');
@@ -388,7 +387,7 @@ export default function JournalPage() {
       {entries !== null && entries.length > 0 && (
         <>
           <div className="card">
-            <div className="row">
+            <div className="row journal-filters-row">
               <input
                 type="search"
                 className="input"
@@ -497,7 +496,7 @@ export default function JournalPage() {
               </span>
             </div>
             <div className="table-wrap">
-              <table className="table">
+              <table className="table journal-table">
                 <thead>
                   <tr>
                     <th>Hora</th>
@@ -548,7 +547,6 @@ export default function JournalPage() {
           </div>
         </>
       )}
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

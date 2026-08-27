@@ -7,7 +7,6 @@ import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
 import PageHeader from '../../components/PageHeader';
 import TemplateLibrary from '../../components/TemplateLibrary';
-import ToastViewport from '../../components/Toast';
 import { MODULES } from '../../modules';
 
 /** Padrões dos campos persistidos do módulo sg6 (só ENTRADAS: textos da MP e
@@ -20,7 +19,7 @@ const SG6_DEFAULTS = {
 };
 
 export default function Sg6Page() {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg6');
   const { prefs, savePrefs, resetPrefs } = usePreferences('sg6', SG6_DEFAULTS);
   const [reserveCoords, setReserveCoords] = useState(SG6_DEFAULTS.reserveCoords);
@@ -453,7 +452,6 @@ export default function Sg6Page() {
         </div>
       </section>
 
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

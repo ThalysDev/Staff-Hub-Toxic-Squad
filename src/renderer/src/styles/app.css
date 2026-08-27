@@ -1152,7 +1152,9 @@ h2 {
    ===================================================================== */
 .toast-viewport {
   position: fixed;
-  top: var(--sp-5);
+  /* 34px da titlebar + 16px de respiro: nasce ABAIXO dos botões da janela
+     (minimizar/maximizar/fechar), não por cima deles. */
+  top: 50px;
   right: var(--sp-5);
   display: flex;
   flex-direction: column;
@@ -1963,6 +1965,25 @@ kbd {
 .sg2-unit-row img {
   width: 18px;
   height: 18px;
+  flex: none;
+}
+
+/* Ícones do Tribal Wars (PNG 16/18px): alinham pela linha média do texto ao
+   lado (células de tabela e labels inline), em vez de cavalar a baseline. */
+.tw-icon {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* Rótulo de unidade com ícone (grid de blind do SG_3): flex centra ícone ×
+   texto — antes o <img> inline subia acima da linha do nome. */
+.field-label.sg2-unit-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.field-label.sg2-unit-label .tw-icon {
   flex: none;
 }
 
@@ -3023,6 +3044,19 @@ kbd {
   max-width: 180px;
 }
 
+/* Contador da coleção: pill discreta (tokens adapta os 2 temas) — antes era
+   um dígito solto sem estilo flutuando após "Excluir". */
+.prst-count {
+  font-size: var(--fs-caption);
+  color: var(--text-meta);
+  background: var(--bg-inset);
+  border: 1px solid var(--divider);
+  border-radius: var(--r-pill);
+  padding: 1px 8px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
 .capsel-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -3101,4 +3135,118 @@ kbd {
 .mcurve-svg {
   width: 100%;
   height: 170px;
+}
+
+/* ===== v0.26.2 — Correções da auditoria visual ===== */
+/* Controles nativos (date/select/checkbox) herdando o tema — antes brancos. */
+input[type='date'],
+input[type='datetime-local'] {
+  font: inherit;
+  color: var(--text-strong);
+  background: var(--bg-field);
+  border: 1px solid var(--border-input);
+  border-radius: var(--r-md);
+  padding: 6px 10px;
+}
+
+input[type='checkbox'] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+}
+
+/* Select SEM classe (nativos): mínima barraca temática para não vazar branco. */
+select:not(.select) {
+  font: inherit;
+  color: var(--text-strong);
+  background: var(--bg-field);
+  border: 1px solid var(--border-input);
+  border-radius: var(--r-md);
+  padding: 6px 10px;
+}
+
+[data-theme='escuro'] input[type='date'],
+[data-theme='escuro'] input[type='datetime-local'],
+[data-theme='escuro'] select:not(.select) {
+  color-scheme: dark;
+}
+
+[data-theme='escuro'] input[type='date']::-webkit-calendar-picker-indicator,
+[data-theme='escuro'] input[type='datetime-local']::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
+}
+
+/* Journal: zebra + cabeçalho + rodapé de corte (antes borrava e truncava se sinal). */
+.journal-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--bg-inset) 55%, transparent);
+}
+
+.journal-table thead th {
+  color: var(--text-strong);
+}
+
+/* Linha de filtros do journal: baseline única 32px. */
+.journal-filters-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.journal-filters-row .input,
+.journal-filters-row .select,
+.journal-filters-row input[type='date'] {
+  height: 32px;
+  padding: 4px 10px;
+}
+
+/* Sidebar: item ativo com barra de acento + rodapé sem quebra órfã. */
+.nav-item--active {
+  box-shadow: inset 3px 0 0 var(--accent);
+  font-weight: 700;
+}
+
+[data-theme='escuro'] .nav-item--active {
+  background: #2a241c;
+  color: #f0e6c8;
+}
+
+.sidebar-foot {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+/* Config: texto de ajuda legível no escuro. */
+[data-theme='escuro'] .field-hint,
+[data-theme='escuro'] .hint-note {
+  color: #9a8e78;
+}
+
+/* Captures: empty state centrado na área útil. */
+.page > .card:only-child .empty-state {
+  margin-inline: auto;
+}
+
+/* Dashboard escuro: valores '—' e pill de desconexão legíveis. */
+[data-theme='escuro'] .stat-block-value {
+  color: #d9cba4;
+}
+
+[data-theme='escuro'] .pill--muted {
+  color: #c9b896;
+  border-color: #4a3f2e;
+}
+
+/* Dashboard: hero mais compacto p/ a 2ª linha de tiles caber na dobra; 'Em breve' legível no escuro. */
+.hero {
+  padding: var(--sp-3) var(--sp-5);
+}
+
+[data-theme='escuro'] .module-card--soon .pill--warn {
+  color: #e8d9ac;
+  border-color: #6b5a35;
+  background: #2a2416;
 }

@@ -29,7 +29,6 @@ import type {
 import { UNITS, type UnitCounts, type UnitId } from '@shared/units';
 import { TW_UNIT_ICONS } from '../../assets';
 import { useToast } from '../../hooks/useToast';
-import ToastViewport from '../../components/Toast';
 
 /**
  * SG_2 — "Resumo Geral" dos dados de tropas em memória.
@@ -167,7 +166,7 @@ export interface MemorySummarySectionProps {
 }
 
 export default function MemorySummarySection({ snapshot, collectedLabel, sourceLabel }: MemorySummarySectionProps): JSX.Element {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
 
   // ---- Filtros internos (vivos — sem botão aplicar) ----
   const [playerQueryText, setPlayerQueryText] = useState('');
@@ -393,7 +392,7 @@ export default function MemorySummarySection({ snapshot, collectedLabel, sourceL
               <span>Mínimo por unidade</span>
               {SUMMARY_UNIT_ORDER.map((id) => (
                 <label key={id} className="sg2-sum-unit">
-                  <img src={TW_UNIT_ICONS[id]} width={16} height={16} alt="" aria-hidden="true" />
+                  <img src={TW_UNIT_ICONS[id]} width={16} height={16} alt="" aria-hidden="true" className="tw-icon" />
                   <span className="sg2-sum-unit-name muted">{unitName(id)}</span>
                   <input
                     type="number"
@@ -675,7 +674,6 @@ export default function MemorySummarySection({ snapshot, collectedLabel, sourceL
           </>
         )}
       </div>
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

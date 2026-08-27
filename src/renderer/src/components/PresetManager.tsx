@@ -11,7 +11,6 @@ import {
   upsertPreset,
 } from '@shared/filter-presets';
 import { useToast } from '../hooks/useToast';
-import ToastViewport from './Toast';
 
 export interface PresetManagerProps {
   /** Módulo de preferências onde o preset persiste ('sg1'|'sg2'). */
@@ -47,7 +46,7 @@ interface PresetCallout {
  * - Excluir: `removePreset` + persist (com window.confirm); seleção volta a vazia.
  */
 export default function PresetManager({ module, scope, currentFields, onApply, label }: PresetManagerProps): JSX.Element {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
 
   // Coleção viva (objeto por nome trimado) — fonte de verdade local após o mount.
   const [presets, setPresets] = useState<Record<string, FilterPreset>>({});
@@ -264,11 +263,12 @@ export default function PresetManager({ module, scope, currentFields, onApply, l
         >
           Excluir
         </button>
-        <span className="prst-count" title={`${list.length} preset(s) salvo(s)${labelSuffix}`}>
-          {list.length}
-        </span>
+        {list.length > 0 && (
+          <span className="prst-count" title={`${list.length} preset(s) salvo(s)${labelSuffix}`}>
+            {list.length}
+          </span>
+        )}
       </div>
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }

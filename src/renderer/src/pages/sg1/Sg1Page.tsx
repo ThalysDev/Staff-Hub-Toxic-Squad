@@ -15,7 +15,6 @@ import Field from '../../components/Field';
 import PageHeader from '../../components/PageHeader';
 import PresetManager from '../../components/PresetManager';
 import ProgressBar from '../../components/ProgressBar';
-import ToastViewport from '../../components/Toast';
 import { loadRelationsShared, useDiplomacyRelations } from '../../hooks/useDiplomacyRelations';
 import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
@@ -56,7 +55,7 @@ function errorMessage(error: unknown): string {
 }
 
 export default function Sg1Page() {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg1');
   // Diplomacia: carrega no boot, refaz quando a sessão entra em logged-in
   // (as páginas SG são keep-mounted e montam ANTES do login sid) e expõe
@@ -363,6 +362,14 @@ export default function Sg1Page() {
         description="Tempo de nobre de cada aldeia da tribo até o inimigo mais próximo, com filtros de tags, continentes K e coordenadas — e o mapa do mundo com a sua diplomacia."
       />
 
+      {/* Padrão das páginas de módulo (SG_2/SG_3): restaurar sempre visível,
+          na mesma âncora abaixo do cabeçalho. */}
+      <div className="row">
+        <button type="button" className="btn btn-ghost btn-sm" onClick={resetFormDefaults}>
+          Restaurar padrões do módulo
+        </button>
+      </div>
+
       {/* ===== Seção A — Análise de Aldeias ===== */}
       <section className="page-section" aria-labelledby="sg1-analyse-title">
         <h2 className="section-title" id="sg1-analyse-title">Análise de Aldeias</h2>
@@ -540,9 +547,6 @@ export default function Sg1Page() {
                 {analyzing && progress !== null && (
                   <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
                 )}
-                <button type="button" className="btn btn-ghost btn-sm" onClick={resetFormDefaults}>
-                  Restaurar padrões do módulo
-                </button>
               </div>
             </form>
 
@@ -754,7 +758,6 @@ export default function Sg1Page() {
         )}
       </section>
 
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

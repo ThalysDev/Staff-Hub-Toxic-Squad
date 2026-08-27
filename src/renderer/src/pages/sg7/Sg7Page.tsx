@@ -5,7 +5,6 @@ import { parseBlindTable } from '@shared/sg7-engine';
 import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
 import PageHeader from '../../components/PageHeader';
-import ToastViewport from '../../components/Toast';
 import { MODULES } from '../../modules';
 import BlindDebtSection from './BlindDebtSection';
 
@@ -102,7 +101,7 @@ function appliedByPedido(result: ForumConferenceResult): Map<number, number> {
 }
 
 export default function Sg7Page() {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg7');
   const { prefs, savePrefs, resetPrefs } = usePreferences('sg7', SG7_DEFAULTS);
   const [threadUrl, setThreadUrl] = useState(SG7_DEFAULTS.threadUrl);
@@ -481,7 +480,6 @@ export default function Sg7Page() {
         <BlindDebtSection pendingRound={debtRound} onApplied={() => setDebtRound(null)} />
       </section>
 
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

@@ -8,7 +8,6 @@ import { buildScorecard, parseDistribution, warRoomStatus } from '@shared/war-ro
 import EmptyState from '../../components/EmptyState';
 import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
-import ToastViewport from '../../components/Toast';
 import { useSessionStatus } from '../../hooks/useSessionStatus';
 import { useToast, type ToastVariant } from '../../hooks/useToast';
 import type { PageId } from '../../modules';
@@ -37,7 +36,7 @@ function coverageClass(coveragePct: number): string {
 }
 
 export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
   const session = useSessionStatus();
   const [ops, setOps] = useState<OpArchiveEntry[]>([]);
   const [selectedId, setSelectedId] = useState('');
@@ -440,7 +439,6 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
            Sempre visível — a seção trata sozinha os estados sem histórico. ---- */}
       <WorldEvolutionSection />
 
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }

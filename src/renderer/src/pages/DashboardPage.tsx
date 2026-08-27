@@ -3,7 +3,6 @@ import { AlertTriangle, ArrowRight, Camera, CheckCircle2, Copy, DownloadCloud, I
 import type { OpArchiveEntry, UpdateManifest } from '@shared/ipc-types';
 import type { ScorecardOptions, ScorecardRow } from '@shared/war-room';
 import StatBlock from '../components/StatBlock';
-import ToastViewport from '../components/Toast';
 import { usePreferences } from '../hooks/usePreferences';
 import { useSessionStatus } from '../hooks/useSessionStatus';
 import { useToast } from '../hooks/useToast';
@@ -359,7 +358,7 @@ function ScoreboardSection() {
     scoreMetric: 'faltas',
     scoreWindow: 'all',
   });
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
 
   const [ops, setOps] = useState<OpArchiveEntry[] | null>(null);
   const [engine, setEngine] = useState<typeof import('@shared/war-room') | null>(null);
@@ -537,7 +536,6 @@ function ScoreboardSection() {
           )}
         </div>
       </div>
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </>
   );
 }

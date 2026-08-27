@@ -4,7 +4,6 @@ import EmptyState from '../components/EmptyState';
 import Field from '../components/Field';
 import PageHeader from '../components/PageHeader';
 import StatusPill from '../components/StatusPill';
-import ToastViewport from '../components/Toast';
 import { useSessionStatus } from '../hooks/useSessionStatus';
 import { useToast } from '../hooks/useToast';
 
@@ -25,7 +24,7 @@ export default function SessionPage() {
   const [sidValue, setSidValue] = useState('');
   const [sidErrors, setSidErrors] = useState<SidErrors>({});
   const [sidBusy, setSidBusy] = useState(false);
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
 
   const handleLogin = (): void => {
     void window.staffhub.session.openLogin();
@@ -72,70 +71,6 @@ export default function SessionPage() {
         title="Sessão"
         description="Conecte o hub à sua conta do Tribal Wars BR: janela de login oficial ou import do cookie sid."
       />
-
-      <div className="card">
-        <div className="card-header">
-          <span className="icon-badge">
-            <ShieldCheck size={17} aria-hidden="true" />
-          </span>
-          <h2 className="card-title">Estado da sessão</h2>
-          <span className="spacer" />
-          <StatusPill state={status.state} />
-        </div>
-        <div className="card-body">
-          {loggingIn && (
-            <div className="callout callout--info">
-              <Info size={18} className="callout-icon" aria-hidden="true" />
-              <div className="callout-body">
-                <p className="callout-title">Abrindo a página de login</p>
-                <p>
-                  Faça login no portal e <strong>clique no seu mundo</strong> para entrar no jogo. O
-                  hub detecta sozinho quando você entra no mundo e fecha a janela.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {hasSession ? (
-            <>
-              <dl className="session-dl">
-                <dt>Mundo</dt>
-                <dd>{status.world ?? '—'}</dd>
-                <dt>Jogador</dt>
-                <dd>{status.player ?? '—'}</dd>
-                <dt>Última verificação</dt>
-                <dd>
-                  {status.checkedAt ? new Date(status.checkedAt).toLocaleString('pt-BR') : '—'}
-                </dd>
-              </dl>
-              <div className="row">
-                <button type="button" className="btn btn-danger" onClick={handleLogout}>
-                  <LogOut size={15} aria-hidden="true" />
-                  Encerrar sessão
-                </button>
-              </div>
-              <p className="hint-note">
-                A sessão fica salva entre execuções do hub (partição própria do jogo). Encerre só
-                quando for trocar de conta.
-              </p>
-            </>
-          ) : (
-            !loggingIn && (
-              <EmptyState
-                icon={LogIn}
-                title="Sem sessão ativa"
-                hint="Faça login com a janela oficial abaixo — ou importe o cookie sid no cartão seguinte, se você já está logado no navegador."
-                action={
-                  <button type="button" className="btn" onClick={handleLogin}>
-                    <LogIn size={15} aria-hidden="true" />
-                    Fazer login no jogo
-                  </button>
-                }
-              />
-            )
-          )}
-        </div>
-      </div>
 
       <div className="card">
         <div className="card-header">
@@ -217,7 +152,70 @@ export default function SessionPage() {
           </form>
         </div>
       </div>
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
+
+      <div className="card">
+        <div className="card-header">
+          <span className="icon-badge">
+            <ShieldCheck size={17} aria-hidden="true" />
+          </span>
+          <h2 className="card-title">Estado da sessão</h2>
+          <span className="spacer" />
+          <StatusPill state={status.state} />
+        </div>
+        <div className="card-body">
+          {loggingIn && (
+            <div className="callout callout--info">
+              <Info size={18} className="callout-icon" aria-hidden="true" />
+              <div className="callout-body">
+                <p className="callout-title">Abrindo a página de login</p>
+                <p>
+                  Faça login no portal e <strong>clique no seu mundo</strong> para entrar no jogo. O
+                  hub detecta sozinho quando você entra no mundo e fecha a janela.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {hasSession ? (
+            <>
+              <dl className="session-dl">
+                <dt>Mundo</dt>
+                <dd>{status.world ?? '—'}</dd>
+                <dt>Jogador</dt>
+                <dd>{status.player ?? '—'}</dd>
+                <dt>Última verificação</dt>
+                <dd>
+                  {status.checkedAt ? new Date(status.checkedAt).toLocaleString('pt-BR') : '—'}
+                </dd>
+              </dl>
+              <div className="row">
+                <button type="button" className="btn btn-danger" onClick={handleLogout}>
+                  <LogOut size={15} aria-hidden="true" />
+                  Encerrar sessão
+                </button>
+              </div>
+              <p className="hint-note">
+                A sessão fica salva entre execuções do hub (partição própria do jogo). Encerre só
+                quando for trocar de conta.
+              </p>
+            </>
+          ) : (
+            !loggingIn && (
+              <EmptyState
+                icon={LogIn}
+                title="Sem sessão ativa"
+                hint="Faça login com a janela oficial abaixo — ou importe o cookie sid no cartão seguinte, se você já está logado no navegador."
+                action={
+                  <button type="button" className="btn" onClick={handleLogin}>
+                    <LogIn size={15} aria-hidden="true" />
+                    Fazer login no jogo
+                  </button>
+                }
+              />
+            )
+          )}
+        </div>
+      </div>
     </section>
   );
 }

@@ -13,7 +13,6 @@ import {
 import type { DiplomacyRelations, WorldAlly, WorldPlayer } from '@shared/types';
 import { parseDistribution } from '@shared/war-room';
 import StatBlock from '../../components/StatBlock';
-import ToastViewport from '../../components/Toast';
 import { loadRelationsShared } from '../../hooks/useDiplomacyRelations';
 import { useToast } from '../../hooks/useToast';
 
@@ -133,7 +132,7 @@ function describeOwner(outcome: PostOpLiveOutcome, owners: OwnerDictionaries | n
  * OpArchiveEntry/OpSaveInput não têm campo para isso e ipc-types é intocável.
  */
 export default function PostOpSection({ op, onArchived }: PostOpSectionProps): JSX.Element {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
   const [busy, setBusy] = useState<'verify' | 'attach' | null>(null);
   const [error, setError] = useState('');
   const [result, setResult] = useState<PostOpLiveResult | null>(null);
@@ -415,7 +414,6 @@ export default function PostOpSection({ op, onArchived }: PostOpSectionProps): J
           </>
         )}
       </div>
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

@@ -31,7 +31,6 @@ import PageHeader from '../../components/PageHeader';
 import PresetManager from '../../components/PresetManager';
 import ProgressBar from '../../components/ProgressBar';
 import StatBlock from '../../components/StatBlock';
-import ToastViewport from '../../components/Toast';
 import { usePreferences } from '../../hooks/usePreferences';
 import { useSessionStatus } from '../../hooks/useSessionStatus';
 import { useToast } from '../../hooks/useToast';
@@ -134,7 +133,7 @@ function parseAxisValue(text: string): number | null {
 }
 
 export default function Sg2Page() {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg2');
 
   // Memória (persistida no processo principal; F5 não perde).
@@ -403,10 +402,10 @@ export default function Sg2Page() {
         });
       }
       if (failed.length > 0) {
-        (options?.silent === true ? pushIfVisible : push)('info', `Coleta concluída com ${failed.length} membro(s) com erro — lista abaixo do painel de memória.`);
+        push('info', `Coleta concluída com ${failed.length} membro(s) com erro — lista abaixo do painel de memória.`);
         setCollectFailures(failed);
       } else {
-        (options?.silent === true ? pushIfVisible : push)('ok', kind === 'members' ? 'Coleta de tropas concluída — dados em memória atualizados.' : 'Resumo coletado — dados em memória atualizados.');
+        push('ok', kind === 'members' ? 'Coleta de tropas concluída — dados em memória atualizados.' : 'Resumo coletado — dados em memória atualizados.');
         setCollectFailures(null);
       }
     } catch (error) {
@@ -417,7 +416,7 @@ export default function Sg2Page() {
         return;
       }
       setActionError(message);
-      (options?.silent === true ? pushIfVisible : push)('error', message);
+      push('error', message);
     } finally {
       setCollecting(null);
     }
@@ -443,12 +442,6 @@ export default function Sg2Page() {
   const autoStateRef = useRef({ autoCollectHours, collecting, progress, session, troopsAt });
   autoStateRef.current = { autoCollectHours, collecting, progress, session, troopsAt };
 
-  /** Toast só se a página está visível (auto-coleta roda em 2º plano). */
-  function pushIfVisible(kind: 'info' | 'ok' | 'error', message: string): void {
-    const host = sectionRef.current?.closest<HTMLElement>('.sg-page');
-    if (host?.hidden === true) return;
-    pushRef.current(kind, message);
-  }
 
   function autoCollectTick(): void {
     const now = Date.now();
@@ -468,7 +461,7 @@ export default function Sg2Page() {
     const base = Number.isFinite(lastMs) ? lastMs : mountedAtRef.current;
     if (now - base < hours * 60 * 60 * 1000) return;
     autoRunningRef.current = true;
-    pushIfVisible('info', 'Coleta automática disparada (agendada).');
+    pushRef.current('info', 'Coleta automática disparada (agendada).');
     void startCollectRef.current('members', { silent: true }).finally(() => {
       autoRunningRef.current = false;
     });
@@ -809,6 +802,18 @@ export default function Sg2Page() {
         description="Coleta as tropas recrutadas de cada aldeia da tribo (com progresso e memória local), filtra por unidade, escopo, coordenadas e eixos — e classifica ofensivas vs defensivas sem filtro de tropas."
       />
 
+      {/* Padrão das páginas de módulo (SG_1/SG_3): restaurar sempre visível,
+          na mesma âncora abaixo do cabeçalho — inclusive sem dados em memória. */}
+      <div className="row">
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={resetFormPrefs}
+        >
+          Restaurar padrões do módulo
+        </button>
+      </div>
+
       {collectFailures !== null && (
         <section className="page-section" aria-label="Membros com erro na coleta">
           <div className="card">
@@ -891,9 +896,14 @@ export default function Sg2Page() {
                   <option value="24">A cada 24 horas</option>
                 </select>
               </label>
-              <p className="sg2-memory-date muted" style={{ alignSelf: 'flex-end' }}>
-                Próxima coleta automática: <strong>{nextAutoCollectLabel}</strong>
-              </p>
+              {/* Espelha a estrutura do field ao lado (label em cima, valor em
+                  baixo): alinha na mesma linha do select, não no fundo da caixa. */}
+              <div className="field sg2-next-autocollect">
+                <span className="field-label">Próxima coleta automática</span>
+                <p className="sg2-memory-date">
+                  <strong>{nextAutoCollectLabel}</strong>
+                </p>
+              </div>
             </div>
             <p className="hint-note muted">
               A coleta completa percorre todos os membros da tribo com pacing humano — quanto
@@ -960,13 +970,6 @@ export default function Sg2Page() {
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
-                onClick={resetFormPrefs}
-              >
-                Restaurar padrões
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
                 aria-expanded={showForm}
                 onClick={() => setShowForm((visible) => !visible)}
               >
@@ -1019,7 +1022,7 @@ export default function Sg2Page() {
                       <div className="sg2-units-grid">
                         {FILTER_UNIT_ORDER.map((id) => (
                           <label key={id} className="sg2-unit-row">
-                            <img src={TW_UNIT_ICONS[id]} width={18} height={18} alt="" aria-hidden="true" />
+                            <img src={TW_UNIT_ICONS[id]} width={18} height={18} alt="" aria-hidden="true" className="tw-icon" />
                             <span className="sg2-unit-name">{UNITS[id].name}</span>
                             <input
                               type="number"
@@ -1298,7 +1301,7 @@ export default function Sg2Page() {
                                   });
                                 }}
                               />
-                              {TW_UNIT_ICONS[id as UnitId] !== undefined && <img src={TW_UNIT_ICONS[id as UnitId]} alt="" width={16} height={16} />}
+                              {TW_UNIT_ICONS[id as UnitId] !== undefined && <img src={TW_UNIT_ICONS[id as UnitId]} alt="" width={16} height={16} className="tw-icon" />}
                               {UNITS[id as UnitId]?.name ?? id}
                             </label>
                           );
@@ -1615,7 +1618,6 @@ export default function Sg2Page() {
         </>
       )}
 
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

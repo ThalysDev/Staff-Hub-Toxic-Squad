@@ -9,7 +9,8 @@
       // que o App escreve ('shs-theme'); 'system' resolve via media query.
       (function () {
         try {
-          var choice = localStorage.getItem('shs-theme') || 'system';
+          var pinned = /[?&]theme=(claro|escuro)/.exec(location.search);
+          var choice = pinned ? pinned[1] : (localStorage.getItem('shs-theme') || 'system');
           var dark =
             choice === 'escuro' ||
             (choice !== 'claro' && window.matchMedia('(prefers-color-scheme: dark)').matches);

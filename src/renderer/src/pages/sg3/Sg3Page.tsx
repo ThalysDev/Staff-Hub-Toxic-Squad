@@ -10,7 +10,6 @@ import { UNITS, defensivePopulation, type UnitCounts, type UnitId } from '@share
 import type { TroopSnapshot } from '@shared/sg2-engine';
 import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
-import ToastViewport from '../../components/Toast';
 import EmptyState from '../../components/EmptyState';
 import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
@@ -78,7 +77,7 @@ function parseThresholdText(text: string): number | null {
 }
 
 export default function Sg3Page() {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg3');
   const { prefs, savePrefs, resetPrefs } = usePreferences('sg3', SG3_DEFAULTS);
 
@@ -525,7 +524,7 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
               {BLIND_UNITS.map((unit) => (
                 <label key={unit} className="field">
                   <span className="field-label sg2-unit-label">
-                    <img src={TW_UNIT_ICONS[unit]} width={18} height={18} alt="" aria-hidden="true" />
+                    <img src={TW_UNIT_ICONS[unit]} width={18} height={18} alt="" aria-hidden="true" className="tw-icon" />
                     {UNITS[unit].name}
                   </span>
                   <input
@@ -879,7 +878,6 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
         </div>
       </section>
 
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

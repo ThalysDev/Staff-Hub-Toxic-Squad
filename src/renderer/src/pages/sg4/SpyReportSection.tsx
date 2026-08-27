@@ -11,7 +11,6 @@ import { SUMMARY_UNIT_ORDER } from '@shared/sg2-summary';
 import { UNITS, type UnitId } from '@shared/units';
 import { TW_UNIT_ICONS } from '../../assets';
 import Field from '../../components/Field';
-import ToastViewport from '../../components/Toast';
 import { useToast } from '../../hooks/useToast';
 
 /**
@@ -52,7 +51,7 @@ type SuggestionState = { fulls: number; detail: string } | { error: string } | n
 
 /** SG_4 — análise de relatórios de espionagem colados + sugestão de fulls. */
 export default function SpyReportSection({ onUseAsTarget }: SpyReportSectionProps): JSX.Element {
-  const { toasts, push, dismiss } = useToast();
+  const { push } = useToast();
 
   // Entrada colada + estado da análise (parser é fail-closed: erro PT-BR vira
   // callout de perigo, nunca resultado silencioso errado).
@@ -239,7 +238,7 @@ export default function SpyReportSection({ onUseAsTarget }: SpyReportSectionProp
                   {spiedUnits.map(({ id, count }) => (
                     <tr key={id}>
                       <td className="cell-nowrap">
-                        <img src={TW_UNIT_ICONS[id]} width={16} height={16} alt="" aria-hidden="true" />{' '}
+                        <img src={TW_UNIT_ICONS[id]} width={16} height={16} alt="" aria-hidden="true" className="tw-icon" />{' '}
                         {UNITS[id].name}
                       </td>
                       <td className="cell-num">{NUMBER_FMT.format(count)}</td>
@@ -300,7 +299,6 @@ export default function SpyReportSection({ onUseAsTarget }: SpyReportSectionProp
         colagem real antes de confiar.
       </p>
 
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </section>
   );
 }

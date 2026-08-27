@@ -10,6 +10,9 @@ export const THEME_STORAGE_KEY = 'shs-theme';
 export const THEME_EVENT = 'shs-theme-change';
 
 export function currentThemeChoice(): ThemeChoice {
+  // ?theme=claro|escuro pina o tema na sessão (deep link/QA visual) — vence o salvo.
+  const pinned = new URLSearchParams(window.location.search).get('theme');
+  if (pinned === 'claro' || pinned === 'escuro') return pinned;
   const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
   return stored === 'claro' || stored === 'escuro' ? stored : 'system';
 }
