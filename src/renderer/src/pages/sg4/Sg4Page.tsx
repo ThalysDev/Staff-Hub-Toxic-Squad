@@ -19,11 +19,12 @@ import { computeSendTimes, formatHms, formatSendSchedule, nobleTrain, type SendS
 import { originsFromSnapshot } from '@shared/origins-from-snapshot';
 import { solveDepartureForArrival, type NightBonusCfg } from '@shared/night-bonus';
 import { buildPlayerComms, planBbcode, renderTemplate, reservationList, sg6EntriesText } from '@shared/comms-package';
-import type { DiplomacyRelations, WorldPlayer } from '@shared/types';
+import type { WorldPlayer } from '@shared/types';
 import Field from '../../components/Field';
 import PageHeader from '../../components/PageHeader';
 import ToastViewport from '../../components/Toast';
 import WorldMapCanvas from '../sg1/WorldMapCanvas';
+import { useDiplomacyRelations } from '../../hooks/useDiplomacyRelations';
 import { useToast } from '../../hooks/useToast';
 import { MODULES } from '../../modules';
 
@@ -90,8 +91,9 @@ export default function Sg4Page() {
   const moduleInfo = MODULES.find((module) => module.id === 'sg4');
 
   // ---- Seção A — OP com coordenada central ----
-  const [relations, setRelations] = useState<DiplomacyRelations | null>(null);
-  const [relationsFailed, setRelationsFailed] = useState(false);
+  // Diplomacia: carrega no boot, refaz quando a sessão entra em logged-in e
+  // expõe retry manual — ver useDiplomacyRelations.
+  const { relations, relationsFailed, relationsBusy, retryRelations } = useDiplomacyRelations();
   const [enemyTagsText, setEnemyTagsText] = useState('');
   const [centralCoordText, setCentralCoordText] = useState('');
   const [errorsA, setErrorsA] = useState<{ tags?: string; central?: string }>({});
@@ -145,21 +147,6 @@ export default function Sg4Page() {
   const [planPosting, setPlanPosting] = useState(false);
   const [planResult, setPlanResult] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    void window.staffhub.world
-      .relations()
-      .then((current) => {
-        if (!cancelled) setRelations(current);
-      })
-      .catch(() => {
-        if (!cancelled) setRelationsFailed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   // Fail-soft: mundo sem resposta conta COM moral (comportamento atual).
   useEffect(() => {
     let cancelled = false;
@@ -191,7 +178,7 @@ export default function Sg4Page() {
       push(
         'error',
         relationsFailed
-          ? 'Diplomacia indisponível — faça login no jogo para carregar as relações.'
+          ? 'Diplomacia indisponível — clique em "Tentar novamente" no aviso vermelho.'
           : 'Diplomacia ainda carregando — tente de novo em instantes.',
       );
       return;
@@ -696,7 +683,18 @@ export default function Sg4Page() {
                 <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
                 <div className="callout-body">
                   <p className="callout-title">Diplomacia indisponível</p>
-                  <p>Faça login no jogo para preencher as tags inimigas com a diplomacia.</p>
+                  <p>
+                    Não foi possível carregar as relações diplomáticas — se você acabou
+                    de entrar no jogo, elas recarregam sozinhas; senão, tente de novo agora.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={relationsBusy}
+                    onClick={() => void retryRelations()}
+                  >
+                    Tentar novamente
+                  </button>
                 </div>
               </div>
             )}

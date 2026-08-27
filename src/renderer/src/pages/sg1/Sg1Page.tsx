@@ -15,6 +15,7 @@ import Field from '../../components/Field';
 import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
 import ToastViewport from '../../components/Toast';
+import { loadRelationsShared, useDiplomacyRelations } from '../../hooks/useDiplomacyRelations';
 import { useToast } from '../../hooks/useToast';
 import { MODULES } from '../../modules';
 import WorldMapCanvas, { MARKING_OPTIONS } from './WorldMapCanvas';
@@ -55,9 +56,16 @@ function errorMessage(error: unknown): string {
 export default function Sg1Page() {
   const { toasts, push, dismiss } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg1');
-  const [relations, setRelations] = useState<DiplomacyRelations | null>(null);
-  const [relationsFailed, setRelationsFailed] = useState(false);
-  const [prefillBusy, setPrefillBusy] = useState(true);
+  // Diplomacia: carrega no boot, refaz quando a sessão entra em logged-in
+  // (as páginas SG são keep-mounted e montam ANTES do login sid) e expõe
+  // retry manual — ver useDiplomacyRelations.
+  const {
+    relations,
+    relationsFailed,
+    relationsBusy: prefillBusy,
+    retryRelations,
+    setRelations,
+  } = useDiplomacyRelations();
   const [worldRefreshBusy, setWorldRefreshBusy] = useState(false);
 
   // Formulário — análise de aldeias (rótulos originais).
@@ -84,34 +92,12 @@ export default function Sg1Page() {
   const [highlightText, setHighlightText] = useState('');
   const [showMap, setShowMap] = useState(false);
 
-  // Tag da própria tribo vinda da diplomacia (não sobrescreve o que o usuário digitou).
-  // O dump é garantido ANTES: a tag verdadeira ("Toxic!") vem do ally.txt — sem o
-  // dump a página de contratos só expõe o NOME da tribo.
+  // Tag da própria tribo vinda da diplomacia (não sobrescreve o que o usuário
+  // digitou). O dump é garantido pela carga do hook ANTES da diplomacia.
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      setPrefillBusy(true);
-      try {
-        const status = await window.staffhub.world.status();
-        const stale =
-          status.fetchedAt === null ||
-          status.villageCount === 0 ||
-          Date.now() - Date.parse(status.fetchedAt) > 6 * 60 * 60 * 1000;
-        if (stale) await window.staffhub.world.refresh();
-        const current = await window.staffhub.world.relations();
-        if (cancelled) return;
-        setRelations(current);
-        setOwnTag((typed) => (typed.trim() === '' ? current.ownTag : typed));
-      } catch {
-        if (!cancelled) setRelationsFailed(true);
-      } finally {
-        if (!cancelled) setPrefillBusy(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (relations === null) return;
+    setOwnTag((typed) => (typed.trim() === '' ? relations.ownTag : typed));
+  }, [relations]);
 
   // Progresso das operações do main (download de dumps / coleta da análise).
   useEffect(() => {
@@ -177,7 +163,7 @@ export default function Sg1Page() {
       push(
         'error',
         relationsFailed
-          ? 'Diplomacia indisponível — faça login no jogo para carregar as relações.'
+          ? 'Diplomacia indisponível — clique em "Tentar novamente" no aviso vermelho.'
           : 'Diplomacia ainda carregando — tente de novo em instantes.',
       );
       return;
@@ -212,7 +198,9 @@ export default function Sg1Page() {
       ]);
       let relationsValue: DiplomacyRelations | null = null;
       try {
-        relationsValue = await window.staffhub.world.relations();
+        // Loader coalescido: reaproveita a carga em andamento (ex.: recarga
+        // automática pós-login) em vez de disputar a fila do main.
+        relationsValue = await loadRelationsShared();
       } catch {
         relationsValue = null; // sem sessão: mapa fica todo marrom, sem pré-marcação
       }
@@ -279,9 +267,17 @@ export default function Sg1Page() {
                 <div className="callout-body">
                   <p className="callout-title">Diplomacia indisponível</p>
                   <p>
-                    Faça login no jogo para pré-preencher a tag da tribo analisada e usar as
-                    inimigas da diplomacia.
+                    Não foi possível carregar as relações diplomáticas — se você acabou
+                    de entrar no jogo, elas recarregam sozinhas; senão, tente de novo agora.
                   </p>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={prefillBusy}
+                    onClick={() => void retryRelations()}
+                  >
+                    Tentar novamente
+                  </button>
                 </div>
               </div>
             )}

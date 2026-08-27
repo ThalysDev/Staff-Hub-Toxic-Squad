@@ -3,3 +3,6 @@ out/
 dist/
 *.local
 .DS_Store
+
+# Artifacts de release ficam no dist/ e Desktop, nunca no repo
+StaffHubToxicSquad-*.zip
