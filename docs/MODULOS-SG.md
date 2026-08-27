@@ -147,3 +147,101 @@ Tela: tópico de blindagem em `screen=forum&screenmode=view_thread&thread_id=X&p
   excluir as mensagens selecionadas?") remove os comentários processados.
 - Responsabilidade final de conferir se a tropa realmente saiu continua da staff (o script
   só elimina o trabalho repetitivo).
+
+---
+
+## Fluxos Premium (v0.23–v0.26)
+
+> Extensões entregues sobre os fluxos originais acima. Tudo abaixo existe em código
+> (motor puro em `src/shared/` + UI), com teste — exceto onde marcado ⚠.
+
+### SG_1 — Análise de Aldeias e Distâncias
+- **Retry de diplomacia**: falha de diplomacia não é mais eterna — botão tentar de novo
+  (`useDiplomacyRelations.retryRelations`; fix v0.21.1 para login via sid).
+- **Presets de análise**: formulário salvável/carregável com nome (`PresetManager` +
+  `filter-presets.ts`, persistido nas prefs do módulo).
+- **Overlay da OP no mapa**: setas amarelas origem→alvo sobre o mapa mundial
+  (`WorldMapCanvas`, alimentado pela distribuição do SG_4/Sala de Guerra).
+
+### SG_2 — Análise de Tropas das Aldeias
+- **Resumo Geral dos Dados em Memória**: coleta em 1 requisição + painel de resumo
+  (`sg2-summary.ts` + `MemorySummarySection.tsx`) — totais, linha por jogador e por aldeia.
+- **Histórico e Evolução** (`snapshot-history.ts` + `HistoryEvolutionSection.tsx`): cada
+  coleta arquiva versão compacta por jogador (cap 20); comparação A/B com Δ de pop
+  ofensiva/defensiva/aldeias, ranking de crescimento e **alerta de recrutamento massivo**
+  (≥20k pop ofensiva ou ≥3 aldeias novas — sinal de OP inimiga se formando).
+- **Contagem Full/Semi** (`full-semi.ts`): classificação das aldeias de origem da tribo.
+- **Presets de consulta** (inclui full/semi) via `PresetManager`.
+- **Coleta automática agendada** (v0.26): intervalo 4/6/12/24h persistido nas prefs
+  (desligado por padrão); avaliado a cada 5min — só dispara com sessão logada e fila
+  livre; a referência é a última coleta (`troopsAt`), então o app recém-aberto com dados
+  frescos não coleta duas vezes. 100% renderer (a página é keep-mounted).
+
+### SG_3 — Análise de Defesa das Aldeias
+- **Thresholds de risco** (`incoming-risk.ts`): triagem "esta aldeia vai cair?" com limiares
+  configuráveis e persistidos nas prefs (pop mínima resistente, patamar que segura nobre);
+  defesa desconhecida nunca vira veredito otimista (fail-closed).
+- **Blind por nível** (`sg3-engine.ts` `levelScaling`): o desejado escala pelos PONTOS da
+  aldeia com clamp 0,5×–2× (checkbox + pontos de referência persistidos).
+- **Débito de blind** (`blind-debt.ts`): acumulado entre rodadas por linha de pedido
+  (exposto no SG_7).
+
+### SG_4 — Criação de Operações
+- **Fakes inteligentes** (`fakes-intelligent.ts` + `FakesIntelligentSection.tsx`):
+  distribuição dos fakes por proximidade com máximo por origem.
+- **Curva de moral** (`MoraleCurve.tsx` + `sg4-engine.ts`): fórmula oficial por pontos
+  `(def/att × 3 + 0,3) × 100`; mundos clássicos sem moral por pontos desativam o campo
+  (toggle "moral ativa").
+- **T-minus configurável** (`tminus.ts`): marcas de alerta em texto livre (ex.: "15 5 1"),
+  validadas 1–1440 min sem duplicatas; notificações na bandeja do sistema.
+- **Templates de MP**: picker do corpo da MP direto na OP (biblioteca do SG_6).
+- **Análise de espionagem** (v0.26, `spy-report.ts` + `SpyReportSection.tsx`): cola o
+  CORPO do relatório → parser fail-closed extrai alvo/unidades/muralha/populações
+  ofensiva-defensiva e sugere quantos fulls limpam a defesa; a coordenada espiada pode
+  preencher a COORDENADA CENTRAL da Seção A. **⚠ validar contra fixture**: o teste usa
+  relatório SINTÉTICO fiel ao formato do TW BR — confirmar contra um relatório real
+  capturado do BR142 quando disponível.
+
+### SG_5 — Conferência de Comandos
+- **Filtros de visualização** (`sg5-view-filter.ts`): busca/tipo/nobre/status
+  (chegados×pendentes pela âncora de carregamento); documento e Gantt derivam do filtrado.
+- **Diff entre rodadas** (`sg5-diff.ts` + `Sg5DiffSection.tsx`): compara por commandId a
+  última conferência (persistida nas prefs do módulo) com a atual — novos/cancelados/perdidos.
+
+### SG_6 — Reservas e MPs
+- **Biblioteca de templates** (`mp-templates-rules.ts` + `ipc-templates.ts` +
+  `TemplateLibrary.tsx`): CRUD completo com template default único; picker de assunto+corpo
+  no SG_6 (e corpo no SG_4); placeholders `#alvos#`/`#horarios#` documentados.
+
+### SG_7 — Blindagem no Fórum
+- **Débito de blind** (`blind-debt.ts`): soma as rodadas reconhecidas por linha de pedido e
+  mostra quem deve/é credor — limitação honesta exibida na UI: o AUTOR do comentário não
+  chega ao hub, a unidade do débito é a aldeia do pedido.
+- **Tópicos salvos**: URLs de tópicos nomeadas com rótulo (cap 10, persistidas nas prefs).
+
+### Guerra — Sala de Guerra
+- **Pós-OP ao vivo** (`post-op-live.ts` + `PostOpSection.tsx`): taxa de conquista e nobres
+  desperdiçados verificando os alvos da OP arquivada.
+- **Compartilhar OP** (`op-export.ts` + `OpShareSection.tsx`): export/import JSON portável
+  da OP entre a staff.
+- **Evolução do mundo** (`world-history.ts` + `WorldEvolutionSection.tsx`): cada atualização
+  de dumps arquiva agregado por tribo + delta de trocas de dono (cap 10); diff A/B com Δ
+  colorido, conquistas/abandonos e "Mostrar no mapa".
+- **Linha de frente animada** (v0.26, modo "linha do tempo"): troca o diff A/B por um
+  slider cronológico (1 = mais antiga, N = mais recente); no passo K o mapa mostra as
+  mudanças acumuladas até a versão K; "Reproduzir" avança o slider sozinho (1,2s por
+  passo, com pausa).
+- **Scorecard configurável** (`war-room.ts` `ScorecardOptions`): top N, métrica
+  faltas/envios/% cumprido, janela 7/30 dias/tudo, copiar TSV (no Dashboard).
+
+### Sistema (transversal)
+- **Preferências por módulo** (`preferences-rules.ts` + `usePreferences`): prefs persistentes
+  com merge raso por chave em 12 módulos (sg1..sg7, guerra, journal, dashboard, captures, geral).
+- **Temas claro/escuro/sistema** (`theme.ts` + `theme-dark.css`).
+- **Paleta Ctrl+K** (`CommandPalette` + `useKeyboardShortcuts`): navegação e ações rápidas;
+  Alt+1..7 módulos SG, Alt+8 Sala de Guerra, Alt+9 Início.
+- **Journal premium** (`journal-filter.ts` + `JournalPage`): chips de tipo + ação, busca
+  acento-insensitiva, período, contagem viva, export CSV/JSON, limite configurável.
+- **Atualizador automático** (`updater-service.ts` + `updater-core.ts`): canal VPS
+  (nginx + latest.json), SHA-256, troca via script externo, rollback de versão e E2E
+  vermelho/verde da cadeia completa (`scripts/e2e-update.mjs`).

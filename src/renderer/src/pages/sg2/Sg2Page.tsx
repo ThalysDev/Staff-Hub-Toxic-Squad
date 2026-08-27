@@ -66,6 +66,18 @@ function emptyUnitInputs(): Record<UnitId, string> {
   return Object.fromEntries(FILTER_UNIT_ORDER.map((id) => [id, ''])) as Record<UnitId, string>;
 }
 
+/** Intervalos do agendador de coleta automática ('0' = desligado). */
+const AUTO_COLLECT_OPTIONS = ['0', '4', '6', '12', '24'] as const;
+type AutoCollectHours = (typeof AUTO_COLLECT_OPTIONS)[number];
+
+/** Fail-soft: valor fora das opções conhecidas volta a "Desligado". */
+function normalizeAutoCollect(value: unknown): AutoCollectHours {
+  return (AUTO_COLLECT_OPTIONS as readonly unknown[]).includes(value) ? (value as AutoCollectHours) : '0';
+}
+
+/** Ritmo do agendador: a cada 5 minutos ele avalia se o intervalo venceu. */
+const AUTO_COLLECT_TICK_MS = 5 * 60 * 1000;
+
 /** Campos de formulário do SG_2 que sobrevivem a F5/reinício (módulo "sg2"). */
 type Sg2Prefs = {
   unitInputs: Record<UnitId, string>;
@@ -87,6 +99,7 @@ type Sg2Prefs = {
   fsKMode: 'incluir' | 'excluir';
   fsPlayersText: string;
   fsPlayersMode: 'incluir' | 'excluir';
+  autoCollectHours: AutoCollectHours;
 };
 
 /** Unidades do conjunto OFENSIVO por padrão do contador Full/Semi. */
@@ -132,6 +145,8 @@ export default function Sg2Page() {
   const [collecting, setCollecting] = useState<'members' | 'summary' | null>(null);
   const [progress, setProgress] = useState<QueueProgress | null>(null);
   const [actionError, setActionError] = useState('');
+  // P2-23 — coleta automática agendada ('0' = desligado).
+  const [autoCollectHours, setAutoCollectHours] = useState<AutoCollectHours>('0');
 
   // Formulário de filtro.
   const [showForm, setShowForm] = useState(false);
@@ -211,6 +226,7 @@ export default function Sg2Page() {
     fsKMode: 'incluir',
     fsPlayersText: '',
     fsPlayersMode: 'excluir',
+    autoCollectHours: '0',
   });
 
   // Hidratação única: aplica o que veio do store sobre os estados do formulário.
@@ -237,6 +253,7 @@ export default function Sg2Page() {
     if (prefs.fsKMode !== undefined) setFsKMode(prefs.fsKMode);
     if (prefs.fsPlayersText !== undefined) setFsPlayersText(prefs.fsPlayersText);
     if (prefs.fsPlayersMode !== undefined) setFsPlayersMode(prefs.fsPlayersMode);
+    if (prefs.autoCollectHours !== undefined) setAutoCollectHours(normalizeAutoCollect(prefs.autoCollectHours));
   }, [prefs]);
 
   // Persistência por campo (só depois de hidratado, para não sobrescrever o stored).
@@ -316,6 +333,10 @@ export default function Sg2Page() {
     if (!prefsHydrated.current) return;
     savePrefs({ fsPlayersMode });
   }, [fsPlayersMode, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ autoCollectHours });
+  }, [autoCollectHours, savePrefs]);
 
   // Resultado.
   const [result, setResult] = useState<Sg2FilterResult | null>(null);
@@ -354,12 +375,12 @@ export default function Sg2Page() {
     return stored;
   }
 
-  async function startCollect(kind: 'members' | 'summary'): Promise<void> {
+  async function startCollect(kind: 'members' | 'summary', options?: { silent?: boolean }): Promise<void> {
     if (collecting !== null) return;
     setCollecting(kind);
     setProgress(null);
-    setActionError('');
-    setResult(null);
+    if (options?.silent !== true) setActionError('');
+    if (options?.silent !== true) setResult(null);
     try {
       await (kind === 'members'
         ? window.staffhub.troops.collectMembers('troops')
@@ -385,12 +406,72 @@ export default function Sg2Page() {
       }
     } catch (error) {
       const message = errorMessage(error);
+      // Fila ocupada por MUTAÇÃO (que não emite progresso): o disparo
+      // automático tenta de novo no próximo tick — sem spam de erro.
+      if (options?.silent === true && /opera..o .*em andamento|Uma opera/i.test(message)) {
+        return;
+      }
       setActionError(message);
       push('error', message);
     } finally {
       setCollecting(null);
     }
   }
+
+  // ===== P2-23 — Coleta automática agendada (100% renderer) =====
+  // A página é keep-mounted, então o intervalo vive enquanto o app estiver
+  // aberto. A cada 5 minutos avalia: intervalo ativado + sessão logada + fila
+  // livre (collecting/progress nulos) + intervalo vencido desde a ÚLTIMA
+  // coleta — referência `troopsAt` quando existir, senão o instante do mount
+  // (app recém-aberto sem dados espera um intervalo inteiro antes de coletar;
+  // com dados frescos < intervalo, não dispara). Pacing/single-flight vêm do
+  // próprio fluxo de startCollect.
+  const autoRunningRef = useRef(false);
+  const lastAutoCheckRef = useRef(0);
+  const mountedAtRef = useRef(Date.now());
+  // Espelhos da última renderização: o intervalo criado uma única vez nunca
+  // fecha sobre valores velhos (e não precisa re-assinar a cada mudança).
+  const startCollectRef = useRef(startCollect);
+  startCollectRef.current = startCollect;
+  const pushRef = useRef(push);
+  pushRef.current = push;
+  const autoStateRef = useRef({ autoCollectHours, collecting, progress, session, troopsAt });
+  autoStateRef.current = { autoCollectHours, collecting, progress, session, troopsAt };
+
+  function autoCollectTick(): void {
+    const now = Date.now();
+    lastAutoCheckRef.current = now;
+    const current = autoStateRef.current;
+    const hours = Number(current.autoCollectHours);
+    if (!Number.isFinite(hours) || hours <= 0) return;
+    if (current.session.state !== 'logged-in') return;
+    // Fila ocupada só quando a operação AINDA corre (done < total): o último
+    // evento de progresso permanece done=total após a conclusão — tratá-lo
+    // como ocupado travava o agendador para sempre após a 1ª operação.
+    const progressActive =
+      current.progress !== null && current.progress.done < current.progress.total;
+    if (current.collecting !== null || progressActive) return;
+    if (autoRunningRef.current) return;
+    const lastMs = current.troopsAt !== null ? Date.parse(current.troopsAt) : Number.NaN;
+    const base = Number.isFinite(lastMs) ? lastMs : mountedAtRef.current;
+    if (now - base < hours * 60 * 60 * 1000) return;
+    autoRunningRef.current = true;
+    pushRef.current('info', 'Coleta automática disparada (agendada).');
+    void startCollectRef.current('members', { silent: true }).finally(() => {
+      autoRunningRef.current = false;
+    });
+  }
+  const autoTickRef = useRef(autoCollectTick);
+  autoTickRef.current = autoCollectTick;
+
+  // Um único intervalo com cleanup — seguro no StrictMode (setup→cleanup→setup
+  // deixa exatamente um timer; autoRunningRef blinda qualquer disparo duplo).
+  useEffect(() => {
+    const interval: ReturnType<typeof setInterval> = setInterval(() => autoTickRef.current(), AUTO_COLLECT_TICK_MS);
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
 
   async function exhibit(): Promise<void> {
     try {
@@ -689,11 +770,24 @@ export default function Sg2Page() {
     setFsKMode('incluir');
     setFsPlayersText('');
     setFsPlayersMode('excluir');
+    setAutoCollectHours('0');
     void resetPrefs();
   }
 
   const updatedLabel =
     troopsAt !== null ? new Date(troopsAt).toLocaleString('pt-BR') : 'Nunca coletado';
+
+  /** "Próxima coleta automática": última coleta (ou mount) + intervalo; '?' desligado. */
+  const nextAutoCollectLabel = useMemo(() => {
+    const hours = Number(autoCollectHours);
+    if (!Number.isFinite(hours) || hours <= 0) return '?';
+    const lastMs = troopsAt !== null ? Date.parse(troopsAt) : Number.NaN;
+    const base = Number.isFinite(lastMs) ? lastMs : mountedAtRef.current;
+    const next = base + hours * 60 * 60 * 1000;
+    return Number.isFinite(next)
+      ? `~${new Date(next).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+      : '?';
+  }, [autoCollectHours, troopsAt]);
 
   return (
     <section className="page">
@@ -769,9 +863,31 @@ export default function Sg2Page() {
                 </button>
               </div>
             </div>
+            <div className="sg2-memory-bar" style={{ marginTop: 12 }}>
+              <label className="field">
+                <span className="field-label">Coleta automática</span>
+                <select
+                  className="select"
+                  value={autoCollectHours}
+                  aria-label="Intervalo da coleta automática de tropas"
+                  onChange={(event) => setAutoCollectHours(normalizeAutoCollect(event.target.value))}
+                >
+                  <option value="0">Desligado</option>
+                  <option value="4">A cada 4 horas</option>
+                  <option value="6">A cada 6 horas</option>
+                  <option value="12">A cada 12 horas</option>
+                  <option value="24">A cada 24 horas</option>
+                </select>
+              </label>
+              <p className="sg2-memory-date muted" style={{ alignSelf: 'flex-end' }}>
+                Próxima coleta automática: <strong>{nextAutoCollectLabel}</strong>
+              </p>
+            </div>
             <p className="hint-note muted">
               A coleta completa percorre todos os membros da tribo com pacing humano — quanto
               maior a tribo, mais demorada. Prefira o resumo (1 requisição) para uma visão rápida.
+              A coleta automática dispara a versão completa quando o intervalo vence e a sessão
+              está ativa.
             </p>
             {collecting !== null && progress !== null && (
               <div className="sg2-progress">

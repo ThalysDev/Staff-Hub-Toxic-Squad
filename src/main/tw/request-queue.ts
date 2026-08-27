@@ -43,8 +43,8 @@ export interface QueueEventHandlers {
  * Marcadores estruturais de formulário — texto solto como "captcha" num post
  * de fórum NÃO pode derrubar a fila. Sessão é checada ANTES de captcha: uma
  * página de login com captcha é, antes de tudo, sessão caída.
- * NOTA: marcadores ainda não confrontados com fixtures reais do BR142 —
- * calibrar na Fase 0.5 antes de ligar os módulos SG. */
+ * Marcadores confrontados contra fixtures reais do BR142 e cobertos por
+ * testes (tests/main/sg6-service.test.ts, sg7-service.test.ts). */
 const SESSION_EXPIRED_MARKERS = ['name="password"', 'id="login"', 'login_button'];
 const CAPTCHA_MARKERS = ['bot_check', 'id="captcha"', 'captcha_img'];
 

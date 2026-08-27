@@ -162,7 +162,7 @@ export class Sg7Service {
         'current_page': form.currentPage,
         send: 'Enviar',
       }).toString();
-      const response = await ses.fetch(`https://${world}.tribalwars.com.br/${form.action}`, {
+      const response = await ses.fetch(`https://${world}.tribalwars.com.br/${form.action.replace(/^\//, '')}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
@@ -201,6 +201,11 @@ export class Sg7Service {
   async deletePosts(threadUrl: string, postIds: number[], confirm: boolean): Promise<{ ok: boolean; detail: string }> {
     if (!confirm) throw new Error('Confirmação dupla necessária — selecione os posts e confirme na tela.');
     if (postIds.length === 0) throw new Error('Nenhum post selecionado.');
+    // Guard de mundo (igual conference/postPlan): URL de outro mundo apagaria
+    // posts de um tópico DIFERENTE no mundo atual — mutação destrutiva.
+    if (!threadUrl.includes(`${this.world()}.tribalwars.com.br`)) {
+      throw new Error(`A URL do tópico deve apontar para ${this.world()}.tribalwars.com.br — a sessão atual é do mundo ${this.world()}.`);
+    }
     this.assertQueueIdle();
     this.queue.beginOperation();
     try {
@@ -279,7 +284,7 @@ export class Sg7Service {
         'current_page': form.currentPage,
         send: 'Enviar',
       }).toString();
-      const response = await ses.fetch(`https://${world}.tribalwars.com.br/${form.action}`, {
+      const response = await ses.fetch(`https://${world}.tribalwars.com.br/${form.action.replace(/^\//, '')}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { AlertTriangle, Info, Map as MapIcon, X } from 'lucide-react';
+import { AlertTriangle, History, Info, Map as MapIcon, Pause, Play, X } from 'lucide-react';
 import {
   diffWorldVersions,
   MAX_WORLD_HISTORY,
@@ -22,6 +22,13 @@ import { useToast } from '../../hooks/useToast';
  * (persistidas vs a coleta IMEDIATAMENTE anterior a ela), e o botão "Mostrar no
  * mapa" carrega o dump atual (villages+tribes) e pinta as coords no
  * WorldMapCanvas via `highlights`.
+ *
+ * P2-25 "Linha de Frente animada": o modo linha do tempo troca o diff A/B por um
+ * slider cronológico (1 = mais antiga, N = mais recente). No passo K o mapa
+ * destaca a UNIÃO CUMULATIVA das changesSincePrevious das versões 1..K (aldeias
+ * que trocaram de dono ATÉ aquele momento), enquanto a lista lateral mostra só
+ * as mudanças da versão corrente. "Reproduzir" avança o slider sozinho a cada
+ * 1,2 s até o fim e para; qualquer pausa/manual/troca de modo limpa o timer.
  */
 
 const NUMBER_FMT = new Intl.NumberFormat('pt-BR');
@@ -30,12 +37,17 @@ const NUMBER_FMT = new Intl.NumberFormat('pt-BR');
 const MAX_DIFF_ROWS = 25;
 /** Limite visual da lista de mudanças de dono (a contagem total sempre aparece). */
 const MAX_CHANGE_ITEMS = 100;
+/** Passo da reprodução da linha do tempo: um avanço de slider a cada 1,2 s. */
+const TIMELINE_TICK_MS = 1200;
 
 /**
  * Marcações neutras para o mapa: o canvas aplica 'Marrom' a qualquer allyId sem
  * entrada — aqui só interessam os destaques brancos das mudanças, não diplomacia.
  */
 const NEUTRAL_MARKINGS: ReadonlyMap<number, TribeMarking> = new Map();
+
+/** Conjunto vazio estável — fallback quando o histórico ainda não carregou. */
+const NO_HIGHLIGHTS: ReadonlySet<string> = new Set();
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Falha de comunicação com o processo principal.';
@@ -95,6 +107,12 @@ export default function WorldEvolutionSection(): JSX.Element {
   const [mapVisible, setMapVisible] = useState(false);
   const [mapLoading, setMapLoading] = useState(false);
   const [mapError, setMapError] = useState('');
+  /** Modo "linha do tempo" (P2-25): slider cumulativo no lugar do diff A/B. */
+  const [timelineMode, setTimelineMode] = useState(false);
+  /** Passo corrente K (1..N) na ordem cronológica — mais antiga → mais recente. */
+  const [timelineStep, setTimelineStep] = useState(1);
+  /** Reprodução automática do slider (interval com cleanup na pausa/fim/unmount). */
+  const [playing, setPlaying] = useState(false);
 
   // Mount: lista o histórico (mais recente primeiro). Defaults de comparação:
   // A = penúltima (índice 1), B = primeira/mais recente (índice 0).
@@ -129,10 +147,50 @@ export default function WorldEvolutionSection(): JSX.Element {
     [versions, bId],
   );
 
+  /**
+   * Ordem cronológica (mais antiga primeiro): `worldHistory.list()` devolve o
+   * histórico mais recente primeiro; o slider da linha do tempo percorre o eixo
+   * do tempo no sentido natural (1 = mais antiga, N = mais recente).
+   */
+  const chronological = useMemo<readonly WorldHistoryVersion[]>(
+    () => (versions === null ? [] : [...versions].reverse()),
+    [versions],
+  );
+
+  /**
+   * Prefixos cumulativos da linha do tempo: `cumulativeByStep[k]` é a UNIÃO das
+   * coordenadas das changesSincePrevious das versões cronológicas 1..k+1 — as
+   * aldeias que já trocaram de dono ATÉ aquele momento. Cada Set é criado uma
+   * única vez por versão do histórico (N ≤ MAX_WORLD_HISTORY = 10), garantindo
+   * referência ESTÁVEL por passo: o WorldMapCanvas re-pinta só os destaques,
+   * sem realocar o Set a cada tick do slider/reprodução.
+   */
+  const cumulativeByStep = useMemo<readonly ReadonlySet<string>[]>(() => {
+    const prefixes: ReadonlySet<string>[] = [];
+    let accumulated: ReadonlySet<string> = new Set();
+    for (const version of chronological) {
+      const next = new Set(accumulated);
+      for (const change of version.changesSincePrevious) next.add(change.coord);
+      accumulated = next;
+      prefixes.push(accumulated);
+    }
+    return prefixes;
+  }, [chronological]);
+
+  /** Passo K sempre dentro de 1..N (o histórico pode encolher entre renders). */
+  const totalSteps = chronological.length;
+  const clampedStep = Math.max(1, Math.min(timelineStep, totalSteps));
+  /** Versão corrente do slider (passo K na ordem cronológica). */
+  const stepVersion = chronological[clampedStep - 1];
+  /** Destaques do passo K: união cumulativa das versões 1..K. */
+  const timelineHighlights = cumulativeByStep[clampedStep - 1] ?? NO_HIGHLIGHTS;
+
   // Dicionário de tags para o bloco de mudanças de dono — fail-soft: sem ele a
   // lista degrada para "tribo N" (o mapa carrega o dicionário de novo ao abrir).
+  // A "versão em foco" depende do modo: B no diff A/B, passo K na linha do tempo.
+  const focusedVersion = timelineMode ? stepVersion : bVersion;
   useEffect(() => {
-    if (bVersion === undefined || bVersion.changesSincePrevious.length === 0 || tribesById !== null) {
+    if (focusedVersion === undefined || focusedVersion.changesSincePrevious.length === 0 || tribesById !== null) {
       return;
     }
     let cancelled = false;
@@ -146,7 +204,7 @@ export default function WorldEvolutionSection(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [bVersion, tribesById]);
+  }, [focusedVersion, tribesById]);
 
   /**
    * Diff A→B, recalculado a cada troca de seletor. `diffWorldVersions` já ordena
@@ -158,13 +216,33 @@ export default function WorldEvolutionSection(): JSX.Element {
     return diffWorldVersions(aVersion, bVersion);
   }, [aVersion, bVersion]);
 
-  /** Mudanças de dono da versão B (vs a coleta imediatamente anterior a ela). */
-  const changes = bVersion?.changesSincePrevious ?? [];
-  /** Destaques do mapa: TODAS as coords mudadas (não só as 100 listadas). */
+  /** Destaques do mapa no modo diff A/B: TODAS as coords mudadas da versão B. */
   const changeHighlights = useMemo<ReadonlySet<string>>(
-    () => new Set((bVersion?.changesSincePrevious ?? []).map((change) => change.coord)),
+    () => new Set(bVersion?.changesSincePrevious.map((change) => change.coord) ?? []),
     [bVersion],
   );
+
+  /**
+   * Fonte única da UI conforme o modo: diff A/B usa a versão B; linha do tempo
+   * usa o passo K (lista = só a versão corrente; mapa = união cumulativa 1..K).
+   */
+  const activeChanges = focusedVersion?.changesSincePrevious ?? [];
+  const activeHighlights = timelineMode ? timelineHighlights : changeHighlights;
+
+  // Reprodução (P2-25): avança o slider a cada 1,2 s até o fim. O cleanup limpa
+  // o interval na pausa manual, na troca de modo e no unmount — nenhum timer órfão.
+  useEffect(() => {
+    if (!playing || totalSteps === 0) return;
+    const timer = window.setInterval(() => {
+      setTimelineStep((step) => Math.min(step + 1, totalSteps));
+    }, TIMELINE_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [playing, totalSteps]);
+
+  // Chegada ao último passo encerra a reprodução (o efeito acima limpa o timer).
+  useEffect(() => {
+    if (playing && timelineStep >= totalSteps) setPlaying(false);
+  }, [playing, timelineStep, totalSteps]);
 
   /** Troca A mantendo B estritamente mais nova (lista vem mais recente primeiro). */
   function selectA(id: string): void {
@@ -190,6 +268,23 @@ export default function WorldEvolutionSection(): JSX.Element {
     }
   }
 
+  /** Alterna diff A/B ↔ linha do tempo; pausa a reprodução e entra na versão mais recente. */
+  function toggleTimelineMode(): void {
+    setPlaying(false);
+    if (!timelineMode) setTimelineStep(Math.max(1, totalSteps));
+    setTimelineMode(!timelineMode);
+  }
+
+  /** ▶/⏸ da linha do tempo: ▶ no último passo reinicia do 1; ⏸ limpa o timer via cleanup. */
+  function togglePlay(): void {
+    if (playing) {
+      setPlaying(false);
+      return;
+    }
+    if (timelineStep >= totalSteps) setTimelineStep(1);
+    setPlaying(true);
+  }
+
   /** Abre o mapa carregando o dump atual (villages+tribes) na primeira abertura; depois alterna. */
   async function toggleMap(): Promise<void> {
     if (mapVisible) {
@@ -210,7 +305,7 @@ export default function WorldEvolutionSection(): JSX.Element {
       setVillages(loadedVillages);
       setTribesById(new Map(loadedTribes.map((tribe) => [tribe.id, tribe])));
       setMapVisible(true);
-      push('ok', `Mapa aberto com ${NUMBER_FMT.format(changeHighlights.size)} mudança(s) em destaque.`);
+      push('ok', `Mapa aberto com ${NUMBER_FMT.format(activeHighlights.size)} mudança(s) em destaque.`);
     } catch (err) {
       const message = errorMessage(err);
       setMapError(message);
@@ -221,6 +316,24 @@ export default function WorldEvolutionSection(): JSX.Element {
   }
 
   const hasComparison = aVersion !== undefined && bVersion !== undefined && aVersion.id !== bVersion.id;
+  /** Modo linha do tempo exige ≥2 versões (mesma régua do diff A/B). */
+  const timelineReady = versions !== null && versions.length >= 2;
+
+  /** Data do passo corrente (label visível + aria-valuetext do slider). */
+  const sliderDate = stepVersion === undefined ? '—' : formatQuando(stepVersion.collectedAt);
+  const sliderValueText =
+    stepVersion === undefined
+      ? 'Nenhuma versão no histórico'
+      : `Versão ${NUMBER_FMT.format(clampedStep)} de ${NUMBER_FMT.format(totalSteps)}, coletada em ${sliderDate}`;
+
+  /** Frase-explicativa do bloco de mudanças — por modo (diff A/B vs linha do tempo). */
+  const changesDescription = timelineMode
+    ? activeChanges.length === 0
+      ? 'Nenhuma aldeia trocou de dono entre esta versão e a coleta imediatamente anterior.'
+      : `${NUMBER_FMT.format(activeChanges.length)} aldeia(s) mudaram de dono nesta versão — no mapa, os destaques brancos acumulam as ${NUMBER_FMT.format(activeHighlights.size)} mudança(s) desde a primeira versão.`
+    : activeChanges.length === 0
+      ? 'Nenhuma aldeia trocou de dono entre a versão B e a coleta imediatamente anterior.'
+      : `${NUMBER_FMT.format(activeChanges.length)} aldeia(s) mudaram de dono desde a coleta imediatamente anterior à versão B — no mapa aparecem como destaques brancos.`;
 
   return (
     <section className="card" aria-labelledby="wevol-title">
@@ -232,12 +345,24 @@ export default function WorldEvolutionSection(): JSX.Element {
             {NUMBER_FMT.format(versions.length)} de {NUMBER_FMT.format(MAX_WORLD_HISTORY)} versões
           </span>
         )}
+        {timelineReady && (
+          <button
+            type="button"
+            className="btn btn-sm"
+            aria-pressed={timelineMode}
+            onClick={toggleTimelineMode}
+          >
+            <History size={16} aria-hidden="true" />
+            Modo linha do tempo
+          </button>
+        )}
       </div>
       <div className="card-body col" style={{ gap: 16 }}>
         <p className="muted">
           Compara duas versões arquivadas do mundo: quem cresceu ou encolheu em aldeias e
           pontos, e quais aldeias trocaram de dono. Cada versão nasce de um
-          "Atualizar dados do mundo" na SG_1.
+          "Atualizar dados do mundo" na SG_1 — ou percorra a linha do tempo para ver
+          as conquistas se acumulando no mapa.
         </p>
 
         {error !== '' && (
@@ -266,11 +391,11 @@ export default function WorldEvolutionSection(): JSX.Element {
           </div>
         )}
 
-        {versions !== null && versions.length >= 2 && !hasComparison && (
+        {timelineReady && !timelineMode && !hasComparison && (
           <p className="muted">Selecione duas versões distintas para comparar.</p>
         )}
 
-        {versions !== null && versions.length >= 2 && hasComparison && (
+        {versions !== null && versions.length >= 2 && !timelineMode && hasComparison && (
           <>
             {/* ===== Seletores de versão ===== */}
             <div className="row wevol-selectors" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
@@ -345,74 +470,129 @@ export default function WorldEvolutionSection(): JSX.Element {
               Ordenado por movimento de aldeias no período (maior |Δ| primeiro) · tribo só
               em A saiu do cenário, só em B é nova.
             </p>
-
-            {/* ===== Mudanças de dono da versão B ===== */}
-            <div className="wevol-changes-panel">
-              <div className="row" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                <h3 className="wevol-panel-title">Mudanças de dono (versão B)</h3>
-                <span className="spacer" />
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => void toggleMap()}
-                  disabled={mapLoading || changes.length === 0}
-                >
-                  {mapLoading ? (
-                    <>
-                      <span className="btn-spinner" aria-hidden="true" /> Carregando mapa…
-                    </>
-                  ) : mapVisible ? (
-                    <>
-                      <X size={16} aria-hidden="true" /> Fechar mapa
-                    </>
-                  ) : (
-                    <>
-                      <MapIcon size={16} aria-hidden="true" /> Mostrar no mapa
-                    </>
-                  )}
-                </button>
-              </div>
-              <p className="muted">
-                {changes.length === 0
-                  ? 'Nenhuma aldeia trocou de dono entre a versão B e a coleta imediatamente anterior.'
-                  : `${NUMBER_FMT.format(changes.length)} aldeia(s) mudaram de dono desde a coleta imediatamente anterior à versão B — no mapa aparecem como destaques brancos.`}
-              </p>
-
-              {mapError !== '' && (
-                <div className="callout callout--danger" role="alert">
-                  <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-                  <div className="callout-body">
-                    <p className="callout-title">Falha ao carregar o mapa do mundo</p>
-                    <p>{mapError}</p>
-                  </div>
-                </div>
-              )}
-
-              {changes.length > 0 && (
-                <ul className="wevol-change-list wevol-changes" role="list">
-                  {changes.slice(0, MAX_CHANGE_ITEMS).map((change) => (
-                    <li key={change.coord} className="wevol-change-item" role="listitem">
-                      <span className="cell-nowrap wevol-change-coord">{change.coord}</span>
-                      <span className="wevol-change-flow">
-                        {ownerLabel(change.fromAllyId, tribesById)}
-                        <span className="wevol-arrow" aria-hidden="true">→</span>
-                        <strong>{ownerLabel(change.toAllyId, tribesById)}</strong>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {changes.length > MAX_CHANGE_ITEMS && (
-                <p className="muted">
-                  +{NUMBER_FMT.format(changes.length - MAX_CHANGE_ITEMS)} mudanças não listadas
-                </p>
-              )}
-
-              {mapVisible && villages !== null && (
-                <WorldMapCanvas villages={villages} markings={NEUTRAL_MARKINGS} highlights={changeHighlights} />
-              )}
-            </div>
           </>
+        )}
+
+        {/* ===== Modo linha do tempo (P2-25) ===== */}
+        {timelineReady && timelineMode && (
+          <div className="tline-panel" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="row tline-header" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <span className="pill pill--muted tline-counter">
+                {NUMBER_FMT.format(clampedStep)} de {NUMBER_FMT.format(totalSteps)} versões ·{' '}
+                {NUMBER_FMT.format(activeHighlights.size)} aldeias mudaram de dono até aqui
+              </span>
+              <span className="spacer" />
+              <button
+                type="button"
+                className="btn"
+                aria-pressed={playing}
+                onClick={togglePlay}
+                disabled={totalSteps < 2}
+              >
+                {playing ? (
+                  <>
+                    <Pause size={16} aria-hidden="true" /> Pausar
+                  </>
+                ) : (
+                  <>
+                    <Play size={16} aria-hidden="true" /> Reproduzir
+                  </>
+                )}
+              </button>
+            </div>
+            <div className="row tline-slider-row" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <span className="muted tline-slider-end">mais antiga</span>
+              <input
+                type="range"
+                className="tline-slider"
+                style={{ flex: '1 1 220px' }}
+                min={1}
+                max={totalSteps}
+                step={1}
+                value={clampedStep}
+                onChange={(event) => {
+                  setPlaying(false); // arrastar o slider pausa a reprodução
+                  setTimelineStep(Number(event.target.value));
+                }}
+                aria-label="Versão do histórico na linha do tempo"
+                aria-valuetext={sliderValueText}
+              />
+              <span className="muted tline-slider-end">mais recente</span>
+            </div>
+            <p className="muted tline-current">
+              Versão corrente: <strong>{sliderDate}</strong> — no mapa, os destaques acumulam
+              todas as aldeias que trocaram de dono da primeira versão até aqui.
+            </p>
+          </div>
+        )}
+
+        {/* ===== Mudanças de dono da versão em foco (B no diff; passo K na linha do tempo) ===== */}
+        {timelineReady && (timelineMode || hasComparison) && (
+          <div className="wevol-changes-panel">
+            <div className="row" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <h3 className="wevol-panel-title">
+                {timelineMode
+                  ? `Mudanças de dono (versão ${NUMBER_FMT.format(clampedStep)} de ${NUMBER_FMT.format(totalSteps)})`
+                  : 'Mudanças de dono (versão B)'}
+              </h3>
+              <span className="spacer" />
+              <button
+                type="button"
+                className="btn"
+                onClick={() => void toggleMap()}
+                disabled={mapLoading || (!mapVisible && activeHighlights.size === 0)}
+              >
+                {mapLoading ? (
+                  <>
+                    <span className="btn-spinner" aria-hidden="true" /> Carregando mapa…
+                  </>
+                ) : mapVisible ? (
+                  <>
+                    <X size={16} aria-hidden="true" /> Fechar mapa
+                  </>
+                ) : (
+                  <>
+                    <MapIcon size={16} aria-hidden="true" /> Mostrar no mapa
+                  </>
+                )}
+              </button>
+            </div>
+            <p className="muted">{changesDescription}</p>
+
+            {mapError !== '' && (
+              <div className="callout callout--danger" role="alert">
+                <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
+                <div className="callout-body">
+                  <p className="callout-title">Falha ao carregar o mapa do mundo</p>
+                  <p>{mapError}</p>
+                </div>
+              </div>
+            )}
+
+            {activeChanges.length > 0 && (
+              <ul className="wevol-change-list wevol-changes" role="list">
+                {activeChanges.slice(0, MAX_CHANGE_ITEMS).map((change) => (
+                  <li key={change.coord} className="wevol-change-item" role="listitem">
+                    <span className="cell-nowrap wevol-change-coord">{change.coord}</span>
+                    <span className="wevol-change-flow">
+                      {ownerLabel(change.fromAllyId, tribesById)}
+                      <span className="wevol-arrow" aria-hidden="true">→</span>
+                      <strong>{ownerLabel(change.toAllyId, tribesById)}</strong>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {activeChanges.length > MAX_CHANGE_ITEMS && (
+              <p className="muted">
+                +{NUMBER_FMT.format(activeChanges.length - MAX_CHANGE_ITEMS)} mudanças não listadas
+              </p>
+            )}
+
+            {mapVisible && villages !== null && (
+              <WorldMapCanvas villages={villages} markings={NEUTRAL_MARKINGS} highlights={activeHighlights} />
+            )}
+          </div>
         )}
       </div>
       <ToastViewport toasts={toasts} onDismiss={dismiss} />

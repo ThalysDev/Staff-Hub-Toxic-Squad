@@ -1,12 +1,22 @@
 # Staff Hub Toxic Squad — Análise Estratégica e Roadmap
 
-> **✅ STATUS 26/08/2026: Sprints 1–4 CONCLUÍDAS** (v0.13.2, commits `2d4485a`→`06a2830` + revisão geral) —
-> todos os itens C1–C9, U1/U3/U5 e P0-1..P0-10 entregues, testados (285 testes) e no GitHub.
-> Pendências conhecidas: fixture do formulário de novo tópico (post do plano usa edição do 1º post,
-> validada por fixture real), QA em jogo das mutações novas com a sessão do dono logada, P1/P2 futuros.
+> **✅ STATUS 26/08/2026 (v0.26): P0 e P1 100% CONCLUÍDOS.**
+> - **P0-1..P0-10**: entregues nas Sprints 1–4 (v0.9→v0.13, commits `2d4485a`→`41aab06` + revisão geral).
+> - **P1-11..P1-22**: TODOS entregues (v0.19–v0.25 — ver coluna Status na tabela P1).
+> - **Correções C1–C9**: entregues (Sprint 1 + auditorias v0.19/v0.20).
+> - **UX**: entregues U1/U3/U5/U12/U14 · parciais U4/U7/U8 · pendentes U2/U6/U9/U10/U11/U13/U15.
+> - **P2-23/24/25: CONCLUÍDOS na v0.26** — coleta auto-agendada (SG_2, intervalos 4/6/12/24h),
+>   parser de espionagem (⚠ teste com relatório SINTÉTICO — validar contra fixture real) e
+>   linha de frente animada (modo "linha do tempo" na Evolução do Mundo, com reprodução).
+> - Suite atual: **710 testes em 50 arquivos, todos verde** (656 na v0.25 + 54 novos na
+>   v0.26: espionagem, coleta automática, linha de frente e testes de mutação SG_6/SG_7
+>   com sessão mockada) · 34 fixtures reais BR142.
+> - Extras entregues fora do roadmap: atualizador automático E2E com canal VPS + rollback
+>   (v0.15–v0.22.1), temas claro/escuro, preferências por módulo, paleta Ctrl+K, journal
+>   premium com export, Resumo Geral do SG_2, perfis no tempo, evolução do mundo.
 
 > Síntese de 3 análises independentes: Produto (25 features), Código (15 achados técnicos), UX (15 propostas)
-> Data: 26/08/2026 · Versão atual: 0.9.1 · 169 testes · 7 módulos funcionais
+> Data: 26/08/2026 · Versão atual: 0.26 · 710 testes · 7 módulos funcionais + Sala de Guerra
 
 ---
 
@@ -52,6 +62,9 @@ Bugs de código que afetam a confiabilidade AGORA:
 
 ### P0 — CRÍTICO (sem isso o app é incompleto para uso real em guerra)
 
+> ✅ **P0-1..P0-10: TODOS CONCLUÍDOS** (Sprints 1–4, v0.9.1→v0.13.2). A moral (item 6)
+> foi além do previsto: fórmula oficial por pontos desde v0.16.
+
 | # | Feature | Módulo | O que faz | Esforço |
 |---|---------|--------|-----------|---------|
 | 1 | **Calculadora de Hora de Envio** | SG_4 | Campo "OP bate às HH:MM" → coluna "enviar às" por origem×alvo; saída vira `nick;alvo;enviar às` | M |
@@ -67,54 +80,67 @@ Bugs de código que afetam a confiabilidade AGORA:
 
 ### P1 — IMPORTANTE (melhora muito a experiência)
 
-| # | Feature | Módulo | Esforço |
-|---|---------|--------|---------|
-| 11 | Biblioteca de templates de MP (placeholders #nick#, #op#, #horarios#) | SG_6 | S |
-| 12 | Diff entre rodadas da conferência (novo/cancelado/inesperado) | SG_5 | S |
-| 13 | Blind por níveis de aldeia (desiredUnits por faixa de distância) | SG_3 | M |
-| 14 | Débito de blind por jogador (acumulado entre coletas) | SG_3 | M |
-| 15 | Tópico de blind salvo + histórico SG_7 | SG_7 | S |
-| 16 | Fakes inteligentes (espalhados, atribuição a quem tem comando sobrando) | SG_4 | M |
-| 17 | Verificação pós-OP (taxa de conquista, nobres desperdiçados) | SG_5 + novo | M |
-| 18 | Dashboard de guerra (diff de dumps = conquistas/perdas) | SG_1/novo | M |
-| 19 | Perfis de inimigos no tempo (crescimento/queda por jogador) | novo | M |
-| 20 | Notificações T-minus (countdown na bandeja do sistema) | app | S |
-| 21 | Overlay da OP no mapa (alvos/fakes/origens + linhas) | SG_4/SG_1 | S |
-| 22 | Export/import de OP em JSON (compartilhar entre a staff) | novo | S |
+> ✅ **P1-11..P1-22: TODOS CONCLUÍDOS** (v0.19–v0.25). Coluna Status = versão em que
+> entrou + onde está no código.
+
+| # | Feature | Módulo | Esforço | Status |
+|---|---------|--------|---------|--------|
+| 11 | Biblioteca de templates de MP (placeholders #nick#, #op#, #horarios#) | SG_6 | S | ✅ v0.24 — `mp-templates-rules.ts` + `TemplateLibrary` |
+| 12 | Diff entre rodadas da conferência (novo/cancelado/inesperado) | SG_5 | S | ✅ v0.19/v0.23 — `sg5-diff.ts` + `Sg5DiffSection` |
+| 13 | Blind por níveis de aldeia (desiredUnits por faixa de distância) | SG_3 | M | ✅ v0.25 — `sg3-engine.ts` `levelScaling` (escala por pontos, clamp 0,5×–2×) |
+| 14 | Débito de blind por jogador (acumulado entre coletas) | SG_3 | M | ✅ v0.25 — `blind-debt.ts` (por linha de pedido: autor do comentário não cruza o IPC) |
+| 15 | Tópico de blind salvo + histórico SG_7 | SG_7 | S | ✅ v0.25 — tópicos salvos com rótulo (cap 10, prefs) |
+| 16 | Fakes inteligentes (espalhados, atribuição a quem tem comando sobrando) | SG_4 | M | ✅ v0.19 — `fakes-intelligent.ts` (proximidade + máx. por origem) |
+| 17 | Verificação pós-OP (taxa de conquista, nobres desperdiçados) | SG_5 + novo | M | ✅ v0.21 — `post-op.ts`/`post-op-live.ts` + `PostOpSection` |
+| 18 | Dashboard de guerra (diff de dumps = conquistas/perdas) | SG_1/novo | M | ✅ v0.25 — `world-history.ts` + `WorldEvolutionSection` (Sala de Guerra) |
+| 19 | Perfis de inimigos no tempo (crescimento/queda por jogador) | novo | M | ✅ v0.25 — `snapshot-history.ts` + `HistoryEvolutionSection` (SG_2) |
+| 20 | Notificações T-minus (countdown na bandeja do sistema) | app | S | ✅ v0.19 — `tminus.ts` (marcas configuráveis desde v0.24) |
+| 21 | Overlay da OP no mapa (alvos/fakes/origens + linhas) | SG_4/SG_1 | S | ✅ v0.21 — `WorldMapCanvas` (setas origem→alvo) |
+| 22 | Export/import de OP em JSON (compartilhar entre a staff) | novo | S | ✅ v0.19 — `op-export.ts` + `OpShareSection` |
 
 ### P2 — NICE-TO-HAVE
 
-| # | Feature | Módulo | Esforço |
-|---|---------|--------|---------|
-| 23 | Agendamento de coletas automáticas | services | S |
-| 24 | Parser de relatórios de espionagem | novo | L |
-| 25 | Linha de frente animada (replay no mapa) | SG_1 | M |
+> ✅ **P2-23/24/25: CONCLUÍDOS na v0.26** (verificados no código em 26/08/2026).
+
+| # | Feature | Módulo | Esforço | Status |
+|---|---------|--------|---------|--------|
+| 23 | Agendamento de coletas automáticas | services | S | ✅ v0.26 — intervalo 4/6/12/24h nas prefs do SG_2 (desligado por padrão); scheduler 100% renderer avalia a cada 5min (sessão logada + fila livre + intervalo vencido desde a última coleta) |
+| 24 | Parser de relatórios de espionagem | novo | L | ✅ v0.26 — `spy-report.ts` fail-closed (alvo/unidades/muralha/populações + sugestão de fulls; seção no SG_4). ⚠ validar contra fixture: teste usa relatório SINTÉTICO fiel ao TW BR |
+| 25 | Linha de frente animada (replay no mapa) | SG_1 | M | ✅ v0.26 — modo "linha do tempo" na Evolução do Mundo (Sala de Guerra): slider cronológico cumulativo + "Reproduzir" (1,2s/passo) sobre o mapa |
 
 ---
 
 ## 🎨 ROADMAP DE UX (15 propostas ordenadas por impacto em guerra)
 
-| # | Problema | Solução | Impacto | Esforço |
-|---|----------|---------|---------|---------|
-| U1 | Navegação destrói o estado da OP | Manter páginas montadas (render todas, esconder com `hidden`) — estado sobrevive à navegação | Alto | M |
-| U2 | Área de transferência é a única ponte entre módulos | "Mesa da OP": painel persistente com artefatos da OP corrente + botão "Enviar para…" em cada resultado | Alto | M |
-| U3 | Nenhum sinal global de operação em andamento | Indicador na TitleBar ("2 operações · coleta 12/57") + toasts que sobrevivem à navegação | Alto | M |
-| U4 | Mutações longas sem progresso parcial | ProgressBar dentro do painel de confirmação + resultados em streaming | Alto | M |
-| U5 | MP confirmada sem pré-visualização | Renderizar a 1ª MP com #alvos# substituído + validar nicks antes de confirmar | Alto | S |
-| U6 | Impossível ver dois módulos ao mesmo tempo | Botão "Abrir em nova janela" usando o deep link `?page=` que já existe | Alto | S |
-| U7 | Tabelas grandes sem busca/filtro | SG_1: filtro por tag + "só marcadas"; SG_2: ordenar por aldeias, busca de nick, drill-down melhor | Alto | S |
-| U8 | Falha no meio da mutação sem recuperação | "12/50 aplicados — parou no item 13" + botão "Repetir selecionados" | Alto | M |
-| U9 | Dashboard não orienta o primeiro uso | Esteira numerada 1→7 com conectores + estado real por módulo + checklist first-run | Alto | M |
-| U10 | Mapa sem navegação direta | Campo "Ir para" (coord ou K) + botão "Enquadrar destaques" | Médio | S |
-| U11 | Heatmap com escala relativa mentirosa | Escala absoluta em faixas de 1h + moral visível (não só title) + legenda | Médio | S |
-| U12 | Zero atalhos de teclado; Ctrl+K morto | Ctrl+K abre paleta de navegação; Alt+1..9 para módulos | Médio | M |
-| U13 | Erros genéricos sem próxima ação | Contrato de erro {título, causa, próxima ação} + toast de erro persistente | Médio | S |
-| U14 | Duas gerações de UI convivendo | Migrar SG_3/5/6/7 para PageHeader + page-section (padrão de SG_1/2/4) | Médio | S |
-| U15 | Largura fixa desperdiça monitores | Conteúdo até ~1600px + "modo guerra" (densidade compacta) | Médio | S |
+> Status real em 26/08/2026 (v0.26): ✅ entregues **U1, U3, U5, U12, U14** · ◐ parciais
+> **U4, U7, U8** · ❌ pendentes **U2, U6, U9, U10, U11, U13, U15**.
+
+| # | Problema | Solução | Impacto | Esforço | Status |
+|---|----------|---------|---------|---------|--------|
+| U1 | Navegação destrói o estado da OP | Manter páginas montadas (render todas, esconder com `hidden`) — estado sobrevive à navegação | Alto | M | ✅ Sprint 1 |
+| U2 | Área de transferência é a única ponte entre módulos | "Mesa da OP": painel persistente com artefatos da OP corrente + botão "Enviar para…" em cada resultado | Alto | M | ❌ Pendente — sem "Mesa da OP"; mitigado parcialmente pelo pacote de comunicação (Sprint 4) e pelo export/import de OP (v0.19) |
+| U3 | Nenhum sinal global de operação em andamento | Indicador na TitleBar ("2 operações · coleta 12/57") + toasts que sobrevivem à navegação | Alto | M | ✅ Sprint 3 (`useQueueActivity`) |
+| U4 | Mutações longas sem progresso parcial | ProgressBar dentro do painel de confirmação + resultados em streaming | Alto | M | ◐ Parcial — progresso N/M e relatório final por item nas coletas/mutações; sem streaming dentro do painel de confirmação |
+| U5 | MP confirmada sem pré-visualização | Renderizar a 1ª MP com #alvos# substituído + validar nicks antes de confirmar | Alto | S | ✅ Sprint 2 (`mp-preview.ts`) |
+| U6 | Impossível ver dois módulos ao mesmo tempo | Botão "Abrir em nova janela" usando o deep link `?page=` que já existe | Alto | S | ❌ Pendente — não há "abrir em nova janela" |
+| U7 | Tabelas grandes sem busca/filtro | SG_1: filtro por tag + "só marcadas"; SG_2: ordenar por aldeias, busca de nick, drill-down melhor | Alto | S | ◐ Parcial — SG_2 tem "Ordenar por" e drill-down; SG_1 sem filtro por tag/"só marcadas" |
+| U8 | Falha no meio da mutação sem recuperação | "12/50 aplicados — parou no item 13" + botão "Repetir selecionados" | Alto | M | ◐ Parcial — falhas por item registradas (`failures[]`, journal, MP pulada com aviso); sem botão "Repetir selecionados" |
+| U9 | Dashboard não orienta o primeiro uso | Esteira numerada 1→7 com conectores + estado real por módulo + checklist first-run | Alto | M | ❌ Pendente — Dashboard tem "Scorecard da staff" e "Frente de operações", sem esteira/checklist first-run |
+| U10 | Mapa sem navegação direta | Campo "Ir para" (coord ou K) + botão "Enquadrar destaques" | Médio | S | ❌ Pendente |
+| U11 | Heatmap com escala relativa mentirosa | Escala absoluta em faixas de 1h + moral visível (não só title) + legenda | Médio | S | ❌ Pendente |
+| U12 | Zero atalhos de teclado; Ctrl+K morto | Ctrl+K abre paleta de navegação; Alt+1..9 para módulos | Médio | M | ✅ v0.19+v0.23 — Ctrl+K abre `CommandPalette`; Alt+1..7 SG, Alt+8 Guerra, Alt+9 Início (`useKeyboardShortcuts`) |
+| U13 | Erros genéricos sem próxima ação | Contrato de erro {título, causa, próxima ação} + toast de erro persistente | Médio | S | ❌ Pendente |
+| U14 | Duas gerações de UI convivendo | Migrar SG_3/5/6/7 para PageHeader + page-section (padrão de SG_1/2/4) | Médio | S | ✅ SG_3/5/6/7 usam `PageHeader` |
+| U15 | Largura fixa desperdiça monitores | Conteúdo até ~1600px + "modo guerra" (densidade compacta) | Médio | S | ❌ Pendente |
 
 ---
 
 ## ⚡ ROADMAP DE CÓDIGO (15 achados técnicos)
+
+> Status: **C1–C9 CONCLUÍDOS** (Sprint 1 + auditorias v0.19/v0.20). **C11** endereçado na
+> v0.26: mutações do SG_6/SG_7 ganharam testes com sessão mockada (`tests/main/electron-mock.ts`
+> + `sg6-service.test.ts`/`sg7-service.test.ts` contra fixtures reais do BR142). C10 e C12–C15
+> permanecem como achados abertos (sem verificação de fix no código).
 
 | # | Severidade | Problema | Fix | Esforço |
 |---|-----------|----------|-----|---------|
@@ -163,7 +189,11 @@ Bugs de código que afetam a confiabilidade AGORA:
 16. **C4+C9** — Single-flight global + confirmação nativa no main
 
 ### Sprint 5+ — P1 (melhorias incrementais)
-Resto do P1 e P2 conforme demanda.
+> ✅ Executado: Sprints 1–4 rodaram conforme planejado (v0.9→v0.13) e TODO o P1 foi
+> entregue nas ondas v0.19–v0.25 (fakes inteligentes, diff, pós-OP, overlay e export na
+> v0.19–v0.21; templates, T-minus configurável e scorecard na v0.24; blind por nível,
+> débito, tópicos salvos, perfis no tempo e evolução do mundo na v0.25).
+> Próximo passo real: P2-23/24/25 e os UX pendentes (U2, U6, U9, U10, U11, U13, U15).
 
 ---
 

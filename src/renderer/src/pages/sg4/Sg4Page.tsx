@@ -31,6 +31,7 @@ import { useToast } from '../../hooks/useToast';
 import { MODULES } from '../../modules';
 import FakesIntelligentSection from './FakesIntelligentSection';
 import MoraleCurve from './MoraleCurve';
+import SpyReportSection from './SpyReportSection';
 
 const HOUR_LABELS = [
   '1 Hora',
@@ -1142,6 +1143,11 @@ export default function Sg4Page() {
           originsText={originsText}
           onApply={applyIntelligentFakes}
         />
+
+        {/* Análise de espionagem — subseção da Seção A, logo após o bloco
+         *  "Obter Alvos e Fakes". O título "Análise de Espionagem" vem do
+         *  próprio componente (evita heading duplicado). */}
+        <SpyReportSection onUseAsTarget={setCentralCoordText} />
       </section>
 
       {/* ===== Seção B — Distribuição de Alvos de OP ===== */}
