@@ -20,8 +20,9 @@ function patchComChaves(quantidade: number): Record<string, PrefValue> {
 }
 
 describe('isPreferenceModule', () => {
-  it('aceita exatamente os 11 módulos do contrato', () => {
-    expect(PREFERENCE_MODULES).toHaveLength(11);
+  it('aceita exatamente os 12 módulos do contrato (inclui captures desde a v0.24)', () => {
+    expect(PREFERENCE_MODULES).toHaveLength(12);
+    expect(PREFERENCE_MODULES).toContain('captures');
     for (const modulo of PREFERENCE_MODULES) {
       expect(isPreferenceModule(modulo)).toBe(true);
     }

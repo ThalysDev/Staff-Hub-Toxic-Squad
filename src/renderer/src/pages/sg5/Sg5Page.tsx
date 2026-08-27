@@ -4,6 +4,12 @@ import type { Sg5TotalsResult, Sg5VerifyResult } from '@shared/ipc-types';
 import { parseCoordList } from '@shared/coords';
 import { formatHms } from '@shared/sg4-timing';
 import { buildArrivalTimeline, formatCountdown, ganttLayout } from '@shared/sg5-arrivals';
+import {
+  EMPTY_SG5_VIEW_FILTER,
+  distinctCommandTypes,
+  filterSg5Result,
+  type Sg5ViewFilter,
+} from '@shared/sg5-view-filter';
 import { useToast } from '../../hooks/useToast';
 import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
@@ -40,6 +46,13 @@ function parseEntries(text: string): { playerName: string; coords: string[] }[] 
   return entries;
 }
 
+/** Rótulo pt-BR do tipo de comando no select de filtro (fallback = tipo cru do parser). */
+function typeLabel(type: string): string {
+  if (type === 'attack') return 'Ataque';
+  if (type === 'support') return 'Suporte';
+  return type;
+}
+
 export default function Sg5Page() {
   const { toasts, push, dismiss } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg5');
@@ -47,6 +60,8 @@ export default function Sg5Page() {
   const [docTitle, setDocTitle] = useState(DEFAULT_DOC_TITLE);
   const [coordsText, setCoordsText] = useState('');
   const [verifyResult, setVerifyResult] = useState<Sg5VerifyResult | null>(null);
+  // Filtro de VISUALIZAÇÃO (estado interno, volátil): não afeta coleta nem diff.
+  const [viewFilter, setViewFilter] = useState<Sg5ViewFilter>(EMPTY_SG5_VIEW_FILTER);
   const [totalsResult, setTotalsResult] = useState<Sg5TotalsResult | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'verify' | 'totals' | null>(null);
@@ -78,13 +93,47 @@ export default function Sg5Page() {
     return unsubscribe;
   }, []);
 
-  // ---- Gantt de chegadas (P0-3): timeline absoluta + countdown ao vivo ----
-  const timeline = useMemo(() => {
+  // ---- Filtros de visualização (SG_5): TODAS as vistas (documento, Gantt e
+  // contagem) derivam deste `filtered`; o diff continua com o resultado COMPLETO
+  // (snapshot histórico — ver comentário no Sg5DiffSection abaixo). ----
+  const filtered = useMemo(() => {
     if (verifyResult === null) return null;
+    // new Date() capturado AQUI: recomputa o status chegados/pendentes a cada
+    // mudança de filtro/resultado (relógio vivo fica por conta do nowTick do Gantt).
+    return filterSg5Result(verifyResult, viewFilter, new Date());
+  }, [verifyResult, viewFilter]);
+
+  /** Tipos distintos da verificação atual — alimenta o select de tipo. */
+  const typeOptions = useMemo(
+    () => (verifyResult === null ? [] : distinctCommandTypes(verifyResult)),
+    [verifyResult],
+  );
+
+  /** Contagem discreta pós-filtro: "X comandos em Y aldeias". */
+  const filteredCounts = useMemo(() => {
+    if (filtered === null) return { commands: 0, villages: 0 };
+    return {
+      commands: filtered.villages.reduce((sum, village) => sum + village.commands.length, 0),
+      villages: filtered.villages.length,
+    };
+  }, [filtered]);
+
+  const hasActiveFilter =
+    viewFilter.query.trim() !== '' ||
+    viewFilter.types.length > 0 ||
+    viewFilter.noble !== 'todos' ||
+    viewFilter.status !== 'todos';
+
+  // Valor do select de tipo: o motor aceita array, a UI é single-select.
+  const selectedType = viewFilter.types.length === 1 ? (viewFilter.types[0] ?? '') : '';
+
+  // ---- Gantt de chegadas (P0-3): timeline absoluta + countdown ao vivo (do FILTRADO) ----
+  const timeline = useMemo(() => {
+    if (filtered === null) return null;
     return buildArrivalTimeline(
-      verifyResult.villages.map((village) => ({ coord: village.coord, commands: village.commands, loadedAt: village.loadedAt })),
+      filtered.villages.map((village) => ({ coord: village.coord, commands: village.commands, loadedAt: village.loadedAt })),
     );
-  }, [verifyResult]);
+  }, [filtered]);
 
   /** Régua calculada UMA vez por verificação (não pula a cada segundo). */
   const ganttWindow = useMemo(() => {
@@ -227,12 +276,92 @@ export default function Sg5Page() {
         </div>
       </section>
 
-      {verifyResult !== null && (
+      {/* Barra de filtros: só existe com verificação presente; filtro vazio = tudo. */}
+      {filtered !== null && (
+        <section className="page-section" aria-labelledby="sg5-filter-title">
+          <h2 className="section-title" id="sg5-filter-title">Filtros de Visualização</h2>
+          <div className="card">
+            <div className="card-body">
+              <div className="row" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+                <label className="field" style={{ flex: '1 1 240px' }}>
+                  <span className="field-label">Buscar (jogador, aldeia ou coordenada)</span>
+                  <input
+                    className="input"
+                    value={viewFilter.query}
+                    placeholder="nick, nome da aldeia ou x|y"
+                    aria-label="Busca da visualização"
+                    onChange={(event) => setViewFilter((f) => ({ ...f, query: event.target.value }))}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Tipo</span>
+                  <select
+                    className="select"
+                    value={selectedType}
+                    aria-label="Filtro por tipo de comando"
+                    onChange={(event) =>
+                      setViewFilter((f) => ({ ...f, types: event.target.value === '' ? [] : [event.target.value] }))
+                    }
+                  >
+                    <option value="">Todos</option>
+                    {typeOptions.map((type) => (
+                      <option key={type} value={type}>{typeLabel(type)}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="field-label">Nobre</span>
+                  <select
+                    className="select"
+                    value={viewFilter.noble}
+                    aria-label="Filtro por nobre"
+                    onChange={(event) => setViewFilter((f) => ({ ...f, noble: event.target.value as Sg5ViewFilter['noble'] }))}
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="com">Com nobre</option>
+                    <option value="sem">Sem nobre</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="field-label">Status</span>
+                  <select
+                    className="select"
+                    value={viewFilter.status}
+                    aria-label="Filtro por status de chegada"
+                    onChange={(event) => setViewFilter((f) => ({ ...f, status: event.target.value as Sg5ViewFilter['status'] }))}
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="chegados">Chegados</option>
+                    <option value="pendentes">Pendentes</option>
+                  </select>
+                </label>
+                {hasActiveFilter && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setViewFilter({ ...EMPTY_SG5_VIEW_FILTER })}
+                  >
+                    Limpar filtros
+                  </button>
+                )}
+                <span className="muted cell-nowrap" style={{ alignSelf: 'flex-end', paddingBottom: 6 }}>
+                  {filteredCounts.commands} comandos em {filteredCounts.villages} aldeia(s)
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {filtered !== null && (
         <section className="page-section" aria-labelledby="sg5-doc-heading">
           <h2 className="section-title" id="sg5-doc-heading">Documento de Conferência</h2>
           <div className="card sg5-printable">
             <h3 className="sg5-doc-title">{docTitle}</h3>
-            {verifyResult.villages.map((village) => (
+            {filtered.villages.length === 0 && (
+              <p className="muted">Nenhum comando corresponde aos filtros atuais.</p>
+            )}
+            {filtered.villages.map((village) => (
               <div key={village.coord} className="sg5-village">
                 <h4 className="sg5-village-title">{village.coord} — {village.commands.length} comando(s)</h4>
                 {village.commands.length === 0 ? (
@@ -333,8 +462,9 @@ export default function Sg5Page() {
         </section>
       )}
 
-      {/* Comparação com a conferência anterior: recebe o MESMO resultado que
-          alimenta o Gantt/documento (null enquanto não há verificação). */}
+      {/* Comparação com a conferência anterior: recebe o resultado COMPLETO,
+          SEM o filtro de visualização (é snapshot histórico — filtrá-lo
+          corromperia a comparação com a última conferência salva). */}
       <Sg5DiffSection current={verifyResult} />
 
       <section className="page-section" aria-labelledby="sg5-totals-title">
@@ -370,6 +500,7 @@ export default function Sg5Page() {
               )}
             </div>
             {totalsResult !== null && (
+              // Totalizador NÃO recebe filtro: totalsResult vem de fonte própria (IPC sg5.totals por coordenadas), não do verify local.
               <div className="table-wrap">
                 <table className="table">
                   <thead>

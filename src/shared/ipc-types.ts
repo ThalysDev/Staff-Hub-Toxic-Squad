@@ -15,6 +15,7 @@ import type { Sg2FilterResult, Sg2Filters, TroopSnapshot } from './sg2-engine';
 import type { BlindCheckInput, BlindVillageResult } from './sg3-engine';
 import type { IncomingCommandRow, PlayerCommandTotal } from './parsers/village-parsers';
 import type { GroupEntry, GroupSaveInput } from './groups-rules';
+import type { MpTemplateEntry, MpTemplateSaveInput } from './mp-templates-rules';
 
 export type { GroupEntry, GroupSaveInput };
 
@@ -246,10 +247,21 @@ export interface StaffHubApi {
     getVersion(): Promise<string>;
   };
   tminus: {
-    /** Agenda alertas T-minus a partir da agenda "nick;alvo;HH:MM:SS". Retorna nº de alertas. */
-    schedule(scheduleText: string): Promise<{ alerts: number; detail: string }>;
+    /** Agenda alertas T-minus a partir da agenda "nick;alvo;HH:MM:SS". Retorna nº de alertas.
+     *  marksMinutes: minutos-antes opcionais (default [15,5,1]); inválidos → erro PT-BR. */
+    schedule(scheduleText: string, marksMinutes?: number[]): Promise<{ alerts: number; detail: string }>;
     /** Cancela todos os alertas agendados. */
     cancel(): Promise<void>;
+  };
+  templates: {
+    /** Templates de MP salvos, mais recente primeiro. */
+    list(): Promise<MpTemplateEntry[]>;
+    /** Cria (sem id) ou atualiza (com id) um template. */
+    save(input: MpTemplateSaveInput): Promise<MpTemplateEntry>;
+    /** Remove um template (o default volta a nenhum). */
+    remove(id: string): Promise<void>;
+    /** Marca um template como default (desmarca os demais). */
+    setDefault(id: string): Promise<MpTemplateEntry | null>;
   };
   queue: {
     /** Cancela a operação de coleta em andamento na RequestQueue. */
@@ -369,7 +381,8 @@ export interface StaffHubApi {
     get(module: string): Promise<Record<string, unknown>>;
     /** Mescla patch nas preferências do módulo (merge raso por chave) e devolve o estado final. */
     save(module: string, patch: Record<string, unknown>): Promise<Record<string, unknown>>;
-    /** Apaga as preferências do módulo (volta ao default vazio). */
+    /** Apaga as preferências do módulo (volta ao default vazio), PRESERVANDO
+     *  as chaves presets:* — presets nomeados são dado do usuário, não padrão. */
     reset(module: string): Promise<void>;
   };
   opShare: {

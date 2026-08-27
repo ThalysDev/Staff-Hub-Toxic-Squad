@@ -6,6 +6,7 @@ import { previewMps, validateNicks, type MpPreviewEntry, type NickValidation } f
 import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
 import PageHeader from '../../components/PageHeader';
+import TemplateLibrary from '../../components/TemplateLibrary';
 import ToastViewport from '../../components/Toast';
 import { MODULES } from '../../modules';
 
@@ -53,6 +54,38 @@ export default function Sg6Page() {
     if (!prefsHydrated.current) return;
     savePrefs({ reserveCoords, mpSubject, mpBody, mpEntriesText });
   }, [reserveCoords, mpSubject, mpBody, mpEntriesText, savePrefs]);
+
+  // Template padrão na 1ª visita: se as prefs hidratadas NÃO trouxeram
+  // assunto/corpo (v0.23 já persistia os campos), parte do template marcado
+  // como padrão — aplicado UMA única vez (aplicadoDefaultRef). Preferência
+  // salva do usuário sempre vence: campos com conteúdo nunca são sobrescritos.
+  const aplicadoDefaultRef = useRef(false);
+
+  useEffect(() => {
+    if (prefs === null || aplicadoDefaultRef.current) return;
+    if (prefs.mpSubject !== '' || prefs.mpBody !== '') {
+      aplicadoDefaultRef.current = true;
+      return;
+    }
+    let cancelled = false;
+    void window.staffhub.templates
+      .list()
+      .then((templates) => {
+        if (cancelled || aplicadoDefaultRef.current) return;
+        aplicadoDefaultRef.current = true;
+        const defaultTemplate = templates.find((template) => template.isDefault);
+        if (defaultTemplate === undefined) return;
+        setMpSubject(defaultTemplate.subject ?? '');
+        setMpBody(defaultTemplate.body);
+      })
+      .catch(() => {
+        // Fail-soft (IPC fora/erro): campos seguem como estão e não repete.
+        aplicadoDefaultRef.current = true;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [prefs]);
 
   // U5: validação dos nicks contra o dump do mundo (players), para o painel de
   // confirmação. Sem dump disponível, a validação fica best-effort (aviso).
@@ -268,6 +301,15 @@ export default function Sg6Page() {
 
       <section className="page-section" aria-labelledby="sg6-mps-title">
         <h2 className="section-title" id="sg6-mps-title">MPs Personalizadas em Cadeia</h2>
+        <TemplateLibrary
+          variant="sg6"
+          currentSubject={mpSubject}
+          currentBody={mpBody}
+          onApply={(subject, body) => {
+            setMpSubject(subject);
+            setMpBody(body);
+          }}
+        />
         <div className="card">
           <div className="card-body">
             <label className="field">

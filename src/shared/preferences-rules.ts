@@ -15,7 +15,7 @@
 // a sessão do jogo vive no cookie jar da partição persist:tw, nunca neste arquivo.
 
 /** Módulos que podem ter preferências persistidas. */
-export const PREFERENCE_MODULES = ['sg1','sg2','sg3','sg4','sg5','sg6','sg7','guerra','journal','dashboard','geral'] as const;
+export const PREFERENCE_MODULES = ['sg1','sg2','sg3','sg4','sg5','sg6','sg7','guerra','journal','dashboard','captures','geral'] as const;
 
 /** Um dos módulos da lista acima (isPreferenceModule estreita string para cá). */
 export type PreferenceModule = (typeof PREFERENCE_MODULES)[number];

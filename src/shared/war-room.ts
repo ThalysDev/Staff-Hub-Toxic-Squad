@@ -102,6 +102,16 @@ export interface ScorecardRow {
   missed: number;
 }
 
+/** Opções do scorecard (todas opcionais — default preserva o comportamento histórico). */
+export interface ScorecardOptions {
+  /** Máximo de linhas devolvidas (default: todas). */
+  topN?: number;
+  /** Métrica de ordenação (default: 'faltas'). */
+  metric?: 'faltas' | 'envios' | 'percentual';
+  /** Considerar apenas OPs criadas a partir desta data ISO (inclusive). */
+  since?: string;
+}
+
 /**
  * Scorecard agregado de todas as OPs, do mais antigo ao mais recente. Os
  * números (esperado/enviado) vêm SEMPRE do snapshot conference.perPlayer
@@ -109,9 +119,10 @@ export interface ScorecardRow {
  * (quem aparece citado nas linhas "nick;coords"). OP sem conference conta
  * apenas participação. Jogadores que aparecem só no perPlayer (sem linha na
  * distribution) entram no scorecard também: nunca descartar número arquivado.
- * Ordenação: missed decrescente, empate pelo nome em pt-BR.
+ * Ordenação: pela métrica (faltas/envios desc; percentual = enviado/esperado ASC),
+ * empate pelo nome em pt-BR. topN corta DEPOIS de ordenar.
  */
-export function buildScorecard(ops: OpArchiveEntry[]): ScorecardRow[] {
+export function buildScorecard(ops: OpArchiveEntry[], options?: ScorecardOptions): ScorecardRow[] {
   const aggregate = new Map<string, { participated: number; expected: number; sent: number }>();
   const touch = (playerName: string): { participated: number; expected: number; sent: number } => {
     const current = aggregate.get(playerName) ?? { participated: 0, expected: 0, sent: 0 };
@@ -122,6 +133,7 @@ export function buildScorecard(ops: OpArchiveEntry[]): ScorecardRow[] {
   // Ordem cronológica estável (mais antiga primeiro; empate mantém a ordem original).
   const ordered = ops
     .map((op, index) => ({ op, index }))
+    .filter(({ op }) => options?.since === undefined || op.createdAt >= options.since)
     .sort((a, b) => a.op.createdAt.localeCompare(b.op.createdAt) || a.index - b.index);
 
   for (const { op } of ordered) {
@@ -143,6 +155,15 @@ export function buildScorecard(ops: OpArchiveEntry[]): ScorecardRow[] {
     sent: row.sent,
     missed: row.expected - row.sent,
   }));
-  scorecard.sort((a, b) => b.missed - a.missed || a.playerName.localeCompare(b.playerName, 'pt-BR'));
-  return scorecard;
+  const metric = options?.metric ?? 'faltas';
+  // Ranking de problemas: o PIOR vem primeiro. faltas/envios = desc (quem
+  // faltou/enviou MAIS); percentual = ASC (menor % cumprido = pior primeiro).
+  const metricValue = (row: ScorecardRow): number =>
+    metric === 'envios' ? row.sent : metric === 'percentual' ? (row.expected > 0 ? row.sent / row.expected : 0) : row.missed;
+  const dir = metric === 'percentual' ? -1 : 1;
+  scorecard.sort(
+    (a, b) => dir * (metricValue(b) - metricValue(a)) || a.playerName.localeCompare(b.playerName, 'pt-BR'),
+  );
+  const topN = options?.topN;
+  return topN !== undefined && topN >= 0 ? scorecard.slice(0, topN) : scorecard;
 }

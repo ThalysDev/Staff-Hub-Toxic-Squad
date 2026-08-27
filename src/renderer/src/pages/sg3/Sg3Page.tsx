@@ -4,7 +4,7 @@ import type { BlindVillageResult } from '@shared/ipc-types';
 import type { SupportersResult } from '@shared/types';
 import { blindBbcodeTable } from '@shared/sg3-engine';
 import { normalizeCoordText, coordCountLabel, type NormalizedCoords } from '@shared/coord-input';
-import { rankVillagesByThreat, threatSummary, type VillageThreat, type VillageThreatInput } from '@shared/incoming-risk';
+import { DEFAULT_THREAT_THRESHOLDS, rankVillagesByThreat, threatSummary, type VillageThreat, type VillageThreatInput } from '@shared/incoming-risk';
 import { TW_UNIT_ICONS } from '../../assets';
 import { UNITS, defensivePopulation, type UnitCounts, type UnitId } from '@shared/units';
 import type { TroopSnapshot } from '@shared/sg2-engine';
@@ -32,6 +32,10 @@ const SG3_DEFAULTS = {
   minSizeText: '',
   coordsText: '',
   supportersCoordsText: '',
+  // Triagem de ataques recebidos: thresholds como TEXTO (o campo é livre na
+  // digitação; a validação inteiro ≥0 só roda ao usar a varredura).
+  threatMinResist: String(DEFAULT_THREAT_THRESHOLDS.minResistPop),
+  threatNobleDanger: String(DEFAULT_THREAT_THRESHOLDS.nobleDangerPop),
 };
 
 /** Trecho incompleto no fim do campo (ex.: "123|") — presente enquanto o usuário digita. */
@@ -56,6 +60,16 @@ function villagePopulation(units: UnitCounts, popsByUnit: Record<string, number>
     total += (count ?? 0) * pop;
   }
   return total;
+}
+
+/**
+ * Threshold da triagem digitado como texto: aceita separador de milhar "."
+ * (mesma convenção do tamanho mínimo) e devolve o inteiro ≥0, ou null quando
+ * o valor não é um inteiro ≥0 (vazio incluso). A validação só dispara ao usar.
+ */
+function parseThresholdText(text: string): number | null {
+  const value = Number(text.trim() === '' ? Number.NaN : text.replace(/\./g, ''));
+  return Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 export default function Sg3Page() {
@@ -97,6 +111,9 @@ export default function Sg3Page() {
   const [scanBusy, setScanBusy] = useState(false);
   const [scanError, setScanError] = useState('');
   const [threats, setThreats] = useState<VillageThreat[] | null>(null);
+  // Thresholds da triagem, editáveis no painel (texto; derivados no uso).
+  const [threatMinResistText, setThreatMinResistText] = useState(SG3_DEFAULTS.threatMinResist);
+  const [threatNobleDangerText, setThreatNobleDangerText] = useState(SG3_DEFAULTS.threatNobleDanger);
 const [progress, setProgress] = useState<{ label: string; done: number; total: number } | null>(null);
 
   // Preferências do módulo: os formulários sobrevivem a F5/reinício (resultados,
@@ -126,14 +143,25 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
       setSupportersCoordsText(prefs.supportersCoordsText);
       setSupportersCoordsMeta(normalizeCoordText(prefs.supportersCoordsText));
     }
+    if (typeof prefs.threatMinResist === 'string') setThreatMinResistText(prefs.threatMinResist);
+    if (typeof prefs.threatNobleDanger === 'string') setThreatNobleDangerText(prefs.threatNobleDanger);
   }, [prefs]);
 
   // Persistência com guard: só grava DEPOIS da hidratação — nunca sobrescreve o
   // storage com os defaults do primeiro render. savePrefs é debounced.
   useEffect(() => {
     if (!prefsHydrated.current) return;
-    savePrefs({ desired, countMode, sizeMetric, minSizeText, coordsText, supportersCoordsText });
-  }, [desired, countMode, sizeMetric, minSizeText, coordsText, supportersCoordsText, savePrefs]);
+    savePrefs({
+      desired,
+      countMode,
+      sizeMetric,
+      minSizeText,
+      coordsText,
+      supportersCoordsText,
+      threatMinResist: threatMinResistText,
+      threatNobleDanger: threatNobleDangerText,
+    });
+  }, [desired, countMode, sizeMetric, minSizeText, coordsText, supportersCoordsText, threatMinResistText, threatNobleDangerText, savePrefs]);
 
   // Caches de dados auxiliares da consulta de blindagem — cada fonte carrega UMA vez.
   const unitPopsRef = useRef<Record<string, number>>({});
@@ -297,6 +325,18 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
 
   /** P0-5: varre as aldeias próprias (info_village) e cruza com a defesa do SG_3. */
   async function runScanIncoming(): Promise<void> {
+    // Thresholds derivados do painel: validação inteiro ≥0 só ao usar — erro
+    // inline aqui mantém a última triagem na tela enquanto o campo estiver inválido.
+    const minResistPop = parseThresholdText(threatMinResistText);
+    if (minResistPop === null) {
+      setScanError('População mínima resistente deve ser um inteiro maior ou igual a 0.');
+      return;
+    }
+    const nobleDangerPop = parseThresholdText(threatNobleDangerText);
+    if (nobleDangerPop === null) {
+      setScanError('Perigo de nobre (população) deve ser um inteiro maior ou igual a 0.');
+      return;
+    }
     setScanBusy(true);
     setScanError('');
     setThreats(null);
@@ -320,7 +360,7 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
         const defensePop = popByCoord.get(village.coord);
         return { coord: village.coord, commands: village.commands, ...(defensePop !== undefined ? { defensePop } : {}) };
       });
-      const ranked = rankVillagesByThreat(inputs);
+      const ranked = rankVillagesByThreat(inputs, { minResistPop, nobleDangerPop });
       setThreats(ranked);
       push('ok', threatSummary(ranked));
     } catch (err) {
@@ -405,6 +445,8 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
             setCoordsMeta(normalizeCoordText(SG3_DEFAULTS.coordsText));
             setSupportersCoordsText(SG3_DEFAULTS.supportersCoordsText);
             setSupportersCoordsMeta(normalizeCoordText(SG3_DEFAULTS.supportersCoordsText));
+            setThreatMinResistText(SG3_DEFAULTS.threatMinResist);
+            setThreatNobleDangerText(SG3_DEFAULTS.threatNobleDanger);
             void resetPrefs();
           }}
         >
@@ -673,6 +715,38 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
               defesa: <strong>esta aldeia vai cair</strong> quando chega nobre/ataque grande e a defesa presente está
               abaixo do patamar. Sem coleta de defesa, a aldeia fica "sem dados" (nunca chutado).
             </p>
+            <div className="sg2-units-grid">
+              <label className="field">
+                <span className="field-label">População mínima resistente</span>
+                <input
+                  className="input input--num"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder={String(DEFAULT_THREAT_THRESHOLDS.minResistPop)}
+                  value={threatMinResistText}
+                  aria-describedby="sg3-threat-min-hint"
+                  onChange={(event) => setThreatMinResistText(event.target.value)}
+                />
+                <p className="field-hint" id="sg3-threat-min-hint">
+                  Abaixo disso a aldeia fica "pressionada" — ou "vai cair" com ataque grande chegando.
+                </p>
+              </label>
+              <label className="field">
+                <span className="field-label">Perigo de nobre (população)</span>
+                <input
+                  className="input input--num"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder={String(DEFAULT_THREAT_THRESHOLDS.nobleDangerPop)}
+                  value={threatNobleDangerText}
+                  aria-describedby="sg3-threat-noble-hint"
+                  onChange={(event) => setThreatNobleDangerText(event.target.value)}
+                />
+                <p className="field-hint" id="sg3-threat-noble-hint">
+                  Nobre chegando com defesa abaixo disso é "vai cair", mesmo sem ataque grande.
+                </p>
+              </label>
+            </div>
             <div className="row">
               <button type="button" className="btn" disabled={scanBusy} onClick={() => void runScanIncoming()}>
                 <Radar size={16} aria-hidden="true" />

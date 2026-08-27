@@ -24,9 +24,10 @@ import { registerOpIpc } from './ipc-op';
 import { GroupsService } from './services/groups-service';
 import { registerGroupsIpc } from './ipc-groups';
 import { registerPreferencesIpc } from './ipc-preferences';
+import { registerTemplatesIpc } from './ipc-templates';
 import { UpdaterService } from './updater-service';
 import { registerSg5Ipc } from './ipc-sg5';
-import { scheduleTMinusAlerts } from './tminus';
+import { scheduleTMinusAlerts, validateAlertMinutes, parseScheduleLine } from './tminus';
 import { DEFAULT_SETTINGS, type AppSettings, type QueueProgress } from '@shared/ipc-types';
 
 // Gancho E2E do atualizador (scripts/e2e-update.mjs): isola o userData ANTES de
@@ -275,15 +276,37 @@ function registerIpc(): void {
 
   ipcMain.handle('queue:cancel', () => queue?.cancel());
 
-  // Notificações T-minus (bandeja do sistema)
+  // Notificações T-minus (bandeja do sistema) — marcas configuráveis (default 15/5/1).
   let tminusCleanup: (() => void) | null = null;
-  ipcMain.handle('tminus:schedule', (_event, scheduleText: string) => {
-    if (tminusCleanup !== null) tminusCleanup();
-    const lines = scheduleText.split(/\r?\n/).filter((l) => l.trim() !== '' && !l.trim().startsWith('#'));
-    tminusCleanup = scheduleTMinusAlerts(scheduleText, (message) => {
-      send('tminus:alert', message);
-    });
-    return { alerts: lines.length * 3, detail: `Alertas T-minus agendados para ${lines.length} envio(s)` };
+  ipcMain.handle('tminus:schedule', (_event, scheduleText: string, marksMinutes?: number[]) => {
+    try {
+      if (tminusCleanup !== null) tminusCleanup();
+      const marks = marksMinutes !== undefined && marksMinutes.length > 0 ? validateAlertMinutes(marksMinutes) : undefined;
+      const lines = scheduleText.split(/\r?\n/).filter((l) => l.trim() !== '' && !l.trim().startsWith('#'));
+      tminusCleanup = scheduleTMinusAlerts(
+        scheduleText,
+        (message) => {
+          send('tminus:alert', message);
+        },
+        marks,
+      );
+      // Contagem REAL: só marca futura de envio futuro conta (mesmos cortes do
+      // scheduler — marca/Envio no passado não gera notificação).
+      const effectiveMarks = marks ?? [15, 5, 1];
+      let alerts = 0;
+      for (const line of scheduleText.split(/\r?\n/)) {
+        const entry = parseScheduleLine(line);
+        if (entry === null) continue;
+        const msUntil = entry.sendAt.getTime() - Date.now();
+        if (msUntil <= 0) continue;
+        for (const minutes of effectiveMarks) {
+          if (msUntil - minutes * 60_000 > 0) alerts += 1;
+        }
+      }
+      return { alerts, detail: `Alertas T-minus agendados para ${lines.length} envio(s)` };
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : String(error));
+    }
   });
   ipcMain.handle('tminus:cancel', () => {
     if (tminusCleanup !== null) tminusCleanup();
@@ -370,6 +393,7 @@ registerIpc();
   registerOpIpc({ journal, opArchive: new OpArchiveService(journal), world: () => twSession.getStatus().world ?? 'desconhecido' });
   registerGroupsIpc({ journal, groups: new GroupsService(journal) });
   registerPreferencesIpc({ journal });
+  registerTemplatesIpc({ journal });
   createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

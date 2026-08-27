@@ -75,9 +75,18 @@ export function registerPreferencesIpc(deps: PreferencesIpcDeps): void {
       assertModule(module);
       const run = chain.then(async () => {
         const prefs = await store.load();
-        if (prefs[module] !== undefined) {
+        const modulePrefs = prefs[module];
+        if (modulePrefs !== undefined) {
+          // "Restaurar padrões do módulo" limpa os CAMPOS do formulário, mas
+          // PRESERVA os presets nomeados (presets:*) — perder filtros curados
+          // num reset de padrões seria perda de dado do usuário.
+          const presets: Record<string, unknown> = {};
+          for (const [key, value] of Object.entries(modulePrefs)) {
+            if (key.startsWith('presets:')) presets[key] = value;
+          }
           const next: Record<string, Record<string, unknown>> = { ...prefs };
           delete next[module];
+          if (Object.keys(presets).length > 0) next[module] = presets;
           await store.save(next);
         }
         try {

@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ArrowRight, Camera, CheckCircle2, DownloadCloud, Info, LogIn, Map, RefreshCw, User } from 'lucide-react';
-import type { UpdateManifest } from '@shared/ipc-types';
+import { AlertTriangle, ArrowRight, Camera, CheckCircle2, Copy, DownloadCloud, Info, LogIn, Map, RefreshCw, User } from 'lucide-react';
+import type { OpArchiveEntry, UpdateManifest } from '@shared/ipc-types';
+import type { ScorecardOptions, ScorecardRow } from '@shared/war-room';
 import StatBlock from '../components/StatBlock';
+import ToastViewport from '../components/Toast';
+import { usePreferences } from '../hooks/usePreferences';
 import { useSessionStatus } from '../hooks/useSessionStatus';
+import { useToast } from '../hooks/useToast';
 import { MODULES, type ModuleId, type PageId } from '../modules';
 import { BRAND_LOGO_WIDE } from '../assets';
 
@@ -293,78 +297,248 @@ function UpdateCard() {
 /**
  * Scorecard da tribo no Dashboard: agregado de participação nas OPs arquivadas.
  * Reaproveita buildScorecard do war-room sobre opArchive.list() — sem rede.
+ * Linhas/métrica/janela são configuráveis e persistem em preferences('dashboard').
  */
-function ScoreboardSection() {
-  const [scorecard, setScorecard] = useState<{ playerName: string; opsParticipated: number; expected: number; sent: number; missed: number }[] | null>(null);
-  const [loaded, setLoaded] = useState(false);
 
+/** Escolhas do seletor de linhas: "all" = Todos (default 5 = comportamento histórico). */
+type ScoreTop = 5 | 10 | 20 | 'all';
+/** Métrica de ordenação (espelha ScorecardOptions['metric']). */
+type ScoreMetric = 'faltas' | 'envios' | 'percentual';
+/** Janela temporal em dias: "all" = tudo desde o começo do arquivo. */
+type ScoreWindow = 'all' | 7 | 30;
+
+/** Preferências do scorecard (module 'dashboard' no preferences). */
+type ScorePrefs = {
+  scoreTop: number | 'all';
+  scoreMetric: ScoreMetric;
+  scoreWindow: ScoreWindow;
+};
+
+/** Rótulo do critério de ordenação para o rodapé (o pior vem primeiro em qualquer métrica). */
+const METRIC_ORDER_LABEL: Record<ScoreMetric, string> = {
+  faltas: 'com mais faltas',
+  envios: 'com mais envios',
+  percentual: 'com menor % cumprido',
+};
+
+/** Sanitizadores do bruto do preferences: fora do cardápio do seletor, volta ao default. */
+function parseScoreTop(value: unknown): ScoreTop {
+  return value === 'all' || value === 10 || value === 20 ? value : 5;
+}
+
+function parseScoreMetric(value: unknown): ScoreMetric {
+  return value === 'envios' || value === 'percentual' ? value : 'faltas';
+}
+
+function parseScoreWindow(value: unknown): ScoreWindow {
+  return value === 7 || value === 30 ? value : 'all';
+}
+
+/** % cumprido (enviado/esperado, 0 decimais) + tom da célula; "—" quando nada foi esperado. */
+function pctCell(row: ScorecardRow): { text: string; tone: ' error' | ' ok' | '' } {
+  if (row.expected === 0) return { text: '—', tone: '' };
+  const pct = Math.round((row.sent / row.expected) * 100);
+  return { text: String(pct), tone: pct < 100 ? ' error' : ' ok' };
+}
+
+/** TSV da tabela: "Jogador\tOPs\tEsperado\tEnviado\tFaltou" (+ "%" só na métrica percentual). */
+function buildScorecardTsv(rows: readonly ScorecardRow[], withPct: boolean): string {
+  const header = ['Jogador', 'OPs', 'Esperado', 'Enviado', 'Faltou'];
+  if (withPct) header.push('%');
+  const lines = rows.map((row) => {
+    const cells = [row.playerName, String(row.opsParticipated), String(row.expected), String(row.sent), String(row.missed)];
+    if (withPct) cells.push(pctCell(row).text);
+    return cells.join('\t');
+  });
+  return [header.join('\t'), ...lines].join('\n');
+}
+
+function ScoreboardSection() {
+  const { prefs, savePrefs } = usePreferences<ScorePrefs>('dashboard', {
+    scoreTop: 5,
+    scoreMetric: 'faltas',
+    scoreWindow: 'all',
+  });
+  const { toasts, push, dismiss } = useToast();
+
+  const [ops, setOps] = useState<OpArchiveEntry[] | null>(null);
+  const [engine, setEngine] = useState<typeof import('@shared/war-room') | null>(null);
+  const [scorecard, setScorecard] = useState<ScorecardRow[] | null>(null);
+
+  // Leitura única das OPs + engine por import dinâmico para não pesar o bundle.
   useEffect(() => {
     let cancelled = false;
     void window.staffhub.opArchive
       .list()
-      .then((ops) => {
+      .then((entries) => {
         if (cancelled) return;
-        // Import dinâmico para não pesar o bundle quando não há OPs
-        void import('@shared/war-room').then(({ buildScorecard }) => {
+        void import('@shared/war-room').then((mod) => {
           if (cancelled) return;
-          setScorecard(buildScorecard(ops));
-          setLoaded(true);
+          setOps(entries);
+          setEngine(mod);
         });
       })
       .catch(() => {
-        if (!cancelled) setLoaded(true);
+        // Sem arquivo legível: ops permanece null e a seção não renderiza.
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  if (!loaded || scorecard === null || scorecard.length === 0) return null;
+  // Opções atuais sanitizadas (o preferences pode carregar lixo de versões antigas).
+  const scoreTop = prefs === null ? 5 : parseScoreTop(prefs.scoreTop);
+  const scoreMetric = prefs === null ? 'faltas' : parseScoreMetric(prefs.scoreMetric);
+  const scoreWindow = prefs === null ? 'all' : parseScoreWindow(prefs.scoreWindow);
 
-  const top = scorecard.slice(0, 5);
+  // Recalcula quando OPs/engine/opções mudam; janela vira limite ISO (hoje − N dias).
+  useEffect(() => {
+    if (ops === null || engine === null || prefs === null) return;
+    // exactOptionalPropertyTypes: chave ausente ≠ undefined — só entra quem tem valor.
+    const options: ScorecardOptions = { metric: scoreMetric };
+    if (scoreTop !== 'all') options.topN = scoreTop;
+    if (scoreWindow !== 'all') {
+      options.since = new Date(Date.now() - scoreWindow * 24 * 60 * 60 * 1000).toISOString();
+    }
+    try {
+      setScorecard(engine.buildScorecard(ops, options));
+    } catch {
+      // Distribuição arquivada malformada: motor fail-closed, seção some.
+      setScorecard(null);
+    }
+  }, [ops, engine, prefs, scoreTop, scoreMetric, scoreWindow]);
+
+  async function handleCopyTsv(): Promise<void> {
+    if (scorecard === null || scorecard.length === 0) {
+      push('info', 'Sem linhas para copiar.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(buildScorecardTsv(scorecard, scoreMetric === 'percentual'));
+      push('ok', `Tabela copiada (${scorecard.length} linha(s), TSV).`);
+    } catch {
+      push('error', 'Não foi possível copiar — permissão de área de transferência negada.');
+    }
+  }
+
+  // Mesma gramática de antes: sem OPs arquivadas (ou falha de leitura) a seção some.
+  if (scorecard === null || scorecard.length === 0) return null;
+
   const totalMissed = scorecard.reduce((sum, p) => sum + p.missed, 0);
+  // O topN corta dentro do motor: quando o corte devolveu exatamente o limite,
+  // pode haver mais linhas — o rodapé aponta o scorecard completo na Sala de Guerra.
+  const capped = typeof scoreTop === 'number' && scorecard.length === scoreTop;
+  const showPct = scoreMetric === 'percentual';
 
   return (
-    <div className="page-section">
-      <h2 className="section-title">Scorecard da staff</h2>
-      <div className="card card--flush">
-        <div className="card-header">
-          <h3 className="card-title">Participação nas OPs</h3>
-          <span className="spacer" />
-          <span className="pill pill--muted">{scorecard.length} jogador(es)</span>
-          {totalMissed > 0 && <span className="pill pill--error">{totalMissed} falta(s) total(is)</span>}
-        </div>
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th scope="col">Jogador</th>
-                <th scope="col" className="cell-num">OPs</th>
-                <th scope="col" className="cell-num">Enviado</th>
-                <th scope="col" className="cell-num">Faltou</th>
-              </tr>
-            </thead>
-            <tbody>
-              {top.map((row) => (
-                <tr key={row.playerName}>
-                  <td className="cell-nowrap">{row.playerName}</td>
-                  <td className="cell-num">{row.opsParticipated}</td>
-                  <td className="cell-num">{row.sent}</td>
-                  <td className={`cell-num${row.missed > 0 ? ' error' : ' ok'}`}>{row.missed}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {scorecard.length > 5 && (
-          <div className="card-body">
-            <p className="muted">
-              Mostrando os 5 com mais faltas — scorecard completo na Sala de Guerra.
-            </p>
+    <>
+      <div className="page-section">
+        <h2 className="section-title">Scorecard da staff</h2>
+        <div className="card card--flush">
+          <div className="card-header">
+            <h3 className="card-title">Participação nas OPs</h3>
+            <span className="spacer" />
+            <span className="pill pill--muted">{scorecard.length} jogador(es)</span>
+            {totalMissed > 0 && <span className="pill pill--error">{totalMissed} falta(s) total(is)</span>}
+            <button
+              type="button"
+              className="btn"
+              aria-label="Copiar a tabela do scorecard em TSV para a área de transferência"
+              onClick={() => void handleCopyTsv()}
+            >
+              <Copy size={15} aria-hidden="true" />
+              Copiar tabela
+            </button>
           </div>
-        )}
+          <div className="card-body">
+            <div className="row" aria-label="Controles do scorecard">
+              <label className="field">
+                <span className="field-label">Linhas</span>
+                <select
+                  className="select"
+                  value={scoreTop === 'all' ? 'all' : String(scoreTop)}
+                  onChange={(event) =>
+                    savePrefs({ scoreTop: event.target.value === 'all' ? 'all' : Number(event.target.value) })
+                  }
+                  aria-label="Quantidade de jogadores no scorecard"
+                >
+                  <option value="5">Top 5</option>
+                  <option value="10">Top 10</option>
+                  <option value="20">Top 20</option>
+                  <option value="all">Todos</option>
+                </select>
+              </label>
+              <label className="field">
+                <span className="field-label">Métrica</span>
+                <select
+                  className="select"
+                  value={scoreMetric}
+                  onChange={(event) => savePrefs({ scoreMetric: event.target.value as ScoreMetric })}
+                  aria-label="Métrica de ordenação do scorecard"
+                >
+                  <option value="faltas">Faltas</option>
+                  <option value="envios">Envios</option>
+                  <option value="percentual">% cumprido</option>
+                </select>
+              </label>
+              <label className="field">
+                <span className="field-label">Janela</span>
+                <select
+                  className="select"
+                  value={scoreWindow === 'all' ? 'all' : String(scoreWindow)}
+                  onChange={(event) =>
+                    savePrefs({
+                      scoreWindow: event.target.value === 'all' ? 'all' : (Number(event.target.value) as 7 | 30),
+                    })
+                  }
+                  aria-label="Janela temporal do scorecard"
+                >
+                  <option value="all">Tudo</option>
+                  <option value="7">Últimos 7 dias</option>
+                  <option value="30">Últimos 30 dias</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th scope="col">Jogador</th>
+                  <th scope="col" className="cell-num">OPs</th>
+                  <th scope="col" className="cell-num">Enviado</th>
+                  <th scope="col" className="cell-num">Faltou</th>
+                  {showPct && (
+                    <th scope="col" className="cell-num">%</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {scorecard.map((row) => (
+                  <tr key={row.playerName}>
+                    <td className="cell-nowrap">{row.playerName}</td>
+                    <td className="cell-num">{row.opsParticipated}</td>
+                    <td className="cell-num">{row.sent}</td>
+                    <td className={`cell-num${row.missed > 0 ? ' error' : ' ok'}`}>{row.missed}</td>
+                    {showPct && (
+                      <td className={`cell-num${pctCell(row).tone}`}>{pctCell(row).text}</td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {capped && (
+            <div className="card-body">
+              <p className="muted">
+                Mostrando os {scoreTop} {METRIC_ORDER_LABEL[scoreMetric]} — scorecard completo na Sala de Guerra.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+      <ToastViewport toasts={toasts} onDismiss={dismiss} />
+    </>
   );
 }
 

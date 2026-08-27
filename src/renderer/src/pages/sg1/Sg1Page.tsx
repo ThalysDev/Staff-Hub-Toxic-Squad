@@ -13,6 +13,7 @@ import type {
 } from '@shared/types';
 import Field from '../../components/Field';
 import PageHeader from '../../components/PageHeader';
+import PresetManager from '../../components/PresetManager';
 import ProgressBar from '../../components/ProgressBar';
 import ToastViewport from '../../components/Toast';
 import { loadRelationsShared, useDiplomacyRelations } from '../../hooks/useDiplomacyRelations';
@@ -131,6 +132,28 @@ export default function Sg1Page() {
     allyCoordsConsiderText,
   ]);
 
+  // Snapshot dos 7 campos persistidos para o PresetManager salvar como preset.
+  const presetFields = useMemo<Record<string, string>>(
+    () => ({
+      ownTag,
+      enemyTagsText,
+      kDesiredText,
+      enemyCoordsDiscardText,
+      kEnemyDiscardText,
+      enemyCoordsConsiderText,
+      allyCoordsConsiderText,
+    }),
+    [
+      ownTag,
+      enemyTagsText,
+      kDesiredText,
+      enemyCoordsDiscardText,
+      kEnemyDiscardText,
+      enemyCoordsConsiderText,
+      allyCoordsConsiderText,
+    ],
+  );
+
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<Sg1Result | null>(null);
   const [analyzeError, setAnalyzeError] = useState('');
@@ -236,6 +259,24 @@ export default function Sg1Page() {
     setAllyCoordsConsiderText('');
     setErrors({});
     void resetPrefs();
+  }
+
+  /**
+   * Aplica um preset salvo nos campos do formulário. NÃO roda a análise — o
+   * usuário confere os campos e clica em "Obter Dados Aldeias". Os estados
+   * mudados disparam o effect de persistência das preferências normalmente
+   * (o último preset aplicado vira o filtro corrente). Presets guardam
+   * strings; chave ausente vira '' via `?? ''`.
+   */
+  function applyPreset(fields: Record<string, string>): void {
+    setOwnTag(fields.ownTag ?? '');
+    setEnemyTagsText(fields.enemyTagsText ?? '');
+    setKDesiredText(fields.kDesiredText ?? '');
+    setEnemyCoordsDiscardText(fields.enemyCoordsDiscardText ?? '');
+    setKEnemyDiscardText(fields.kEnemyDiscardText ?? '');
+    setEnemyCoordsConsiderText(fields.enemyCoordsConsiderText ?? '');
+    setAllyCoordsConsiderText(fields.allyCoordsConsiderText ?? '');
+    setErrors({});
   }
 
   async function copyCoords(bucket: Sg1BucketResult): Promise<void> {
@@ -347,6 +388,16 @@ export default function Sg1Page() {
                 </div>
               </div>
             )}
+            {/* Presets nomeados de filtro: salvar/carregar/excluir snapshots dos
+                campos abaixo. Fora do <form> de propósito — Enter no input de
+                nome não pode submeter o formulário e rodar a análise. */}
+            <PresetManager
+              module="sg1"
+              scope="analise"
+              currentFields={presetFields}
+              onApply={applyPreset}
+              label="da análise"
+            />
             <form
               className="sg1-form-grid"
               noValidate

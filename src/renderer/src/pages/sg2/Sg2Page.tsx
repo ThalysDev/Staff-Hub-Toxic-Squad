@@ -27,6 +27,7 @@ import { TW_UNIT_ICONS } from '../../assets';
 import EmptyState from '../../components/EmptyState';
 import Field from '../../components/Field';
 import PageHeader from '../../components/PageHeader';
+import PresetManager from '../../components/PresetManager';
 import ProgressBar from '../../components/ProgressBar';
 import StatBlock from '../../components/StatBlock';
 import ToastViewport from '../../components/Toast';
@@ -606,6 +607,57 @@ export default function Sg2Page() {
     setUnitInputs((current) => ({ ...current, [id]: value }));
   }
 
+  /**
+   * Aplica um preset da consulta nos estados do formulário — NÃO roda a consulta
+   * (o usuário confere os campos e clica em "Realizar Consulta").
+   */
+  function applyConsultaPreset(fields: Record<string, string>): void {
+    // unitInputs viaja como JSON dentro do preset (presets só aceitam
+    // string→string): parse com try/catch — lixo/ausente vira {} e os mínimos
+    // de unidade ficam vazios; o resto do preset é aplicado normalmente.
+    let unitsBrutos: Record<string, unknown> = {};
+    try {
+      const parsed: unknown = JSON.parse(fields['unitInputs'] ?? '{}');
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        unitsBrutos = parsed as Record<string, unknown>;
+      }
+    } catch {
+      unitsBrutos = {};
+    }
+    const nextUnits = emptyUnitInputs();
+    for (const id of FILTER_UNIT_ORDER) {
+      const value = unitsBrutos[id];
+      if (typeof value === 'string') nextUnits[id] = value;
+    }
+    setUnitInputs(nextUnits);
+    if (fields['mode'] === 'has' || fields['mode'] === 'lacks') setMode(fields['mode']);
+    if (fields['scope'] === 'village' || fields['scope'] === 'player') setScope(fields['scope']);
+    if (typeof fields['coordsText'] === 'string') setCoordsText(fields['coordsText']);
+    if (typeof fields['minXText'] === 'string') setMinXText(fields['minXText']);
+    if (typeof fields['maxXText'] === 'string') setMaxXText(fields['maxXText']);
+    if (typeof fields['minYText'] === 'string') setMinYText(fields['minYText']);
+    if (typeof fields['maxYText'] === 'string') setMaxYText(fields['maxYText']);
+    if (typeof fields['kText'] === 'string') setKText(fields['kText']);
+    if (fields['kMode'] === 'incluir' || fields['kMode'] === 'excluir') setKMode(fields['kMode']);
+  }
+
+  /**
+   * Aplica um preset do contador Full/Semi nos estados do painel — NÃO roda a
+   * contagem ("Contar Full/Semi" continua manual).
+   */
+  function applyFullSemiPreset(fields: Record<string, string>): void {
+    if (typeof fields['fullPopText'] === 'string') setFullPopText(fields['fullPopText']);
+    if (typeof fields['semiPopText'] === 'string') setSemiPopText(fields['semiPopText']);
+    if (typeof fields['minFullsText'] === 'string') setMinFullsText(fields['minFullsText']);
+    if (typeof fields['minSemisText'] === 'string') setMinSemisText(fields['minSemisText']);
+    if (typeof fields['fsKText'] === 'string') setFsKText(fields['fsKText']);
+    if (typeof fields['fsPlayersText'] === 'string') setFsPlayersText(fields['fsPlayersText']);
+    if (fields['fsKMode'] === 'incluir' || fields['fsKMode'] === 'excluir') setFsKMode(fields['fsKMode']);
+    if (fields['fsPlayersMode'] === 'incluir' || fields['fsPlayersMode'] === 'excluir') {
+      setFsPlayersMode(fields['fsPlayersMode']);
+    }
+  }
+
   /** Volta os formulários aos padrões e apaga as preferências persistidas do módulo. */
   function resetFormPrefs(): void {
     setUnitInputs(emptyUnitInputs());
@@ -788,6 +840,30 @@ export default function Sg2Page() {
             {showForm && (
               <div className="card">
                 <div className="card-body">
+                  {/* Preset FORA do form de propósito — Enter no input de nome
+                      não pode submeter o formulário e rodar a consulta. */}
+                  <div className="sg2-span-2">
+                    <PresetManager
+                      module="sg2"
+                      scope="consulta"
+                      label="da consulta"
+                      currentFields={{
+                        // unitInputs é objeto: viaja serializado como JSON (presets
+                        // só aceitam string→string); o onApply refaz com JSON.parse.
+                        unitInputs: JSON.stringify(unitInputs),
+                        mode,
+                        scope,
+                        coordsText,
+                        minXText,
+                        maxXText,
+                        minYText,
+                        maxYText,
+                        kText,
+                        kMode,
+                      }}
+                      onApply={applyConsultaPreset}
+                    />
+                  </div>
                   <form
                     className="sg2-filter-grid"
                     noValidate
@@ -995,6 +1071,22 @@ export default function Sg2Page() {
                   <span className="pill pill--muted">{result.totalVillages} aldeia(s) no filtro</span>
                 </div>
                 <div className="card-body">
+                  <PresetManager
+                    module="sg2"
+                    scope="fullsemi"
+                    label="do contador Full/Semi"
+                    currentFields={{
+                      fullPopText,
+                      semiPopText,
+                      minFullsText,
+                      minSemisText,
+                      fsKText,
+                      fsPlayersText,
+                      fsKMode,
+                      fsPlayersMode,
+                    }}
+                    onApply={applyFullSemiPreset}
+                  />
                   <div className="sg4-params">
                     <label className="field">
                       <span className="field-label">População mínima FULL</span>

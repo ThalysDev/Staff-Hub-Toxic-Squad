@@ -48,8 +48,16 @@ const api = {
     getVersion: () => invoke('app:get-version'),
   },
   tminus: {
-    schedule: (scheduleText: string) => invoke('tminus:schedule', scheduleText),
+    schedule: (scheduleText: string, marksMinutes?: number[]) => invoke('tminus:schedule', scheduleText, marksMinutes),
     cancel: () => invoke('tminus:cancel'),
+  },
+  templates: {
+    list: () => invoke('templates:list') as Promise<import('@shared/mp-templates-rules').MpTemplateEntry[]>,
+    save: (input: import('@shared/mp-templates-rules').MpTemplateSaveInput) =>
+      invoke('templates:save', input) as Promise<import('@shared/mp-templates-rules').MpTemplateEntry>,
+    remove: (id: string) => invoke('templates:remove', id) as Promise<void>,
+    setDefault: (id: string) =>
+      invoke('templates:set-default', id) as Promise<import('@shared/mp-templates-rules').MpTemplateEntry | null>,
   },
   queue: {
     cancel: () => invoke('queue:cancel'),

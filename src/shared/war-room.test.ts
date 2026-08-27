@@ -139,4 +139,30 @@ describe('buildScorecard', () => {
   it('nenhuma OP → scorecard vazio', () => {
     expect(buildScorecard([])).toEqual([]);
   });
+
+  it('opções: topN corta DEPOIS de ordenar; default sem opções preserva histórico', () => {
+    const todos = buildScorecard([opAntiga, opRecente]);
+    expect(todos).toHaveLength(3);
+    expect(buildScorecard([opAntiga, opRecente], { topN: 2 })).toEqual(todos.slice(0, 2));
+    expect(buildScorecard([opAntiga, opRecente], { topN: 0 })).toEqual([]);
+  });
+
+  it('opções: metric envios ordena por sent desc; percentual ordena por sent/expected ASC', () => {
+    const porEnvios = buildScorecard([opAntiga, opRecente], { metric: 'envios' });
+    expect(porEnvios.map((row) => row.playerName)).toEqual(['ana', 'bruno', 'álvaro']);
+    // percentual: ana 3/4=0.75 · bruno 2/2=1 · álvaro 1/1=1 → ana primeiro (pior %).
+    const porPercentual = buildScorecard([opAntiga, opRecente], { metric: 'percentual' });
+    expect(porPercentual[0]!.playerName).toBe('ana');
+    // expected 0 não derruba (nenhuma linha aqui, mas o guard não pode dar NaN).
+    expect(porPercentual.every((row) => Number.isFinite(row.sent / Math.max(row.expected, 1)))).toBe(true);
+  });
+
+  it('opções: since filtra OPs anteriores à data (string ISO comparada por prefixo)', () => {
+    const desdeFevereiro = buildScorecard([opAntiga, opRecente], { since: '2026-02-01' });
+    // Só a OP recente: ana perde a participação antiga; distribution dela cita ana.
+    const byName = new Map(desdeFevereiro.map((row) => [row.playerName, row]));
+    expect(byName.has('bruno')).toBe(true); // bruno vem do perPlayer da recente
+    expect(byName.get('ana')?.opsParticipated).toBe(1);
+    expect(desdeFevereiro.every((row) => row.expected <= 7)).toBe(true);
+  });
 });

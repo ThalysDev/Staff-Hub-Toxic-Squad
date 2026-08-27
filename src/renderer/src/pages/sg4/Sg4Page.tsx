@@ -22,6 +22,7 @@ import { buildPlayerComms, planBbcode, renderTemplate, reservationList, sg6Entri
 import type { WorldPlayer } from '@shared/types';
 import Field from '../../components/Field';
 import PageHeader from '../../components/PageHeader';
+import TemplateLibrary from '../../components/TemplateLibrary';
 import ToastViewport from '../../components/Toast';
 import WorldMapCanvas from '../sg1/WorldMapCanvas';
 import { useDiplomacyRelations } from '../../hooks/useDiplomacyRelations';
@@ -68,6 +69,9 @@ type Sg4Prefs = {
   opTimeText: string;
   noblesText: string;
   spacingText: string;
+  /** Marcas de alerta T-minus em texto livre (ex.: "15 5 1") — parseadas
+   *  com \d{1,4} e validadas no main (inteiros 1–1440, sem duplicatas). */
+  tminusMarksText: string;
   opTitle: string;
   commsTemplate: string;
   planThreadUrl: string;
@@ -91,6 +95,7 @@ function buildSg4Defaults(): Sg4Prefs {
     opTimeText: '22:00',
     noblesText: '1',
     spacingText: '300',
+    tminusMarksText: '15 5 1',
     opTitle: `OP do ${new Date().toLocaleDateString('pt-BR')}`,
     commsTemplate:
       'OP marcada!\n\nSeus alvos:\n#alvos#\n\nEnvie cada comando para bater no horário combinado:\n#horarios#\n\nBoa sorte!',
@@ -123,6 +128,14 @@ function parseTags(text: string): string[] {
     .split(';')
     .map((tag) => tag.trim())
     .filter((tag) => tag.length > 0);
+}
+
+/** Extrai as marcas T-minus (minutos antes do envio) do texto "15 5 1":
+ *  cada token \d{1,4} vira um número. Faixa 1–1440 e duplicatas NÃO são
+ *  validadas aqui — o main valida na fronteira do IPC e lança o erro PT-BR
+ *  que a página exibe no erro/toast da agenda. */
+function parseTminusMarks(text: string): number[] {
+  return [...text.matchAll(/\d{1,4}/g)].map((match) => Number(match[0]));
 }
 
 function errorMessage(error: unknown): string {
@@ -201,6 +214,7 @@ export default function Sg4Page() {
   const [opTimeText, setOpTimeText] = useState(sg4Defaults.opTimeText);
   const [noblesText, setNoblesText] = useState(sg4Defaults.noblesText);
   const [spacingText, setSpacingText] = useState(sg4Defaults.spacingText);
+  const [tminusMarksText, setTminusMarksText] = useState(sg4Defaults.tminusMarksText);
   const [scheduleRows, setScheduleRows] = useState<SendScheduleRow[] | null>(null);
   const [timingError, setTimingError] = useState('');
   // ---- P0-9 — Arquivo de OPs ----
@@ -234,6 +248,9 @@ export default function Sg4Page() {
     if (typeof prefs.opTimeText === 'string') setOpTimeText(prefs.opTimeText);
     if (typeof prefs.noblesText === 'string') setNoblesText(prefs.noblesText);
     if (typeof prefs.spacingText === 'string') setSpacingText(prefs.spacingText);
+    if (typeof prefs.tminusMarksText === 'string' && prefs.tminusMarksText.trim() !== '') {
+      setTminusMarksText(prefs.tminusMarksText);
+    }
     if (typeof prefs.opTitle === 'string' && prefs.opTitle.trim() !== '') setOpTitle(prefs.opTitle);
     if (typeof prefs.commsTemplate === 'string' && prefs.commsTemplate !== '') setCommsTemplate(prefs.commsTemplate);
     if (typeof prefs.planThreadUrl === 'string') setPlanThreadUrl(prefs.planThreadUrl);
@@ -256,6 +273,7 @@ export default function Sg4Page() {
       opTimeText,
       noblesText,
       spacingText,
+      tminusMarksText,
       opTitle,
       commsTemplate,
       planThreadUrl,
@@ -273,12 +291,37 @@ export default function Sg4Page() {
     opTimeText,
     noblesText,
     spacingText,
+    tminusMarksText,
     opTitle,
     commsTemplate,
     planThreadUrl,
     sepByEnter,
     savePrefs,
   ]);
+
+  // Template PADRÃO da biblioteca como ponto de partida da MP da OP: aplica
+  // UMA vez no mount, somente quando as prefs não têm commsTemplate salvo
+  // (prefs existentes vencem — "não salvo" = prefs ainda no texto de fábrica
+  // embutido do buildSg4Defaults). Fail-soft: sem biblioteca/isDefault,
+  // mantém o texto atual.
+  const commsDefaultApplied = useRef(false);
+  useEffect(() => {
+    if (prefs === null || commsDefaultApplied.current) return;
+    commsDefaultApplied.current = true;
+    if (prefs.commsTemplate !== sg4Defaults.commsTemplate) return;
+    let cancelled = false;
+    void window.staffhub.templates
+      .list()
+      .then((templates) => {
+        if (cancelled) return;
+        const defaultTemplate = templates.find((entry) => entry.isDefault);
+        if (defaultTemplate !== undefined) setCommsTemplate(defaultTemplate.body);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [prefs]);
 
   // Fail-soft: mundo sem resposta conta COM moral (comportamento atual).
   useEffect(() => {
@@ -452,6 +495,7 @@ export default function Sg4Page() {
     setOpTimeText(sg4Defaults.opTimeText);
     setNoblesText(sg4Defaults.noblesText);
     setSpacingText(sg4Defaults.spacingText);
+    setTminusMarksText(sg4Defaults.tminusMarksText);
     setOpTitle(sg4Defaults.opTitle);
     setCommsTemplate(sg4Defaults.commsTemplate);
     setPlanThreadUrl(sg4Defaults.planThreadUrl);
@@ -824,6 +868,28 @@ export default function Sg4Page() {
   }
 
   const separator = sepByEnter ? '\n' : ' ';
+
+  /** Ativa os alertas T-minus com as marcas configuradas ("15 5 1"). A
+   *  validação das marcas (inteiros 1–1440, sem duplicatas) é do main: o erro
+   *  PT-BR lançado lá aparece no erro/toast da seção da agenda. Texto sem
+   *  nenhum número → lista vazia → main usa o padrão histórico 15/5/1. */
+  async function runTminusAlerts(): Promise<void> {
+    if (scheduleRows === null || scheduleRows.length === 0) return;
+    setTimingError('');
+    const marks = parseTminusMarks(tminusMarksText);
+    try {
+      const result = await window.staffhub.tminus.schedule(formatSendSchedule(scheduleRows), marks);
+      const marksLabel = (marks.length > 0 ? marks : [15, 5, 1]).join(', ');
+      push(
+        'ok',
+        `${result.alerts} alerta(s) T-minus agendado(s) — notificações ${marksLabel} minuto(s) antes de cada envio.`,
+      );
+    } catch (error) {
+      const message = errorMessage(error);
+      setTimingError(message);
+      push('error', message);
+    }
+  }
 
   return (
     <section className="page">
@@ -1470,6 +1536,20 @@ export default function Sg4Page() {
                     onChange={(event) => setSpacingText(event.target.value)}
                   />
                 </label>
+                <label className="field">
+                  <span className="field-label">Marcas de alerta (minutos)</span>
+                  <input
+                    className="input"
+                    inputMode="numeric"
+                    placeholder="15 5 1"
+                    value={tminusMarksText}
+                    aria-describedby="sg4-tminus-marks-hint"
+                    onChange={(event) => setTminusMarksText(event.target.value)}
+                  />
+                  <p className="field-hint" id="sg4-tminus-marks-hint">
+                    Minutos antes de cada envio para notificar (inteiros 1–1440, sem repetições) — usado pelo botão de alertas T-minus.
+                  </p>
+                </label>
               </div>
               <div className="sg4-form-actions">
                 <button type="button" className="btn" onClick={() => void runSendSchedule()}>
@@ -1532,12 +1612,7 @@ export default function Sg4Page() {
                       <button
                         type="button"
                         className="btn btn-ghost btn-sm"
-                        onClick={() => {
-                          void window.staffhub.tminus
-                            .schedule(formatSendSchedule(scheduleRows))
-                            .then((result) => push('ok', `${result.alerts} alerta(s) T-minus agendado(s) — você receberá notificações em 15, 5 e 1 minuto antes de cada envio.`))
-                            .catch((err: unknown) => push('error', err instanceof Error ? err.message : String(err)));
-                        }}
+                        onClick={() => void runTminusAlerts()}
                       >
                         <Bell size={14} aria-hidden="true" />
                         Ativar alertas T-minus
@@ -1568,6 +1643,14 @@ export default function Sg4Page() {
                   onChange={(event) => setCommsTemplate(event.target.value)}
                 />
               </label>
+              {/* Biblioteca de templates (só corpo no SG_4): aplica/substitui o
+                  template da MP da OP e salva o atual como novo template. */}
+              <TemplateLibrary
+                variant="sg4"
+                currentSubject=""
+                currentBody={commsTemplate}
+                onApply={(_subject, body) => setCommsTemplate(body)}
+              />
               {scheduleRows === null || scheduleRows.length === 0 ? (
                 <p className="muted">
                   Calcule a Agenda de Envio acima para gerar MPs com #horarios# — BBCode e lista de reservas já funcionam só com a distribuição.

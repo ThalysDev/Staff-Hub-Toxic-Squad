@@ -2923,3 +2923,132 @@ kbd {
   font-size: var(--fs-caption);
   color: var(--text-muted);
 }
+
+/* ===== v0.24: Biblioteca de templates, Presets, Capturas selecionáveis ===== */
+.tmpl-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  color: var(--text-strong);
+  cursor: pointer;
+  text-align: left;
+}
+
+.tmpl-chevron {
+  transition: transform var(--t-fast);
+}
+
+.tmpl-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.tmpl-count {
+  font-size: var(--fs-caption);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.tmpl-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0;
+}
+
+.tmpl-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding: var(--sp-2);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+}
+
+.tmpl-name {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.tmpl-subject {
+  flex: 1;
+  min-width: 160px;
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tmpl-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+}
+
+.tmpl-save {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.tmpl-placeholders {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-caption);
+  color: var(--text-muted);
+}
+
+.prst-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.prst-row .select {
+  max-width: 220px;
+}
+
+.prst-row .input {
+  max-width: 180px;
+}
+
+.capsel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0;
+}
+
+.capsel-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-small);
+  color: var(--text-strong);
+}
+
+.tmpl-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  color: var(--text-strong);
+  cursor: pointer;
+  text-align: left;
+}

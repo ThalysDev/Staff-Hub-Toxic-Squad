@@ -13,6 +13,21 @@ export interface TMinusEntry {
 /** Marcos de alerta (em minutos antes do envio). */
 const ALERT_MINUTES = [15, 5, 1];
 
+/** Valida marcas customizadas: inteiros 1–1440, sem duplicatas; lança PT-BR. */
+export function validateAlertMinutes(marks: number[]): number[] {
+  const seen = new Set<number>();
+  for (const mark of marks) {
+    if (!Number.isInteger(mark) || mark < 1 || mark > 1440) {
+      throw new Error(`Marca T-minus inválida: ${String(mark)} — use minutos inteiros entre 1 e 1440.`);
+    }
+    if (seen.has(mark)) {
+      throw new Error(`Marca T-minus repetida: ${String(mark)}.`);
+    }
+    seen.add(mark);
+  }
+  return [...marks].sort((a, b) => b - a);
+}
+
 /** Parseia "nick;alvo;HH:MM:SS" → TMinusEntry (fail-closed PT-BR). */
 export function parseScheduleLine(line: string): TMinusEntry | null {
   const trimmed = line.trim();
@@ -36,8 +51,14 @@ export function parseScheduleLine(line: string): TMinusEntry | null {
  * Monitor de T-minus: dado um texto de agenda, agenda notifications nos marcos.
  * Retorna um cleanup() para cancelar os timeouts.
  */
-export function scheduleTMinusAlerts(scheduleText: string, onAlert?: (message: string) => void): () => void {
+export function scheduleTMinusAlerts(
+  scheduleText: string,
+  onAlert?: (message: string) => void,
+  marksMinutes?: number[],
+): () => void {
   const timers: ReturnType<typeof setTimeout>[] = [];
+  // Marcos customizados (validados na fronteira do IPC) ou o padrão histórico.
+  const alertMinutes = marksMinutes !== undefined && marksMinutes.length > 0 ? [...marksMinutes].sort((a, b) => b - a) : ALERT_MINUTES;
 
   for (const line of scheduleText.split(/\r?\n/)) {
     const entry = parseScheduleLine(line);
@@ -46,7 +67,7 @@ export function scheduleTMinusAlerts(scheduleText: string, onAlert?: (message: s
     const msUntil = entry.sendAt.getTime() - Date.now();
     if (msUntil <= 0) continue;
 
-    for (const minutes of ALERT_MINUTES) {
+    for (const minutes of alertMinutes) {
       const alertAtMs = msUntil - minutes * 60_000;
       // Só alertar se o marco está no futuro (não disparar atrasados)
       if (alertAtMs <= 0) continue;
