@@ -25,6 +25,7 @@ import { GroupsService } from './services/groups-service';
 import { registerGroupsIpc } from './ipc-groups';
 import { UpdaterService } from './updater-service';
 import { registerSg5Ipc } from './ipc-sg5';
+import { scheduleTMinusAlerts } from './tminus';
 import { DEFAULT_SETTINGS, type AppSettings, type QueueProgress } from '@shared/ipc-types';
 
 const twSession = new TwSessionManager();
@@ -218,6 +219,21 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('queue:cancel', () => queue?.cancel());
+
+  // Notificações T-minus (bandeja do sistema)
+  let tminusCleanup: (() => void) | null = null;
+  ipcMain.handle('tminus:schedule', (_event, scheduleText: string) => {
+    if (tminusCleanup !== null) tminusCleanup();
+    const lines = scheduleText.split(/\r?\n/).filter((l) => l.trim() !== '' && !l.trim().startsWith('#'));
+    tminusCleanup = scheduleTMinusAlerts(scheduleText, (message) => {
+      send('tminus:alert', message);
+    });
+    return { alerts: lines.length * 3, detail: `Alertas T-minus agendados para ${lines.length} envio(s)` };
+  });
+  ipcMain.handle('tminus:cancel', () => {
+    if (tminusCleanup !== null) tminusCleanup();
+    tminusCleanup = null;
+  });
 
   // Atualização pelo canal oficial (VPS): handlers finos sobre o UpdaterService.
   const updater = new UpdaterService(settingsStore, journal, (progress) => send('updater:progress', progress));

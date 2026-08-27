@@ -107,18 +107,26 @@ export class TwSessionManager {
       await this.refreshStatus();
       return;
     }
-    try {
-      const cookies = await this.ses.cookies.get({});
-      const sidCookie = cookies.find(
-        (cookie) => cookie.name === 'sid' && cookie.domain !== undefined && /(br[a-z]?\d{1,4}\.)?tribalwars\.com\.br$/.test(cookie.domain),
-      );
-      if (sidCookie === undefined) return; // nada persistido: segue logged-out
-      const world = /br[a-z]?\d{1,4}/.exec(sidCookie.domain ?? '')?.[0] ?? null;
-      if (world === null) return;
-      this.status = { state: 'unknown', world, player: this.status.player, checkedAt: null };
-      await this.refreshStatus();
-    } catch {
-      // sem cookies legíveis: mantém estado atual
+    // Retry com backoff: rede instável no boot não deve deixar o app
+    // "Desconectado" sem tentar de novo (o usuário teria que ir em Sessão).
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const cookies = await this.ses.cookies.get({});
+        const sidCookie = cookies.find(
+          (cookie) => cookie.name === 'sid' && cookie.domain !== undefined && /(br[a-z]?\d{1,4}\.)?tribalwars\.com\.br$/.test(cookie.domain),
+        );
+        if (sidCookie === undefined) return; // nada persistido: segue logged-out
+        const world = /br[a-z]?\d{1,4}/.exec(sidCookie.domain ?? '')?.[0] ?? null;
+        if (world === null) return;
+        this.status = { state: 'unknown', world, player: this.status.player, checkedAt: null };
+        await this.refreshStatus();
+        return; // sucesso — sai do retry
+      } catch {
+        if (attempt < 2) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+        }
+        // última tentativa falhou: mantém estado atual (Desconectado visível)
+      }
     }
   }
 

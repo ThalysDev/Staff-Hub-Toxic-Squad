@@ -245,6 +245,12 @@ export interface StaffHubApi {
   app: {
     getVersion(): Promise<string>;
   };
+  tminus: {
+    /** Agenda alertas T-minus a partir da agenda "nick;alvo;HH:MM:SS". Retorna nº de alertas. */
+    schedule(scheduleText: string): Promise<{ alerts: number; detail: string }>;
+    /** Cancela todos os alertas agendados. */
+    cancel(): Promise<void>;
+  };
   queue: {
     /** Cancela a operação de coleta em andamento na RequestQueue. */
     cancel(): Promise<void>;

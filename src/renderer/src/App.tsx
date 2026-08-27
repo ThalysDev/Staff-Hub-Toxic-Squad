@@ -1,11 +1,8 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Camera, Flame, History, LayoutDashboard, LogIn, Settings2 } from 'lucide-react';
 import TitleBar from './components/TitleBar';
 import Sidebar, { type SidebarGroup, type SidebarItem } from './components/Sidebar';
-import CapturesPage from './pages/CapturesPage';
-import DashboardPage from './pages/DashboardPage';
-import JournalPage from './pages/JournalPage';
 import Sg1Page from './pages/sg1/Sg1Page';
 import Sg2Page from './pages/sg2/Sg2Page';
 import Sg3Page from './pages/sg3/Sg3Page';
@@ -13,10 +10,17 @@ import Sg4Page from './pages/sg4/Sg4Page';
 import Sg5Page from './pages/sg5/Sg5Page';
 import Sg6Page from './pages/sg6/Sg6Page';
 import Sg7Page from './pages/sg7/Sg7Page';
-import SessionPage from './pages/SessionPage';
-import SettingsPage from './pages/SettingsPage';
 import WarRoomPage from './pages/war/WarRoomPage';
 import { MODULES, type ModuleId, type PageId, type SystemPageId, type WarPageId } from './modules';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+
+// Code-split: páginas de sistema são switch-rendered (montam/desmontam) —
+// lazy reduz o bundle inicial (as SG ficam montadas por design U1, eager).
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const SessionPage = lazy(() => import('./pages/SessionPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const JournalPage = lazy(() => import('./pages/JournalPage'));
+const CapturesPage = lazy(() => import('./pages/CapturesPage'));
 
 const SYSTEM_ITEMS: readonly SidebarItem[] = [
   { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
@@ -89,6 +93,8 @@ export default function App() {
     setPage(next);
   };
 
+  useKeyboardShortcuts(navigate);
+
   return (
     <div className="app-shell">
       <TitleBar />
@@ -108,7 +114,11 @@ export default function App() {
               <WarRoomPage onNavigate={navigate} />
             </div>
           )}
-          {!isModulePage(page) && renderSystemPage(page, navigate)}
+          {!isModulePage(page) && (
+            <Suspense fallback={<p className="muted">Carregando…</p>}>
+              {renderSystemPage(page, navigate)}
+            </Suspense>
+          )}
         </main>
       </div>
     </div>

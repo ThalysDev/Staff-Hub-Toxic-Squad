@@ -50,10 +50,12 @@ export class Journal {
       dryRun,
     };
     this.entries.push(entry);
-    const trimmed = this.entries.slice(-2000);
+    const trimmed = this.entries.slice(-10_000);
     this.entries = trimmed;
     // Serializa gravações: um append por vez, tmp+rename atômicos.
-    this.chain = this.chain.then(() => this.persist(trimmed)).catch(() => undefined);
+    // Cap de 10.000: uma OP média gera ~100 entradas (reservas+MPs+conferências);
+    // 2.000 estourava em ~2 semanas de uso ativo.
+    this.chain = this.chain.then(() => this.persist(trimmed.slice(-10_000))).catch(() => undefined);
     return this.chain;
   }
 

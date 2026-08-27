@@ -2459,3 +2459,32 @@ kbd {
   flex-wrap: wrap;
   gap: 4px;
 }
+
+/* Error Boundary — tela de recuperação (substitui tela branca). */
+.error-boundary {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(18, 16, 14, 0.85);
+  backdrop-filter: blur(4px);
+}
+
+.error-boundary-card {
+  max-width: 480px;
+  width: 90%;
+  background: #f6efdd;
+  border: 2px solid #d4b896;
+  border-radius: 12px;
+  padding: 32px;
+  text-align: center;
+}
+
+.error-boundary-card h1 {
+  font-family: Cinzel, serif;
+  font-size: 1.3rem;
+  color: #5d1a1a;
+  margin: 0 0 12px;
+}

@@ -47,6 +47,10 @@ const api = {
   app: {
     getVersion: () => invoke('app:get-version'),
   },
+  tminus: {
+    schedule: (scheduleText: string) => invoke('tminus:schedule', scheduleText),
+    cancel: () => invoke('tminus:cancel'),
+  },
   queue: {
     cancel: () => invoke('queue:cancel'),
   },

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { AlertTriangle, Clock, Copy, Crosshair, Plus, Radar, Share2, Swords } from 'lucide-react';
+import { AlertTriangle, Bell, Clock, Copy, Crosshair, Plus, Radar, Share2, Swords } from 'lucide-react';
 import { parseCoord, parseCoordList } from '@shared/coords';
 import {
   centralOpAnalysis,
@@ -378,6 +378,12 @@ export default function Sg4Page() {
       return null;
     }
   }, [distribution, scheduleRows, opTitle, commsTemplate]);
+
+  /** Memoizado: recalcular distributionSummary a cada render é desperdício. */
+  const distributionSummaryText = useMemo(
+    () => (distribution === null ? '' : distributionSummary(distribution)),
+    [distribution],
+  );
 
   const commsDistributionText = useMemo(
     () => (distribution === null ? '' : distributionSummary(distribution)),
@@ -1201,7 +1207,7 @@ export default function Sg4Page() {
                   className="textarea sg4-coords"
                   rows={6}
                   readOnly
-                  value={distributionSummary(distribution)}
+                  value={distributionSummaryText}
                   aria-label="Nick;coords distribuídas"
                 />
                 <div>
@@ -1350,6 +1356,19 @@ export default function Sg4Page() {
                       >
                         <Copy size={14} aria-hidden="true" />
                         Copiar agenda de envio
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => {
+                          void window.staffhub.tminus
+                            .schedule(formatSendSchedule(scheduleRows))
+                            .then((result) => push('ok', `${result.alerts} alerta(s) T-minus agendado(s) — você receberá notificações em 15, 5 e 1 minuto antes de cada envio.`))
+                            .catch((err: unknown) => push('error', err instanceof Error ? err.message : String(err)));
+                        }}
+                      >
+                        <Bell size={14} aria-hidden="true" />
+                        Ativar alertas T-minus
                       </button>
                     </div>
                   </label>
