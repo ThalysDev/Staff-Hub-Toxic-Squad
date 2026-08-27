@@ -2488,3 +2488,237 @@ kbd {
   color: #5d1a1a;
   margin: 0 0 12px;
 }
+
+/* =====================================================================
+   SG_2 — Resumo Geral (filtros vivos, stat cards, abas e ordenação)
+   ===================================================================== */
+
+/* Wrapper — respiro extra sobre o gap padrão de .page/.sg-page. */
+.sg2-sum {
+  margin-top: var(--sp-2);
+}
+
+/* Barra de filtros vivos: grid elástico de campos compactos. */
+.sg2-sum-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
+}
+
+/* Botão "Limpar filtros" gruda no pé do grid, sem esticar a célula. */
+.sg2-sum-filters > .btn {
+  justify-self: start;
+  align-self: end;
+}
+
+/* Rótulo do campo: caps pequeno muted, controles empilhados abaixo. */
+.sg2-sum-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.sg2-sum-label > span {
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Bloco de eixos X/Y: 4 inputs numéricos em 2×2, ocupando a linha toda. */
+.sg2-sum-filters .sg2-sum-label:has(> input[type='number']) {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-2);
+}
+
+/* "Mínimo por unidade": fileira de rótulos compactos (ícone + nome +
+   mínimo) na gramática do .sg2-units-grid do filtro principal. */
+.sg2-sum-filters .sg2-sum-label:has(> .sg2-sum-unit) {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--sp-2) var(--sp-3);
+}
+
+/* Rótulo de unidade: linha compacta com ícone fixo e input curto. */
+.sg2-sum-unit {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.sg2-sum-unit img {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.sg2-sum-unit-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-caption);
+}
+
+.sg2-sum-unit input {
+  width: 76px;
+  flex: none;
+  padding: 5px 8px;
+}
+
+/* Stat cards — variação sutil (inset) sobre o fundo do card pai. */
+.sg2-sum-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+
+.sg2-sum-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border-card);
+  border-radius: var(--r-md);
+  background: var(--bg-inset);
+}
+
+.sg2-sum-stat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sg2-sum-stat-value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.25rem;
+  line-height: var(--lh-tight);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Barra de abas — filete inferior divide do conteúdo da aba. */
+.sg2-sum-tabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
+  border-bottom: 1px solid var(--divider);
+}
+
+.sg2-sum-tabs .spacer {
+  flex: 1;
+}
+
+/* Grupo ARIA das abas: só role=tab dentro de role=tablist (o botão Copiar
+   tabela é irmão da tablist, não filho). Esticado até o filete da barra para
+   o sublinhado da aba ativa continuar cobrindo o divisor. */
+.sg2-sum-tablist {
+  display: flex;
+  align-items: flex-end;
+  align-self: stretch;
+  gap: var(--sp-3);
+}
+
+/* Aba: sublinhado marrom-dourado de 2px quando ativa (cobre o filete da
+   barra via margin-bottom: -1px); transição curta — o bloco global de
+   prefers-reduced-motion já zera a duração. */
+.sg2-sum-tab {
+  padding: var(--sp-2) var(--sp-1);
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+
+.sg2-sum-tab:hover {
+  color: var(--text-strong);
+}
+
+.sg2-sum-tab.is-active,
+.sg2-sum-tab.is-active:hover {
+  color: var(--text-strong);
+  border-bottom-color: var(--accent);
+}
+
+/* th ordenável: botão limpo que herda a cor e a caps do thead. */
+.sg2-sum-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: color var(--t-fast);
+}
+
+.sg2-sum-sort:hover {
+  color: var(--accent-ink);
+}
+
+.sg2-sum-sort-arrow {
+  font-size: 0.75em;
+  color: var(--text-meta);
+}
+
+.sg2-sum-sort:hover .sg2-sum-sort-arrow {
+  color: inherit;
+}
+
+/* Vazio — centrado e respiro generoso. */
+.sg2-sum-empty {
+  margin: 0;
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+  font-size: var(--fs-small);
+}
+
+/* Paginação da aba "Por aldeia" — à direita, info muted no meio. */
+.sg2-sum-pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  padding-top: var(--sp-3);
+}
+
+/* Tabelas do resumo são largas (todas as unidades por coluna): reforça o
+   scroll horizontal do .table-wrap genérico. */
+.sg2-sum .table-wrap {
+  overflow-x: auto;
+}
+
+/* Telas estreitas: stats em 2 colunas e filtros empilhados. */
+@media (max-width: 720px) {
+  .sg2-sum-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sg2-sum-filters {
+    grid-template-columns: 1fr;
+  }
+}

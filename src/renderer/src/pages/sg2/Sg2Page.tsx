@@ -12,22 +12,7 @@ import {
 } from 'lucide-react';
 import { parseCoordList, type AxesRange } from '@shared/coords';
 import type { QueueProgress } from '@shared/ipc-types';
-// Contrato assumido de src/shared/sg2-engine.ts (agente paralelo — NÃO editado aqui):
-//   export interface TroopSnapshot { kind: 'troops' | 'defense'; collectedAt: string; members: TroopMember[] }
-//   export interface Sg2Filters {
-//     mode?: 'has' | 'lacks';            // possui / não possui as tropas informadas
-//     scope?: 'village' | 'player';      // Total de aldeia / Total de jogador
-//     unitMinimums?: UnitCounts;         // mínimo por unidade (ausente = sem filtro de tropas)
-//     coordsFilter?: Coord[];            // Coordenadas Filtradas
-//     axesRange?: AxesRange;             // Eixo X/Y mín/máx
-//   }
-//   export interface Sg2FilterResult {
-//     villageCount: number;              // total de aldeias que batem o filtro
-//     players: { playerName: string; villageCount: number; coords: string[] }[];
-//     classification?: { offensive: number; defensive: number }; // sem mínimos → classificação de TODAS as aldeias
-//   }
-//   export function filterTroops(snapshot: TroopSnapshot, filters?: Sg2Filters): Sg2FilterResult;
-//   export function playersSummary(result: Sg2FilterResult): string; // linhas "nick;qtde;coord coord"
+import MemorySummarySection from './MemorySummarySection';
 import { filterTroops, playersSummary } from '@shared/sg2-engine';
 import type { Sg2FilterResult, Sg2Filters, TroopSnapshot } from '@shared/sg2-engine';
 import {
@@ -116,7 +101,7 @@ export default function Sg2Page() {
   // Memória (persistida no processo principal; F5 não perde).
   const [troopsAt, setTroopsAt] = useState<string | null>(null);
   const [collectFailures, setCollectFailures] = useState<{ playerName: string; reason: string }[] | null>(null);
-  const [memorySummary, setMemorySummary] = useState<{ players: number; villages: number; collectedAt: string; source: string } | null>(null);
+  const [showSummary, setShowSummary] = useState(false);
   const [snapshot, setSnapshot] = useState<TroopSnapshot | null>(null);
   const [collecting, setCollecting] = useState<'members' | 'summary' | null>(null);
   const [progress, setProgress] = useState<QueueProgress | null>(null);
@@ -226,19 +211,9 @@ export default function Sg2Page() {
       await (kind === 'members'
         ? window.staffhub.troops.collectMembers('troops')
         : window.staffhub.troops.collectSummary('troops'));
-      const snapshotAfter = await window.staffhub.troops.get('troops');
-      const failed = snapshotAfter?.failures ?? [];
-      if (snapshotAfter) {
-        const playersSet = new Set(snapshotAfter.entries.map((e) => e.playerName));
-        const villages = snapshotAfter.entries.filter((e) => e.coord.x >= 0).length;
-        setMemorySummary({
-          players: playersSet.size,
-          villages,
-          collectedAt: new Date(snapshotAfter.collectedAt).toLocaleString('pt-BR'),
-          source: snapshotAfter.source === 'summary' ? 'resumo (por jogador)' : 'por aldeia (por membro)',
-        });
-      }
-      await refreshMemory();
+      const stored = await refreshMemory();
+      const failed = stored?.failures ?? [];
+      setShowSummary(true);
       if (failed.length > 0) {
         push('info', `Coleta concluída com ${failed.length} membro(s) com erro — lista abaixo do painel de memória.`);
         setCollectFailures(failed);
@@ -258,21 +233,15 @@ export default function Sg2Page() {
   async function exhibit(): Promise<void> {
     try {
       const stored = await refreshMemory();
-      setResult(null);
+      // Sem setResult(null): exibir o resumo NÃO pode descartar um resultado
+      // de consulta/fulls-semis que o usuário já tem na tela.
       if (stored === null) {
         push('info', 'Nada em memória — colete as informações de tropas primeiro.');
-        setMemorySummary(null);
+        setShowSummary(false);
         return;
       }
-      const players = new Set(stored.entries.map((entry) => entry.playerName));
-      const villages = stored.entries.filter((entry) => entry.coord.x >= 0).length;
-      setMemorySummary({
-        players: players.size,
-        villages,
-        collectedAt: new Date(stored.collectedAt).toLocaleString('pt-BR'),
-        source: stored.source === 'summary' ? 'resumo (por jogador)' : 'por aldeia (por membro)',
-      });
-      push('ok', 'Memória carregada — resumo abaixo.');
+      setShowSummary(true);
+      push('ok', 'Memória carregada — resumo geral abaixo.');
     } catch (error) {
       push('error', errorMessage(error));
     }
@@ -497,18 +466,6 @@ export default function Sg2Page() {
         description="Coleta as tropas recrutadas de cada aldeia da tribo (com progresso e memória local), filtra por unidade, escopo, coordenadas e eixos — e classifica ofensivas vs defensivas sem filtro de tropas."
       />
 
-      {memorySummary !== null && (
-        <section className="page-section" aria-label="Resumo dos dados em memória">
-          <div className="card">
-            <div className="card-body sg2-memory-summary">
-              <strong>{memorySummary.players}</strong> jogador(es) ·{" "}
-              <strong>{memorySummary.villages}</strong> aldeia(s) · coleta{" "}
-              {memorySummary.source} · {memorySummary.collectedAt}
-            </div>
-          </div>
-        </section>
-      )}
-
       {collectFailures !== null && (
         <section className="page-section" aria-label="Membros com erro na coleta">
           <div className="card">
@@ -587,6 +544,14 @@ export default function Sg2Page() {
           </div>
         </div>
       </section>
+
+      {showSummary && snapshot !== null && (
+        <MemorySummarySection
+          snapshot={snapshot}
+          collectedLabel={new Date(snapshot.collectedAt).toLocaleString('pt-BR')}
+          sourceLabel={snapshot.source === 'summary' ? 'resumo (por jogador)' : 'por aldeia (por membro)'}
+        />
+      )}
 
       {actionError !== '' && (
         <div className="callout callout--danger">
