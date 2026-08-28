@@ -12,7 +12,7 @@ import {
   type TargetLine,
 } from './sg4-engine';
 
-const NOBLE = 27.654; // min/campo efetivo do BR142 (aprox. 1h a 2,17 campos)
+const NOBLE = 27.654; // min/campo ARBITRÁRIO dos fixtures (motor puro — o mundo real é 31.111 servido; ver sg1-service)
 
 function enemy(playerId: number, playerName: string, x: number, y: number): EnemyVillageRef {
   return { playerId, playerName, coord: { x, y } };

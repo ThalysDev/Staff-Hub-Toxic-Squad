@@ -9,7 +9,6 @@ import type { Sg1Input, Sg1Result, UnitInfo } from '@shared/types';
 import {
   buildEnemySet,
   computeSg1Buckets,
-  effectiveNobleMinutesPerField,
 } from '@shared/sg1-engine';
 import { parseUnitInfoXml } from '@shared/parsers/world-parsers';
 import { parseWorldConfigXml, type WorldConfig } from '@shared/world-config';
@@ -102,7 +101,10 @@ export class Sg1Service {
       throw new Error('get_unit_info sem dados do Nobre — configuração de unidades inesperada.');
     }
     const config = await this.worldConfig(world);
-    const nobleMinutesPerField = effectiveNobleMinutesPerField(snob.speed, config.speed, config.unitSpeed);
+    // O valor servido pelo get_unit_info JÁ É o tempo efetivo por campo (prova
+    // br142/brc2 no JSDoc de nobleMinutesPerField) — sem nova divisão.
+    void config;
+    const nobleMinutesPerField = snob.speed;
     // kDesired vazio = todos os continentes; a engine só filtra quando o array
     // é fornecido (um [] filtraria tudo).
     const buckets = computeSg1Buckets(
@@ -123,8 +125,12 @@ export class Sg1Service {
     };
   }
 
-  /** Minutos por campo do NOBRE no mundo ativo (efetivo, com speed/unit_speed).
-   * Reuso público do SG_4 (planilha/distribuição em horas de nobre). */
+  /** Minutos por campo do NOBRE no mundo ativo — o valor SERVIDO pelo
+   * get_unit_info JÁ É o tempo efetivo por campo: o servidor grava a base
+   * clássica ÷ (speed × unit_speed) do mundo (prova: br142 nobre 31.111 =
+   * 35/1.125 e brc2 nobre 17.5 = 35/2, todas as 13 unidades batem). Dividir
+   * de novo gerava durações menores que o jogo (÷1.125 no br142, ÷2 no brc2).
+   * Reuso público do SG_4 (planificação/distribuição/agenda em horas). */
   async nobleMinutesPerField(): Promise<number> {
     const world = this.worldData.world();
     const units = await this.unitInfo(world);
@@ -132,8 +138,7 @@ export class Sg1Service {
     if (snob === undefined) {
       throw new Error('get_unit_info sem dados do Nobre — configuração de unidades inesperada.');
     }
-    const config = await this.worldConfig(world);
-    return effectiveNobleMinutesPerField(snob.speed, config.speed, config.unitSpeed);
+    return snob.speed;
   }
 
   /** Bônus noturno do mundo ativo (get_config, cache 1 dia) — janela em horas. */

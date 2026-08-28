@@ -4,25 +4,13 @@ import type { Coord } from './coords';
 import {
   buildEnemySet,
   computeSg1Buckets,
-  effectiveNobleMinutesPerField,
 } from './sg1-engine';
 
-// Min/campo efetivo do BR142: 31.111… / (1.5 × 0.75) ≈ 27.65432.
-const MPF_BR142 = effectiveNobleMinutesPerField(31.111111111111, 1.5, 0.75);
-
-describe('effectiveNobleMinutesPerField', () => {
-  it('fórmula TW: speed_xml / (worldSpeed × unitSpeed)', () => {
-    expect(MPF_BR142).toBeCloseTo(31.111111111111 / 1.125, 10);
-    expect(MPF_BR142).toBeCloseTo(27.654320987654322, 10);
-    expect(effectiveNobleMinutesPerField(18, 1.5, 0.75)).toBe(16);
-  });
-
-  it('velocidades inválidas → RangeError (fail-closed)', () => {
-    expect(() => effectiveNobleMinutesPerField(0, 1.5, 0.75)).toThrow(RangeError);
-    expect(() => effectiveNobleMinutesPerField(18, 0, 0.75)).toThrow(RangeError);
-    expect(() => effectiveNobleMinutesPerField(18, 1.5, Number.NaN)).toThrow(RangeError);
-  });
-});
+// Min/campo ARBITRÁRIO dos fixtures (o motor é puro — o mundo não participa).
+// No mundo real (br142) o valor servido pelo get_unit_info é 31.111… min/campo:
+// o servidor já grava a base clássica ÷ (speed × unit_speed) — NÃO dividir de novo
+// (v0.27.1: a dupla divisão deixava SG_1/SG_4 mais rápidos que o jogo).
+const MPF_BR142 = 27.654320987654322;
 
 describe('computeSg1Buckets', () => {
   it('cada faixa de tempo cai no bucket certo (inimigo na origem)', () => {

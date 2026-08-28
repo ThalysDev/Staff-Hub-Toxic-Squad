@@ -53,25 +53,6 @@ export function computeSg1Buckets(params: Sg1EngineParams, filters?: Sg1Filters)
   return buckets;
 }
 
-/**
- * Minutos por campo efetivos do NOBRE: speed do nobre no XML (min/campo a speed 1)
- * dividido por (worldSpeed × unitSpeed). Ex.: 31.111… / (1.5 × 0.75) = 27.654… min/campo.
- * A calibração fina será conferida contra tempos reais do jogo na fase SG_4.
- */
-export function effectiveNobleMinutesPerField(
-  unitInfoSpeed: number,
-  worldSpeed: number,
-  unitSpeed: number
-): number {
-  const values = [unitInfoSpeed, worldSpeed, unitSpeed];
-  if (values.some((v) => !Number.isFinite(v) || v <= 0)) {
-    throw new RangeError(
-      `Velocidades inválidas para min/campo efetivo: speed_xml=${unitInfoSpeed}, ` +
-        `worldSpeed=${worldSpeed}, unitSpeed=${unitSpeed} (todas devem ser > 0)`
-    );
-  }
-  return unitInfoSpeed / (worldSpeed * unitSpeed);
-}
 
 export interface BuildEnemySetOpts {
   /** K ALDEIAS INIMIGAS DESCONSIDERADAS — continentes removidos do conjunto inimigo. */
