@@ -49,6 +49,9 @@ export interface FakesIntelligentSectionProps {
   usedOriginCoords?: string[];
   /** Chamado com as linhas "x|y" (alvo de cada par origem→alvo) para preencher a caixa de FAKES. */
   onApply: (fakeLines: string[]) => void;
+  /** Default true. Quando false, "Aplicar na caixa de fakes" fica desabilitado —
+   *  a etapa 1 ainda não gerou o split de alvos/fakes para aplicar. */
+  canApply?: boolean;
 }
 
 /** Contagem de fakes por vila de origem (ordem de entrada preservada). */
@@ -79,6 +82,7 @@ export default function FakesIntelligentSection({
   orphanTargets = [],
   usedOriginCoords = [],
   onApply,
+  canApply = true,
 }: FakesIntelligentSectionProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const [maxPerOriginText, setMaxPerOriginText] = useState('1');
@@ -183,6 +187,7 @@ export default function FakesIntelligentSection({
           className="btn btn-ghost btn-sm fkint-toggle"
           aria-expanded={open}
           aria-controls="fkint-content"
+          data-tip="Abre/fecha o piloto de fakes: distribuição automática dos fakes pelas origens com comando sobrando."
           onClick={() => setOpen((visible) => !visible)}
         >
           <Sparkles size={14} aria-hidden="true" />
@@ -234,13 +239,14 @@ export default function FakesIntelligentSection({
                   min={1}
                   step={1}
                   value={maxPerOriginText}
+                  data-tip="Teto de fakes que CADA vila de origem pode enviar. 1 = espalha mais; aumente se sobrarem alvos sem fake."
                   onChange={(event) => setMaxPerOriginText(event.target.value)}
                 />
               </Field>
               <Field
                 id="fkint-maxFields"
                 label="Distância máxima (campos)"
-                hint="Vazio = sem teto. Padrão do motor: 70 campos."
+                hint="Vazio = sem limite. Ex.: 70 para restringir a 70 campos."
               >
                 <input
                   id="fkint-maxFields"
@@ -250,20 +256,31 @@ export default function FakesIntelligentSection({
                   step={1}
                   placeholder="sem teto"
                   value={maxFieldsText}
+                  data-tip="Distância máxima origem→alvo em campos. Vazio = sem teto (use o mesmo valor da Distribuição para o mesmo alcance)."
                   onChange={(event) => setMaxFieldsText(event.target.value)}
                 />
               </Field>
             </div>
 
             <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-              <button type="button" className="btn" onClick={runDistribution}>
+              <button
+                type="button"
+                className="btn"
+                data-tip="Cada origem disponível pega o alvo livre mais próximo (limitado por distância e por fakes/origem) — a ilusão se espalha pelo máximo de vilas."
+                onClick={runDistribution}
+              >
                 <Crosshair size={15} aria-hidden="true" />
                 Distribuir fakes
               </button>
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
-                disabled={result === null}
+                disabled={result === null || !canApply}
+                data-tip={
+                  canApply
+                    ? 'Substitui o conteúdo da caixa ALDEIAS FAKES da etapa 1 pelos alvos fake gerados (os alvos reais são preservados).'
+                    : 'Gere o split da etapa 1 primeiro (Separar alvos e fakes).'
+                }
                 onClick={applyToFakesBox}
               >
                 <Check size={14} aria-hidden="true" />

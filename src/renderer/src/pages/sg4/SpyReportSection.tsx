@@ -192,7 +192,10 @@ export default function SpyReportSection({ onUseAsTarget }: SpyReportSectionProp
               </span>
               <span className="stat-block-value">{report.coord}</span>
             </div>
-            <div className="stat-block spy-stat" data-tip="— significa que o relatório não trouxe o nível.">
+            <div
+              className="stat-block spy-stat"
+              data-tip="Cada nível acima de 10 soma +10% de fulls (teto +50%). '—' = o relatório não trouxe o nível."
+            >
               <span className="stat-block-label">
                 <BrickWall size={14} className="stat-block-icon" aria-hidden="true" />
                 Muralha
@@ -204,14 +207,20 @@ export default function SpyReportSection({ onUseAsTarget }: SpyReportSectionProp
                 {report.wallLevel === null ? '—' : `Nível ${report.wallLevel}`}
               </span>
             </div>
-            <div className="stat-block spy-stat" data-tip="Base do cálculo de fulls recomendados.">
+            <div
+              className="stat-block spy-stat"
+              data-tip="Base da conta: fulls = ceil(defPop ÷ pop por full) + bônus de muralha acima do nível 10."
+            >
               <span className="stat-block-label">
                 <Shield size={14} className="stat-block-icon" aria-hidden="true" />
                 Pop. defensiva
               </span>
               <span className="stat-block-value">{NUMBER_FMT.format(report.defPop)}</span>
             </div>
-            <div className="stat-block spy-stat">
+            <div
+              className="stat-block spy-stat"
+              data-tip="Informativa — NÃO entra na conta de fulls (a sugestão usa a população defensiva)."
+            >
               <span className="stat-block-label">
                 <Swords size={14} className="stat-block-icon" aria-hidden="true" />
                 Pop. ofensiva

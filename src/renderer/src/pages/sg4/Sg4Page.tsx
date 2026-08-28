@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { AlertTriangle, Bell, Check, Clock, Copy, Crosshair, Plus, Radar, Share2, Swords } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { AlertTriangle, Bell, Check, Clock, Copy, Crosshair, Info, Plus, Radar, Share2, Swords } from 'lucide-react';
 import { parseCoord, parseCoordList } from '@shared/coords';
 import {
   centralOpAnalysis,
@@ -174,31 +174,75 @@ function heatStyle(t: number): CSSProperties {
 interface StepperStep {
   label: string;
   done: boolean;
+  /** Concluída, mas os inputs mudaram desde então — âmbar: recalcular. */
+  stale?: boolean;
+  /** Resumo curto do resultado (tooltip de etapa concluída). */
+  summary?: string;
+  /** O que fazer nesta etapa (tooltip de etapa atual/futura). */
+  action?: string;
   /** id do título da seção para rolar. */
   anchor: string;
 }
 
-/** Stepper do fluxo de OP: chips 1→4 com estado (verde = etapa concluída) e
- *  clique que rola suavemente até a seção correspondente. */
+/** Estado visual do chip: concluída / concluída-stale / atual / futura. */
+type StepperStepState = 'done' | 'stale' | 'current' | 'future';
+
+/** Estado de cada chip: concluídas ficam verdes (ou âmbar quando stale); a
+ *  PRIMEIRA pendente é a atual (accent, "Você está aqui"); as demais, futuras. */
+function stepState(step: StepperStep, isCurrent: boolean): StepperStepState {
+  if (!step.done) return isCurrent ? 'current' : 'future';
+  return step.stale === true ? 'stale' : 'done';
+}
+
+/** Tooltip/aria-label por estado: diz onde o usuário está e o que fazer. */
+function stepTip(index: number, step: StepperStep, state: StepperStepState): string {
+  const n = index + 1;
+  switch (state) {
+    case 'done':
+      return `Etapa ${n} concluída — clique para ir. ${step.summary ?? ''}`.trim();
+    case 'stale':
+      return `Etapa ${n} concluída — mas os parâmetros mudaram. Recalcule antes de confiar. ${step.summary ?? ''}`.trim();
+    case 'current':
+      return `Você está aqui — conclua esta etapa para avançar: ${step.action ?? step.label}`.trim();
+    default:
+      return `Etapa ${n} pendente — ${step.action ?? step.label}`.trim();
+  }
+}
+
+/** Stepper do fluxo de OP: chips próprios (.sg4-step) com círculo numerado,
+ *  rótulo e conectores "→", em partes iguais na largura. Estados: is-done
+ *  (verde + check no círculo), is-stale (âmbar — recalcule), is-current
+ *  (primeira pendente, accent, aria-current="step") e is-future (apagada).
+ *  Clique rola suavemente até a seção correspondente. */
 function Sg4Stepper({ steps }: { steps: StepperStep[] }) {
+  const currentIndex = steps.findIndex((step) => !step.done);
   return (
-    <nav className="row" style={{ gap: 8, flexWrap: 'wrap' }} aria-label="Etapas da criação de OP">
-      {steps.map((step, index) => (
-        <button
-          key={step.anchor}
-          type="button"
-          className={step.done ? 'btn sg4-btn-green btn-sm' : 'btn btn-ghost btn-sm'}
-          title={
-            step.done
-              ? `Etapa ${index + 1} concluída — ir para "${step.label}"`
-              : `Etapa ${index + 1} pendente — ir para "${step.label}"`
-          }
-          onClick={() => document.getElementById(step.anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-        >
-          {index + 1}. {step.label}
-          {step.done && <Check size={13} aria-hidden="true" />}
-        </button>
-      ))}
+    <nav className="sg4-steps" aria-label="Etapas da criação de OP">
+      {steps.map((step, index) => {
+        const state = stepState(step, index === currentIndex);
+        const tip = stepTip(index, step, state);
+        const finished = state === 'done' || state === 'stale';
+        return (
+          <Fragment key={step.anchor}>
+            {index > 0 && (
+              <span className="sg4-step-connector" aria-hidden="true">→</span>
+            )}
+            <button
+              type="button"
+              className={`sg4-step is-${state}`}
+              data-tip={tip}
+              aria-label={tip}
+              aria-current={state === 'current' ? 'step' : undefined}
+              onClick={() => document.getElementById(step.anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            >
+              <span className="sg4-step-num" aria-hidden="true">
+                {finished ? <Check size={13} /> : index + 1}
+              </span>
+              <span className="sg4-step-label">{step.label}</span>
+            </button>
+          </Fragment>
+        );
+      })}
     </nav>
   );
 }
@@ -450,8 +494,10 @@ export default function Sg4Page() {
     const tags = parseTags(enemyTagsText);
     const central = parseCoord(centralCoordText);
     const nextErrors: { tags?: string; central?: string } = {};
-    if (tags.length === 0) nextErrors.tags = 'Informe ao menos uma tag inimiga (ex.: DARK;SAV).';
-    if (central === null) nextErrors.central = 'Coordenada inválida — use o formato 123|456.';
+    if (tags.length === 0) nextErrors.tags = 'Informe ao menos uma tag inimiga — confira a grafia (ex.: DARK).';
+    if (central === null)
+      nextErrors.central =
+        'A coordenada central ficou inválida — confira o formato 123|456 e clique em "Carregar aldeias inimigas" de novo.';
     if (tags.length === 0 || central === null) {
       setErrorsA(nextErrors);
       const message = nextErrors.central ?? nextErrors.tags ?? 'Confira os campos da OP.';
@@ -477,7 +523,7 @@ export default function Sg4Page() {
         if (tagSet.has(ally.tag.toLowerCase())) allyIds.add(ally.id);
       }
       if (allyIds.size === 0) {
-        const message = 'Nenhuma tribo encontrada com as tags informadas.';
+        const message = 'Nenhuma tribo encontrada com as tags informadas — confira a grafia (ex.: DARK).';
         setRunErrorA(message);
         push('error', message);
         return;
@@ -568,19 +614,14 @@ export default function Sg4Page() {
 
   /** P1-16: aplica as linhas "x|y" vindas dos fakes inteligentes na caixa
    *  ALDEIAS FAKES (substitui o resultado do split preservando os alvos).
-   *  Toast só quando a caixa EXISTIA de fato — sem split, erro honesto. */
+   *  Guard ANTES do set (sem flag de updater): caixa sumiu = erro honesto. */
   function applyIntelligentFakes(fakeLines: string[]): void {
-    let aplicou = false;
-    setSplitResult((current) => {
-      if (current === null) return current;
-      aplicou = true;
-      return { ...current, fakes: fakeLines };
-    });
-    if (aplicou) {
-      push('ok', 'Fakes inteligentes aplicados na caixa.');
-    } else {
-      push('error', 'A caixa de fakes já não existe — gere o split de novo.');
+    if (splitResult === null) {
+      push('error', 'As caixas de alvos/fakes foram limpas — gere o split de novo antes de aplicar fakes inteligentes.');
+      return;
     }
+    setSplitResult({ ...splitResult, fakes: fakeLines });
+    push('ok', 'Fakes inteligentes aplicados na caixa.');
   }
 
   /** Ponte A→B: cola os alvos gerados na Seção A na PRIMEIRA linha de alvos da
@@ -848,13 +889,14 @@ export default function Sg4Page() {
     }
 
     const builtLines: TargetLine[] = [];
-    for (const line of lines) {
+    for (const [index, line] of lines.entries()) {
       const targets = parseCoordList(line.coordsText);
       if (targets.length === 0) continue;
+      const lineName = (LINE_NAMES[index] ?? `${index + 1}ª linha`).toLowerCase();
       const from = line.fullsFrom.trim() === '' ? 0 : Number(line.fullsFrom);
       const to = line.fullsTo.trim() === '' ? 200 : Number(line.fullsTo);
       if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to > 200 || from > to) {
-        messages.push('Confira a faixa FULLS DE/ATÉ (0–200) das linhas de coordenadas.');
+        messages.push(`Confira a faixa FULLS DE/ATÉ (0–200) da ${lineName} de alvos.`);
         break;
       }
       // Faixa opcional de semis do jogador (vazio = 0–200 = todas).
@@ -863,7 +905,7 @@ export default function Sg4Page() {
         const sFrom = line.semisFrom.trim() === '' ? 0 : Number(line.semisFrom);
         const sTo = line.semisTo.trim() === '' ? 200 : Number(line.semisTo);
         if (!Number.isInteger(sFrom) || !Number.isInteger(sTo) || sFrom < 0 || sTo > 200 || sFrom > sTo) {
-          messages.push('Confira a faixa SEMIS DE/ATÉ (0–200) das linhas — vazia significa todas.');
+          messages.push(`Confira a faixa SEMIS DE/ATÉ (0–200) da ${lineName} — vazia significa todas.`);
           break;
         }
         semiRange.semisFrom = sFrom;
@@ -875,10 +917,12 @@ export default function Sg4Page() {
       messages.push('Informe ao menos 1 coordenada de alvo nas linhas (123|456 456|123 …).');
     }
 
-    const minMoraleRaw = Number(minMoraleText);
+    // Moral mínima: validação explícita 0–100 (vazio = 0 = filtro desligado) —
+    // SEM clamp silencioso: valor fora da faixa é erro, não ajuste escondido.
+    const minMoraleRaw = minMoraleText.trim() === '' ? 0 : Number(minMoraleText);
     const maxFields = Number(maxFieldsText);
-    if (minMoraleText.trim() !== '' && !Number.isFinite(minMoraleRaw)) {
-      messages.push('Moral mínima deve ser um número entre 0 e 100.');
+    if (!Number.isFinite(minMoraleRaw) || minMoraleRaw < 0 || minMoraleRaw > 100) {
+      messages.push('Moral mínima deve ser um número entre 0 e 100 — 0 desliga o filtro.');
     }
     if (!Number.isFinite(maxFields) || maxFields <= 0) {
       messages.push('Distância máxima deve ser um número de campos maior que 0.');
@@ -908,7 +952,8 @@ export default function Sg4Page() {
       }
       // Mundo clássico (sem moral por pontos): nunca envia minMorale > 0,
       // mesmo que o campo tenha guardado um valor antes de desabilitar.
-      const minMorale = moraleActive ? Math.min(100, Math.max(0, Math.round(minMoraleRaw))) : 0;
+      // Fora de 0–100 NÃO chega aqui — a validação acima já barrou com erro.
+      const minMorale = moraleActive ? Math.round(minMoraleRaw) : 0;
       const input: DistributionInput = {
         origins,
         lines: builtLines,
@@ -921,7 +966,7 @@ export default function Sg4Page() {
       };
       const result = distributeTargets(input);
       if (planOnly) {
-        // Planificação é SIMULAÇÃO: derruba distribuição e agenda antigas —
+        // Simular é SIMULAÇÃO: derruba distribuição e agenda antigas —
         // não pode ficar agenda armada de uma distribuição anterior.
         setPlanning(result);
         setDistribution(null);
@@ -929,7 +974,7 @@ export default function Sg4Page() {
         setScheduleRows(null);
         setScheduleInputs(null);
         setTimingError('');
-        push('ok', `Planificação: ${result.matrix.length} origem(ns) × ${result.lineTargets.length} alvo(s).`);
+        push('ok', `Simulação: ${result.matrix.length} origem(ns) × ${result.lineTargets.length} alvo(s).`);
       } else {
         setDistribution(result);
         // Snapshot dos inputs usados — base do banner "parâmetros mudaram".
@@ -958,6 +1003,13 @@ export default function Sg4Page() {
     if (hours.length === 0) return { min: 0, max: 1 };
     return { min: Math.min(...hours), max: Math.max(...hours) };
   }, [planning]);
+
+  /** "Distância máxima" em número, para APAGAR células além do limite no
+   *  heatmap (aviso visual — o filtro de verdade vale na distribuição). */
+  const maxFieldsLimit = useMemo<number | null>(() => {
+    const parsed = Number(maxFieldsText);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }, [maxFieldsText]);
 
   /**
    * P0-1/P0-2/P0-6: agenda de envio = chegada desejada − tempo de viagem
@@ -1020,7 +1072,9 @@ export default function Sg4Page() {
         const key = `${originCoord.x}|${originCoord.y}|${targetCoord}`;
         const fields = fieldsByPair.get(key);
         if (fields === undefined) {
-          throw new Error(`Par origem×alvo fora da planilha (${key}) — rode a distribuição novamente.`);
+          throw new Error(
+            `Não encontrei a distância do par origem→alvo (${key}) — os pares mudaram desde a distribuição. Rode a distribuição de novo e recalcule a agenda.`,
+          );
         }
         const classicMinutes = fields * noble;
         if (nightCfg === null || !nightCfg.nightBonusActive) return classicMinutes;
@@ -1101,7 +1155,7 @@ export default function Sg4Page() {
     distribution !== null
       ? `${distribution.assignments.length} pares fechados · ${distribution.orphanTargets.length} alvo(s) sem atacante${distributionStale ? ' — parâmetros mudaram, redistribua' : ''}`
       : planning !== null
-        ? 'planificação pronta — revise o heatmap e distribua'
+        ? 'simulação pronta — revise o mapa de calor e distribua'
         : 'distribuição não realizada';
   const stepAgendaStatus =
     scheduleRows !== null && scheduleRows.length > 0
@@ -1117,56 +1171,78 @@ export default function Sg4Page() {
       <PageHeader
         kicker={`Módulo SG4 — Fase ${moduleInfo?.phase ?? 4}`}
         title={moduleInfo?.originalLabel ?? 'Criação de Operações'}
-        description="OP por coordenada central com camadas de 1 a 8 horas, separação de alvos e fakes, e distribuição origem × alvo com moral."
+        description="Em 4 etapas: alvos e fakes, distribuição, agenda de envio e comunicação."
       />
 
       <Sg4Stepper
         steps={[
-          { label: 'Alvos', done: splitResult !== null, anchor: 'sg4-op-title' },
-          { label: 'Distribuição', done: distribution !== null, anchor: 'sg4-dist-title' },
+          {
+            label: 'Alvos',
+            done: splitResult !== null,
+            stale: analysisStale,
+            summary: stepAlvosStatus,
+            action: 'carregue as aldeias inimigas, marque Alvo/Fake e clique em "Separar alvos e fakes"',
+            anchor: 'sg4-op-title',
+          },
+          {
+            label: 'Distribuição',
+            done: distribution !== null,
+            stale: distributionStale,
+            summary: stepDistributionStatus,
+            action: 'cole as origens e os alvos e clique em "Distribuir agora"',
+            anchor: 'sg4-dist-title',
+          },
           {
             label: 'Agenda',
             done: scheduleRows !== null && scheduleRows.length > 0,
+            stale: scheduleStale,
+            summary: stepAgendaStatus,
+            action: 'defina "OP bate às" e clique em "Calcular horários de envio"',
             anchor: 'sg4-agenda-title',
           },
-          { label: 'Comunicação', done: commsPlayers !== null, anchor: 'sg4-comms-title' },
+          {
+            label: 'Comunicação',
+            done: commsPlayers !== null,
+            summary: stepCommsStatus,
+            action: 'revise a prévia da MP e poste o plano no fórum',
+            anchor: 'sg4-comms-title',
+          },
         ]}
       />
-
-      <div className="row">
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={restoreDefaults}
-          data-tip="Limpa TODOS os campos do SG4 salvos (resultados na tela também somem)."
-        >
-          Restaurar padrões do módulo
-        </button>
-      </div>
 
       {/* ===== Seção A — Criação de OP com Coordenada Central ===== */}
       <section className="page-section" aria-labelledby="sg4-op-title">
         <h2 className="section-title" id="sg4-op-title">Criação de OP com Coordenada Central</h2>
         <p className="muted">{stepAlvosStatus}</p>
+        {opRows === null && (
+          <div className="callout callout--info" style={{ marginBottom: 12 }}>
+            <Info size={18} className="callout-icon" aria-hidden="true" />
+            <div className="callout-body">
+              <p>
+                <strong>Comece por aqui</strong> — informe as tags inimigas e a coordenada central e
+                clique em "Carregar aldeias inimigas"; depois marque quem é alvo e quem é fake.
+              </p>
+            </div>
+          </div>
+        )}
         <div className="card">
           <div className="card-body">
             {relationsFailed && (
               <div className="callout callout--danger">
                 <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
                 <div className="callout-body">
-                  <p className="callout-title">Diplomacia indisponível</p>
                   <p>
-                    Não foi possível carregar as relações diplomáticas — se você acabou
-                    de entrar no jogo, elas recarregam sozinhas; senão, tente de novo agora.
+                    <strong>Diplomacia indisponível</strong> — o botão de preencher tags fica
+                    desativado até ela voltar; a OP funciona com tags digitadas à mão.{' '}
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      disabled={relationsBusy}
+                      onClick={() => void retryRelations()}
+                    >
+                      Tentar novamente
+                    </button>
                   </p>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    disabled={relationsBusy}
-                    onClick={() => void retryRelations()}
-                  >
-                    Tentar novamente
-                  </button>
                 </div>
               </div>
             )}
@@ -1194,6 +1270,7 @@ export default function Sg4Page() {
                     type="button"
                     className="btn btn-ghost btn-sm"
                     onClick={useEnemyTagsFromDiplomacy}
+                    disabled={relationsFailed}
                     data-tip="Preenche o campo com as tribos inimigas da diplomacia da sua tribo."
                   >
                     <Swords size={14} aria-hidden="true" />
@@ -1437,6 +1514,7 @@ export default function Sg4Page() {
           orphanTargets={distribution?.orphanTargets ?? []}
           usedOriginCoords={fakesUsedOriginCoords}
           onApply={applyIntelligentFakes}
+          canApply={splitResult !== null}
         />
 
         {/* Análise de espionagem — subseção da Seção A, logo após o bloco
@@ -1449,6 +1527,29 @@ export default function Sg4Page() {
       <section className="page-section" aria-labelledby="sg4-dist-title">
         <h2 className="section-title" id="sg4-dist-title">Distribuição de Alvos de OP</h2>
         <p className="muted">{stepDistributionStatus}</p>
+        {originsText.trim() === '' && (
+          <div className="callout callout--info" style={{ marginBottom: 12 }}>
+            <Info size={18} className="callout-icon" aria-hidden="true" />
+            <div className="callout-body">
+              <p>
+                <strong>Sem origens ainda</strong> — cole a saída do contador do SG2 no campo
+                "Origens da tribo" abaixo (ou use o botão "Preencher com o SG2").
+              </p>
+            </div>
+          </div>
+        )}
+        {lines.every((line) => parseCoordList(line.coordsText).length === 0) && (
+          <div className="callout callout--info" style={{ marginBottom: 12 }}>
+            <Info size={18} className="callout-icon" aria-hidden="true" />
+            <div className="callout-body">
+              <p>
+                <strong>Sem alvos nesta etapa</strong> — cole as coordenadas dos alvos (123|456
+                456|123) na primeira linha de alvos, ou traga os alvos da etapa 1 com o botão "Usar
+                estes alvos na distribuição".
+              </p>
+            </div>
+          </div>
+        )}
         <div className="card">
           <div className="card-body">
             <Field
@@ -1588,6 +1689,7 @@ export default function Sg4Page() {
                     rows={2}
                     placeholder="123|456 456|123 111|222"
                     value={line.coordsText}
+                    data-tip="Alvos desta linha, separados por espaço. Só jogadores na faixa de fulls/semis ao lado podem pegá-los."
                     onChange={(event) => updateLine(index, 'coordsText', event.target.value)}
                   />
                   <div>
@@ -1664,22 +1766,32 @@ export default function Sg4Page() {
               </label>
             </div>
 
-            {moraleActive && <MoraleCurve />}
+            {/* Curva da moral com a linha da moral mínima configurada — só
+                quando o valor é um número válido em 0–100 (senão, curva pura). */}
+            {moraleActive &&
+              (() => {
+                const mm = Number(minMoraleText);
+                return (
+                  <MoraleCurve
+                    {...(Number.isFinite(mm) && mm >= 0 && mm <= 100 ? { minMorale: Math.round(mm) } : {})}
+                  />
+                );
+              })()}
 
             <div className="sg4-form-actions">
               <button
                 type="button"
-                className="btn"
+                className="btn btn-ghost"
                 disabled={busyB}
                 onClick={() => void runDistribution(true)}
                 data-tip="Só calcula a matriz origem×alvo para revisar — nada é fechado."
               >
                 <Crosshair size={15} aria-hidden="true" />
-                {busyB ? 'Calculando…' : 'Simular (ver heatmap)'}
+                {busyB ? 'Calculando…' : 'Simular (ver mapa de calor)'}
               </button>
               <button
                 type="button"
-                className="btn"
+                className="btn sg4-btn-green"
                 disabled={busyB}
                 onClick={() => void runDistribution(false)}
                 data-tip="Fecha a distribuição: cada origem fica com 1 alvo e habilita agenda, MPs, mapa e arquivo."
@@ -1697,7 +1809,7 @@ export default function Sg4Page() {
         {planning !== null && (
           <div className="card">
             <div className="card-header">
-              <h3 className="card-title">Planificação (origem × alvo)</h3>
+              <h3 className="card-title">Simulação (origem × alvo)</h3>
               <span className="spacer" />
               <span className="pill pill--muted">
                 {planning.matrix.length} origens · {planning.lineTargets.length} alvos
@@ -1728,21 +1840,29 @@ export default function Sg4Page() {
                             <span className="muted">{row.origin}</span> {row.player}
                             {row.tier === 'semi' && <span className="text-warn" title="Origem SEMI (população ofensiva abaixo do limiar de full)"> semi</span>}
                           </th>
-                          {row.cells.map((cell, index) => {
-                            const span = heatRange.max - heatRange.min;
-                            const t = span === 0 ? 0.5 : (cell.hours - heatRange.min) / span;
-                            const morale = cell.morale;
-                            return (
-                              <td
-                                key={index}
-                                className="sg4-heat-cell"
-                                style={heatStyle(t)}
-                                title={`${cell.hours.toFixed(1)}h ${cell.fields}campos${morale !== null ? ` ${morale}%` : ''}`}
-                              >
-                                {cell.hours.toFixed(1)}
-                              </td>
-                            );
-                          })}
+                      {row.cells.map((cell, index) => {
+                        const span = heatRange.max - heatRange.min;
+                        const t = span === 0 ? 0.5 : (cell.hours - heatRange.min) / span;
+                        const morale = cell.morale;
+                        // Célula além da "Distância máxima": apagada (aviso, não filtro).
+                        const far = maxFieldsLimit !== null && cell.fields > maxFieldsLimit;
+                        const tipParts = [
+                          `${cell.hours.toFixed(1).replace('.', ',')}h de viagem`,
+                          `${cell.fields} campos`,
+                        ];
+                        if (morale !== null) tipParts.push(`moral ${morale}%`);
+                        if (far && maxFieldsLimit !== null) tipParts.push(`fora do limite de ${maxFieldsLimit} campos`);
+                        return (
+                          <td
+                            key={index}
+                            className={far ? 'sg4-heat-cell sg4-heat-cell--far' : 'sg4-heat-cell'}
+                            style={heatStyle(t)}
+                            data-tip={tipParts.join(' · ')}
+                          >
+                            {cell.hours.toFixed(1)}
+                          </td>
+                        );
+                      })}
                         </tr>
                       ))}
                     </tbody>
@@ -1750,6 +1870,7 @@ export default function Sg4Page() {
                 </div>
                 <p className="muted sg4-heat-legend">
                   Horas de NOBRE da origem até o alvo: verde (mais perto) → amarelo → vermelho (mais longe).
+                  Células apagadas estão além da "Distância máxima" — o filtro vale na distribuição.
                   Passe o mouse sobre as células para ver horas, campos e moral.
                 </p>
               </div>
@@ -1838,6 +1959,7 @@ export default function Sg4Page() {
                   <input
                     className="input"
                     value={opTitle}
+                    data-tip="Nome com que a OP entra no arquivo de OPs (Sala de Guerra) e no plano do fórum."
                     onChange={(event) => setOpTitle(event.target.value)}
                     aria-label="Nome da OP para o histórico"
                   />
@@ -1866,14 +1988,34 @@ export default function Sg4Page() {
         )}
 
         {distribution !== null && distribution.assignments.length > 0 && (
+          <DistributionMap assignments={distribution.assignments} onError={handleMapError} />
+        )}
+      </section>
+
+      {/* ===== Etapa 3 — Agenda de Envio =====
+           Seção PERMANENTE no DOM (a âncora do stepper existe mesmo sem
+           distribuição): sem distribuição, callout orienta o que fazer antes. */}
+      <section className="page-section" aria-labelledby="sg4-agenda-title">
+        <h2 className="section-title" id="sg4-agenda-title">Agenda de Envio (timing da OP)</h2>
+        <p className="muted">{stepAgendaStatus}</p>
+        {distribution === null ? (
+          <div className="callout callout--info">
+            <Info size={18} className="callout-icon" aria-hidden="true" />
+            <div className="callout-body">
+              <p>
+                <strong>A agenda abre depois da distribuição</strong> — feche quem ataca o quê na
+                etapa 2 e volte aqui para calcular a que horas cada um precisa enviar.
+              </p>
+            </div>
+          </div>
+        ) : (
           <div className="card">
             <div className="card-header">
-              <h3 className="card-title" id="sg4-agenda-title">Agenda de Envio (timing da OP)</h3>
+              <h3 className="card-title">Horários de envio</h3>
               <span className="spacer" />
               <span className="pill pill--muted">enviar às = chegada desejada − tempo de viagem</span>
             </div>
             <div className="card-body">
-              <p className="muted">{stepAgendaStatus}</p>
               {scheduleStale && (
                 <div className="callout callout--warn">
                   <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
@@ -1900,6 +2042,7 @@ export default function Sg4Page() {
                     className="select"
                     value={opDay}
                     aria-label="Dia da chegada dos ataques"
+                    data-tip="Dia em que os ataques BATEM — os horários de envio saem para chegar nesse dia (Amanhã = base +1 antes de fixar as horas)."
                     onChange={(event) => setOpDay(event.target.value as 'hoje' | 'amanha')}
                   >
                     <option value="hoje">Hoje</option>
@@ -2030,16 +2173,31 @@ export default function Sg4Page() {
             </div>
           </div>
         )}
+      </section>
 
-        {distribution !== null && distribution.assignments.length > 0 && (
+      {/* ===== Etapa 4 — Pacote de Comunicação =====
+           Também PERMANENTE no DOM: sem distribuição, callout orienta. */}
+      <section className="page-section" aria-labelledby="sg4-comms-title">
+        <h2 className="section-title" id="sg4-comms-title">Pacote de Comunicação</h2>
+        <p className="muted">{stepCommsStatus}</p>
+        {distribution === null ? (
+          <div className="callout callout--info">
+            <Info size={18} className="callout-icon" aria-hidden="true" />
+            <div className="callout-body">
+              <p>
+                <strong>MPs e plano aparecem depois da distribuição</strong> — cada jogador só tem
+                alvos e horários para receber quando a OP está distribuída e agendada.
+              </p>
+            </div>
+          </div>
+        ) : (
           <div className="card">
             <div className="card-header">
-              <h3 className="card-title" id="sg4-comms-title">Pacote de Comunicação</h3>
+              <h3 className="card-title">MPs, plano e reservas</h3>
               <span className="spacer" />
               <span className="pill pill--muted">MPs com #horarios# · BBCode do plano · reservas</span>
             </div>
             <div className="card-body">
-              <p className="muted">{stepCommsStatus}</p>
               <label className="field">
                 <span className="field-label">Template da MP (use #alvos# e #horarios#)</span>
                 <textarea
@@ -2065,7 +2223,8 @@ export default function Sg4Page() {
                 </p>
               ) : commsPlayers === null ? (
                 <p className="error" role="alert">
-                  Distribuição e agenda de envio dessincronizadas — rode a distribuição e a agenda na mesma OP.
+                  A agenda foi calculada para outra distribuição — rode a distribuição e a agenda de
+                  novo, na ordem, para as MPs saírem certas.
                 </p>
               ) : (
                 <>
@@ -2131,6 +2290,7 @@ export default function Sg4Page() {
                     className="input"
                     placeholder="https://br142.tribalwars.com.br/game.php?screen=forum&screenmode=view_thread&forum_id=…&thread_id=…"
                     value={planThreadUrl}
+                    data-tip="Abra o tópico do plano no fórum do jogo e cole a URL aqui — o POSTAR substitui o 1º post."
                     aria-label="URL do tópico do plano"
                     onChange={(event) => setPlanThreadUrl(event.target.value)}
                   />
@@ -2181,11 +2341,20 @@ export default function Sg4Page() {
           </div>
         )}
 
-        {distribution !== null && distribution.assignments.length > 0 && (
-          <DistributionMap assignments={distribution.assignments} onError={handleMapError} />
-        )}
       </section>
 
+      {/* Rodapé: "Restaurar padrões" NÃO é passo do fluxo — última linha. */}
+      <div className="row sg4-footer-actions">
+        <button
+          type="button"
+          className="btn btn-ghost btn-ghost--danger btn-sm"
+          onClick={restoreDefaults}
+          data-tip="Limpa TODOS os campos do SG4 salvos — os resultados na tela (alvos, distribuição e agenda) também somem."
+        >
+          <AlertTriangle size={14} aria-hidden="true" />
+          Restaurar padrões do módulo
+        </button>
+      </div>
     </section>
   );
 }

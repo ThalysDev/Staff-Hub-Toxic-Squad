@@ -11,6 +11,9 @@ import { moraleOf } from '@shared/sg4-engine';
  *   exemplar fixo em 1.000.000 pontos e alvo = razão × 1.000.000.
  * - Linha tracejada no piso implícito de 30% (a constante 0,3 da fórmula).
  * - Marcadores nos pontos notáveis (0,1×, 1/3×, 1×, 3×) com a moral CALCULADA.
+ * - Prop opcional `minMorale`: linha tracejada em var(--danger) na moral mínima
+ *   configurada + marcador vertical na razão-limite (o inverso da fórmula:
+ *   razão = (moral/100 − 0,3) ÷ 3) — daí em diante a curva cai abaixo do mínimo.
  * - Cores sempre via var(--…) do tema — nada hardcoded.
  */
 
@@ -64,8 +67,29 @@ const Y_TICKS = [0, 60, 100];
 const RATIO_FMT = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 });
 const POINTS_FMT = new Intl.NumberFormat('pt-BR');
 
+export interface MoraleCurveProps {
+  /** Moral mínima (0–100) configurada na Distribuição. Quando definida, desenha
+   *  a linha tracejada nesse valor e o marcador vertical na razão-limite em que
+   *  a curva cruza o mínimo. Fora de 0–100 (ou razão fora do eixo) só o que
+   *  couber é desenhado. */
+  minMorale?: number;
+}
+
 /** Curva da moral do SG_4 — pura, apenas leitura do motor. */
-export default function MoraleCurve(): JSX.Element {
+export default function MoraleCurve({ minMorale }: MoraleCurveProps): JSX.Element {
+  // Moral mínima: linha horizontal tracejada (só se o valor cabe no eixo Y)…
+  const minMoraleY = minMorale !== undefined && Number.isFinite(minMorale) && minMorale >= 0 && minMorale <= 100
+    ? yOfMorale(minMorale)
+    : null;
+  // …e o marcador vertical na razão-limite, o inverso da fórmula do motor:
+  // moral = (razão × 3 + 0,3) × 100 ⇒ razão = (moral/100 − 0,3) ÷ 3.
+  const minRatio = minMorale === undefined ? null : (minMorale / 100 - 0.3) / 3;
+  const marker =
+    minRatio !== null && minRatio >= RATIO_MIN && minRatio <= RATIO_MAX
+      ? { x: xOfRatio(minRatio), label: `${RATIO_FMT.format(minRatio)}×` }
+      : null;
+  const minMoralePct = minMorale !== undefined && Number.isFinite(minMorale) ? RATIO_FMT.format(minMorale) : null;
+
   return (
     <div className="card mcurve">
       <div className="card-header">
@@ -83,7 +107,10 @@ export default function MoraleCurve(): JSX.Element {
           width="100%"
           height={VIEW_H}
           role="img"
-          aria-label="Curva da moral (0 a 100%) em função da razão entre o tamanho do alvo e o do atacante, com piso de 30%."
+          aria-label={
+            'Curva da moral (0 a 100%) em função da razão entre o tamanho do alvo e do atacante, com piso de 30%.' +
+            (minMoralePct !== null ? ` Linha tracejada: sua moral mínima (${minMoralePct}%).` : '')
+          }
         >
           {/* Grade horizontal (moral 0/60/100) */}
           {Y_TICKS.map((tick) => (
@@ -111,6 +138,37 @@ export default function MoraleCurve(): JSX.Element {
           <text x={VIEW_W - PAD_R} y={yOfMorale(30) - 4} textAnchor="end" fontSize={9} fill="var(--danger)">
             piso 30%
           </text>
+
+          {/* Moral mínima configurada (prop minMorale): linha tracejada + marcador
+              vertical na razão-limite em que a curva cruza o mínimo. */}
+          {minMoraleY !== null && (
+            <line
+              x1={PAD_L}
+              x2={VIEW_W - PAD_R}
+              y1={minMoraleY}
+              y2={minMoraleY}
+              stroke="var(--danger)"
+              strokeWidth={1}
+              strokeDasharray="2 3"
+            />
+          )}
+          {marker !== null && minMoraleY !== null && (
+            <g>
+              <line
+                x1={marker.x}
+                x2={marker.x}
+                y1={PAD_T}
+                y2={PAD_T + PLOT_H}
+                stroke="var(--danger)"
+                strokeWidth={1}
+                strokeDasharray="2 3"
+              />
+              <circle cx={marker.x} cy={minMoraleY} r={3} fill="var(--danger)" stroke="var(--bg-card)" strokeWidth={1} />
+              <text x={marker.x} y={PAD_T + PLOT_H - 5} textAnchor="middle" fontSize={9} fill="var(--danger)">
+                {marker.label}
+              </text>
+            </g>
+          )}
 
           {/* Eixos */}
           <line x1={PAD_L} x2={VIEW_W - PAD_R} y1={PAD_T + PLOT_H} y2={PAD_T + PLOT_H} stroke="var(--border-card)" strokeWidth={1} />
@@ -176,6 +234,7 @@ export default function MoraleCurve(): JSX.Element {
         <p className="muted mcurve-legend">
           Fórmula: (alvo÷atacante × 3 + 0,3) × 100, teto 100. Cada ponto do eixo = alvo com aquele
           tamanho relativo a um atacante de {POINTS_FMT.format(EXEMPLAR_ATTACKER)} pts.
+          {minMoralePct !== null && ` Linha tracejada: sua moral mínima (${minMoralePct}%).`}
         </p>
       </div>
     </div>

@@ -2264,6 +2264,126 @@ kbd {
   }
 }
 
+/* =====================================================================
+   v0.27.2 — SG_4 stepper didático (chips próprios, conector, heatmap far)
+   ===================================================================== */
+.sg4-steps {
+  display: flex;
+  align-items: stretch;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+/* Chip PRÓPRIO do stepper (NÃO é btn-ghost): círculo numerado + rótulo.
+   flex: 1 1 0 = chips em partes iguais ocupando a largura disponível. */
+.sg4-step {
+  flex: 1 1 0;
+  min-width: 150px;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-card);
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--t-fast), background-color var(--t-fast), color var(--t-fast);
+}
+
+.sg4-step:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+/* Concluída: verde-guerra + check no círculo. */
+.sg4-step.is-done {
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+  color: var(--ok-ink);
+}
+
+/* Atual (primeira pendente): realce accent — "Você está aqui". */
+.sg4-step.is-current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+
+.sg4-step.is-current:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Concluída mas stale: âmbar — recalcule antes de confiar. */
+.sg4-step.is-stale {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+}
+
+/* Futura: apagada. */
+.sg4-step.is-future {
+  opacity: 0.6;
+}
+
+/* Círculo numerado do chip — vira check quando a etapa conclui. */
+.sg4-step-num {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: var(--r-pill);
+  font-family: var(--font-display);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.sg4-step-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Conector "→" entre chips — decorativo (aria-hidden no JSX). */
+.sg4-step-connector {
+  flex: 0 0 auto;
+  align-self: center;
+  color: var(--text-meta);
+  font-size: var(--fs-small);
+}
+
+/* Heatmap: célula além da distância máxima — apagada (aviso, não filtro). */
+.sg4-heat-cell--far {
+  opacity: 0.35;
+}
+
+/* Rodapé do SG_4: "Restaurar padrões" NÃO é passo do fluxo — última linha. */
+.sg4-footer-actions {
+  margin-top: var(--sp-5);
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .sg4-steps {
+    flex-direction: column;
+  }
+  .sg4-step-connector {
+    display: none;
+  }
+}
+
 /* SG_7 — blocos de código BBCode */
 .sg7-code { background: var(--bg-inset, #f0e6cf); border: 1px solid #e0d5b8; border-radius: 8px; padding: 12px; font-family: ui-monospace, Consolas, monospace; font-size: 0.85em; white-space: pre-wrap; overflow-x: auto; max-height: 320px; }
 

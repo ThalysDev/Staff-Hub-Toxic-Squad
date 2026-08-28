@@ -250,14 +250,9 @@ export interface DistributionResult {
 }
 
 /**
- * Distribui cada ORIGEM (NT estacionado) a um ALVO elegível: faixa de fulls da
- * linha do alvo, moral mínimo, distância máxima; alvo consumido por 1 atacante.
- * "Obter Planificação" = matrix; "Realizar Distribuição" = assignments.
- */
-/**
  * Distribui cada ORIGEM (NT estacionado) a um ALVO elegível: faixa de fulls e de
  * semis do JOGADOR na linha do alvo, moral mínimo, distância máxima; alvo consumido
- * por 1 atacante. "Obter Planificação" = matrix; "Realizar Distribuição" = assignments.
+ * por 1 atacante. "Simular" = matrix; "Distribuir agora" = assignments.
  */
 export function distributeTargets(input: DistributionInput): DistributionResult {
   const lineTargets: { x: number; y: number; fullsFrom: number; fullsTo: number; semisFrom: number; semisTo: number; points?: number }[] =

@@ -136,7 +136,7 @@ export default function Sg6Page() {
       if (trimmed === '') continue;
       // 3º bloco opcional: horários "HH:MM:SS,HH:MM:SS" (saída do Pacote de
       // Comunicação do SG_4) substitui #horarios# no corpo.
-      const match = /^([^;]{2,40});((?:\d{1,3}\|\d{1,3})(?:\s+\d{1,3}\|\d{1,3})*\s*)(?:;((?:\d{2}:\d{2}:\d{2})(?:,\d{2}:\d{2}:\d{2})*))?$/.exec(trimmed);
+      const match = /^([^;]{2,40});((?:\d{1,3}\|\d{1,3})(?:\s+\d{1,3}\|\d{1,3})*\s*)(?:;((?:\d{2}:\d{2}:\d{2}(?:\s+@\d{2}\/\d{2})?)(?:,\d{2}:\d{2}:\d{2}(?:\s+@\d{2}\/\d{2})?)*))?$/.exec(trimmed);
       if (match === null) throw new Error(`Linha inválida (use "nick;coord coord[;HH:MM:SS,HH:MM:SS]"): "${trimmed.slice(0, 60)}"`);
       const horariosRaw = match[3];
       entries.push({
