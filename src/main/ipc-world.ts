@@ -116,6 +116,14 @@ export function registerWorldIpc(deps: WorldIpcDeps): void {
     }
   });
 
+  ipcMain.handle('world:unit-speeds', async () => {
+    try {
+      return await sg1.unitSpeeds();
+    } catch (error) {
+      fail('Falha ao obter a velocidade das unidades do mundo', error);
+    }
+  });
+
   ipcMain.handle('worldhistory:list', async () => {
     try {
       return await worldData.history();

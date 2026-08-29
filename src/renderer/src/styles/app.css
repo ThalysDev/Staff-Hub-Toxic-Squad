@@ -3371,3 +3371,188 @@ select:not(.select) {
   border-color: #6b5a35;
   background: #2a2416;
 }
+
+/* ==========================================================================
+   Sala de Guerra · Planner de OP em Massa (v0.28.0)
+   Abas internas + formulário em grade + grupos + resultado. Tudo nos tokens
+   do tema (nenhuma cor fixa aqui) — o tema escuro herda via variáveis.
+   ========================================================================== */
+
+/* Painéis de aba: .col tem display:flex, que anularia o atributo hidden. */
+.col[hidden] {
+  display: none;
+}
+
+/* Abas segmentadas (Planner em Massa × Monitoramento). */
+.seg-tabs {
+  display: flex;
+  gap: var(--sp-1);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-inset);
+  padding: var(--sp-1);
+  width: fit-content;
+}
+
+.seg-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.seg-tab:hover {
+  color: var(--text-strong);
+}
+
+.seg-tab--active {
+  background: var(--bg-card);
+  border-color: var(--border-card);
+  color: var(--accent-ink);
+}
+
+/* Contexto (mundo + conta) — barra somente leitura do BLOCO 1. */
+.mp-context {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-body);
+}
+
+.mp-context-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--progress);
+  box-shadow: 0 0 0 3px var(--ok-bg);
+  flex: none;
+}
+
+/* Grade do formulário: 2 colunas em telas largas, 1 em estreitas. */
+.mp-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3) var(--sp-4);
+}
+
+@media (max-width: 900px) {
+  .mp-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mp-field {
+  min-width: 0;
+}
+
+.select--compact {
+  max-width: 190px;
+}
+
+.mp-novo {
+  margin-left: 6px;
+  font-size: var(--fs-caption);
+  letter-spacing: var(--track-wide);
+}
+
+.mp-checkbox-center {
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 22px;
+}
+
+/* Seção expansível de catapulta. */
+.mp-catapult {
+  display: col;
+  flex-direction: column;
+  gap: var(--sp-2);
+  border: 1px dashed var(--border-input);
+  border-radius: var(--radius-sm, 6px);
+  padding: var(--sp-3);
+  display: flex;
+}
+
+.mp-catapult-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-1) var(--sp-3);
+}
+
+@media (max-width: 900px) {
+  .mp-catapult-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Botões de ação do planner (marrom = adiciona grupo; verde = gerar). */
+.mp-btn-add {
+  background: var(--accent);
+  color: #fff;
+  min-width: 220px;
+  justify-content: center;
+}
+
+.mp-btn-add:hover:not(:disabled) {
+  background: var(--accent-ink);
+}
+
+.mp-btn-generate {
+  background: var(--action);
+  color: var(--action-ink);
+  min-width: 220px;
+  justify-content: center;
+}
+
+.mp-btn-generate:hover:not(:disabled) {
+  background: var(--action-hover);
+}
+
+/* Linha de grupo adicionado (resumo + editar/remover). */
+.mp-group-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-card);
+  padding: var(--sp-2) var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.mp-group-row--editing {
+  border-color: var(--border-strong);
+  background: var(--accent-soft);
+}
+
+.mp-group-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* Resultado: tabela com rolagem própria (OPs grandes não empurram a página). */
+.mp-table-scroll {
+  max-height: 480px;
+  overflow: auto;
+}
+
+.mp-archive {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  border-top: 1px solid var(--divider);
+  padding-top: var(--sp-3);
+}

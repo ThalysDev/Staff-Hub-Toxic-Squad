@@ -98,6 +98,7 @@ const api = {
       ipcRenderer.invoke('world:night-bonus') as Promise<{ active: boolean; startHour: number; endHour: number }>,
     moraleInfo: () => invoke('world:morale-info'),
     unitPops: () => invoke('world:unit-pops'),
+    unitSpeeds: () => invoke('world:unit-speeds'),
     relations: () => invoke('world:relations'),
   },
   sg1: {

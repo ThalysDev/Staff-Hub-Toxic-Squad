@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Copy, Crosshair, Download, Paperclip, RefreshCw, Trash2, Upload, Users } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Copy, Crosshair, Download, Hammer, MonitorDot, Paperclip, RefreshCw, Trash2, Upload, Users } from 'lucide-react';
 import type { OpArchiveEntry, OpConferenceSnapshot, OpTotalsSnapshot, Sg5VerifyResult } from '@shared/ipc-types';
 import { groupToOriginsText, groupToTargetsText, type GroupEntry } from '@shared/groups-rules';
 import { buildArrivalTimeline, formatCountdown } from '@shared/sg5-arrivals';
@@ -8,9 +8,11 @@ import { buildScorecard, parseDistribution, warRoomStatus } from '@shared/war-ro
 import EmptyState from '../../components/EmptyState';
 import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
+import { usePreferences } from '../../hooks/usePreferences';
 import { useSessionStatus } from '../../hooks/useSessionStatus';
 import { useToast, type ToastVariant } from '../../hooks/useToast';
 import type { PageId } from '../../modules';
+import MassPlannerSection from './MassPlannerSection';
 import OpShareSection from './OpShareSection';
 import PostOpSection from './PostOpSection';
 import WorldEvolutionSection from './WorldEvolutionSection';
@@ -38,6 +40,23 @@ function coverageClass(coveragePct: number): string {
 export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
   const { push } = useToast();
   const session = useSessionStatus();
+
+  // ---- Abas da Sala de Guerra: Planner em Massa × Monitoramento (estado persiste) ----
+  const [warDefaults] = useState<{ salaTab: string }>(() => ({ salaTab: 'planner' }));
+  const { prefs: warPrefs, savePrefs: saveWarPrefs } = usePreferences<{ salaTab: string }>('guerra', warDefaults);
+  const [salaTab, setSalaTab] = useState<'planner' | 'monitor'>('planner');
+  const warPrefsHydrated = useRef(false);
+  useEffect(() => {
+    if (warPrefs === null || warPrefsHydrated.current) return;
+    warPrefsHydrated.current = true;
+    if (warPrefs.salaTab === 'monitor') setSalaTab('monitor');
+  }, [warPrefs]);
+
+  function switchSalaTab(tab: 'planner' | 'monitor'): void {
+    setSalaTab(tab);
+    saveWarPrefs({ salaTab: tab });
+  }
+
   const [ops, setOps] = useState<OpArchiveEntry[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [verifyResult, setVerifyResult] = useState<Sg5VerifyResult | null>(null);
@@ -195,10 +214,47 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
     <div className="col">
       <PageHeader
         kicker="Sala de Guerra"
-        title="Monitoramento da OP"
-        description="Acompanhe a OP arquivada ao vivo: cobertura dos alvos, próximas chegadas e scorecard da equipe."
+        title={salaTab === 'planner' ? 'Planner de OP em Massa' : 'Monitoramento da OP'}
+        description={
+          salaTab === 'planner'
+            ? 'Monte a operação em grupos (fakes, nukes, nobres…), gere os comandos com horário de envio calculado e arquive para monitorar.'
+            : 'Acompanhe a OP arquivada ao vivo: cobertura dos alvos, próximas chegadas e scorecard da equipe.'
+        }
       />
 
+      {/* ---- Abas: Planner em Massa × Monitoramento (ambos montados; troca sem perder estado) ---- */}
+      <div className="seg-tabs" role="tablist" aria-label="Seções da Sala de Guerra">
+        <button
+          type="button"
+          role="tab"
+          id="sala-tab-planner"
+          aria-controls="sala-panel-planner"
+          aria-selected={salaTab === 'planner'}
+          className={`seg-tab${salaTab === 'planner' ? ' seg-tab--active' : ''}`}
+          onClick={() => switchSalaTab('planner')}
+        >
+          <Hammer size={15} aria-hidden="true" />
+          Planner em Massa
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="sala-tab-monitor"
+          aria-controls="sala-panel-monitor"
+          aria-selected={salaTab === 'monitor'}
+          className={`seg-tab${salaTab === 'monitor' ? ' seg-tab--active' : ''}`}
+          onClick={() => switchSalaTab('monitor')}
+        >
+          <MonitorDot size={15} aria-hidden="true" />
+          Monitoramento
+        </button>
+      </div>
+
+      <div className="col" id="sala-panel-planner" role="tabpanel" aria-labelledby="sala-tab-planner" hidden={salaTab !== 'planner'}>
+        <MassPlannerSection visible={salaTab === 'planner'} onOpenMonitor={() => switchSalaTab('monitor')} />
+      </div>
+
+      <div className="col" id="sala-panel-monitor" role="tabpanel" aria-labelledby="sala-tab-monitor" hidden={salaTab !== 'monitor'}>
       {/* ---- Seletor da OP ativa ---- */}
       <section className="card">
         <div className="card-header">
@@ -438,6 +494,7 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
       {/* ---- Evolução do Mundo: diff entre versões arquivadas do mundo (SG_1).
            Sempre visível — a seção trata sozinha os estados sem histórico. ---- */}
       <WorldEvolutionSection />
+      </div>
 
     </div>
   );

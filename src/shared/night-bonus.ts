@@ -139,12 +139,16 @@ export interface DepartureSolve {
 }
 
 /**
- * Solver INVERSO: a que hora PARTIR para chegar exatamente em `arrivalAt`
- * (com o bônus noturno ativo a viagem depende da hora de partida, e a hora
- * de partida depende da viagem — ponto fixo resolvido por iteração
- * amortecida: fator 0,5 converge mesmo quando o mapa oscila nas bordas da
- * janela; tolerância 50ms ≪ 1s de granularidade do formato HH:MM:SS).
- * Sem bônus é exato. Não estabilizou em 40 passos → erro claro (fail-closed).
+ * Solver INVERSO: a que hora PARTIR para chegar exatamente em `arrivalAt`.
+ * A função chegada(partida) é MONÓTONA não-decrescente (partir mais cedo nunca
+ * chega mais cedo: dentro de um regime a chegada acompanha a partida 1:1 e
+ * cruzar para dentro da janela noturna só atrasa) — por isso a raiz de
+ * f(partida) = partida + viagem(partida) − chegada é achada por BISSEÇÃO
+ * (robusta mesmo em viagens longas que mergulham na noite anterior, onde a
+ * iteração amortecida anterior oscilava sem convergir). Sem bônus é exato.
+ * Chegada inalcançável (caiu num "gap" de salto entre regimes): devolve a
+ * melhor partida possível — a primeira cuja chegada REAL é ≥ à desejada; a
+ * diferença fica a cargo do chamador exibir (nunca partida impossível).
  */
 export function solveDepartureForArrival(input: DepartureSolveInput): DepartureSolve {
   const { distanceFields, minutesPerField, cfg } = input;
@@ -156,13 +160,29 @@ export function solveDepartureForArrival(input: DepartureSolveInput): DepartureS
   if (!cfg.nightBonusActive) {
     return { departureAt: arrivalMs - classicMs, travelMs: classicMs };
   }
-  let travelMs = classicMs;
-  for (let step = 0; step < 40; step += 1) {
-    const candidate = travelTimeMs({ distanceFields, minutesPerField, departureAt: arrivalMs - travelMs, cfg });
-    if (Math.abs(candidate - travelMs) <= 50) {
-      return { departureAt: arrivalMs - candidate, travelMs: candidate };
+  // Pior viagem = o percurso inteiro dentro da janela (2× clássico). 1h de
+  // folga cobre ruído de arredondamento nas bordas do bracket.
+  const maxTravelMs = 2 * classicMs + 3_600_000;
+  let lo = arrivalMs - maxTravelMs; // f(lo) < 0: nem viajando no pior ritmo chega
+  let hi = arrivalMs; // f(hi) = 0: viagem nula chega na própria chegada
+  const f = (departureMs: number): number => departureMs + travelTimeMs({ distanceFields, minutesPerField, departureAt: departureMs, cfg }) - arrivalMs;
+  for (let step = 0; step < 100 && hi - lo > 1; step += 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (f(mid) >= 0) {
+      hi = mid;
+    } else {
+      lo = mid;
     }
-    travelMs += (candidate - travelMs) * 0.5;
   }
-  throw new Error('Cálculo do horário de envio com bônus noturno não convergiu — confira a janela do mundo.');
+  // Refino: no regime contínuo a partida exata é chegada − viagem(hi); quando
+  // ela se verifica (≤ 50ms), devolve a partida EXATA (22:00:00.000, não .997).
+  const travelHi = travelTimeMs({ distanceFields, minutesPerField, departureAt: hi, cfg });
+  const refined = arrivalMs - travelHi;
+  if (refined >= 0 && Math.abs(refined + travelHi - arrivalMs) <= 50) {
+    const travelRefined = travelTimeMs({ distanceFields, minutesPerField, departureAt: refined, cfg });
+    if (Math.abs(refined + travelRefined - arrivalMs) <= 50) {
+      return { departureAt: refined, travelMs: travelRefined };
+    }
+  }
+  return { departureAt: hi, travelMs: travelHi };
 }

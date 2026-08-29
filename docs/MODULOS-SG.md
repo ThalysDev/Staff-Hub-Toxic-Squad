@@ -220,6 +220,16 @@ Tela: tópico de blindagem em `screen=forum&screenmode=view_thread&thread_id=X&p
 - **Tópicos salvos**: URLs de tópicos nomeadas com rótulo (cap 10, persistidas nas prefs).
 
 ### Guerra — Sala de Guerra
+
+#### Planner de OP em Massa (v0.28.0)
+- **Conceito**: vários GRUPOS (fake, nuke, nobre…) com configuração própria; "Gerar Operação" junta tudo numa única OP — inspirado no TW Mass Planner / Russian Planner, adaptado ao app (sem chave de acesso: barra de CONTEXTO com mundo+conta da sessão).
+- **Motor puro** (`mass-planner-engine.ts` + `mass-planner-types.ts`): cruzamento origem×alvo com capacidades (Comandos por Origem/Alvo), modos de cálculo (Otimizado = guloso global pelo par mais curto / Mais perto / Mais longe), filtros por par (distância mín/máx, Torre de Vigia inimiga por distância ponto→segmento com raio 15, moral mínima por pontos `moraleOf`), chegadas (Fixa / Intervalo em minutos / Fixa com intervalo por aldeia), proteção de bônus noturno (`pushArrivalOutOfNightWindow` empurra a chegada para o fim da janela) e conflito de ms por jogador (+1ms em cascata). Partida via solver inverso `solveDepartureForArrival` (bisseção — viagem na janela noturna custa 2×). Descartes NUNCA silenciosos: voltam agregados por motivo.
+- **Exportações** (`mass-planner-formats.ts`): Russian Planner (`origem alvo unidade aaaa-mm-dd hh:mm:ss` de ENVIO), TW Mass Planner (`dd.mm.aaaa hh:mm:ss`) e a agenda colável DO APP (`nick;alvo;HH:MM:SS @dd/MM`, reusando `formatSendSchedule` — mesma gramática de T-minus/comms/SG_6).
+- **UI** (`MassPlannerSection.tsx`, aba "Planner em Massa" na Sala de Guerra): 17 campos da spec campo a campo + Moral Mínima (oculta em mundos sem moral) + Importar grupo salvo (store `groups`, mesmo mundo) + puxar preset da Análise de Tropas (prefs `sg2`/`presets:consulta` → nome + unidade mais lenta da composição), Demolir Edifícios (19 alvos de catapulta), Grupos Adicionados (editar/remover/limpar), resultado com descartes/avisos/partida no passado, tabela ordenada pela chegada (teto de render 1000 linhas) e arquivamento no `op-archive` (distribuição "nick;coords" + agenda colável) direto para o Monitoramento.
+- **Rascunho persistente**: formulário + grupos + formatos nas prefs do módulo `guerra` (grupos como 1 chave JSON; acima do tamanho seguro fica só na sessão, com aviso explícito).
+- **IPC novo**: `world.unitSpeeds()` — minutos-por-campo EFETIVOS por unidade (unit-info, cache 1 dia).
+- **Reaproveitamento**: `fieldsBetween`, `moraleOf`, `night-bonus` (solver reescrito por bisseção, mesmos testes verdes), `normalizeCoordText` (contagem de inválidos/duplicadas), `UNITS` por mundo, `formatSendSchedule`, `op-archive`.
+
 - **Pós-OP ao vivo** (`post-op-live.ts` + `PostOpSection.tsx`): taxa de conquista e nobres
   desperdiçados verificando os alvos da OP arquivada.
 - **Compartilhar OP** (`op-export.ts` + `OpShareSection.tsx`): export/import JSON portável

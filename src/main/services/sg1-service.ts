@@ -166,6 +166,21 @@ export class Sg1Service {
     return pops;
   }
 
+  /** Minutos-por-campo EFETIVOS por unidade (unit-info, cache 1 dia) — o valor
+   *  servido já é final (ver JSDoc de nobleMinutesPerField). Consumido pelo
+   *  Planner de OP em Massa (velocidade da unidade mais lenta). */
+  async unitSpeeds(): Promise<Record<string, number>> {
+    const world = this.worldData.world();
+    const units = await this.unitInfo(world);
+    const speeds: Record<string, number> = {};
+    for (const [id, info] of Object.entries(units)) {
+      if (Number.isFinite(info.speed) && info.speed > 0) {
+        speeds[id] = info.speed;
+      }
+    }
+    return speeds;
+  }
+
   /** Unidades do mundo (interface.php?func=get_unit_info), cache 1 dia por mundo. */
   private async unitInfo(world: string): Promise<Record<string, UnitInfo>> {
     const cached = await this.unitInfoStore.load();

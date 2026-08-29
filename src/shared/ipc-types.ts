@@ -326,6 +326,8 @@ export interface StaffHubApi {
     moraleInfo(): Promise<{ active: boolean }>;
     /** População por unidade do mundo (unit-info) — contadores FULL/SEMI e medidas por população. */
     unitPops(): Promise<Record<string, number>>;
+    /** Minutos-por-campo EFETIVOS por unidade (unit-info) — velocidade de viagem do Planner em Massa. */
+    unitSpeeds(): Promise<Record<string, number>>;
     /** Relações diplomáticas da tribo do jogador (página autenticada). */
     relations(): Promise<DiplomacyRelations>;
   };

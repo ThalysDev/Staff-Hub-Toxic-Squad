@@ -131,9 +131,13 @@ function iconPath(): string {
 }
 
 function createMainWindow(): void {
+  // QA visual: SHS_WIDTH/SHS_HEIGHT sobrepõem o tamanho da janela nas capturas
+  // (SHS_CAPTURE) — permite fotografar páginas inteiras, não só a dobra.
+  const captureWidth = Number.parseInt(process.env.SHS_WIDTH ?? '', 10);
+  const captureHeight = Number.parseInt(process.env.SHS_HEIGHT ?? '', 10);
   mainWindow = new BrowserWindow({
-    width: 1360,
-    height: 860,
+    width: Number.isFinite(captureWidth) && captureWidth > 0 ? captureWidth : 1360,
+    height: Number.isFinite(captureHeight) && captureHeight > 0 ? captureHeight : 860,
     minWidth: 1080,
     minHeight: 680,
     title: 'Staff Hub Toxic Squad',
