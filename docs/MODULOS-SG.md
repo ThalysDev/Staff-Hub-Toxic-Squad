@@ -221,28 +221,16 @@ Tela: tópico de blindagem em `screen=forum&screenmode=view_thread&thread_id=X&p
 
 ### Guerra — Sala de Guerra
 
-#### Planner de OP em Massa (v0.28.0)
-- **Conceito**: vários GRUPOS (fake, nuke, nobre…) com configuração própria; "Gerar Operação" junta tudo numa única OP — inspirado no TW Mass Planner / Russian Planner, adaptado ao app (sem chave de acesso: barra de CONTEXTO com mundo+conta da sessão).
-- **Motor puro** (`mass-planner-engine.ts` + `mass-planner-types.ts`): cruzamento origem×alvo com capacidades (Comandos por Origem/Alvo), modos de cálculo (Otimizado = guloso global pelo par mais curto / Mais perto / Mais longe), filtros por par (distância mín/máx, Torre de Vigia inimiga por distância ponto→segmento com raio 15, moral mínima por pontos `moraleOf`), chegadas (Fixa / Intervalo em minutos / Fixa com intervalo por aldeia), proteção de bônus noturno (`pushArrivalOutOfNightWindow` empurra a chegada para o fim da janela) e conflito de ms por jogador (+1ms em cascata). Partida via solver inverso `solveDepartureForArrival` (bisseção — viagem na janela noturna custa 2×). Descartes NUNCA silenciosos: voltam agregados por motivo.
-- **Exportações** (`mass-planner-formats.ts`): Russian Planner (`origem alvo unidade aaaa-mm-dd hh:mm:ss` de ENVIO), TW Mass Planner (`dd.mm.aaaa hh:mm:ss`) e a agenda colável DO APP (`nick;alvo;HH:MM:SS @dd/MM`, reusando `formatSendSchedule` — mesma gramática de T-minus/comms/SG_6).
-- **UI** (`MassPlannerSection.tsx`, aba "Planner em Massa" na Sala de Guerra): 17 campos da spec campo a campo + Moral Mínima (oculta em mundos sem moral) + Importar grupo salvo (store `groups`, mesmo mundo) + puxar preset da Análise de Tropas (prefs `sg2`/`presets:consulta` → nome + unidade mais lenta da composição), Demolir Edifícios (19 alvos de catapulta), Grupos Adicionados (editar/remover/limpar), resultado com descartes/avisos/partida no passado, tabela ordenada pela chegada (teto de render 1000 linhas) e arquivamento no `op-archive` (distribuição "nick;coords" + agenda colável) direto para o Monitoramento.
-- **Rascunho persistente**: formulário + grupos + formatos nas prefs do módulo `guerra` (grupos como 1 chave JSON; acima do tamanho seguro fica só na sessão, com aviso explícito).
-- **IPC novo**: `world.unitSpeeds()` — minutos-por-campo EFETIVOS por unidade (unit-info, cache 1 dia).
-- **Reaproveitamento**: `fieldsBetween`, `moraleOf`, `night-bonus` (solver reescrito por bisseção, mesmos testes verdes), `normalizeCoordText` (contagem de inválidos/duplicadas), `UNITS` por mundo, `formatSendSchedule`, `op-archive`.
-
-- **Pós-OP ao vivo** (`post-op-live.ts` + `PostOpSection.tsx`): taxa de conquista e nobres
-  desperdiçados verificando os alvos da OP arquivada.
-- **Compartilhar OP** (`op-export.ts` + `OpShareSection.tsx`): export/import JSON portável
-  da OP entre a staff.
-- **Evolução do mundo** (`world-history.ts` + `WorldEvolutionSection.tsx`): cada atualização
-  de dumps arquiva agregado por tribo + delta de trocas de dono (cap 10); diff A/B com Δ
-  colorido, conquistas/abandonos e "Mostrar no mapa".
-- **Linha de frente animada** (v0.26, modo "linha do tempo"): troca o diff A/B por um
-  slider cronológico (1 = mais antiga, N = mais recente); no passo K o mapa mostra as
-  mudanças acumuladas até a versão K; "Reproduzir" avança o slider sozinho (1,2s por
-  passo, com pausa).
-- **Scorecard configurável** (`war-room.ts` `ScorecardOptions`): top N, métrica
-  faltas/envios/% cumprido, janela 7/30 dias/tudo, copiar TSV (no Dashboard).
+#### Planner de OP em Massa (v0.29.0 — alinhado à ferramenta real twmassplanner.pro)
+- **v0.29.0 ALINHAMENTO TOTAL à ferramenta real** (semânticas PROVADAS por gerações reais com a chave do dono; ZIPs de prova em tests/diag/twmp/):
+  - **Comandos por Origem/Alvo = listas por grupo** "1;2" (textareas divididas por ";"; um valor só aplica a todos; erros reais reproduzidos: "O número de separadores (;) é diferente" / "Valor de comando inválido."); totais vivos "até N comandos" por lado.
+  - **Chegadas**: Fixa / **Intervalo = início e fim** (2 datetimes) / **Fixa com intervalo por aldeia = Delay entre ataques (s)** — stagger SEQUENCIAL na ordem de distância (o mais perto fica na base; prova real com 30s).
+  - **Modos de cálculo**: Otimizado (guloso global, aproximação do matching do tool real) / **Distribuído por players** (justo entre jogadores de origem — heurística determinística documentada) / Mais perto / Mais longe (extra nosso; o tool real não tem).
+  - **Exportações BYTE-FIÉIS ao tool real**: Russian Planner e TW Mass Planner agora são o BBCode do CADERNO PREMIUM — blocos por jogador de origem ("Mass plan for [player]NICK[/player]"), horários em milissegundos "HH:MM:SS:mmm dd.mm.aaaa", dono do alvo, recap "targets" por modelo e LINK DA PRAÇA com o ID da vila de ORIGEM do dump (TWMP acrescenta Time arrival + Attack building, default farm). Testes comparam byte-a-byte com os arquivos capturados. O formato colável do app (T-minus/conferência) segue como terceira saída.
+  - IPC/ctx: villageIdByCoord (dump village.txt) alimenta os links; comandos carregam IDs de origem/alvo.
+  - Rascunhos da v0.28 migram sozinhos (modo fixa-por-aldeia→sequencial; perVillageSeconds→delay; cotas ausentes=1).
+  - QA: gancho SHS_CAPTURE com 3 tentativas + diagnóstico .err (UnknownVizError do compositor é intermitente).
+- **v0.28.0 (base)**: conceito de GRUPOS (fake/nuke/nobre) com 17 campos da spec, cruzamento com capacidades, torre de vigia ponto→segmento (raio 15), moral por pontos, proteção de bônus noturno, conflito de ms por jogador, abas Planner×Monitoramento, rascunho persistente no módulo "guerra", solver noturno por bisseção.
 
 ### Sistema (transversal)
 - **Preferências por módulo** (`preferences-rules.ts` + `usePreferences`): prefs persistentes

@@ -11,6 +11,7 @@ import { ClipboardCopy, Layers, ListPlus, Pencil, RefreshCw, Save, Trash2, Trian
 import { coordCountLabel, normalizeCoordText } from '@shared/coord-input';
 import {
   generateMassPlan,
+  parseMassCoordGroups,
   parseMassCoordText,
   validateMassGroup,
 } from '@shared/mass-planner-engine';
@@ -55,8 +56,9 @@ interface PlannerPrefs extends Record<string, unknown> {
   mpMaxDistance: string;
   mpArrivalKind: MassArrivalKind;
   mpArrivalBase: string;
-  mpWindowMinutes: string;
-  mpPerVillageSeconds: string;
+  mpWindowStart: string;
+  mpWindowEnd: string;
+  mpDelay: string;
   mpNightBonus: MassNightBonusMode;
   mpAvoidMs: boolean;
   mpMinMorale: string;
@@ -81,8 +83,9 @@ const PLANNER_DEFAULTS: PlannerPrefs = {
   mpMaxDistance: '2000',
   mpArrivalKind: 'fixa',
   mpArrivalBase: '',
-  mpWindowMinutes: '30',
-  mpPerVillageSeconds: '60',
+  mpWindowStart: '',
+  mpWindowEnd: '',
+  mpDelay: '30',
   mpNightBonus: 'desativado',
   mpAvoidMs: false,
   mpMinMorale: '0',
@@ -105,6 +108,17 @@ function formatFullClock(ms: number): string {
   const at = new Date(ms);
   const part = (value: number): string => String(value).padStart(2, '0');
   return `${part(at.getDate())}/${part(at.getMonth() + 1)} ${formatHms(at)}`;
+}
+
+/** epoch ms → valor de <input type="datetime-local"> local (vazio se inválido). */
+function toLocalInputValue(ms: number): string {
+  if (!Number.isFinite(ms)) return '';
+  const at = new Date(ms);
+  const part = (value: number): string => String(value).padStart(2, '0');
+  return (
+    `${at.getFullYear()}-${part(at.getMonth() + 1)}-${part(at.getDate())}` +
+    `T${part(at.getHours())}:${part(at.getMinutes())}:${part(at.getSeconds())}`
+  );
 }
 
 export interface MassPlannerSectionProps {
@@ -134,8 +148,9 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   const [maxDistanceText, setMaxDistanceText] = useState(PLANNER_DEFAULTS.mpMaxDistance);
   const [arrivalKind, setArrivalKind] = useState<MassArrivalKind>(PLANNER_DEFAULTS.mpArrivalKind);
   const [arrivalBaseText, setArrivalBaseText] = useState(PLANNER_DEFAULTS.mpArrivalBase);
-  const [windowMinutesText, setWindowMinutesText] = useState(PLANNER_DEFAULTS.mpWindowMinutes);
-  const [perVillageSecondsText, setPerVillageSecondsText] = useState(PLANNER_DEFAULTS.mpPerVillageSeconds);
+  const [windowStartText, setWindowStartText] = useState(PLANNER_DEFAULTS.mpWindowStart);
+  const [windowEndText, setWindowEndText] = useState(PLANNER_DEFAULTS.mpWindowEnd);
+  const [delayText, setDelayText] = useState(PLANNER_DEFAULTS.mpDelay);
   const [nightBonusMode, setNightBonusMode] = useState<MassNightBonusMode>(PLANNER_DEFAULTS.mpNightBonus);
   const [avoidMs, setAvoidMs] = useState(PLANNER_DEFAULTS.mpAvoidMs);
   const [minMoraleText, setMinMoraleText] = useState(PLANNER_DEFAULTS.mpMinMorale);
@@ -160,12 +175,16 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
     setRepeatSamePlayer(prefs.mpRepeatSamePlayer === true);
     setMinDistanceText(typeof prefs.mpMinDistance === 'string' ? prefs.mpMinDistance : PLANNER_DEFAULTS.mpMinDistance);
     setMaxDistanceText(typeof prefs.mpMaxDistance === 'string' ? prefs.mpMaxDistance : PLANNER_DEFAULTS.mpMaxDistance);
-    if (prefs.mpArrivalKind === 'fixa' || prefs.mpArrivalKind === 'intervalo' || prefs.mpArrivalKind === 'fixa-por-aldeia') {
+    if (prefs.mpArrivalKind === 'fixa' || prefs.mpArrivalKind === 'intervalo' || prefs.mpArrivalKind === 'sequencial') {
       setArrivalKind(prefs.mpArrivalKind);
+    } else if (prefs.mpArrivalKind === 'fixa-por-aldeia') {
+      // Migração v0.28→v0.29: o modo virou "sequencial" (delay entre ataques).
+      setArrivalKind('sequencial');
     }
     setArrivalBaseText(typeof prefs.mpArrivalBase === 'string' && prefs.mpArrivalBase !== '' ? prefs.mpArrivalBase : defaultArrivalBase());
-    setWindowMinutesText(typeof prefs.mpWindowMinutes === 'string' ? prefs.mpWindowMinutes : PLANNER_DEFAULTS.mpWindowMinutes);
-    setPerVillageSecondsText(typeof prefs.mpPerVillageSeconds === 'string' ? prefs.mpPerVillageSeconds : PLANNER_DEFAULTS.mpPerVillageSeconds);
+    setWindowStartText(typeof prefs.mpWindowStart === 'string' ? prefs.mpWindowStart : PLANNER_DEFAULTS.mpWindowStart);
+    setWindowEndText(typeof prefs.mpWindowEnd === 'string' ? prefs.mpWindowEnd : PLANNER_DEFAULTS.mpWindowEnd);
+    setDelayText(typeof prefs.mpDelay === 'string' ? prefs.mpDelay : PLANNER_DEFAULTS.mpDelay);
     if (prefs.mpNightBonus === 'desativado' || prefs.mpNightBonus === 'reagendar') setNightBonusMode(prefs.mpNightBonus);
     setAvoidMs(prefs.mpAvoidMs === true);
     setMinMoraleText(typeof prefs.mpMinMorale === 'string' ? prefs.mpMinMorale : PLANNER_DEFAULTS.mpMinMorale);
@@ -209,8 +228,9 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
       mpMaxDistance: maxDistanceText,
       mpArrivalKind: arrivalKind,
       mpArrivalBase: arrivalBaseText,
-      mpWindowMinutes: windowMinutesText,
-      mpPerVillageSeconds: perVillageSecondsText,
+      mpWindowStart: windowStartText,
+      mpWindowEnd: windowEndText,
+      mpDelay: delayText,
       mpNightBonus: nightBonusMode,
       mpAvoidMs: avoidMs,
       mpMinMorale: minMoraleText,
@@ -221,8 +241,8 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
     });
   }, [
     savePrefs, nomeText, originsText, targetsText, towersText, slowestUnit, assignMode, perOriginText, perTargetText,
-    repeatSamePlayer, minDistanceText, maxDistanceText, arrivalKind, arrivalBaseText, windowMinutesText,
-    perVillageSecondsText, nightBonusMode, avoidMs, minMoraleText, catapultsText, formatRussian, formatTwmp, archiveTitle,
+    repeatSamePlayer, minDistanceText, maxDistanceText, arrivalKind, arrivalBaseText, windowStartText,
+    windowEndText, delayText, nightBonusMode, avoidMs, minMoraleText, catapultsText, formatRussian, formatTwmp, archiveTitle,
   ]);
 
   // ---- Grupos adicionados (persistidos como 1 string; acima do cap = aviso explícito) ----
@@ -254,6 +274,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   const [ownerByCoord, setOwnerByCoord] = useState<Map<string, string>>(new Map());
   const [villagePoints, setVillagePoints] = useState<Map<string, number>>(new Map());
   const [playerPoints, setPlayerPoints] = useState<Map<string, number>>(new Map());
+  const [villageIdByCoord, setVillageIdByCoord] = useState<Map<string, number>>(new Map());
 
   const loadWorld = useCallback(async (): Promise<void> => {
     setWorldLoading(true);
@@ -274,9 +295,11 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
       }
       const owners = new Map<string, string>();
       const vPoints = new Map<string, number>();
+      const vIds = new Map<string, number>();
       for (const village of villages) {
         const key = `${village.x}|${village.y}`;
         vPoints.set(key, village.points);
+        vIds.set(key, village.id);
         if (village.playerId !== 0) {
           const owner = playerNameById.get(village.playerId);
           if (owner !== undefined) owners.set(key, owner);
@@ -292,6 +315,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
       setOwnerByCoord(owners);
       setVillagePoints(vPoints);
       setPlayerPoints(pointsByName);
+      setVillageIdByCoord(vIds);
       setWorldLoadedOnce(true);
     } catch (err) {
       setWorldError(err instanceof Error ? err.message : String(err));
@@ -312,9 +336,10 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
       villagePoints,
       ownerByCoord,
       playerPoints,
+      villageIdByCoord,
       moralActive,
     }),
-    [unitMinutes, nightCfg, villagePoints, ownerByCoord, playerPoints, moralActive],
+    [unitMinutes, nightCfg, villagePoints, ownerByCoord, playerPoints, villageIdByCoord, moralActive],
   );
 
   const worldReady = nightCfg !== null && Object.keys(unitMinutes).length > 0;
@@ -404,13 +429,23 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  const parsedOrigins = useMemo(() => parseMassCoordText(originsText), [originsText]);
-  const parsedTargets = useMemo(() => parseMassCoordText(targetsText), [targetsText]);
+  // Origem/Destino em GRUPOS ("A B; C D") com cotas ("1" ou "1;2") — semântica
+  // da ferramenta real; towers segue texto simples.
+  const parsedOrigins = useMemo(() => parseMassCoordGroups(originsText, perOriginText), [originsText, perOriginText]);
+  const parsedTargets = useMemo(() => parseMassCoordGroups(targetsText, perTargetText), [targetsText, perTargetText]);
   const parsedTowers = useMemo(() => parseMassCoordText(towersText), [towersText]);
   // Rótulos vivos usam o NormalizedCoords cru (coordCountLabel consome essa forma).
   const normOrigins = useMemo(() => normalizeCoordText(originsText), [originsText]);
   const normTargets = useMemo(() => normalizeCoordText(targetsText), [targetsText]);
   const normTowers = useMemo(() => normalizeCoordText(towersText), [towersText]);
+  const totalOriginCommands = useMemo(
+    () => parsedOrigins.quotas.reduce((sum, quota) => sum + quota, 0),
+    [parsedOrigins.quotas],
+  );
+  const totalTargetCommands = useMemo(
+    () => parsedTargets.quotas.reduce((sum, quota) => sum + quota, 0),
+    [parsedTargets.quotas],
+  );
 
   const draftGroup = useMemo<MassGroupConfig | null>(() => {
     const arrivalBaseMs = arrivalBaseText === '' ? Number.NaN : new Date(arrivalBaseText).getTime();
@@ -418,29 +453,30 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
       id: editingId ?? 'draft',
       nome: nomeText,
       origins: parsedOrigins.entries,
+      originQuotas: parsedOrigins.quotas,
       targets: parsedTargets.entries,
+      targetQuotas: parsedTargets.quotas,
       towers: parsedTowers.entries,
       towerRadius: 15,
       slowestUnit,
       assignMode,
-      commandsPerOrigin: Number(perOriginText),
-      commandsPerTarget: Number(perTargetText),
       repeatOriginSamePlayer: repeatSamePlayer,
       minDistance: Number(minDistanceText),
       maxDistance: Number(maxDistanceText),
       arrivalKind,
       arrivalBaseMs,
-      windowMinutes: Number(windowMinutesText),
-      perVillageSeconds: Number(perVillageSecondsText),
+      windowStartMs: windowStartText === '' ? Number.NaN : new Date(windowStartText).getTime(),
+      windowEndMs: windowEndText === '' ? Number.NaN : new Date(windowEndText).getTime(),
+      attackDelaySeconds: Number(delayText),
       nightBonus: nightBonusMode,
       avoidMsConflict: avoidMs,
       minMorale: moralActive ? Number(minMoraleText) : 0,
       catapultTargets: catapultsText === '' ? [] : catapultsText.split(',').filter((id) => id !== ''),
     };
   }, [
-    editingId, nomeText, parsedOrigins.entries, parsedTargets.entries, parsedTowers.entries, slowestUnit, assignMode,
-    perOriginText, perTargetText, repeatSamePlayer, minDistanceText, maxDistanceText, arrivalKind,
-    arrivalBaseText, windowMinutesText, perVillageSecondsText, nightBonusMode, avoidMs, moralActive,
+    editingId, nomeText, parsedOrigins.entries, parsedOrigins.quotas, parsedTargets.entries, parsedTargets.quotas,
+    parsedTowers.entries, slowestUnit, assignMode, repeatSamePlayer, minDistanceText, maxDistanceText, arrivalKind,
+    arrivalBaseText, windowStartText, windowEndText, delayText, nightBonusMode, avoidMs, moralActive,
     minMoraleText, catapultsText,
   ]);
 
@@ -467,8 +503,9 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
     setMinDistanceText(PLANNER_DEFAULTS.mpMinDistance);
     setMaxDistanceText(PLANNER_DEFAULTS.mpMaxDistance);
     setArrivalKind(PLANNER_DEFAULTS.mpArrivalKind);
-    setWindowMinutesText(PLANNER_DEFAULTS.mpWindowMinutes);
-    setPerVillageSecondsText(PLANNER_DEFAULTS.mpPerVillageSeconds);
+    setWindowStartText(PLANNER_DEFAULTS.mpWindowStart);
+    setWindowEndText(PLANNER_DEFAULTS.mpWindowEnd);
+    setDelayText(PLANNER_DEFAULTS.mpDelay);
     setNightBonusMode(PLANNER_DEFAULTS.mpNightBonus);
     setAvoidMs(PLANNER_DEFAULTS.mpAvoidMs);
     setMinMoraleText(PLANNER_DEFAULTS.mpMinMorale);
@@ -483,6 +520,11 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
     if (Object.keys(draftErrors).length > 0) {
       setSubmitAttempted(true);
       push('error', 'O grupo tem campos inválidos — confira os avisos em vermelho.');
+      return;
+    }
+    if (parsedOrigins.quotaError !== null || parsedTargets.quotaError !== null) {
+      setSubmitAttempted(true);
+      push('error', parsedOrigins.quotaError ?? parsedTargets.quotaError ?? 'Comandos por origem/alvo inválidos.');
       return;
     }
     const group: MassGroupConfig = { ...draftGroup, id: editingId ?? crypto.randomUUID() };
@@ -507,19 +549,21 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
     setTowersText(group.towers.map((coord) => coord.coord).join(' '));
     setSlowestUnit(group.slowestUnit);
     setAssignMode(group.assignMode);
-    setPerOriginText(String(group.commandsPerOrigin));
-    setPerTargetText(String(group.commandsPerTarget));
+    // Cotas: se todas iguais, um valor só; senão a lista "1;2" (por grupo).
+    const quotaText = (quotas: number[]): string =>
+      quotas.length === 0 ? '1' : quotas.every((quota) => quota === quotas[0]) ? String(quotas[0] ?? 1) : quotas.join(';');
+    setPerOriginText(quotaText(group.originQuotas));
+    setPerTargetText(quotaText(group.targetQuotas));
     setRepeatSamePlayer(group.repeatOriginSamePlayer);
     setMinDistanceText(String(group.minDistance));
     setMaxDistanceText(String(group.maxDistance));
-    setArrivalKind(group.arrivalKind);
-    const at = new Date(group.arrivalBaseMs);
-    const part = (value: number): string => String(value).padStart(2, '0');
-    setArrivalBaseText(
-      `${at.getFullYear()}-${part(at.getMonth() + 1)}-${part(at.getDate())}T${part(at.getHours())}:${part(at.getMinutes())}:${part(at.getSeconds())}`,
+    setArrivalKind(
+      group.arrivalKind === 'intervalo' || group.arrivalKind === 'sequencial' ? group.arrivalKind : 'fixa',
     );
-    setWindowMinutesText(String(group.windowMinutes));
-    setPerVillageSecondsText(String(group.perVillageSeconds));
+    setArrivalBaseText(toLocalInputValue(group.arrivalBaseMs));
+    setWindowStartText(toLocalInputValue(group.windowStartMs));
+    setWindowEndText(toLocalInputValue(group.windowEndMs));
+    setDelayText(String(group.attackDelaySeconds));
     setNightBonusMode(group.nightBonus);
     setAvoidMs(group.avoidMsConflict);
     setMinMoraleText(String(group.minMorale));
@@ -861,35 +905,43 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
               {showFieldError('slowestUnit') !== undefined && <span className="field-error">{draftErrors.slowestUnit}</span>}
             </div>
 
-            {/* 6/7. Comandos por Origem / por Alvo */}
+            {/* 6/7. Comandos por Origem / por Alvo — listas por grupo "1;2" (tool real) */}
             <div className="field">
-              <label className="field-label" htmlFor="mp-per-origin" data-tip="Quantas vezes CADA aldeia de origem pode ser usada na geração (a mesma origem pode repetir até este limite).">
+              <label className="field-label" htmlFor="mp-per-origin" data-tip="Quantas vezes CADA aldeia de origem pode ser usada. Um número vale para todos os grupos; '1;2' dá cota 1 ao 1º grupo de coordenadas e 2 ao 2º (grupos separados por ; na Origem).">
                 Comandos por Origem:
               </label>
               <input
                 id="mp-per-origin"
                 className="input input--num"
-                type="number"
-                min={1}
+                type="text"
+                inputMode="numeric"
+                placeholder="Ex: 1;2"
                 value={perOriginText}
                 onChange={(event) => setPerOriginText(event.target.value)}
                 onBlur={() => markTouched('commandsPerOrigin')}
               />
+              <span className="field-hint">
+                {parsedOrigins.quotaError ?? `Origem: até ${totalOriginCommands} comando(s)`}
+              </span>
               {showFieldError('commandsPerOrigin') !== undefined && <span className="field-error">{draftErrors.commandsPerOrigin}</span>}
             </div>
             <div className="field">
-              <label className="field-label" htmlFor="mp-per-target" data-tip="Quantas vezes CADA alvo pode ser atacado (o mesmo alvo pode receber vários comandos — ondas).">
+              <label className="field-label" htmlFor="mp-per-target" data-tip="Quantas vezes CADA alvo pode ser atacado (ondas). Um número vale para todos os grupos; '1;2' dá cota por grupo de alvos separados por ; no Destino.">
                 Comandos por Alvo:
               </label>
               <input
                 id="mp-per-target"
                 className="input input--num"
-                type="number"
-                min={1}
+                type="text"
+                inputMode="numeric"
+                placeholder="Ex: 1;1"
                 value={perTargetText}
                 onChange={(event) => setPerTargetText(event.target.value)}
                 onBlur={() => markTouched('commandsPerTarget')}
               />
+              <span className="field-hint">
+                {parsedTargets.quotaError ?? `Alvos: até ${totalTargetCommands} comando(s)`}
+              </span>
               {showFieldError('commandsPerTarget') !== undefined && <span className="field-error">{draftErrors.commandsPerTarget}</span>}
             </div>
           </div>
@@ -977,7 +1029,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
               >
                 <option value="fixa">Fixa</option>
                 <option value="intervalo">Intervalo</option>
-                <option value="fixa-por-aldeia">Fixa com intervalo por aldeia</option>
+                <option value="sequencial">Fixa com intervalo por aldeia</option>
               </select>
             </div>
             {/* 12. Modo de Cálculo */}
@@ -992,6 +1044,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
                 onChange={(event) => setAssignMode(event.target.value as MassAssignMode)}
               >
                 <option value="otimizado">Otimizado</option>
+                <option value="por-jogador">Distribuído por players</option>
                 <option value="mais-perto">Mais perto</option>
                 <option value="mais-longe">Mais longe</option>
               </select>
@@ -1001,38 +1054,53 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
           {arrivalKind === 'intervalo' && (
             <div className="mp-grid">
               <div className="field">
-                <label className="field-label" htmlFor="mp-window" data-tip="As chegadas são espalhadas dentro desta janela, a partir da data/hora base.">
-                  Espalhar chegadas por (minutos):
+                <label className="field-label" htmlFor="mp-window-start" data-tip="As chegadas são espalhadas ENTRE o início e o fim (igual ao tool original).">
+                  Início do Intervalo:
                 </label>
                 <input
-                  id="mp-window"
-                  className="input input--num"
-                  type="number"
-                  min={1}
-                  value={windowMinutesText}
-                  onChange={(event) => setWindowMinutesText(event.target.value)}
-                  onBlur={() => markTouched('windowMinutes')}
+                  id="mp-window-start"
+                  className="input"
+                  type="datetime-local"
+                  step={1}
+                  value={windowStartText}
+                  onChange={(event) => setWindowStartText(event.target.value)}
+                  onBlur={() => markTouched('windowStartMs')}
                 />
-                {showFieldError('windowMinutes') !== undefined && <span className="field-error">{draftErrors.windowMinutes}</span>}
+                {showFieldError('windowStartMs') !== undefined && <span className="field-error">{draftErrors.windowStartMs}</span>}
+              </div>
+              <div className="field">
+                <label className="field-label" htmlFor="mp-window-end" data-tip="Fim da janela de chegadas — deve ser depois do início.">
+                  Fim do Intervalo:
+                </label>
+                <input
+                  id="mp-window-end"
+                  className="input"
+                  type="datetime-local"
+                  step={1}
+                  value={windowEndText}
+                  onChange={(event) => setWindowEndText(event.target.value)}
+                  onBlur={() => markTouched('windowEndMs')}
+                />
+                {showFieldError('windowEndMs') !== undefined && <span className="field-error">{draftErrors.windowEndMs}</span>}
               </div>
             </div>
           )}
-          {arrivalKind === 'fixa-por-aldeia' && (
+          {arrivalKind === 'sequencial' && (
             <div className="mp-grid">
               <div className="field">
-                <label className="field-label" htmlFor="mp-per-village" data-tip="Cada aldeia-alvo chega deslocada: 1ª na base, 2ª +N segundos, 3ª +2N… (ondas por alvo).">
-                  Intervalo entre aldeias (segundos):
+                <label className="field-label" htmlFor="mp-delay" data-tip="Cada ataque seguinte do grupo chega delay segundos depois do anterior (o mais perto chega na base — igual ao tool original).">
+                  Delay entre ataques (segundos):
                 </label>
                 <input
-                  id="mp-per-village"
+                  id="mp-delay"
                   className="input input--num"
                   type="number"
                   min={0}
-                  value={perVillageSecondsText}
-                  onChange={(event) => setPerVillageSecondsText(event.target.value)}
-                  onBlur={() => markTouched('perVillageSeconds')}
+                  value={delayText}
+                  onChange={(event) => setDelayText(event.target.value)}
+                  onBlur={() => markTouched('attackDelaySeconds')}
                 />
-                {showFieldError('perVillageSeconds') !== undefined && <span className="field-error">{draftErrors.perVillageSeconds}</span>}
+                {showFieldError('attackDelaySeconds') !== undefined && <span className="field-error">{draftErrors.attackDelaySeconds}</span>}
               </div>
             </div>
           )}
@@ -1169,7 +1237,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
                       {group.origins.length} origem(ns) → {group.targets.length} alvo(s)
                     </span>{' '}
                     <span className="muted">
-                      chega {group.arrivalKind === 'fixa' ? formatFullClock(group.arrivalBaseMs) : `a partir de ${formatFullClock(group.arrivalBaseMs)}`}
+                      chega {group.arrivalKind === 'fixa' ? formatFullClock(group.arrivalBaseMs) : `a partir de ${formatFullClock(group.arrivalKind === 'intervalo' ? group.windowStartMs : group.arrivalBaseMs)}`}
                     </span>
                     <span className="muted">
                       {' '}· dist {group.minDistance}–{group.maxDistance} campos
@@ -1348,7 +1416,8 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
                     <button
                       type="button"
                       className="btn btn-sm"
-                      onClick={() => copyText(formatRussianPlanner(planCommands), 'Lista copiada no formato Russian Planner.')}
+                      data-tip="BBCode por jogador para o CADERNO DA CONTA PREMIUM — formato real do tool original, com milissegundos e link da praça."
+                      onClick={() => copyText(formatRussianPlanner(planCommands, session.world ?? 'br'), 'BBCode Russian Planner copiado — cole no caderno da conta premium.')}
                     >
                       <ClipboardCopy size={14} aria-hidden="true" /> Copiar Russian Planner
                     </button>
@@ -1357,7 +1426,8 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
                     <button
                       type="button"
                       className="btn btn-sm"
-                      onClick={() => copyText(formatTwMassPlanner(planCommands), 'Lista copiada no formato TW Mass Planner.')}
+                      data-tip="Igual ao Russian + colunas de chegada e edifício-alvo — formato real do TW Mass Planner."
+                      onClick={() => copyText(formatTwMassPlanner(planCommands, session.world ?? 'br'), 'BBCode TW Mass Planner copiado — cole no caderno da conta premium.')}
                     >
                       <ClipboardCopy size={14} aria-hidden="true" /> Copiar TW Mass Planner
                     </button>
@@ -1429,31 +1499,44 @@ function reviveGroupConfig(item: unknown): MassGroupConfig | null {
   const targets = coordList(raw.targets);
   if (id === '' || nome === '' || origins.length === 0 || targets.length === 0) return null;
   const num = (value: unknown, fallback: number): number => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
+  const quotaList = (value: unknown, size: number): number[] => {
+    if (!Array.isArray(value) || value.length !== size) {
+      return Array.from({ length: size }, () => 1);
+    }
+    return value.map((quota) => (typeof quota === 'number' && Number.isInteger(quota) && quota >= 1 ? quota : 1));
+  };
   return {
     id,
     nome,
     origins,
+    originQuotas: quotaList(raw.originQuotas, origins.length),
     targets,
+    targetQuotas: quotaList(raw.targetQuotas, targets.length),
     towers: coordList(raw.towers),
     towerRadius: num(raw.towerRadius, 15),
     slowestUnit: typeof raw.slowestUnit === 'string' ? (raw.slowestUnit as UnitId) : 'ram',
     assignMode:
-      raw.assignMode === 'mais-perto' || raw.assignMode === 'mais-longe' ? raw.assignMode : 'otimizado',
-    commandsPerOrigin: num(raw.commandsPerOrigin, 1),
-    commandsPerTarget: num(raw.commandsPerTarget, 1),
+      raw.assignMode === 'mais-perto' || raw.assignMode === 'mais-longe' || raw.assignMode === 'por-jogador'
+        ? raw.assignMode
+        : 'otimizado',
     repeatOriginSamePlayer: raw.repeatOriginSamePlayer === true,
     minDistance: num(raw.minDistance, 0),
     maxDistance: num(raw.maxDistance, 2000),
     arrivalKind:
-      raw.arrivalKind === 'intervalo' || raw.arrivalKind === 'fixa-por-aldeia' ? raw.arrivalKind : 'fixa',
+      raw.arrivalKind === 'intervalo' || raw.arrivalKind === 'sequencial'
+        ? raw.arrivalKind
+        : raw.arrivalKind === 'fixa-por-aldeia'
+          ? 'sequencial' // migração v0.28→v0.29
+          : 'fixa',
     arrivalBaseMs: num(raw.arrivalBaseMs, Number.NaN),
-    windowMinutes: num(raw.windowMinutes, 30),
-    perVillageSeconds: num(raw.perVillageSeconds, 60),
+    windowStartMs: num(raw.windowStartMs, Number.NaN),
+    windowEndMs: num(raw.windowEndMs, Number.NaN),
+    attackDelaySeconds: num(raw.attackDelaySeconds, num(raw.perVillageSeconds, 30)), // legado v0.28
     nightBonus: raw.nightBonus === 'reagendar' ? 'reagendar' : 'desativado',
     avoidMsConflict: raw.avoidMsConflict === true,
     minMorale: num(raw.minMorale, 0),
     catapultTargets: Array.isArray(raw.catapultTargets)
-      ? raw.catapultTargets.filter((id): id is string => typeof id === 'string')
+      ? raw.catapultTargets.filter((catId): catId is string => typeof catId === 'string')
       : [],
   };
 }

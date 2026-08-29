@@ -1,9 +1,11 @@
 // Sala de Guerra · Planner de OP em Massa — CONTRATO (tipos e constantes).
-// Inspirado no TW Mass Planner / Russian Planner, adaptado ao app: cada GRUPO
-// é um lote de comandos de um tipo (fake, nuke, nobre…) com configuração
-// própria; "Gerar Operação" junta todos numa única OP. Tudo aqui é dado puro —
-// a lógica vive em mass-planner-engine.ts (pura, determinística) e os textos
-// exportáveis em mass-planner-formats.ts.
+// v0.29.0 alinhado À FERRAMENTA REAL (twmassplanner.pro, provado por gerações
+// reais capturadas): cotas "1;2" POR GRUPO de coordenadas (cota por vila do
+// grupo), chegadas Fixa / Intervalo (início e fim) / Fixa com intervalo por
+// aldeia (delay SEQUENCIAL entre ataques, na ordem de atribuição), modos
+// Otimizado / Distribuído por players / Mais perto (+ Mais longe, extra nosso),
+// e IDs das vilas no comando (o link da praça da exportação usa o ID da vila
+// de ORIGEM). Tudo aqui é dado puro — lógica em mass-planner-engine.ts.
 
 import type { UnitId } from './units';
 
@@ -19,18 +21,25 @@ export interface MassCoordEntry {
 export type MassArrivalKind =
   /** Todos chegam no MESMO horário exato (o da base). */
   | 'fixa'
-  /** Chegadas espalhadas dentro de uma janela (base → base + janela). */
+  /** Chegadas espalhadas ENTRE o datetime de início e o de fim (janela). */
   | 'intervalo'
-  /** Base fixa com deslocamento por ALDEIA-alvo (ondas por alvo). */
-  | 'fixa-por-aldeia';
+  /** Base fixa com DELAY SEQUENCIAL entre ataques: o k-ésimo ataque atribuído
+   *  (ordem de distância crescente) chega base + k×delay. Label original da
+   *  ferramenta: "Fixa com intervalo por aldeia". */
+  | 'sequencial';
 
 /** Como as origens são atribuídas aos alvos por distância. */
 export type MassAssignMode =
-  /** Melhor atribuição geral: guloso global por menor distância do conjunto. */
+  /** Melhor atribuição geral: guloso global por menor distância do conjunto
+   *  (aproximação determinística do matching de custo mínimo do tool real). */
   | 'otimizado'
+  /** Distribui os alvos de forma JUSTA entre os JOGADORES de origem
+   *  (ferramenta real "Distributed by players"); heurística determinística. */
+  | 'por-jogador'
   /** Cada alvo recebe as origens mais PRÓXIMAS ainda disponíveis. */
   | 'mais-perto'
-  /** Cada alvo recebe as origens mais DISTANTES ainda disponíveis. */
+  /** Cada alvo recebe as origens mais DISTANTES ainda disponíveis (extra nosso —
+   *  a ferramenta real não tem este modo). */
   | 'mais-longe';
 
 /** Proteção de bônus noturno: chegada dentro da janela é empurrada para depois. */
@@ -38,7 +47,7 @@ export type MassNightBonusMode = 'desativado' | 'reagendar';
 
 /** Edifícios-alvo de catapulta (19 da ferramenta original, pt-BR). */
 export interface MassBuildingDef {
-  /** Id técnico do jogo (ex.: "main"). */
+  /** Id técnico do jogo (ex.: "main") — é o que a exportação BBCode emite. */
   id: string;
   /** Nome pt-BR exibido (rótulo original da ferramenta). */
   name: string;
@@ -76,7 +85,13 @@ export interface MassGroupConfig {
   /** "Modelo de Tropa" — rótulo livre do tipo de ataque (ex.: "nuke", "fake"). */
   nome: string;
   origins: MassCoordEntry[];
+  /** Cota de usos DE CADA ORIGEM (resolvida dos grupos "1;2"; mesma ordem de origins). */
+  originQuotas: number[];
   targets: MassCoordEntry[];
+  /** Cota de ataques DE CADA ALVO (resolvida dos grupos "1;1"; mesma ordem de targets). */
+  targetQuotas: number[];
+  /** Permite reusar a mesma origem contra o MESMO jogador-alvo (alvos DIFERENTES). */
+  repeatOriginSamePlayer: boolean;
   /** Torres de Vigia INIMIGAS: pares cuja trajetória passa dentro do raio são descartados. */
   towers: MassCoordEntry[];
   towerRadius: number;
@@ -84,29 +99,22 @@ export interface MassGroupConfig {
   slowestUnit: UnitId;
   /** Modo de atribuição origem→alvo por distância. */
   assignMode: MassAssignMode;
-  /** Quantas vezes CADA origem pode ser usada (≥1). */
-  commandsPerOrigin: number;
-  /** Quantas vezes CADA alvo pode ser atacado (≥1). */
-  commandsPerTarget: number;
-  /** Permite reusar a mesma origem contra o MESMO jogador-alvo. */
-  repeatOriginSamePlayer: boolean;
-  /** Descarta pares com distância MENOR que este valor (campos; 0 = sem piso). */
   minDistance: number;
-  /** Descarta pares com distância MAIOR que este valor (campos). */
   maxDistance: number;
   arrivalKind: MassArrivalKind;
-  /** Data/hora base de chegada (epoch ms local). Fixa = chegada exata; intervalo = início; por-aldeia = base da 1ª aldeia. */
+  /** Data/hora base de chegada (epoch ms local). Fixa = chegada exata; sequencial = base do 1º ataque; intervalo = referência legada (não usado). */
   arrivalBaseMs: number;
-  /** Janela de espalhamento em minutos (arrivalKind "intervalo", ≥1). */
-  windowMinutes: number;
-  /** Deslocamento entre aldeias-alvo em segundos (arrivalKind "fixa-por-aldeia", ≥0). */
-  perVillageSeconds: number;
+  /** Janela do modo "intervalo": chegadas espalhadas entre início e fim (epoch ms local). */
+  windowStartMs: number;
+  windowEndMs: number;
+  /** Delay SEQUENCIAL entre ataques em segundos (modo "fixa com intervalo por aldeia"). */
+  attackDelaySeconds: number;
   nightBonus: MassNightBonusMode;
   /** Evita dois comandos no MESMO ms para o MESMO jogador (resolvido na OP inteira). */
   avoidMsConflict: boolean;
   /** Moral mínima 0–100 (0 = ignorar). Mundo sem moral força 0 fora da engine. */
   minMorale: number;
-  /** Edifícios-alvo de catapulta (ids de MASS_BUILDINGS; vazio = sem mira). */
+  /** Edifícios-alvo de catapulta (ids de MASS_BUILDINGS; vazio = export usa "farm", como o tool real). */
   catapultTargets: string[];
 }
 
@@ -114,8 +122,7 @@ export interface MassGroupConfig {
 export interface MassPlanContext {
   /** Minutos-por-campo EFETIVOS por unidade (unit-info do mundo; valor servido já é final). */
   unitMinutesPerField: Partial<Record<UnitId, number>>;
-  /** Janela do bônus noturno do get_config — MESMA forma do NightBonusCfg
-   *  (nightBonusActive/nightStartHour/nightEndHour, como no WorldConfig). O IPC
+  /** Janela do bônus noturno do get_config — MESMA forma do NightBonusCfg. O IPC
    *  world:night-bonus devolve {active,startHour,endHour}: o caller converte. */
   nightBonus: { nightBonusActive: boolean; nightStartHour: number; nightEndHour: number };
   /** Pontos da VILDEJA por "x|y" (dump do mundo; ausente = desconhecido). */
@@ -124,6 +131,9 @@ export interface MassPlanContext {
   ownerByCoord: ReadonlyMap<string, string>;
   /** Pontos do JOGADOR por nick (dump; moral usa pontos do dono da origem). */
   playerPoints: ReadonlyMap<string, number>;
+  /** ID interno da VILDEJA por "x|y" (dump village.txt) — o link da praça na
+   *  exportação BBCode usa o ID da vila de ORIGEM (igual ao tool real). */
+  villageIdByCoord: ReadonlyMap<string, number>;
   /** Mundo tem moral por pontos (get_config disable_morale). */
   moralActive: boolean;
 }
@@ -134,8 +144,12 @@ export interface MassPlanCommand {
   groupName: string;
   /** "x|y" de origem. */
   origin: string;
+  /** ID interno da vila de origem no dump (null = desconhecido — link degradado). */
+  originVillageId: number | null;
   /** "x|y" do alvo. */
   target: string;
+  /** ID interno da vila de alvo no dump (null = desconhecido). */
+  targetVillageId: number | null;
   /** Dono do alvo pelo dump (null = desconhecido/bárbaro). */
   targetOwner: string | null;
   /** Dono da origem pelo dump (null = desconhecido) — executor do comando. */
@@ -180,8 +194,9 @@ export type MassGroupErrors = Partial<
     | 'minDistance'
     | 'maxDistance'
     | 'arrivalBaseMs'
-    | 'windowMinutes'
-    | 'perVillageSeconds'
+    | 'windowStartMs'
+    | 'windowEndMs'
+    | 'attackDelaySeconds'
     | 'minMorale'
     | 'catapultTargets',
     string

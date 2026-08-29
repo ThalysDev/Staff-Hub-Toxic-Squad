@@ -1,0 +1,10 @@
+[b]Mass plan for [player]S A L A Z H A A R[/player][/b]
+[spoiler=For premium account notebook][code][b]Mass plan for [player]S A L A Z H A A R[/player][/b]
+[b]Mass time arrival: 22:00:00:000 01.09.2026[/b]
+[table][**]#. Time send-->Attack type[||]Your coords-->Target coords[||]Target[||]Rally point direct link[/**]
+[*]1. 11:33:45:857 30.08.2026 --- nuke[|] 560|365 --> 502|483 [|]Meni[|][url=https://br142.tribalwars.com.br/game.php?village=213&screen=place&x=502&y=483&from=simulator]Link[/url]
+[/table][/code][/spoiler]
+
+[spoiler=your targets for custom calculation]
+[code]nuke targets: 502|483 
+[/code][/spoiler]

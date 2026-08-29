@@ -1,60 +1,145 @@
 // Sala de Guerra · Planner de OP em Massa — FORMATOS de exportação.
-// Funções PURAS que convertem a lista de comandos gerada nos textos que a staff
-// consome: Russian Planner e TW Mass Planner (ferramentas externas de referência)
-// e o formato colável DO APP ("nick;alvo;HH:MM:SS[ @dd/MM]", reusado pelo
-// T-minus, pacote de comunicação e SG_6 — mesma gramática dos 4 consumidores).
-//
-// Os dois formatos externos seguem a convenção das ferramentas de origem:
-// UMA linha por comando com origem, alvo, unidade mais lenta e horário de ENVIO
-// (partida) — o horário que os jogadores executam. Russian Planner usa data ISO
-// "aaaa-mm-dd hh:mm:ss"; TW Mass Planner usa "dd.mm.aaaa hh:mm:ss".
+// v0.29.0: os formatos "Russian Planner" e "TW Mass Planner" são agora BYTE-
+// FIÉIS à ferramenta real (twmassplanner.pro) — decifrados de ZIPs de operações
+// geradas com chave válida: BBCode para colar no CADERNO DA CONTA PREMIUM,
+// blocos por jogador de origem, horários em milissegundos "HH:MM:SS:mmm
+// dd.mm.aaaa", dono do alvo e link direto da praça de reunião (com o ID da
+// vila de ORIGEM). Mantido o formato colável DO APP ("nick;alvo;HH:MM:SS
+// @dd/MM" — T-minus/comms/SG_6) como terceira saída.
 
 import { formatSendSchedule } from './sg4-timing';
 import { UNITS } from './units';
 import type { MassPlanCommand } from './mass-planner-types';
 
-/** "aaaa-mm-dd hh:mm:ss" no relógio local (ordenável, sem ambiguidade de barra). */
-function formatIsoLocal(ms: number): string {
+/** "HH:MM:SS:mmm dd.mm.aaaa" no relógio local — formato dos tempos reais. */
+function formatPlannerTime(ms: number): string {
   const at = new Date(ms);
   const part = (value: number): string => String(value).padStart(2, '0');
   return (
-    `${at.getFullYear()}-${part(at.getMonth() + 1)}-${part(at.getDate())} ` +
-    `${part(at.getHours())}:${part(at.getMinutes())}:${part(at.getSeconds())}`
+    `${part(at.getHours())}:${part(at.getMinutes())}:${part(at.getSeconds())}:` +
+    `${String(at.getMilliseconds()).padStart(3, '0')} ` +
+    `${part(at.getDate())}.${part(at.getMonth() + 1)}.${at.getFullYear()}`
   );
 }
 
-/** "dd.mm.aaaa hh:mm:ss" no relógio local (convenção do TW Mass Planner). */
-function formatDotLocal(ms: number): string {
-  const at = new Date(ms);
-  const part = (value: number): string => String(value).padStart(2, '0');
-  return (
-    `${part(at.getDate())}.${part(at.getMonth() + 1)}.${at.getFullYear()} ` +
-    `${part(at.getHours())}:${part(at.getMinutes())}:${part(at.getSeconds())}`
+/** Limpa texto livre para célula BBCode (o jogo não parseia [, ], | e ; dentro). */
+function bbSafe(text: string): string {
+  return text.replace(/[[\]|;]/g, ' ').trim();
+}
+
+interface PlanBlock {
+  nick: string;
+  rows: MassPlanCommand[];
+}
+
+/**
+ * Blocos POR JOGADOR DE ORIGEM (igual ao tool real): cada nick ganha o seu
+ * "Mass plan". Blocos ordenados pela chegada mais cedo do bloco (empate: ordem
+ * de aparição); linhas do bloco por HORÁRIO DE ENVIO ascendente.
+ */
+function buildBlocks(commands: readonly MassPlanCommand[]): PlanBlock[] {
+  const byNick = new Map<string, MassPlanCommand[]>();
+  for (const command of commands) {
+    const nick = bbSafe(command.originOwner ?? `Grupo ${command.groupName}`) || 'Grupo';
+    const list = byNick.get(nick) ?? [];
+    list.push(command);
+    byNick.set(nick, list);
+  }
+  const blocks: PlanBlock[] = [];
+  for (const [nick, rows] of byNick) {
+    rows.sort((a, b) => a.sendMs - b.sendMs);
+    blocks.push({ nick, rows });
+  }
+  blocks.sort(
+    (a, b) =>
+      Math.min(...a.rows.map((row) => row.arrivalMs)) - Math.min(...b.rows.map((row) => row.arrivalMs)),
   );
+  return blocks;
 }
 
-/** Linhas "origem alvo unidade envio" — base dos dois formatos externos. */
-function toolLines(commands: readonly MassPlanCommand[], formatMs: (ms: number) => string): string[] {
-  return commands.map((command) => {
-    const unitName = UNITS[command.unit]?.name ?? command.unit;
-    return `${command.origin} ${command.target} ${unitName} ${formatMs(command.sendMs)}`;
-  });
+/** Link da praça de reunião com o ID da vila de ORIGEM (igual ao tool real). */
+function rallyLink(command: MassPlanCommand, world: string): string {
+  const server = (world || 'br').toLowerCase();
+  const target = command.target.split('|');
+  const tx = target[0] ?? '0';
+  const ty = target[1] ?? '0';
+  const village = command.originVillageId === null ? '' : `village=${command.originVillageId}&`;
+  return `https://${server}.tribalwars.com.br/game.php?${village}screen=place&x=${tx}&y=${ty}&from=simulator`;
+}
+
+/** Edifício-alvo na exportação: primeira mira escolhida ou "farm" (default do tool real). */
+function attackBuilding(command: MassPlanCommand): string {
+  return bbSafe(command.catapultTargets[0] ?? '') || 'farm';
 }
 
 /**
- * Russian Planner: `x1|y1 x2|y2 Unidade aaaa-mm-dd hh:mm:ss` (horário de ENVIO,
- * uma linha por comando). Ordem = a lista recebida (recomenda-se chegada crescente).
+ * Monta o texto completo de um formato: variant "russian" (4 colunas) ou
+ * "twmp" (6 colunas, com Time arrival e Attack building). Estrutura copiada
+ * dos arquivos reais russian_planner-planners.txt / tw_mass_planner-planners.txt.
  */
-export function formatRussianPlanner(commands: readonly MassPlanCommand[]): string {
-  return toolLines(commands, formatIsoLocal).join('\n');
+function buildPlannerText(commands: readonly MassPlanCommand[], world: string, variant: 'russian' | 'twmp'): string {
+  const blocks = buildBlocks(commands);
+  const parts: string[] = [];
+  for (const block of blocks) {
+    const headerTime = formatPlannerTime(Math.min(...block.rows.map((row) => row.arrivalMs)));
+    const header =
+      variant === 'russian'
+        ? '[**]#. Time send-->Attack type[||]Your coords-->Target coords[||]Target[||]Rally point direct link[/**]'
+        : '[**]#. Time send-->Attack type[||]Time arrival[||]Your coords-->Target coords[||]Target[||]Attack building[||]Rally point direct link[/**]';
+    const rowsText = block.rows
+      .map((row, index) => {
+        const send = formatPlannerTime(row.sendMs);
+        const template = bbSafe(row.groupName) || 'ataque';
+        const owner = bbSafe(row.targetOwner ?? '') || '—';
+        const link = rallyLink(row, world);
+        const base = `[*]${index + 1}. ${send} --- ${template}`;
+        if (variant === 'russian') {
+          return `${base}[|] ${row.origin} --> ${row.target} [|]${owner}[|][url=${link}]Link[/url]`;
+        }
+        const arrival = formatPlannerTime(row.arrivalMs);
+        return `${base}[|]${arrival}[|] ${row.origin} --> ${row.target} [|]${owner}[|]${attackBuilding(row)}[|][url=${link}]Link[/url]`;
+      })
+      .join('\n');
+    // Recap "targets": uma linha por template do bloco, alvos na ordem das linhas.
+    const targetsByTemplate = new Map<string, string[]>();
+    for (const row of block.rows) {
+      const template = bbSafe(row.groupName) || 'ataque';
+      const list = targetsByTemplate.get(template) ?? [];
+      list.push(row.target);
+      targetsByTemplate.set(template, list);
+    }
+    const targetsText = [...targetsByTemplate.entries()]
+      .map(([template, targets]) => `${template} targets: ${targets.join(' ')} `)
+      .join('\n');
+    parts.push(
+      `[b]Mass plan for [player]${block.nick}[/player][/b]\n` +
+        `[spoiler=For premium account notebook][code][b]Mass plan for [player]${block.nick}[/player][/b]\n` +
+        `[b]Mass time arrival: ${headerTime}[/b]\n` +
+        `[table]${header}\n` +
+        `${rowsText}\n` +
+        `[/table][/code][/spoiler]\n` +
+        `\n` +
+        `[spoiler=your targets for custom calculation]\n` +
+        `[code]${targetsText}\n[/code][/spoiler]`,
+    );
+  }
+  return parts.join('\n');
 }
 
 /**
- * TW Mass Planner: `x1|y1 x2|y2 Unidade dd.mm.aaaa hh:mm:ss` (horário de ENVIO,
- * uma linha por comando). Ordem = a lista recebida.
+ * Russian Planner (formato REAL do tool): BBCode por jogador para o caderno
+ * premium, com horário de ENVIO e link da praça. `world` = id do mundo (ex. "br142").
  */
-export function formatTwMassPlanner(commands: readonly MassPlanCommand[]): string {
-  return toolLines(commands, formatDotLocal).join('\n');
+export function formatRussianPlanner(commands: readonly MassPlanCommand[], world: string): string {
+  return buildPlannerText(commands, world, 'russian');
+}
+
+/**
+ * TW Mass Planner (formato REAL do tool): igual ao Russian + colunas Time
+ * arrival e Attack building (default "farm" sem mira de catapulta).
+ */
+export function formatTwMassPlanner(commands: readonly MassPlanCommand[], world: string): string {
+  return buildPlannerText(commands, world, 'twmp');
 }
 
 /** Rótulo pt-BR da unidade para cabeçalhos/colunas. */

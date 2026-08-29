@@ -1,15 +1,18 @@
 // Sala de Guerra · Planner de OP em Massa — MOTOR puro e determinístico.
-// Cruza origens × alvos por grupo com capacidades ("Comandos por Origem/Alvo"),
-// aplica filtros (distância mín/máx, Torre de Vigia inimiga por distância
-// ponto→segmento, moral mínima por pontos), agenda chegadas (fixa / intervalo /
-// fixa com intervalo por aldeia), protege bônus noturno (empurra a chegada para
-// depois da janela), resolve conflito de ms por jogador e calcula a PARTIDA de
-// cada comando com o solver inverso (viagem dentro da janela noturna custa 2×).
+// v0.29.0 alinhado À FERRAMENTA REAL (twmassplanner.pro — semânticas provadas
+// por gerações reais capturadas): cruzamento origens×alvos com cotas POR VILA
+// resolvidas dos grupos "1;2" (textareas divididas por ";"), modos de cálculo
+// Otimizado (guloso global, aproximação do matching do tool real) /
+// Distribuído por players (justo entre jogadores de origem) / Mais perto /
+// Mais longe, filtros por par (distância, Torre de Vigia ponto→segmento raio
+// 15, moral por pontos), chegadas Fixa / Intervalo (início→fim) / Fixa com
+// intervalo por aldeia (DELAY SEQUENCIAL entre ataques na ordem de distância),
+// proteção de bônus noturno, conflito de ms por jogador e partida via solver
+// inverso (viagem na janela noturna custa 2×).
 //
 // Nada de relógio, rede ou DOM: o contexto do mundo entra pronto
-// (MassPlanContext) e a âncora de data vem em cada grupo (arrivalBaseMs) —
-// mesma disciplina das engines SG_4/SG_1. Descartes de pares NUNCA são
-// silenciosos: voltam agregados por motivo em MassPlanResult.discards.
+// (MassPlanContext) e as âncoras de data vêm em cada grupo — mesma disciplina
+// das engines SG_4/SG_1. Descartes NUNCA silenciosos: voltam agregados.
 
 import { fieldsBetween } from './distance';
 import { normalizeCoordText } from './coord-input';
@@ -117,11 +120,127 @@ export function pushArrivalOutOfNightWindow(
 }
 
 // ---------------------------------------------------------------------------
+// Entrada de coordenadas EM GRUPOS ("A B; C D") com cotas ("1;2")
+// ---------------------------------------------------------------------------
+
+export interface ParsedCoordGroups {
+  entries: MassCoordEntry[];
+  /** Cota de usos de cada entrada (resolvida dos grupos; mesmo comprimento de entries). */
+  quotas: number[];
+  invalidTokens: number;
+  duplicatesRemoved: number;
+  /** Erro de cotas no formato do tool real (null = ok). */
+  quotaError: string | null;
+}
+
+/**
+ * Converte o texto colado ("A B; C D" — grupos separados por ";") + o campo de
+ * cota ("1" ou "1;2" — um valor por GRUPO; 1 valor só aplica a todos) na lista
+ * plana de coordenadas com a cota DE CADA VILA. Mesmo parsing da blindagem
+ * (ordem da 1ª aparição, dedupe, contagem de inválidos — nunca descarte
+ * silencioso). Cota inválida NÃO lança: volta em quotaError para o formulário.
+ */
+export function parseMassCoordGroups(raw: string, countsRaw: string): ParsedCoordGroups {
+  const groups = raw.split(';');
+  const countParts = countsRaw
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part !== '');
+
+  const entries: MassCoordEntry[] = [];
+  const quotas: number[] = [];
+  const seen = new Set<string>();
+  let invalidTokens = 0;
+  let duplicatesRemoved = 0;
+
+  for (const group of groups) {
+    const normalized = normalizeCoordText(group);
+    invalidTokens += normalized.invalidTokens;
+    duplicatesRemoved += normalized.duplicatesRemoved;
+    for (const coord of normalized.coords) {
+      const parsed = parseCoord(coord);
+      if (parsed === null) continue; // inalcançável: normalizeCoordText só emite \d{1,3}\|\d{1,3}
+      const key = `${parsed.x}|${parsed.y}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push({ coord: key, x: parsed.x, y: parsed.y });
+      quotas.push(1); // default provisório; sobrescrito abaixo pelos grupos
+    }
+  }
+
+  let quotaError: string | null = null;
+  if (countParts.length > 0 || groups.length > 1) {
+    // Um único valor aplica a todos os grupos (ex.: "1" para 3 grupos).
+    const resolved: number[] = [];
+    if (countParts.length === 1) {
+      const value = Number(countParts[0]);
+      if (!Number.isInteger(value) || value < 1) {
+        quotaError = 'Valor de comando inválido.';
+      } else {
+        for (let i = 0; i < groups.length; i++) resolved.push(value);
+      }
+    } else {
+      // Tantos valores quanto grupos: "O número de separadores (;) é diferente."
+      if (countParts.length !== groups.length) {
+        quotaError = 'O número de separadores (;) é diferente.';
+      } else {
+        for (const part of countParts) {
+          const value = Number(part);
+          if (!Number.isInteger(value) || value < 1) {
+            quotaError = 'Valor de comando inválido.';
+            break;
+          }
+          resolved.push(value);
+        }
+      }
+    }
+    if (quotaError === null) {
+      // Aplica a cota do grupo a cada vila do grupo (mesma ordem de entrada).
+      let cursor = 0;
+      groups.forEach((groupText, groupIndex) => {
+        const normalized = normalizeCoordText(groupText);
+        for (const coord of normalized.coords) {
+          const parsed = parseCoord(coord);
+          if (parsed === null) continue;
+          const key = `${parsed.x}|${parsed.y}`;
+          if (!seen.has(key)) continue; // duplicada já tratada acima
+          if (quotas[cursor] !== undefined) quotas[cursor] = resolved[groupIndex] ?? 1;
+          cursor += 1;
+        }
+      });
+    }
+  }
+
+  return { entries, quotas, invalidTokens, duplicatesRemoved, quotaError };
+}
+
+/** Conveniência: texto simples sem grupos (torres) — cota 1 para tudo. */
+export function parseMassCoordText(raw: string): {
+  entries: MassCoordEntry[];
+  invalidTokens: number;
+  duplicatesRemoved: number;
+} {
+  const parsed = parseMassCoordGroups(raw, '');
+  return {
+    entries: parsed.entries,
+    invalidTokens: parsed.invalidTokens,
+    duplicatesRemoved: parsed.duplicatesRemoved,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Validação do grupo (campos do formulário — mensagem por campo)
 // ---------------------------------------------------------------------------
 
-/** Erros por campo; objeto vazio = grupo válido. Não avalia texto de textarea —
- *  o caller converte as coordenadas antes (parseMassCoordText). */
+/** Cotas precisam cobrir as listas com inteiros ≥ 1. */
+function validateQuotas(quotas: number[], listLength: number): string | undefined {
+  if (quotas.length !== listLength) return 'Cotas divergentes das coordenadas — adicione o grupo de novo.';
+  return quotas.some((quota) => !Number.isInteger(quota) || quota < 1)
+    ? 'Comandos deve ser um inteiro ≥ 1 (listas "1;2" por grupo).'
+    : undefined;
+}
+
+/** Erros por campo; objeto vazio = grupo válido. */
 export function validateMassGroup(group: MassGroupConfig, ctx: MassPlanContext): MassGroupErrors {
   const errors: MassGroupErrors = {};
   const nome = group.nome.trim();
@@ -138,16 +257,14 @@ export function validateMassGroup(group: MassGroupConfig, ctx: MassPlanContext):
   if (group.targets.length === 0) {
     errors.targets = 'Informe ao menos uma coordenada de destino.';
   }
+  const quotaOriginError = validateQuotas(group.originQuotas, group.origins.length);
+  if (quotaOriginError !== undefined) errors.commandsPerOrigin = quotaOriginError;
+  const quotaTargetError = validateQuotas(group.targetQuotas, group.targets.length);
+  if (quotaTargetError !== undefined) errors.commandsPerTarget = quotaTargetError;
   const unitMinutes = ctx.unitMinutesPerField[group.slowestUnit];
   if (unitMinutes === undefined || !(unitMinutes > 0)) {
     errors.slowestUnit =
       'Velocidade da unidade indisponível — atualize os dados do mundo (unit-info) antes de gerar.';
-  }
-  if (!Number.isInteger(group.commandsPerOrigin) || group.commandsPerOrigin < 1) {
-    errors.commandsPerOrigin = 'Comandos por origem deve ser um inteiro ≥ 1.';
-  }
-  if (!Number.isInteger(group.commandsPerTarget) || group.commandsPerTarget < 1) {
-    errors.commandsPerTarget = 'Comandos por alvo deve ser um inteiro ≥ 1.';
   }
   if (!(group.minDistance >= 0)) {
     errors.minDistance = 'Distância mínima deve ser ≥ 0.';
@@ -158,11 +275,18 @@ export function validateMassGroup(group: MassGroupConfig, ctx: MassPlanContext):
   if (!Number.isFinite(group.arrivalBaseMs)) {
     errors.arrivalBaseMs = 'Informe a data e hora de chegada.';
   }
-  if (group.arrivalKind === 'intervalo' && !(group.windowMinutes >= 1)) {
-    errors.windowMinutes = 'A janela de espalhamento deve ser de pelo menos 1 minuto.';
+  if (group.arrivalKind === 'intervalo') {
+    if (!Number.isFinite(group.windowStartMs)) {
+      errors.windowStartMs = 'Defina o início do intervalo.';
+    }
+    if (!Number.isFinite(group.windowEndMs)) {
+      errors.windowEndMs = 'Defina o fim do intervalo.';
+    } else if (Number.isFinite(group.windowStartMs) && group.windowEndMs <= group.windowStartMs) {
+      errors.windowEndMs = 'O fim do intervalo deve ser depois do início.';
+    }
   }
-  if (group.arrivalKind === 'fixa-por-aldeia' && !(group.perVillageSeconds >= 0)) {
-    errors.perVillageSeconds = 'O intervalo por aldeia deve ser ≥ 0 segundos.';
+  if (group.arrivalKind === 'sequencial' && !(group.attackDelaySeconds >= 0)) {
+    errors.attackDelaySeconds = 'O delay entre ataques deve ser ≥ 0 segundos.';
   }
   if (!(group.minMorale >= 0 && group.minMorale <= 100)) {
     errors.minMorale = 'Moral mínima deve ficar entre 0 e 100 (0 = ignorar).';
@@ -171,30 +295,6 @@ export function validateMassGroup(group: MassGroupConfig, ctx: MassPlanContext):
     errors.towers = 'O raio da torre deve ser maior que 0.';
   }
   return errors;
-}
-
-// ---------------------------------------------------------------------------
-// Texto de coordenadas → coordenadas canônicas (mesmo tratamento da blindagem)
-// ---------------------------------------------------------------------------
-
-/** Converte o texto colado em coordenadas canônicas: ordem da 1ª aparição,
- *  dedupe e CONTAGEM de inválidos/duplicadas — o caller decide avisar; nunca
- *  descarte silencioso (AGENTS.md). */
-export function parseMassCoordText(
-  raw: string,
-): { entries: MassCoordEntry[]; invalidTokens: number; duplicatesRemoved: number } {
-  const normalized = normalizeCoordText(raw);
-  const entries: MassCoordEntry[] = [];
-  for (const coord of normalized.coords) {
-    const parsed = parseCoord(coord);
-    if (parsed === null) continue; // inalcançável: normalizeCoordText só emite \d{1,3}\|\d{1,3}
-    entries.push({ coord: parsed.x + '|' + parsed.y, x: parsed.x, y: parsed.y });
-  }
-  return {
-    entries,
-    invalidTokens: normalized.invalidTokens,
-    duplicatesRemoved: normalized.duplicatesRemoved,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -212,26 +312,6 @@ interface PlannedCommand {
   groupOrder: number;
   targetIndex: number;
   originIndex: number;
-}
-
-/** Chegada por slot (k de n) conforme o modo do grupo — determinística. */
-function arrivalForSlot(
-  group: MassGroupConfig,
-  slot: number,
-  total: number,
-  villageOffsetSec: number,
-): number {
-  switch (group.arrivalKind) {
-    case 'fixa':
-      return group.arrivalBaseMs;
-    case 'intervalo': {
-      if (total <= 1) return group.arrivalBaseMs;
-      const windowMs = Math.round(group.windowMinutes * 60_000);
-      return group.arrivalBaseMs + Math.floor((slot * windowMs) / total);
-    }
-    case 'fixa-por-aldeia':
-      return group.arrivalBaseMs + villageOffsetSec * 1000;
-  }
 }
 
 /**
@@ -304,9 +384,9 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
       });
     });
 
-    // (2) Cruzamento com capacidades + modo de cálculo (determinístico).
-    const originRemaining = group.origins.map(() => group.commandsPerOrigin);
-    const targetRemaining = group.targets.map(() => group.commandsPerTarget);
+    // (2) Cruzamento com capacidades POR VILA (cotas "1;2" resolvidas) + modo.
+    const originRemaining = group.origins.map((_, index) => group.originQuotas[index] ?? 1);
+    const targetRemaining = group.targets.map((_, index) => group.targetQuotas[index] ?? 1);
     // Repetição origem→mesmo jogador: bloqueia usar a MESMA origem contra ALVOS
     // DIFERENTES do mesmo jogador. Ondas no MESMO alvo são papel de "Comandos
     // por Alvo" e continuam valendo com a repetição desligada.
@@ -336,11 +416,49 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
     };
 
     const assignments: CandidatePair[] = [];
-    if (group.assignMode === 'otimizado') {
+    if (group.assignMode === 'por-jogador') {
+      // DISTRIBUÍDO POR PLAYERS (tool real): justo entre os JOGADORES de origem.
+      // Alvos na ordem digitada; cada um vai para o jogador com MENOS comandos
+      // até agora (empate: jogador do par mais curto; depois ordem digitada).
+      const playerOfOrigin = (originIndex: number): string => {
+        const owner = ctx.ownerByCoord.get(group.origins[originIndex]?.coord ?? '');
+        return owner === undefined ? `vila:${group.origins[originIndex]?.coord ?? '?'}` : `nick:${owner}`;
+      };
+      const loadByPlayer = new Map<string, number>();
+      for (let targetIndex = 0; targetIndex < group.targets.length; targetIndex++) {
+        while ((targetRemaining[targetIndex] ?? 0) > 0) {
+          let best: CandidatePair | null = null;
+          const bestLoad = (pair: CandidatePair): number =>
+            loadByPlayer.get(playerOfOrigin(pair.originIndex)) ?? 0;
+          for (const pair of candidates) {
+            if (pair.targetIndex !== targetIndex) continue;
+            if ((originRemaining[pair.originIndex] ?? 0) <= 0) continue;
+            if (!repeatOk(pair.originIndex, pair.targetIndex)) continue;
+            if (best === null) {
+              best = pair;
+              continue;
+            }
+            const loadDiff = bestLoad(pair) - bestLoad(best);
+            if (
+              loadDiff < 0 ||
+              (loadDiff === 0 &&
+                (pair.distanceFields < best.distanceFields ||
+                  (pair.distanceFields === best.distanceFields && pair.originIndex < best.originIndex)))
+            ) {
+              best = pair;
+            }
+          }
+          if (best === null) break;
+          assignSlot(best.originIndex, best.targetIndex);
+          const player = playerOfOrigin(best.originIndex);
+          loadByPlayer.set(player, (loadByPlayer.get(player) ?? 0) + 1);
+          assignments.push(best);
+        }
+      }
+    } else if (group.assignMode === 'otimizado') {
       // Guloso global: o par mais curto disponível do CONJUNTO primeiro —
-      // minimiza a distância total respeitando capacidades (empate: ordem digitada).
-      // Um par pode virar VÁRIOS comandos (ondas): esgota min(capOrigem, capAlvo)
-      // antes de avançar para o próximo par.
+      // aproximação determinística do matching de custo mínimo do tool real
+      // (empate: ordem digitada). Um par pode virar VÁRIOS comandos (ondas).
       const ordered = [...candidates].sort(
         (a, b) =>
           a.distanceFields - b.distanceFields ||
@@ -403,29 +521,55 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
       );
     }
 
-    // (3) Chegadas e partidas. Ordem determinística: (alvo digitado, origem digitada).
+    // (3) Chegadas e partidas.
+    // Ordem base determinística: (alvo digitado, origem digitada).
     assignments.sort((a, b) => a.targetIndex - b.targetIndex || a.originIndex - b.originIndex);
-    // Offset de aldeia ("fixa-por-aldeia"): índice do alvo entre os DISTINTOS, na ordem digitada.
-    const villageOffsetByTarget = new Map<number, number>();
-    if (group.arrivalKind === 'fixa-por-aldeia') {
-      for (const assignment of assignments) {
-        if (!villageOffsetByTarget.has(assignment.targetIndex)) {
-          villageOffsetByTarget.set(assignment.targetIndex, villageOffsetByTarget.size);
-        }
-      }
+    let slotFor: (index: number) => number;
+    if (group.arrivalKind === 'sequencial') {
+      // DELAY SEQUENCIAL ENTRE ATAQUES (provado no tool real): o k-ésimo ataque
+      // NA ORDEM DE DISTÂNCIA crescente chega em base + k×delay (o mais perto
+      // fica na base; cada seguinte atrasa). Empate: alvo/origem digitados.
+      const byDistance = assignments
+        .map((assignment, index) => ({ assignment, index }))
+        .sort(
+          (a, b) =>
+            a.assignment.distanceFields - b.assignment.distanceFields ||
+            a.assignment.targetIndex - b.assignment.targetIndex ||
+            a.assignment.originIndex - b.assignment.originIndex,
+        );
+      const slotByIndex = new Map<number, number>();
+      byDistance.forEach((entry, slot) => slotByIndex.set(entry.index, slot));
+      slotFor = (index) => slotByIndex.get(index) ?? 0;
+    } else {
+      slotFor = (index) => index;
     }
 
     let pushedByNight = 0;
-    assignments.forEach((assignment, slot) => {
+    assignments.forEach((assignment, index) => {
       const origin = group.origins[assignment.originIndex];
       const target = group.targets[assignment.targetIndex];
       if (origin === undefined || target === undefined) return; // inalcançável: índices vêm das listas
-      let arrivalMs = arrivalForSlot(
-        group,
-        slot,
-        assignments.length,
-        (villageOffsetByTarget.get(assignment.targetIndex) ?? 0) * group.perVillageSeconds,
-      );
+      const total = assignments.length;
+      let arrivalMs: number;
+      switch (group.arrivalKind) {
+        case 'fixa':
+          arrivalMs = group.arrivalBaseMs;
+          break;
+        case 'intervalo': {
+          if (total <= 1) {
+            arrivalMs = group.windowStartMs;
+          } else {
+            const span = group.windowEndMs - group.windowStartMs;
+            arrivalMs = group.windowStartMs + Math.floor((slotFor(index) * span) / total);
+          }
+          break;
+        }
+        case 'sequencial': {
+          const delayMs = Math.round(group.attackDelaySeconds * 1000);
+          arrivalMs = group.arrivalBaseMs + slotFor(index) * delayMs;
+          break;
+        }
+      }
       if (group.nightBonus === 'reagendar') {
         if (!ctx.nightBonus.nightBonusActive) {
           if (!warnings.some((warning) => warning.startsWith(`Grupo "${group.nome}": proteção de bônus noturno`))) {
@@ -450,7 +594,9 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
           groupId: group.id,
           groupName: group.nome,
           origin: origin.coord,
+          originVillageId: ctx.villageIdByCoord.get(origin.coord) ?? null,
           target: target.coord,
+          targetVillageId: ctx.villageIdByCoord.get(target.coord) ?? null,
           targetOwner: ctx.ownerByCoord.get(target.coord) ?? null,
           originOwner: ctx.ownerByCoord.get(origin.coord) ?? null,
           unit: group.slowestUnit,

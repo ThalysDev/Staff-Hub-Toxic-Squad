@@ -1,0 +1,23 @@
+[b]Mass plan for [player]S A L A Z H A A R[/player][/b]
+[spoiler=For premium account notebook][code][b]Mass plan for [player]S A L A Z H A A R[/player][/b]
+[b]Mass time arrival: 22:00:00:000 01.09.2026[/b]
+[table][**]#. Time send-->Attack type[||]Time arrival[||]Your coords-->Target coords[||]Target[||]Attack building[||]Rally point direct link[/**]
+[*]1. 11:34:15:857 30.08.2026 --- delay[|]22:00:30:000 01.09.2026[|] 560|365 --> 502|483 [|]Meni[|]farm[|][url=https://br142.tribalwars.com.br/game.php?village=213&screen=place&x=502&y=483&from=simulator]Link[/url]
+[*]2. 16:20:03:726 30.08.2026 --- delay[|]22:00:00:000 01.09.2026[|] 560|365 --> 506|473 [|]Meni[|]farm[|][url=https://br142.tribalwars.com.br/game.php?village=213&screen=place&x=506&y=473&from=simulator]Link[/url]
+[*]3. 17:20:03:726 30.08.2026 --- porplayer[|]23:00:00:000 01.09.2026[|] 560|365 --> 506|473 [|]Meni[|]farm[|][url=https://br142.tribalwars.com.br/game.php?village=213&screen=place&x=506&y=473&from=simulator]Link[/url]
+[/table][/code][/spoiler]
+
+[spoiler=your targets for custom calculation]
+[code]delay targets: 502|483 506|473 
+porplayer targets: 506|473 
+[/code][/spoiler]
+[b]Mass plan for [player]Maratutu[/player][/b]
+[spoiler=For premium account notebook][code][b]Mass plan for [player]Maratutu[/player][/b]
+[b]Mass time arrival: 23:00:00:000 01.09.2026[/b]
+[table][**]#. Time send-->Attack type[||]Time arrival[||]Your coords-->Target coords[||]Target[||]Attack building[||]Rally point direct link[/**]
+[*]1. 19:52:04:270 29.08.2026 --- porplayer[|]23:00:00:000 01.09.2026[|] 498|652 --> 502|483 [|]Meni[|]farm[|][url=https://br142.tribalwars.com.br/game.php?village=1108&screen=place&x=502&y=483&from=simulator]Link[/url]
+[/table][/code][/spoiler]
+
+[spoiler=your targets for custom calculation]
+[code]porplayer targets: 502|483 
+[/code][/spoiler]

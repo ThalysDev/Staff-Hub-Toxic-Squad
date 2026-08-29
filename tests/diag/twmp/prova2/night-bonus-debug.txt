@@ -1,0 +1,9 @@
+--- NIGHT BONUS DEBUG ---
+Server: br142
+
+Global night config (get_config):
+  active     : 1
+  start_hour : 23
+  end_hour   : 7
+
+No per-player night bonus lookups performed (bn_protection was disabled or no targets).

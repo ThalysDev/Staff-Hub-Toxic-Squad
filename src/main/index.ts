@@ -190,11 +190,24 @@ function createMainWindow(): void {
   if (shotPath) {
     mainWindow.webContents.once('did-finish-load', () => {
       setTimeout(async () => {
-        try {
-          const image = await mainWindow?.webContents.capturePage();
-          if (image) await fs.writeFile(shotPath, image.toPNG());
-        } catch {
-          // best-effort
+        // UnknownVizError do compositor é INTERMITENTE (Chromium): 3 tentativas
+        // com espera cobrem o flake sem mascarar falha real (erro vai ao .err).
+        let lastError = 'capturePage devolveu imagem vazia';
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const image = await mainWindow?.webContents.capturePage();
+            if (image && !image.isEmpty()) {
+              await fs.writeFile(shotPath, image.toPNG());
+              lastError = '';
+              break;
+            }
+          } catch (captureError) {
+            lastError = `capturePage falhou: ${String(captureError)}`;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+        if (lastError !== '') {
+          await fs.writeFile(`${shotPath}.err`, lastError).catch(() => {});
         }
         app.quit();
       }, 2500);
