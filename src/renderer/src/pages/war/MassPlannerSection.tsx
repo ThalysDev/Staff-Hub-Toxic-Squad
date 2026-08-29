@@ -325,9 +325,13 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   }, []);
 
   useEffect(() => {
-    if (!visible || worldLoadedOnce || worldLoading) return;
+    // Uma tentativa automática por montagem visível: falha deixa de re-disparar
+    // este efeito (senão o finally devolve worldLoading=false e o loop recomeça
+    // infinitamente — martelava o main com reloads de dump até OOM, v0.28/0.29).
+    // Nova tentativa é explícita, pelo botão "Tentar de novo".
+    if (!visible || worldLoadedOnce || worldLoading || worldError !== '') return;
     void loadWorld();
-  }, [visible, worldLoadedOnce, worldLoading, loadWorld]);
+  }, [visible, worldLoadedOnce, worldLoading, worldError, loadWorld]);
 
   const planContext = useMemo(
     () => ({

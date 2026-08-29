@@ -1,0 +1,1341 @@
+
+[24172:0829/202210.435:INFO:CONSOLE:2] "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+  Policy set or a policy with "unsafe-eval" enabled. This exposes users of
+  this app to unnecessary security risks.
+
+For more information and help, consult
+https://electronjs.org/docs/tutorial/security.
+This warning will not show up
+once the app is packaged.", source: node:electron/js2c/sandbox_bundle (2)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'worldhistory:list': Error: Falha ao ler o histórico do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1864:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:night-bonus': Error: Falha ao obter o bônus noturno do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1836:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:morale-info': Error: Falha ao obter a moral do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1843:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:unit-speeds': Error: Falha ao obter a velocidade das unidades do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1857:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:villages': Error: Falha ao ler as aldeias do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1815:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+Error occurred in handler for 'world:players': Error: Falha ao ler os jogadores do mundo: Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.
+    at fail$4 (file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1779:8)
+    at file:///C:/Users/Usu%C3%A1rio/.zcode/workspace/default/staff-hub-toxic-squad/out/main/index.js:1822:4
+    at async Session.<anonymous> (node:electron/js2c/browser_init:2:118371)
+
+<--- Last few GCs --->
+
+[24172:00006EF40022C000]     4045 ms: Mark-Compact (reduce) 4061.4 (4072.2) -> 4060.5 (4072.0) MB, pooled: 0.0 MB, 6.93 / 0.00 ms (average mu = 0.438, current mu = 0.004) last resort; GC in old space requested
+[24172:00006EF40022C000]     4053 ms: Mark-Compact (reduce) 4060.5 (4072.0) -> 4060.4 (4071.2) MB, pooled: 0.0 MB, 7.60 / 0.00 ms (average mu = 0.273, current mu = 0.001) last resort; GC in old space requested
+
+[24172:0829/202214.170:ERROR:electron\shell\common\node_bindings.cc:190] OOM error in V8: CALL_AND_RETRY_LAST Allocation failed - JavaScript heap out of memory
+[24172:0829/202214.170:ERROR:third_party\crashpad\crashpad\client\crashpad_client_win.cc:867] not connected
