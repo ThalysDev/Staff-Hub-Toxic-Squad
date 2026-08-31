@@ -98,6 +98,11 @@ rota('GET', `${PREFIXO}/healthz`, async (_req, res) => {
 
 // ---- registro (aberto; nasce pendente) ----
 rota('POST', `${PREFIXO}/auth/register`, async (req, res, corpo) => {
+  // REVISÃO 0.30.1: rate-limit no CADASTRO também — sem isso alguém martelava
+  // contas pendentes (spam no admin + banco). Conta por IP (janela do login).
+  const ip = ipDe(req);
+  const limiteRegistro = podeTentar(ip, '__register__');
+  if (!limiteRegistro.ok) return erro(res, 429, 'Muitas contas criadas deste endereço — aguarde alguns minutos.', 'rate');
   const nick = String(corpo.nick ?? '').trim();
   const senha = String(corpo.senha ?? '');
   if (!NICK_RE.test(nick)) {
@@ -112,7 +117,8 @@ rota('POST', `${PREFIXO}/auth/register`, async (req, res, corpo) => {
   const { salt, hash } = hashSenha(senha);
   const id = randomUUID();
   q.inserirUser.run(id, nick, hash, salt, 'staff', 'pending', nowIso());
-  audit(nick, 'register', `ip=${ipDe(req)}`);
+  registrarFalha(ip, '__register__'); // consome a cota de cadastro do IP
+  audit(nick, 'register', `ip=${ip}`);
   json(res, 201, { ok: true, mensagem: 'Conta criada! Aguardando aprovação do administrador.' });
 });
 
@@ -304,6 +310,11 @@ const server = createServer(async (req, res) => {
 
 server.listen(config.port, '127.0.0.1', () => {
   console.log(`[staffhub-auth] v${VERSAO} ouvindo em 127.0.0.1:${config.port}`);
+  // Housekeeping (revisão 0.30.1): mantém só 1 dia de tentativas — a janela do
+  // rate-limit é de minutos; sem isso a tabela crescia para sempre.
+  const podar = () => q.podarAttempts.run(Date.now() - 24 * 60 * 60_000);
+  podar();
+  setInterval(podar, 6 * 60 * 60_000).unref();
 });
 
 for (const sinal of ['SIGTERM', 'SIGINT']) {

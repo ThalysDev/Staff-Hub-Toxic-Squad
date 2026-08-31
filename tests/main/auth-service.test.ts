@@ -251,4 +251,25 @@ describe('AuthService — gate de produto', () => {
     await auth.login('Testador', 'x');
     expect(() => auth.exigeSessao()).not.toThrow();
   });
+
+  it('adminUsers usa GET (revisão 0.30.1: POST acertava 404 e quebrava o Admin)', async () => {
+    const { auth } = await novoServico();
+    cenarioLoginOk('Chefe', 'admin');
+    await auth.login('Chefe', 'x');
+    respostas.push({
+      casa: (r) => r.metodo === 'GET' && r.caminho.endsWith('/admin/users'),
+      status: 200,
+      corpo: { users: [{ id: 'u1', nick: 'Testador', role: 'staff', status: 'pending', criadoEm: new Date().toISOString(), aprovadoEm: null }] },
+    });
+    respostas.push({
+      casa: (r) => r.metodo === 'POST' && r.caminho.endsWith('/admin/users'),
+      status: 404,
+      corpo: { erro: 'Rota não encontrada.' },
+    });
+    const { users } = await auth.adminUsers();
+    expect(users).toHaveLength(1);
+    expect(users[0]?.nick).toBe('Testador');
+    const chamada = requisicoes.find((r) => r.caminho.endsWith('/admin/users'));
+    expect(chamada?.metodo).toBe('GET');
+  });
 });

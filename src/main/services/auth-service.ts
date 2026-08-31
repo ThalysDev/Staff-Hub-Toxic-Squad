@@ -129,7 +129,8 @@ export class AuthService {
     if (this.carregando !== null) {
       await this.carregando;
       return;
-    }    this.carregando = (async () => {
+    }
+    this.carregando = (async () => {
       const persistida = await this.store.load();
       if (persistida !== null && persistida.refreshBlob !== '' && safeStorage.isEncryptionAvailable()) {
         try {
@@ -149,7 +150,14 @@ export class AuthService {
     await this.carregando;
     if (this.timer === null) {
       this.timer = setInterval(() => {
-        void this.renovar(true).catch(() => {});
+        // Renova e EMITE SÓ SE O ESTADO MUDOU (revisão 0.30.1: sem isso a
+        // transição p/ 'offline' quando a VPS cai só aparecia após relogin).
+        const antes = JSON.stringify(this.status());
+        void this.renovar(true)
+          .then(() => {
+            if (JSON.stringify(this.status()) !== antes) this.emitir();
+          })
+          .catch(() => {});
       }, RENOVA_EVERY_MS);
     }
   }
@@ -280,7 +288,9 @@ export class AuthService {
   }
 
   async adminUsers(): Promise<{ users: AdminUserRow[] }> {
-    const resposta = await this.chamarAdmin('/staffhub/api/admin/users', {});
+    // REVISÃO 0.30.1: a rota é GET na API — chamarAdmin (POST) acertava o 404
+    // e a página Admin quebrava ao listar (pegado na revisão, não no E2E).
+    const resposta = await this.chamarGet('/staffhub/api/admin/users');
     if ('erroRede' in resposta) throw new Error(resposta.erroRede);
     if (resposta.status !== 200) throw new Error(String(resposta.dados?.erro ?? 'Falha ao listar usuários.'));
     return { users: resposta.dados.users ?? [] };

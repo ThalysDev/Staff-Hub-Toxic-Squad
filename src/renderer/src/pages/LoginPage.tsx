@@ -7,7 +7,6 @@ import type { JSX, ReactNode } from 'react';
 import { KeyRound, LogIn, ShieldCheck, UserPlus } from 'lucide-react';
 import type { AuthStatus } from '@shared/ipc-types';
 import { useToast } from '../hooks/useToast';
-import { applyTheme, currentThemeChoice, resolveTheme } from '../theme';
 
 type Modo = 'login' | 'criar' | 'aguardando';
 
@@ -31,11 +30,6 @@ export default function LoginPage({ status, onLogado }: LoginPageProps): JSX.Ele
   useEffect(() => {
     focoNick.current?.focus();
   }, [modo]);
-
-  // Tema na primeira pintura (sem flash): resolve antes de montar conteúdo.
-  useEffect(() => {
-    applyTheme(resolveTheme(currentThemeChoice()));
-  }, []);
 
   // Sessão 'expirada' pré-carregada (veio de um 401): mensagem única e clara.
   useEffect(() => {

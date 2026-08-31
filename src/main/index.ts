@@ -454,14 +454,19 @@ app.whenReady().then(async () => {
   await authService.boot();
 
   // E2E do auth (scripts/e2e-auth.mjs): SHS_AUTH_E2E=<arquivo> SHS_AUTH_NICK
-  // SHS_AUTH_SENHA — faz login real contra a VPS e despeja o resultado.
+  // SHS_AUTH_SENHA — faz login real contra a VPS e despeja o resultado (com
+  // admin, inclui adminUsers — regressão do GET da revisão 0.30.1).
   const authE2ePath = process.env.SHS_AUTH_E2E;
   if (authE2ePath !== undefined && authE2ePath !== '') {
     const resultado = await authService.login(process.env.SHS_AUTH_NICK ?? '', process.env.SHS_AUTH_SENHA ?? '');
+    let admin: unknown = null;
+    if (resultado.ok && resultado.user.role === 'admin') {
+      admin = await authService.adminUsers().catch((erro: unknown) => ({ erro: String(erro) }));
+    }
     const fsPromises = await import('node:fs/promises');
     await fsPromises.writeFile(
       authE2ePath,
-      JSON.stringify({ login: resultado, status: authService.status() }, null, 2),
+      JSON.stringify({ login: resultado, status: authService.status(), admin }, null, 2),
       'utf8',
     );
     console.log(`[e2e-auth] resultado escrito em ${authE2ePath}`);

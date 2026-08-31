@@ -78,6 +78,13 @@ checar('register senha curta rejeitada', (await chamar('POST', '/staffhub/api/au
 const r1 = await chamar('POST', '/staffhub/api/auth/register', { nick: 'Testador', senha: 'senha-forte-1' });
 checar('register cria pendente', r1.status === 201, r1);
 checar('register nick duplicado 409', (await chamar('POST', '/staffhub/api/auth/register', { nick: 'testador', senha: 'senha-forte-1' })).status === 409);
+// Revisão 0.30.1: cadastro também tem rate-limit por IP (config de teste: 3/IP).
+// IP PRÓPRIO para não contaminar a cota dos logins do smoke no IP principal.
+await chamar('POST', '/staffhub/api/auth/register', { nick: 'Spam Um', senha: 'senha-forte-1' }, undefined, '10.7.7.7');
+await chamar('POST', '/staffhub/api/auth/register', { nick: 'Spam Dois', senha: 'senha-forte-1' }, undefined, '10.7.7.7');
+await chamar('POST', '/staffhub/api/auth/register', { nick: 'Spam Tres', senha: 'senha-forte-1' }, undefined, '10.7.7.7');
+const rlReg = await chamar('POST', '/staffhub/api/auth/register', { nick: 'Spam Quatro', senha: 'senha-forte-1' }, undefined, '10.7.7.7');
+checar('register com rate-limit 429', rlReg.status === 429, rlReg);
 
 // login pendente
 const lp = await chamar('POST', '/staffhub/api/auth/login', { nick: 'Testador', senha: 'senha-forte-1' });
@@ -100,7 +107,7 @@ checar('login errado 401 uniforme', le.status === 401 && le.dados.erro === 'Nick
 
 // admin lista + aprova
 const lu = await chamar('GET', '/staffhub/api/admin/users', undefined, tokAdmin);
-checar('admin users lista', lu.status === 200 && lu.dados.users.length === 2, lu);
+checar('admin users lista', lu.status === 200 && lu.dados.users.length >= 2, lu);
 const pendente = lu.dados.users.find((u) => u.nick === 'Testador');
 const idAdmin = lu.dados.users.find((u) => u.nick === 'Chefe').id;
 checar('sem hash na listagem', !('senha_hash' in (lu.dados.users[0] ?? {})));

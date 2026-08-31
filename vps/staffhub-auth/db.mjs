@@ -73,6 +73,8 @@ export const q = {
   registrarFalha: db.prepare('INSERT INTO login_attempts (ip, nick, ts) VALUES (?,?,?)'),
   falhasIp: db.prepare('SELECT COUNT(*) AS n FROM login_attempts WHERE ip = ? AND ts > ?'),
   falhasNick: db.prepare('SELECT COUNT(*) AS n FROM login_attempts WHERE nick = ? AND ts > ?'),
+  // REVISÃO 0.30.1: housekeeping — a tabela só precisa da janela do rate-limit.
+  podarAttempts: db.prepare('DELETE FROM login_attempts WHERE ts < ?'),
   expiraFamiliaPorUser: db.prepare(
     'SELECT MAX(expira_em) AS ate FROM refresh_tokens WHERE user_id = ? AND revogado = 0',
   ),
