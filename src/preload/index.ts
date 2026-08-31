@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AppSettings,
+  AuthAdminAudit,
+  AuthLoginResultado,
+  AuthStatus,
+  AdminUserRow,
   BlindCheckInput,
   BlindVillageResult,
   OpArchiveEntry,
@@ -30,6 +34,21 @@ async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
 }
 
 const api = {
+  auth: {
+    status: () => invoke<AuthStatus>('auth:status'),
+    login: (nick: string, senha: string) => invoke<AuthLoginResultado>('auth:login', nick, senha),
+    register: (nick: string, senha: string) => invoke<{ ok: boolean; erro?: string }>('auth:register', nick, senha),
+    logout: () => invoke<void>('auth:logout'),
+    refreshNow: () => invoke<AuthStatus>('auth:refresh-now'),
+    trocarSenha: (senhaAtual: string, senhaNova: string) =>
+      invoke<{ ok: boolean; erro?: string }>('auth:trocar-senha', senhaAtual, senhaNova),
+    adminUsers: () => invoke<{ users: AdminUserRow[] }>('auth:admin-users'),
+    adminUsersAcao: (id: string, acao: 'aprovar' | 'banir' | 'reabilitar') =>
+      invoke<{ ok: boolean; erro?: string }>('auth:admin-acao', id, acao),
+    adminResetarSenha: (id: string) =>
+      invoke<{ ok: boolean; senhaTemporaria?: string; erro?: string }>('auth:admin-resetar-senha', id),
+    adminAudit: () => invoke<{ eventos: AuthAdminAudit[] }>('auth:admin-audit'),
+  },
   session: {
     openLogin: () => invoke('session:open-login'),
     logout: () => invoke('session:logout'),
@@ -169,6 +188,11 @@ const api = {
     isMaximized: () => invoke('win:is-max') as Promise<boolean>,
   },
   events: {
+    onAuthChanged: (cb: (status: AuthStatus) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, status: AuthStatus) => cb(status);
+      ipcRenderer.on('auth:changed', listener);
+      return () => ipcRenderer.removeListener('auth:changed', listener);
+    },
     onQueueProgress: (cb: (progress: QueueProgress) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, progress: QueueProgress) => cb(progress);
       ipcRenderer.on('queue:progress', listener);

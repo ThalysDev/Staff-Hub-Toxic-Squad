@@ -21,7 +21,7 @@ export type ModuleId = 'sg1' | 'sg2' | 'sg3' | 'sg4' | 'sg5' | 'sg6' | 'sg7';
 /** Sala de Guerra (P0-4): monitoramento ao vivo de uma OP arquivada. */
 export type WarPageId = 'guerra';
 
-export type SystemPageId = 'dashboard' | 'sessao' | 'config' | 'journal' | 'captures';
+export type SystemPageId = 'dashboard' | 'sessao' | 'config' | 'journal' | 'captures' | 'admin';
 
 export type PageId = ModuleId | WarPageId | SystemPageId;
 

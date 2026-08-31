@@ -1,11 +1,14 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
-import { Camera, Flame, History, LayoutDashboard, LogIn, Settings2 } from 'lucide-react';
+import { Camera, Flame, History, LayoutDashboard, LogIn, Settings2, UserCog, WifiOff } from 'lucide-react';
 import TitleBar from './components/TitleBar';
 import Sidebar, { type SidebarGroup, type SidebarItem } from './components/Sidebar';
 import CommandPalette, { type CommandItem } from './components/CommandPalette';
 import ToastViewport from './components/Toast';
 import { useToastViewport } from './hooks/useToast';
+import { useAuthStatus } from './hooks/useAuthStatus';
+import LoginPage from './pages/LoginPage';
+import AdminPage from './pages/AdminPage';
 import Sg1Page from './pages/sg1/Sg1Page';
 import Sg2Page from './pages/sg2/Sg2Page';
 import Sg3Page from './pages/sg3/Sg3Page';
@@ -45,6 +48,18 @@ const NAV_GROUPS: readonly SidebarGroup[] = [
   { label: 'Sistema', items: SYSTEM_ITEMS },
 ];
 
+/** v0.30: grupo "Sistema" ganha o Admin para quem tem o papel. */
+const navGroupsPara = (ehAdmin: boolean): readonly SidebarGroup[] =>
+  ehAdmin
+    ? [
+        NAV_GROUPS[0] as SidebarGroup,
+        {
+          label: 'Sistema',
+          items: [...SYSTEM_ITEMS, { id: 'admin' as SystemPageId, label: 'Admin', icon: UserCog }],
+        },
+      ]
+    : NAV_GROUPS;
+
 /** Páginas dos módulos SG: montam na 1ª visita e NUNCA desmontam — o estado
  * da OP (alvos, distribuição, conferência) sobrevive à navegação. */
 const SG_PAGES: Readonly<Record<ModuleId, () => ReactElement>> = {
@@ -72,6 +87,8 @@ function renderSystemPage(page: SystemPageId, onNavigate: (page: PageId) => void
       return <JournalPage />;
     case 'captures':
       return <CapturesPage />;
+    case 'admin':
+      return <AdminPage />;
   }
 }
 
@@ -86,6 +103,8 @@ const INITIAL_PAGE = ((): PageId => {
 
 export default function App() {
   const globalToasts = useToastViewport();
+  const auth = useAuthStatus();
+  const ehAdmin = auth.user?.role === 'admin';
   const [page, setPage] = useState<PageId>(INITIAL_PAGE);
   const [mountedModules, setMountedModules] = useState<ReadonlySet<ModuleId | WarPageId>>(
     () => (isModulePage(INITIAL_PAGE) ? new Set([INITIAL_PAGE]) : new Set<ModuleId | WarPageId>()),
@@ -149,6 +168,23 @@ export default function App() {
     ];
     const acoes: CommandItem[] = [
       {
+        id: 'acao-sair-conta',
+        label: 'Sair da conta (login do sistema)',
+        group: 'Ações',
+        keywords: 'sair logout conta sessão sistema',
+        run: () => void window.staffhub.auth.logout(),
+      },
+      ...(ehAdmin
+        ? [{
+            id: 'nav-admin',
+            label: 'Admin',
+            hint: 'Aprovar e gerenciar contas',
+            group: 'Navegação' as const,
+            keywords: 'admin aprovar contas usuários banir',
+            run: () => navigate('admin' as PageId),
+          }]
+        : []),
+      {
         id: 'acao-tema',
         label: resolveTheme(themeChoice) === 'escuro' ? 'Mudar para tema claro' : 'Mudar para tema escuro',
         group: 'Ações',
@@ -168,15 +204,45 @@ export default function App() {
       },
     ];
     return [...nav, ...acoes];
-  }, [navigate, themeChoice, setTheme]);
+  }, [navigate, themeChoice, setTheme, ehAdmin]);
 
   useKeyboardShortcuts(navigate, () => setPaletteOpen((open) => !open));
+
+  // ---- Gate de sessão do SISTEMA (v0.30): sem login, só a tela de login. ----
+  // A TitleBar segue visível (fechar/minimizar sempre funcionam); o resto do
+  // app só monta com sessão válida (logada ou offline no modo guerra 72h).
+  if (auth.estado === 'verificando') {
+    return (
+      <div className="app-shell">
+        <TitleBar />
+        <div className="login-espera" role="status">
+          <span className="btn-spinner" aria-hidden="true" /> Verificando sessão…
+        </div>
+      </div>
+    );
+  }
+  if (auth.estado === 'deslogado' || auth.estado === 'expirado') {
+    return (
+      <div className="app-shell">
+        <TitleBar />
+        <ToastViewport toasts={globalToasts.toasts} onDismiss={globalToasts.dismiss} />
+        <LoginPage status={auth} onLogado={() => void window.staffhub.auth.refreshNow()} />
+      </div>
+    );
+  }
+
 
   return (
     <div className="app-shell">
       <TitleBar />
+      {auth.estado === 'offline' && auth.offlineAte !== null && (
+        <div className="login-offline-banner" role="status">
+          <WifiOff size={14} aria-hidden="true" /> Sem contato com o servidor — modo guerra ativo até{' '}
+          {new Date(auth.offlineAte).toLocaleString('pt-BR')}. A OP continua funcionando.
+        </div>
+      )}
       <div className="app-main-row">
-        <Sidebar groups={NAV_GROUPS} active={page} onNavigate={navigate} onOpenPalette={() => setPaletteOpen(true)} />
+        <Sidebar groups={navGroupsPara(ehAdmin)} active={page} onNavigate={navigate} onOpenPalette={() => setPaletteOpen(true)} />
         <main className="content">
           {MODULES.filter((module) => mountedModules.has(module.id)).map((module) => {
             const SgPage = SG_PAGES[module.id];

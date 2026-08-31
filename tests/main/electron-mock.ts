@@ -187,6 +187,13 @@ export function createElectronMock() {
       removeHandler: vi.fn(),
       on: vi.fn(),
     },
+    // safeStorage "criptografia" de teste: round-trip base64 estável — o
+    // AuthService só precisa de encrypt/decrypt coerentes + available true.
+    safeStorage: {
+      isEncryptionAvailable: vi.fn(() => true),
+      encryptString: vi.fn((texto: string) => Buffer.from(texto, 'utf8')),
+      decryptString: vi.fn((blob: Buffer) => blob.toString('utf8')),
+    },
     Notification: class MockNotification {
       static isSupported(): boolean {
         return true;

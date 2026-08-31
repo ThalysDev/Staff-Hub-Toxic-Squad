@@ -4,6 +4,7 @@ import EmptyState from '../components/EmptyState';
 import Field from '../components/Field';
 import PageHeader from '../components/PageHeader';
 import StatusPill from '../components/StatusPill';
+import { useAuthStatus } from '../hooks/useAuthStatus';
 import { useSessionStatus } from '../hooks/useSessionStatus';
 import { useToast } from '../hooks/useToast';
 
@@ -69,8 +70,33 @@ export default function SessionPage() {
       <PageHeader
         kicker="Sistema"
         title="Sessão"
-        description="Conecte o hub à sua conta do Tribal Wars BR: janela de login oficial ou import do cookie sid."
+        description="Conta do Staff Hub e conexão com o jogo: janela de login oficial ou import do cookie sid."
       />
+
+      <div className="card">
+        <div className="card-header">
+          <span className="icon-badge">
+            <ShieldCheck size={17} aria-hidden="true" />
+          </span>
+          <h2 className="card-title">Conta do Staff Hub</h2>
+          <span className="spacer" />
+          <button
+            type="button"
+            className="btn btn-ghost btn-ghost--danger btn-sm"
+            data-tip="Encerra a sessão do SISTEMA (login/senha) neste computador."
+            onClick={() => {
+              if (window.confirm('Sair da conta do Staff Hub? Você voltará para a tela de login.')) {
+                void window.staffhub.auth.logout();
+              }
+            }}
+          >
+            <LogOut size={14} aria-hidden="true" /> Sair da conta
+          </button>
+        </div>
+        <div className="card-body">
+          <SessaoSistema />
+        </div>
+      </div>
 
       <div className="card">
         <div className="card-header">
@@ -217,5 +243,84 @@ export default function SessionPage() {
         </div>
       </div>
     </section>
+  );
+}
+
+/** Card da conta do SISTEMA (v0.30): quem está logado + trocar senha. */
+function SessaoSistema() {
+  const auth = useAuthStatus();
+  const { push } = useToast();
+  const [atual, setAtual] = useState('');
+  const [nova, setNova] = useState('');
+  const [ocupado, setOcupado] = useState(false);
+
+  if (auth.user === null) {
+    return <p className="muted">Sem sessão do sistema ativa.</p>;
+  }
+
+  async function trocar(event: React.FormEvent): Promise<void> {
+    event.preventDefault();
+    if (ocupado) return;
+    if (nova.length < 8) {
+      push('error', 'A nova senha precisa ter pelo menos 8 caracteres.');
+      return;
+    }
+    setOcupado(true);
+    try {
+      const resultado = await window.staffhub.auth.trocarSenha(atual, nova);
+      if (resultado.ok) {
+        setAtual('');
+        setNova('');
+        push('ok', 'Senha alterada — entre novamente com a nova senha.');
+      } else {
+        push('error', resultado.erro ?? 'Não foi possível trocar a senha.');
+      }
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  return (
+    <div className="col" style={{ gap: 12 }}>
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+        <strong>{auth.user.nick}</strong>
+        <span className={`pill ${auth.user.role === 'admin' ? 'pill--gold' : 'pill--muted'}`}>
+          {auth.user.role === 'admin' ? 'Admin' : 'Staff'}
+        </span>
+        {auth.estado === 'offline' && (
+          <span className="pill pill--warn" title="Sem contato com o servidor — sessão válida no modo guerra">
+            offline
+          </span>
+        )}
+      </div>
+      <form className="col" style={{ gap: 10, maxWidth: 420 }} onSubmit={(e) => void trocar(e)}>
+        <Field id="conta-senha-atual" label="Senha atual">
+          <input
+            id="conta-senha-atual"
+            className="input"
+            type="password"
+            autoComplete="current-password"
+            value={atual}
+            onChange={(event) => setAtual(event.target.value)}
+          />
+        </Field>
+        <Field id="conta-senha-nova" label="Nova senha (mínimo 8)">
+          <input
+            id="conta-senha-nova"
+            className="input"
+            type="password"
+            autoComplete="new-password"
+            value={nova}
+            onChange={(event) => setNova(event.target.value)}
+          />
+        </Field>
+        <div>
+          <button type="submit" className="btn btn-sm" disabled={ocupado}>
+            <KeyRound size={14} aria-hidden="true" />
+            {ocupado ? 'Trocando…' : 'Trocar senha'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }

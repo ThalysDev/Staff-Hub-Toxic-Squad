@@ -3556,3 +3556,105 @@ select:not(.select) {
   border-top: 1px solid var(--divider);
   padding-top: var(--sp-3);
 }
+
+/* ==========================================================================
+   Login do sistema (v0.30) — tela inicial que trava o app sem sessão.
+   ========================================================================== */
+
+.login-page {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-page);
+}
+
+.login-card {
+  width: min(420px, calc(100vw - 48px));
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg, 10px);
+  padding: var(--sp-6, 28px) var(--sp-6, 28px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2, 8px);
+  box-shadow: 0 1px 0 var(--divider);
+}
+
+.login-brasao {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md, 8px);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  margin: 0 auto var(--sp-2, 8px);
+}
+
+.login-titulo {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: 700;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--text-strong);
+  text-align: center;
+  margin: 0;
+}
+
+.login-sub {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--fs-small);
+  margin: 0 0 var(--sp-4, 16px);
+}
+
+.login-btn-primario {
+  background: var(--action);
+  color: var(--action-ink);
+  justify-content: center;
+  min-height: 40px;
+}
+
+.login-btn-primario:hover:not(:disabled) {
+  background: var(--action-hover);
+}
+
+.login-rodape {
+  text-align: center;
+  font-size: var(--fs-caption);
+  color: var(--text-meta);
+  margin: var(--sp-4, 16px) 0 0;
+}
+
+.login-espera {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+
+.login-offline-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  border-bottom: 1px solid var(--warn-border);
+  padding: 6px 14px;
+  font-size: var(--fs-small);
+}
+
+.login-senha-temp {
+  font-family: monospace;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-sm, 6px);
+  padding: 2px 8px;
+  font-size: var(--fs-body);
+  user-select: all;
+}

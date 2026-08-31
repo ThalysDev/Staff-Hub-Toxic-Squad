@@ -226,7 +226,66 @@ export type SidLoginResult =
   | { ok: true; status: SessionStatus }
   | { ok: false; error: string };
 
+// ---------------------------------------------------------------------------
+// Autenticação do SISTEMA (staffhub-auth na VPS) — v0.30
+// ---------------------------------------------------------------------------
+
+export type AuthEstado = 'verificando' | 'deslogado' | 'logado' | 'offline' | 'expirado';
+
+export interface AuthUser {
+  nick: string;
+  role: 'admin' | 'staff';
+  status: 'pending' | 'active' | 'banned';
+}
+
+export interface AuthStatus {
+  estado: AuthEstado;
+  user: AuthUser | null;
+  /** Válida até (epoch ms) a sessão OFFLINE atual — só com estado 'offline'. */
+  offlineAte: number | null;
+}
+
+/** Linha da tabela de usuários no Admin (nunca contém hash/salt). */
+export interface AdminUserRow {
+  id: string;
+  nick: string;
+  role: 'admin' | 'staff';
+  status: 'pending' | 'active' | 'banned';
+  criadoEm: string;
+  aprovadoEm: string | null;
+}
+
+export interface AuthAdminAudit {
+  ts: string;
+  ator: string;
+  evento: string;
+  detalhe: string;
+}
+
+export type AuthLoginResultado =
+  | { ok: true; user: AuthUser }
+  | { ok: false; erro: string; code?: 'pending' | 'banned' | 'rate' | 'rede' | 'sessao' };
+
 export interface StaffHubApi {
+  auth: {
+    /** Estado atual da sessão do SISTEMA (eventos via onAuthChanged). */
+    status(): Promise<AuthStatus>;
+    /** Login com conta aprovada (mensagens PT-BR da API; code p/ UX). */
+    login(nick: string, senha: string): Promise<AuthLoginResultado>;
+    /** Cria conta PENDENTE — entra quando o admin aprovar. */
+    register(nick: string, senha: string): Promise<{ ok: boolean; erro?: string }>;
+    /** Sai da sessão atual (revoga na API e limpa o disco). */
+    logout(): Promise<void>;
+    /** Renovação manual (a automática roda a cada 10 min). */
+    refreshNow(): Promise<AuthStatus>;
+    /** Troca a senha da conta logada (desconecta — exige novo login). */
+    trocarSenha(senhaAtual: string, senhaNova: string): Promise<{ ok: boolean; erro?: string }>;
+    // ---- Admin (role admin; erros PT-BR) ----
+    adminUsers(): Promise<{ users: AdminUserRow[] }>;
+    adminUsersAcao(id: string, acao: 'aprovar' | 'banir' | 'reabilitar'): Promise<{ ok: boolean; erro?: string }>;
+    adminResetarSenha(id: string): Promise<{ ok: boolean; senhaTemporaria?: string; erro?: string }>;
+    adminAudit(): Promise<{ eventos: AuthAdminAudit[] }>;
+  };
   session: {
     openLogin(): Promise<void>;
     logout(): Promise<void>;
@@ -424,6 +483,8 @@ export interface StaffHubApi {
     isMaximized(): Promise<boolean>;
   };
   events: {
+    /** Sessão do SISTEMA mudou (login/logout/expiração/offline) — o gate da UI escuta. */
+    onAuthChanged(cb: (status: AuthStatus) => void): () => void;
     onQueueProgress(cb: (progress: QueueProgress) => void): () => void;
     onSessionChanged(cb: (status: SessionStatus) => void): () => void;
     /** Estado maximizado da janela (titlebar). */

@@ -53,6 +53,10 @@ writeFileSync(join(stageDir, 'package.json'), JSON.stringify({
 }, null, 2));
 run(`pnpm dlx @electron/packager dist/app-stage "Staff Hub Toxic Squad" --platform=win32 --arch=x64 --electron-version=43.4.1 --out=dist/pkg-${version} --icon=build/icon.ico --overwrite`, `Package ${version}`);
 
+// 4b. NOTA (v0.30): o @electron/packager JÁ entrega resources/app.asar por
+// padrão (comprovado no zip 0.29.1 e no E2E) — NÃO empacotar asar manualmente
+// depois: sobrescreveria o asar bom por um vazio e matava o app.
+
 // 5. Zip Desktop
 const zipName = `StaffHubToxicSquad-${version}.zip`;
 execSync(`cd "dist/pkg-${version}" && C:/Windows/System32/tar.exe -a -c -f "../../${zipName}" "Staff Hub Toxic Squad-win32-x64"`, { cwd: root });

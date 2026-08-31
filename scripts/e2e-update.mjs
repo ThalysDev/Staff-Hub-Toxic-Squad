@@ -50,6 +50,8 @@ writeFileSync(join(stageDir, 'package.json'), JSON.stringify({
 }, null, 2));
 run(`pnpm dlx @electron/packager dist/app-stage-e2e "Staff Hub Toxic Squad" --platform=win32 --arch=x64 --electron-version=43.4.1 --out=dist/pkg-e2e --icon=build/icon.ico --overwrite`, 'Package E2E');
 
+// O packager já entrega resources/app.asar (igual ao release) — NÃO reempacotar.
+
 // ---------------------------------------------------------------------------
 // 2. Sandbox: instalação + canal local + userData isolado + marcadores
 // ---------------------------------------------------------------------------

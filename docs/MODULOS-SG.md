@@ -232,6 +232,13 @@ Tela: tópico de blindagem em `screen=forum&screenmode=view_thread&thread_id=X&p
   - QA: gancho SHS_CAPTURE com 3 tentativas + diagnóstico .err (UnknownVizError do compositor é intermitente).
 - **v0.28.0 (base)**: conceito de GRUPOS (fake/nuke/nobre) com 17 campos da spec, cruzamento com capacidades, torre de vigia ponto→segmento (raio 15), moral por pontos, proteção de bônus noturno, conflito de ms por jogador, abas Planner×Monitoramento, rascunho persistente no módulo "guerra", solver noturno por bisseção.
 
+### Sistema — Login e proteção de acesso (v0.30.0)
+- **API `staffhub-auth` na VPS** (`vps/staffhub-auth/`, deploy por `scripts/deploy-auth.mjs` — chave SSH root existente): Node puro + `node:sqlite` (WAL) na 8787 atrás do nginx **:443 com cert self-signed PINADO no app** (`src/main/auth-ca.ts`; sem o pin o TLS recusa). Contas: register→pending→admin aprova; scrypt+timingSafeEqual; JWT HS256 15min + refresh rotativo 30d (reuso mata a família); **1 sessão ativa** (login novo expulsa o antigo); rate-limit por IP/nick; auditoria com IP+versão do app; `/healthz`; backup diário cron (`/var/backups/staffhub-auth`); seed admin por `deploy-auth.mjs --reset-admin <nick>`.
+- **`AuthService` (main)**: único dono dos tokens; refresh em `safeStorage` (DPAPI); **modo guerra 72h** (falha de rede mantém a sessão usável; 401 encerra; recuo de relógio detectado por `maxClockSeen`); renovação silenciosa a cada 10min; eventos `auth:changed`.
+- **Gate central de produto**: wrapper do `ipcMain.handle` com lista de canais protegidos (jogo/coleta/mutação/arquivo/t-minus/sessão do jogo/capturas) — sem sessão válida, resposta PT-BR "faça login". Updater/journal/prefs/settings LIVRES (banido ainda atualiza).
+- **UI**: `LoginPage` (login/criar conta/aguardando aprovação; erros específicos pending/banido/rate; aria) trava o app no `App.tsx`; banner de offline-72h; `AdminPage` (aprovar/banir/reabilitar/resetar senha com temporária + auditoria) para role admin; "Sair da conta" na Sessão e na paleta Ctrl+K; conta do Staff Hub + trocar senha na página Sessão.
+- **Proteção contra cópia (defesa em profundidade, honesta)**: sem conta aprovada o app não abre nada (gate no main, não só na tela); banimento a distância mata sessões; `app.asar` (o @electron/packager JÁ entrega por padrão — NUNCA reempacotar manualmente: sobrescreve por asar vazio, incidente pego no E2E); código minificado. Sem ofuscação pesada/anti-debug (quebra QA/updater — decisão documentada).
+
 ### Sistema (transversal)
 - **Preferências por módulo** (`preferences-rules.ts` + `usePreferences`): prefs persistentes
   com merge raso por chave em 12 módulos (sg1..sg7, guerra, journal, dashboard, captures, geral).

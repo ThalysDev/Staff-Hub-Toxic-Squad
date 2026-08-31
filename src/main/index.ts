@@ -24,6 +24,8 @@ import { registerOpIpc } from './ipc-op';
 import { GroupsService } from './services/groups-service';
 import { registerGroupsIpc } from './ipc-groups';
 import { registerPreferencesIpc } from './ipc-preferences';
+import { registerAuthIpc } from './ipc-auth';
+import { AuthService } from './services/auth-service';
 import { registerTemplatesIpc } from './ipc-templates';
 import { registerHistoryIpc } from './ipc-history';
 import { UpdaterService } from './updater-service';
@@ -388,7 +390,7 @@ app.whenReady().then(async () => {
   // usuário (nunca 350ms default sem ele saber).
   const persistedSettings = sanitizeSettings(await settingsStore.load());
   void twSession.restoreFromPartition();
-registerIpc();
+  registerIpc();
   wireEvents({
     minIntervalMs: persistedSettings.requestMinIntervalMs,
     jitterMs: persistedSettings.requestJitterMs,
@@ -400,6 +402,37 @@ registerIpc();
     `pacing boot: ${persistedSettings.requestMinIntervalMs}ms+jitter ${persistedSettings.requestJitterMs}ms teto ${persistedSettings.requestCeiling}`,
     false,
   );
+
+  // v0.30 — sessão do SISTEMA (staffhub-auth na VPS), ANTES de qualquer
+  // registro de IPC: o wrapper abaixo precisa existir primeiro.
+  const authService = new AuthService({
+    journal,
+    onChange: (status) => send('auth:changed', status),
+  });
+
+  // GATE CENTRAL (defesa em profundidade): canais de PRODUTO exigem sessão
+  // válida do sistema (logado/offline-72h). Updater/journal/prefs/settings
+  // ficam LIVRES (diagnóstico e atualização continuam funcionando).
+  const CANAIS_PROTEGIDOS = [
+    'world:refresh', 'world:relations', 'world:villages', 'world:players', 'world:tribes',
+    'world:noble-minutes', 'world:night-bonus', 'world:morale-info', 'world:unit-pops', 'world:unit-speeds',
+    'sg1:analyze',
+    'troops:collect-members', 'troops:collect-summary',
+    'sg3:', 'sg5:', 'sg6:', 'sg7:',
+    'opArchive:', 'opShare:import-op',
+    'tminus:schedule',
+    'session:open-login', 'session:login-with-sid',
+    'dev:capture-fixture',
+  ];
+  const canalProtegido = (canal: string): boolean => CANAIS_PROTEGIDOS.some((prefixo) => canal.startsWith(prefixo));
+  const handleOriginal = ipcMain.handle.bind(ipcMain);
+  (ipcMain as { handle: typeof ipcMain.handle }).handle = (canal, handler) =>
+    handleOriginal(canal, (event, ...args) => {
+      if (canalProtegido(canal)) authService.exigeSessao();
+      return (handler as (ev: Electron.IpcMainInvokeEvent, ...a: unknown[]) => unknown)(event, ...args);
+    });
+
+  registerAuthIpc({ auth: authService });
   registerWorldIpc({ twSession, queue: queue as RequestQueue, journal, worldData, sg1: sg1Service });
   const troopsService = new TroopsService(twSession, queue as RequestQueue, journal, settingsStore);
   registerTroopsIpc({ twSession, queue: queue as RequestQueue, journal, troops: troopsService });
@@ -415,6 +448,27 @@ registerIpc();
   registerPreferencesIpc({ journal });
   registerTemplatesIpc({ journal });
   registerHistoryIpc({ journal });
+
+  // Restaura a sessão persistida (safeStorage) antes da janela: a UI já nasce
+  // no estado certo (logado/offline/deslogado).
+  await authService.boot();
+
+  // E2E do auth (scripts/e2e-auth.mjs): SHS_AUTH_E2E=<arquivo> SHS_AUTH_NICK
+  // SHS_AUTH_SENHA — faz login real contra a VPS e despeja o resultado.
+  const authE2ePath = process.env.SHS_AUTH_E2E;
+  if (authE2ePath !== undefined && authE2ePath !== '') {
+    const resultado = await authService.login(process.env.SHS_AUTH_NICK ?? '', process.env.SHS_AUTH_SENHA ?? '');
+    const fsPromises = await import('node:fs/promises');
+    await fsPromises.writeFile(
+      authE2ePath,
+      JSON.stringify({ login: resultado, status: authService.status() }, null, 2),
+      'utf8',
+    );
+    console.log(`[e2e-auth] resultado escrito em ${authE2ePath}`);
+    app.exit(0);
+    return;
+  }
+
   createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

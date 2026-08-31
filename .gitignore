@@ -6,3 +6,8 @@ dist/
 
 # Artifacts de release ficam no dist/ e Desktop, nunca no repo
 StaffHubToxicSquad-*.zip
+
+# staffhub-auth: banco e segredos nunca no git
+vps/staffhub-auth/auth.db*
+vps/staffhub-auth/auth.env
+tests/diag/cap030/e2e-ud/
