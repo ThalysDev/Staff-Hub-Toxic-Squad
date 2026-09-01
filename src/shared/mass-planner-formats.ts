@@ -30,6 +30,16 @@ function bbSafe(text: string): string {
 interface PlanBlock {
   nick: string;
   rows: MassPlanCommand[];
+  /** Chegada mais cedo do bloco (pré-computada — Math.min(...rows) com bloco
+   *  grande estoura a call stack: spread vira ~65k argumentos de uma vez). */
+  minArrivalMs: number;
+}
+
+/** Mínimo sem spread — imune a RangeError em blocos com dezenas de milhares de linhas. */
+function minOf(values: readonly number[]): number {
+  let min = Number.POSITIVE_INFINITY;
+  for (const value of values) if (value < min) min = value;
+  return min;
 }
 
 /**
@@ -48,12 +58,9 @@ function buildBlocks(commands: readonly MassPlanCommand[]): PlanBlock[] {
   const blocks: PlanBlock[] = [];
   for (const [nick, rows] of byNick) {
     rows.sort((a, b) => a.sendMs - b.sendMs);
-    blocks.push({ nick, rows });
+    blocks.push({ nick, rows, minArrivalMs: minOf(rows.map((row) => row.arrivalMs)) });
   }
-  blocks.sort(
-    (a, b) =>
-      Math.min(...a.rows.map((row) => row.arrivalMs)) - Math.min(...b.rows.map((row) => row.arrivalMs)),
-  );
+  blocks.sort((a, b) => a.minArrivalMs - b.minArrivalMs);
   return blocks;
 }
 
@@ -81,7 +88,7 @@ function buildPlannerText(commands: readonly MassPlanCommand[], world: string, v
   const blocks = buildBlocks(commands);
   const parts: string[] = [];
   for (const block of blocks) {
-    const headerTime = formatPlannerTime(Math.min(...block.rows.map((row) => row.arrivalMs)));
+    const headerTime = formatPlannerTime(block.minArrivalMs);
     const header =
       variant === 'russian'
         ? '[**]#. Time send-->Attack type[||]Your coords-->Target coords[||]Target[||]Rally point direct link[/**]'

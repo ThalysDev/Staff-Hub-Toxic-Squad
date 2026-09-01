@@ -24,6 +24,7 @@ import { registerOpIpc } from './ipc-op';
 import { GroupsService } from './services/groups-service';
 import { registerGroupsIpc } from './ipc-groups';
 import { registerPreferencesIpc } from './ipc-preferences';
+import { registerPlannerDraftIpc } from './ipc-planner-draft';
 import { registerAuthIpc } from './ipc-auth';
 import { AuthService } from './services/auth-service';
 import { registerTemplatesIpc } from './ipc-templates';
@@ -188,8 +189,11 @@ function createMainWindow(): void {
   }
   // Modo dev: SHS_CAPTURE=<caminho> tira um screenshot da janela e encerra
   // (usado para inspeção visual e futuros baselines de regressão).
+  // SHS_CAPTURE_DELAY=<ms> espera ANTES da foto — páginas que hidratam dados
+  // via IPC (ex.: rascunho do planner) precisam de um instante a mais.
   const shotPath = process.env.SHS_CAPTURE;
   if (shotPath) {
+    const shotDelay = Number.parseInt(process.env.SHS_CAPTURE_DELAY ?? '0', 10) || 0;
     mainWindow.webContents.once('did-finish-load', () => {
       setTimeout(async () => {
         // UnknownVizError do compositor é INTERMITENTE (Chromium): 3 tentativas
@@ -212,7 +216,7 @@ function createMainWindow(): void {
           await fs.writeFile(`${shotPath}.err`, lastError).catch(() => {});
         }
         app.quit();
-      }, 2500);
+      }, shotDelay > 0 ? shotDelay : 2500);
     });
   }
 }
@@ -419,7 +423,7 @@ app.whenReady().then(async () => {
     'sg1:analyze',
     'troops:collect-members', 'troops:collect-summary',
     'sg3:', 'sg5:', 'sg6:', 'sg7:',
-    'opArchive:', 'opShare:import-op',
+    'opArchive:', 'opShare:import-op', 'plannerDraft:',
     'tminus:schedule',
     'session:open-login', 'session:login-with-sid',
     'dev:capture-fixture',
@@ -446,6 +450,7 @@ app.whenReady().then(async () => {
   registerOpIpc({ journal, opArchive: new OpArchiveService(journal), world: () => twSession.getStatus().world ?? 'desconhecido' });
   registerGroupsIpc({ journal, groups: new GroupsService(journal) });
   registerPreferencesIpc({ journal });
+  registerPlannerDraftIpc({ journal });
   registerTemplatesIpc({ journal });
   registerHistoryIpc({ journal });
 

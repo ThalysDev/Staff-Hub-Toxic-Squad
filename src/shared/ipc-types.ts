@@ -473,6 +473,13 @@ export interface StaffHubApi {
      *  as chaves presets:* — presets nomeados são dado do usuário, não padrão. */
     reset(module: string): Promise<void>;
   };
+  plannerDraft: {
+    /** Grupos adicionados do Planner em Massa (store dedicado — o rascunho real
+     *  passa do teto de 20k das prefs). Array cru: a UI revalida cada grupo. */
+    get(): Promise<unknown[]>;
+    /** Grava o rascunho inteiro (fail-closed: recusa não-array ou >2 MB). */
+    save(groups: unknown[]): Promise<unknown[]>;
+  };
   opShare: {
     /** Exporta uma OP arquivada para arquivo .json (diálogo nativo de salvar). */
     exportOp(id: string): Promise<{ ok: boolean; path?: string; detail: string }>;

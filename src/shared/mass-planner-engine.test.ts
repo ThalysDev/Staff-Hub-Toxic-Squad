@@ -571,18 +571,37 @@ describe('generateMassPlan — conflito de ms, ordem e determinismo', () => {
     expect(() => generateMassPlan([baseGroup({ targets: [] })], baseCtx())).toThrow(/sem origens ou sem destinos/);
   });
 
-  it('falha quando o cruzamento excede o teto de pares', () => {
-    const many = (start: number): MassGroupConfig['origins'] =>
-      Array.from({ length: 501 }, (_, i) => {
+  it('OP real da staff (2428×183 = 444k pares) passa do antigo teto de 250k e gera', () => {
+    const many = (start: number, n: number): MassGroupConfig['origins'] =>
+      Array.from({ length: n }, (_, i) => {
         const x = start + (i % 30);
         const y = start + Math.floor(i / 30);
         return { coord: `${x}|${y}`, x, y };
       });
     const big = baseGroup({
-      origins: many(100),
-      originQuotas: many(100).map(() => 1),
-      targets: many(400),
-      targetQuotas: many(400).map(() => 1),
+      origins: many(100, 300),
+      originQuotas: many(100, 300).map(() => 1),
+      targets: many(400, 850),
+      targetQuotas: many(400, 850).map(() => 1),
+    });
+    // 300×850 = 255k > teto antigo de 250k — hoje gera normal.
+    const result = generateMassPlan([big], baseCtx());
+    expect(result.commands.length).toBeGreaterThan(0);
+    expect(result.warnings.some((warning) => warning.includes('OP pesada'))).toBe(true);
+  });
+
+  it('falha quando o cruzamento excede o teto sanitário de 1M de pares', () => {
+    const many = (start: number, n: number): MassGroupConfig['origins'] =>
+      Array.from({ length: n }, (_, i) => {
+        const x = start + (i % 60);
+        const y = start + Math.floor(i / 60);
+        return { coord: `${x}|${y}`, x, y };
+      });
+    const big = baseGroup({
+      origins: many(100, 1200),
+      originQuotas: many(100, 1200).map(() => 1),
+      targets: many(400, 1000),
+      targetQuotas: many(400, 1000).map(() => 1),
     });
     expect(() => generateMassPlan([big], baseCtx())).toThrow(/teto/);
   });

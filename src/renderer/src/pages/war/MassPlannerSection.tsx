@@ -39,8 +39,9 @@ const UNIT_ORDER: readonly UnitId[] = [
   'spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob',
 ];
 
-/** Tamanho seguro para persistir os grupos como 1 string de preferência (cap 20k). */
-const GROUPS_JSON_SAFE_LENGTH = 19_000;
+/** Rascunho dos grupos mora no store dedicado "planner-draft" (v0.32) — o cap
+ *  de 20k das prefs só vale para o formulário. mpGroupsJson ficou para MIGRAÇÃO
+ *  (leitura única na hidratação do store; não é mais gravado). */
 
 interface PlannerPrefs extends Record<string, unknown> {
   mpNome: string;
@@ -192,22 +193,8 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
     setFormatRussian(prefs.mpFormatRussian !== false);
     setFormatTwmp(prefs.mpFormatTwmp === true);
     setArchiveTitle(typeof prefs.mpArchiveTitle === 'string' ? prefs.mpArchiveTitle : PLANNER_DEFAULTS.mpArchiveTitle);
-    if (typeof prefs.mpGroupsJson === 'string' && prefs.mpGroupsJson !== '') {
-      try {
-        const parsed: unknown = JSON.parse(prefs.mpGroupsJson);
-        if (Array.isArray(parsed)) {
-          const valid: MassGroupConfig[] = [];
-          for (const item of parsed) {
-            const group = reviveGroupConfig(item);
-            if (group !== null) valid.push(group);
-          }
-          setGroups(valid);
-        }
-      } catch (error) {
-        console.warn('[planner-massa] rascunho de grupos corrompido foi descartado:', error);
-        push('error', 'O rascunho de grupos estava corrompido e foi descartado — os formulários continuam.');
-      }
-    }
+    // mpGroupsJson NÃO é mais lido aqui: o rascunho mora no store dedicado
+    // planner-draft (a migração das prefs antigas acontece no efeito dele).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefs]);
 
@@ -245,24 +232,66 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
     windowEndText, delayText, nightBonusMode, avoidMs, minMoraleText, catapultsText, formatRussian, formatTwmp, archiveTitle,
   ]);
 
-  // ---- Grupos adicionados (persistidos como 1 string; acima do cap = aviso explícito) ----
+  // ---- Grupos adicionados (store DEDICADO "planner-draft": o rascunho real de
+  // uma OP da staff passa de 90k — 5× o teto de 20k por string das prefs, que
+  // descartava a lista com aviso de "grande demais" e perdia tudo ao fechar) ----
   const [groups, setGroups] = useState<MassGroupConfig[]>([]);
-  const [groupsPersistFull, setGroupsPersistFull] = useState(false);
+  const [draftStoreError, setDraftStoreError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const draftHydrated = useRef(false);
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Hidratação (1× quando a aba fica visível com prefs carregadas): store novo
+  // primeiro; rascunho antigo das prefs (≤19k) migra para o store na 1ª leitura.
   useEffect(() => {
-    if (!prefsHydrated.current) return;
-    const json = JSON.stringify(groups);
-    if (json.length <= GROUPS_JSON_SAFE_LENGTH) {
-      setGroupsPersistFull(false);
-      savePrefs({ mpGroupsJson: json });
-    } else {
-      setGroupsPersistFull(true);
-      // NÃO persiste a lista cheia (estouraria o cap silenciosamente): fica em
-      // memória nesta sessão e o aviso permanente explica.
-      savePrefs({ mpGroupsJson: '' });
-    }
-  }, [groups, savePrefs]);
+    if (!visible || prefs === null || draftHydrated.current) return;
+    draftHydrated.current = true;
+    void (async () => {
+      try {
+        const stored = await window.staffhub.plannerDraft.get();
+        if (Array.isArray(stored) && stored.length > 0) {
+          setGroups(stored.map(reviveGroupConfig).filter((group): group is MassGroupConfig => group !== null));
+          return;
+        }
+        const legacy = prefs.mpGroupsJson;
+        if (typeof legacy === 'string' && legacy !== '') {
+          try {
+            const parsed: unknown = JSON.parse(legacy);
+            if (Array.isArray(parsed)) {
+              const valid = parsed.map(reviveGroupConfig).filter((group): group is MassGroupConfig => group !== null);
+              setGroups(valid);
+              await window.staffhub.plannerDraft.save(valid);
+              // Limpa a ORIGEM da migração: sem isso, "Limpar todos" (store=[])
+              // ressuscitaria o rascunho antigo da pref na próxima abertura.
+              savePrefs({ mpGroupsJson: '' });
+            }
+          } catch (error) {
+            console.warn('[planner-massa] rascunho antigo corrompido foi descartado:', error);
+            savePrefs({ mpGroupsJson: '' });
+          }
+        }
+      } catch (error) {
+        setDraftStoreError(error instanceof Error ? error.message : String(error));
+      }
+    })();
+  }, [visible, prefs]);
+
+  // Gravação com debounce: rajadas de adicionar/editar/remover viram 1 save.
+  // Guard de hidratação: sem ele, o save([]) do mount apagaria o rascunho.
+  useEffect(() => {
+    if (!draftHydrated.current) return;
+    if (draftTimer.current !== null) clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(() => {
+      draftTimer.current = null;
+      void window.staffhub.plannerDraft
+        .save(groups)
+        .then(() => setDraftStoreError(''))
+        .catch((error: unknown) => setDraftStoreError(error instanceof Error ? error.message : String(error)));
+    }, 400);
+    return () => {
+      if (draftTimer.current !== null) clearTimeout(draftTimer.current);
+    };
+  }, [groups]);
 
   // ---- Dados do mundo (carregam na 1ª vez que a aba aparece) ----
   const [worldLoading, setWorldLoading] = useState(false);
@@ -1215,9 +1244,10 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
             </>
           )}
         </div>
-        {groupsPersistFull && (
+        {draftStoreError !== '' && (
           <p className="error" role="alert" style={{ margin: '8px 16px 0' }}>
-            A lista de grupos ficou grande demais para persistir — ela vive só nesta sessão (feche o app e ela se perde). Reduza coordenadas para persistir.
+            Falha ao gravar o rascunho no disco ({draftStoreError}) — ele segue ativo nesta sessão; qualquer
+            alteração nos grupos tenta gravar de novo.
           </p>
         )}
         {groups.length === 0 ? (

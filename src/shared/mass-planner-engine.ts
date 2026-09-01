@@ -39,8 +39,16 @@ const D_TOWER = 'Trajetória dentro do raio da Torre de Vigia';
 const D_MORAL_LOW = 'Moral abaixo do mínimo';
 const D_MORAL_NO_POINTS = 'Moral exigida sem pontos no dump (origem/alvo)';
 
-/** Teto defensivo do cruzamento: pares candidatos por grupo (origens × alvos). */
-export const MASS_MAX_PAIRS = 250_000;
+/**
+ * Teto sanitário do cruzamento: pares candidatos por grupo (origens × alvos).
+ * 1.000.000 cobre as OPs reais da staff (a "full" de 2428×183 = 444k passava
+ * do teto antigo de 250k e travava a operação inteira); acima disso o volume
+ * de memória/comandos deixa de fazer sentido num planner de tribo.
+ */
+export const MASS_MAX_PAIRS = 1_000_000;
+
+/** Acima disso a geração é avisada como pesada (segundos de espera normal). */
+export const MASS_HEAVY_PAIRS = 100_000;
 
 // ---------------------------------------------------------------------------
 // Geometria: distância do ponto ao segmento (Torre de Vigia, raio 15 campos)
@@ -314,6 +322,17 @@ interface PlannedCommand {
   originIndex: number;
 }
 
+/** Map targetIndex → pares daquele alvo, na ordem de candidates. */
+function buildIndexByTarget(candidates: readonly CandidatePair[]): Map<number, CandidatePair[]> {
+  const index = new Map<number, CandidatePair[]>();
+  for (const pair of candidates) {
+    const list = index.get(pair.targetIndex);
+    if (list === undefined) index.set(pair.targetIndex, [pair]);
+    else list.push(pair);
+  }
+  return index;
+}
+
 /**
  * Gera a operação inteira a partir dos grupos NA ORDEM INFORMADA. Falha
  * (throw PT-BR) quando um grupo é estruturalmente inválido ou o mundo não tem
@@ -335,6 +354,11 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
     if (group.origins.length * group.targets.length > MASS_MAX_PAIRS) {
       throw new Error(
         `Grupo "${group.nome}" cruza ${group.origins.length} origens × ${group.targets.length} destinos — acima do teto de ${MASS_MAX_PAIRS} pares. Reduza as listas.`,
+      );
+    }
+    if (group.origins.length * group.targets.length > MASS_HEAVY_PAIRS) {
+      warnings.push(
+        `Grupo "${group.nome}": OP pesada (${group.origins.length}×${group.targets.length} = ${group.origins.length * group.targets.length} pares) — a geração pode levar alguns segundos.`,
       );
     }
     const unitMinutes = ctx.unitMinutesPerField[group.slowestUnit];
@@ -416,6 +440,12 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
     };
 
     const assignments: CandidatePair[] = [];
+    // Índice de candidatos POR ALVO para os modos que resolvem slot a slot:
+    // varrer o conjunto inteiro a cada slot era O(pares × slots) — a OP real
+    // da staff (2428×183) levava segundos no modo por-jogador. A lista de cada
+    // alvo preserva a ordem de candidates (origem digitada primeiro), então o
+    // resultado é IDÊNTICO ao scan linear antigo.
+    const byTarget = group.assignMode === 'otimizado' ? null : buildIndexByTarget(candidates);
     if (group.assignMode === 'por-jogador') {
       // DISTRIBUÍDO POR PLAYERS (tool real): justo entre os JOGADORES de origem.
       // Alvos na ordem digitada; cada um vai para o jogador com MENOS comandos
@@ -430,8 +460,7 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
           let best: CandidatePair | null = null;
           const bestLoad = (pair: CandidatePair): number =>
             loadByPlayer.get(playerOfOrigin(pair.originIndex)) ?? 0;
-          for (const pair of candidates) {
-            if (pair.targetIndex !== targetIndex) continue;
+          for (const pair of byTarget?.get(targetIndex) ?? []) {
             if ((originRemaining[pair.originIndex] ?? 0) <= 0) continue;
             if (!repeatOk(pair.originIndex, pair.targetIndex)) continue;
             if (best === null) {
@@ -482,8 +511,7 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
       for (let targetIndex = 0; targetIndex < group.targets.length; targetIndex++) {
         while ((targetRemaining[targetIndex] ?? 0) > 0) {
           let best: CandidatePair | null = null;
-          for (const pair of candidates) {
-            if (pair.targetIndex !== targetIndex) continue;
+          for (const pair of byTarget?.get(targetIndex) ?? []) {
             if ((originRemaining[pair.originIndex] ?? 0) <= 0) continue;
             if (!repeatOk(pair.originIndex, pair.targetIndex)) continue;
             if (best === null) {

@@ -126,3 +126,21 @@ describe('formatColavel', () => {
     expect(nick.length).toBeLessThanOrEqual(40);
   });
 });
+
+describe('exportações com bloco gigante (sem dump = 1 executor)', () => {
+  // v0.32: OPs na escala real da staff ficaram possíveis (teto 1M de pares) e
+  // um bloco único pode passar de 65k linhas — Math.min(...rows) com spread
+  // estourava a call stack (RangeError: Maximum call stack size exceeded).
+  it('bloco de 80k comandos exporta sem RangeError', () => {
+    const big = Array.from({ length: 80_000 }, (_, i) =>
+      realCommand({ originOwner: null, origin: `${100 + (i % 500)}|${100 + Math.floor(i / 500)}` }),
+    );
+    let russian = '';
+    expect(() => {
+      russian = formatRussianPlanner(big, 'br142');
+    }).not.toThrow();
+    expect(russian.length).toBeGreaterThan(100_000);
+    expect(() => formatTwMassPlanner(big, 'br142')).not.toThrow();
+    expect(() => formatColavel(big)).not.toThrow();
+  }, 60_000);
+});

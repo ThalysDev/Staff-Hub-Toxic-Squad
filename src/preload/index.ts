@@ -169,6 +169,10 @@ const api = {
       invoke('preferences:save', module, patch) as Promise<Record<string, unknown>>,
     reset: (module: string) => invoke('preferences:reset', module) as Promise<void>,
   },
+  plannerDraft: {
+    get: () => invoke('plannerDraft:get') as Promise<unknown[]>,
+    save: (groups: unknown[]) => invoke('plannerDraft:save', groups) as Promise<unknown[]>,
+  },
   opShare: {
     exportOp: (id: string) =>
       invoke('opshare:export', id) as Promise<{ ok: boolean; path?: string; detail: string }>,

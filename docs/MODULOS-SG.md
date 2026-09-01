@@ -222,7 +222,14 @@ Tela: tópico de blindagem em `screen=forum&screenmode=view_thread&thread_id=X&p
 
 ### Guerra — Sala de Guerra
 
-#### Planner de OP em Massa (v0.29.0 — alinhado à ferramenta real twmassplanner.pro)
+#### Planner de OP em Massa (v0.32.0 — escala real da staff; alinhado à ferramenta real twmassplanner.pro)
+- **v0.32.0 ESCALA REAL** (correções do relato de 01/09 — OP "full" de 2428 origens × 183 alvos):
+  - **Teto de pares 250k → 1.000.000**: a OP real da staff (444k pares) era RECUSADA com "acima do teto"; agora gera (~2,5s). Acima de 100k pares a engine emite o aviso "OP pesada" para a espera não parecer travamento.
+  - **Rascunho em store DEDICADO `planner-draft`** (`src/main/ipc-planner-draft.ts`, JsonStore próprio com teto de 2 MB): o rascunho real passa de 97k — 5× o cap de 20k por string das prefs — e era DESCARTADO ("vive só nesta sessão", perdia ao fechar). Migração automática: prefs antigas (≤19k) sobem para o store na 1ª abertura e a origem é apagada (sem "grupo fantasma" após "Limpar todos"). Gravação com debounce de 400ms; aviso em tela SÓ em falha real de disco. Canal PROTEGIDO pelo gate central (dado de produto da Sala de Guerra).
+  - **Exportações imunes a bloco gigante**: `Math.min(...rows)` com spread estourava a call stack em blocos >65k linhas (RangeError: Maximum call stack size exceeded); a chegada mínima do bloco passou a ser pré-computada com mínimo iterativo.
+  - **Perf dos modos por-alvo**: candidatos indexados POR ALVO (por-jogador / mais-perto / mais-longe deixaram de varrer o conjunto inteiro a cada slot — resultado idêntico, escala linear).
+  - **ErrorBoundary com stack visível**: "Detalhes técnicos" (stack do erro + pilha de componentes, truncados) em `<details>` — o crash da staff chegava SEM NENHUMA pista de origem.
+  - **E2E de captura na escala real** (`tests/diag/cap-planner-stress.mjs`): API auth LOCAL (DB tmp) + login persistido no userData isolado + rascunho 2428×183 hidratado do disco → captura da Sala de Guerra sem crash (prova da montagem). `SHS_CAPTURE_DELAY` permite esperar hidratações IPC antes da foto.
 - **v0.29.0 ALINHAMENTO TOTAL à ferramenta real** (semânticas PROVADAS por gerações reais com a chave do dono; ZIPs de prova em tests/diag/twmp/):
   - **Comandos por Origem/Alvo = listas por grupo** "1;2" (textareas divididas por ";"; um valor só aplica a todos; erros reais reproduzidos: "O número de separadores (;) é diferente" / "Valor de comando inválido."); totais vivos "até N comandos" por lado.
   - **Chegadas**: Fixa / **Intervalo = início e fim** (2 datetimes) / **Fixa com intervalo por aldeia = Delay entre ataques (s)** — stagger SEQUENCIAL na ordem de distância (o mais perto fica na base; prova real com 30s).
