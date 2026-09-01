@@ -11,6 +11,7 @@ import { ClipboardCopy, Layers, ListPlus, Pencil, RefreshCw, Save, Trash2, Trian
 import { coordCountLabel, normalizeCoordText } from '@shared/coord-input';
 import {
   generateMassPlan,
+  MASS_HEAVY_PAIRS,
   parseMassCoordGroups,
   parseMassCoordText,
   validateMassGroup,
@@ -134,7 +135,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   const session = useSessionStatus();
 
   // ---- Preferências do módulo "guerra" (rascunho do formulário + grupos) ----
-  const { prefs, savePrefs } = usePreferences<PlannerPrefs>('guerra', PLANNER_DEFAULTS);
+  const { prefs, savePrefs, savePrefsNow } = usePreferences<PlannerPrefs>('guerra', PLANNER_DEFAULTS);
   const prefsHydrated = useRef(false);
   const [nomeText, setNomeText] = useState(PLANNER_DEFAULTS.mpNome);
   const [originsText, setOriginsText] = useState(PLANNER_DEFAULTS.mpOrigins);
@@ -251,6 +252,12 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
         const stored = await window.staffhub.plannerDraft.get();
         if (Array.isArray(stored) && stored.length > 0) {
           setGroups(stored.map(reviveGroupConfig).filter((group): group is MassGroupConfig => group !== null));
+          // Store já povoado: pref legada ainda viva é origem de ressurreição
+          // após "Limpar todos" (store=[] voltaria a migrar dela) — limpa JÁ,
+          // sem debounce (mesma lição do flush do usePreferences).
+          if (typeof prefs.mpGroupsJson === 'string' && prefs.mpGroupsJson !== '') {
+            void savePrefsNow({ mpGroupsJson: '' });
+          }
           return;
         }
         const legacy = prefs.mpGroupsJson;
@@ -261,13 +268,14 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
               const valid = parsed.map(reviveGroupConfig).filter((group): group is MassGroupConfig => group !== null);
               setGroups(valid);
               await window.staffhub.plannerDraft.save(valid);
-              // Limpa a ORIGEM da migração: sem isso, "Limpar todos" (store=[])
-              // ressuscitaria o rascunho antigo da pref na próxima abertura.
-              savePrefs({ mpGroupsJson: '' });
+              // Limpa a ORIGEM da migração IMEDIATAMENTE (savePrefsNow, sem
+              // debounce/fail-soft): "Limpar todos" (store=[]) ressuscitaria o
+              // rascunho antigo da pref na próxima abertura.
+              await savePrefsNow({ mpGroupsJson: '' });
             }
           } catch (error) {
             console.warn('[planner-massa] rascunho antigo corrompido foi descartado:', error);
-            savePrefs({ mpGroupsJson: '' });
+            void savePrefsNow({ mpGroupsJson: '' });
           }
         }
       } catch (error) {
@@ -278,20 +286,44 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
 
   // Gravação com debounce: rajadas de adicionar/editar/remover viram 1 save.
   // Guard de hidratação: sem ele, o save([]) do mount apagaria o rascunho.
+  // FLUSH: fechar o app/F5 dentro dos 400ms não pode perder a última mutação
+  // (cleanup do efeito + beforeunload gravam em vez de descartar o timer —
+  // mesma disciplina do usePreferences).
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
+  const flushDraftRef = useRef<() => void>(() => {});
+  flushDraftRef.current = () => {
+    if (draftTimer.current === null) return; // nada pendente
+    clearTimeout(draftTimer.current);
+    draftTimer.current = null;
+    void window.staffhub.plannerDraft
+      .save(groupsRef.current)
+      .then(() => setDraftStoreError(''))
+      .catch((error: unknown) => setDraftStoreError(error instanceof Error ? error.message : String(error)));
+  };
   useEffect(() => {
     if (!draftHydrated.current) return;
     if (draftTimer.current !== null) clearTimeout(draftTimer.current);
     draftTimer.current = setTimeout(() => {
       draftTimer.current = null;
       void window.staffhub.plannerDraft
-        .save(groups)
+        .save(groupsRef.current)
         .then(() => setDraftStoreError(''))
         .catch((error: unknown) => setDraftStoreError(error instanceof Error ? error.message : String(error)));
     }, 400);
     return () => {
-      if (draftTimer.current !== null) clearTimeout(draftTimer.current);
+      flushDraftRef.current();
     };
   }, [groups]);
+  // Página keep-mounted: o cleanup acima só roda no encerramento do app — o
+  // beforeunload cobre F5/fechamento com o flush pendente (best-effort).
+  useEffect(() => {
+    const onBeforeUnload = (): void => flushDraftRef.current();
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, []);
 
   // ---- Dados do mundo (carregam na 1ª vez que a aba aparece) ----
   const [worldLoading, setWorldLoading] = useState(false);
@@ -623,7 +655,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   const groupsSnapshot = useMemo(() => JSON.stringify(groups), [groups]);
   const planStale = plan !== null && plan.groupsSnapshot !== groupsSnapshot;
 
-  function generate(): void {
+  async function generate(): Promise<void> {
     if (groups.length === 0) {
       push('error', 'Adicione pelo menos um grupo antes de gerar a operação.');
       return;
@@ -634,6 +666,10 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
     }
     setGenerating(true);
     try {
+      // A engine roda SÍNCRONA no renderer e, na OP real da staff (444k pares),
+      // ocupa a thread por segundos: este yield deixa o botão pintar o
+      // "Gerando…" e o spinner ANTES do trabalho pesado começar.
+      await new Promise((resolve) => setTimeout(resolve, 50));
       const result = generateMassPlan(groups, planContext);
       if (result.commands.length === 0) {
         push('error', 'Nenhum comando sobrou dos filtros — veja os descartes no resultado.');
@@ -1262,6 +1298,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
             {groups.map((group) => {
               const unitName = unitMinutes[group.slowestUnit] !== undefined ? UNITS[group.slowestUnit]?.name : group.slowestUnit;
               const editing = editingId === group.id;
+              const pares = group.origins.length * group.targets.length;
               return (
                 <div key={group.id} className={`mp-group-row${editing ? ' mp-group-row--editing' : ''}`}>
                   <div className="mp-group-summary">
@@ -1280,6 +1317,11 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
                       {group.nightBonus === 'reagendar' ? ' · protege BN' : ''}
                       {group.avoidMsConflict ? ' · evita ms' : ''}
                     </span>
+                    {pares > MASS_HEAVY_PAIRS && (
+                      <span className="text-warn" title="Cruzamento grande — a geração pode levar alguns segundos.">
+                        {' '}· {pares.toLocaleString('pt-BR')} pares (OP pesada)
+                      </span>
+                    )}
                   </div>
                   <div className="row" style={{ gap: 6 }}>
                     <button type="button" className="btn btn-ghost btn-sm" onClick={() => editGroup(group.id)}>
@@ -1320,7 +1362,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
             <button
               type="button"
               className="btn mp-btn-generate"
-              onClick={generate}
+              onClick={() => void generate()}
               disabled={generating || groups.length === 0 || !worldReady}
               title={worldReady ? undefined : 'Aguardando os dados do mundo carregarem.'}
             >
@@ -1508,8 +1550,8 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   );
 }
 
-/** Revalida um grupo vindo do rascunho persistido — lixo no disco é descartado
- *  (com contagem no console), nunca vira estado fantasma. */
+/** Revalida um grupo vindo do rascunho persistido — item lixo é descartado
+ *  (grupo inválido simplesmente não volta), nunca vira estado fantasma. */
 function reviveGroupConfig(item: unknown): MassGroupConfig | null {
   if (typeof item !== 'object' || item === null) return null;
   const raw = item as Record<string, unknown>;

@@ -109,6 +109,21 @@ describe('parseMassCoordGroups', () => {
     expect(parsed.invalidTokens).toBe(1);
   });
 
+  it('duplicada ENTRE grupos não desalinha as cotas (v0.32.1)', () => {
+    // A duplicada não tem entrada própria: o cursor de cotas anda só nas
+    // coords únicas — antes "A; A B; C" com 5;1;9 dava [5,1,1] (C perdia a 9).
+    const parsed = parseMassCoordGroups('500|500; 500|500 501|501; 502|502', '5;1;9');
+    expect(parsed.entries.map((entry) => entry.coord)).toEqual(['500|500', '501|501', '502|502']);
+    expect(parsed.quotas).toEqual([5, 1, 9]);
+    expect(parsed.duplicatesRemoved).toBe(1);
+  });
+
+  it('duplicada dentro do MESMO grupo mantém a cota do grupo', () => {
+    const parsed = parseMassCoordGroups('500|500 500|500 501|501; 502|502', '5;9');
+    expect(parsed.entries.map((entry) => entry.coord)).toEqual(['500|500', '501|501', '502|502']);
+    expect(parsed.quotas).toEqual([5, 5, 9]);
+  });
+
   it('texto simples sem cotas (torres) não produz erro', () => {
     const parsed = parseMassCoordGroups('552|552 553|553', '');
     expect(parsed.entries).toHaveLength(2);

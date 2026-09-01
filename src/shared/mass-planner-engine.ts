@@ -169,7 +169,11 @@ export function parseMassCoordGroups(raw: string, countsRaw: string): ParsedCoor
       const parsed = parseCoord(coord);
       if (parsed === null) continue; // inalcançável: normalizeCoordText só emite \d{1,3}\|\d{1,3}
       const key = `${parsed.x}|${parsed.y}`;
-      if (seen.has(key)) continue;
+      if (seen.has(key)) {
+        // Duplicata ENTRE grupos também é descarte: conta (nunca silencioso).
+        duplicatesRemoved += 1;
+        continue;
+      }
       seen.add(key);
       entries.push({ coord: key, x: parsed.x, y: parsed.y });
       quotas.push(1); // default provisório; sobrescrito abaixo pelos grupos
@@ -204,14 +208,19 @@ export function parseMassCoordGroups(raw: string, countsRaw: string): ParsedCoor
     }
     if (quotaError === null) {
       // Aplica a cota do grupo a cada vila do grupo (mesma ordem de entrada).
+      // Duplicatas ENTRE grupos não têm entrada própria: o cursor anda SÓ nas
+      // coords únicas — senão a duplicata consumia o slot de cota da vila
+      // seguinte (ex.: "A; A B; C" com cotas 5;1;9 dava [5,1,1] em vez de [5,1,9]).
       let cursor = 0;
+      const counted = new Set<string>();
       groups.forEach((groupText, groupIndex) => {
         const normalized = normalizeCoordText(groupText);
         for (const coord of normalized.coords) {
           const parsed = parseCoord(coord);
           if (parsed === null) continue;
           const key = `${parsed.x}|${parsed.y}`;
-          if (!seen.has(key)) continue; // duplicada já tratada acima
+          if (counted.has(key)) continue;
+          counted.add(key);
           if (quotas[cursor] !== undefined) quotas[cursor] = resolved[groupIndex] ?? 1;
           cursor += 1;
         }

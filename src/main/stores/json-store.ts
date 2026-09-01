@@ -24,6 +24,9 @@ export class JsonStore<T> {
     if (this.cache) return this.cache;
     try {
       const raw = await fs.readFile(this.filePath, 'utf-8');
+      // Um save pode ter resolvido ENQUANTO o readFile esperava: o cache dele
+      // é mais novo que o arquivo lido — nunca sobrescrever por trás.
+      if (this.cache) return this.cache;
       this.cache = { ...this.fallback, ...(JSON.parse(raw) as object) } as T;
     } catch {
       this.cache = this.fallback;

@@ -146,7 +146,7 @@ export default function Sg2Page() {
   const [snapshot, setSnapshot] = useState<TroopSnapshot | null>(null);
   // v0.31 — fonte "Disponível na aldeia (agora)": defesa por aldeia (SG_3).
   const [defense, setDefense] = useState<DefenseSnapshot | null>(null);
-  const [defenseAt, setDefenseAt] = useState<string | null>(null);
+  const [defenseRefreshing, setDefenseRefreshing] = useState(false);
   const [fonte, setFonte] = useState<'recrutadas' | 'disponivel-agora'>('recrutadas');
   const [paradasTransito, setParadasTransito] = useState<'paradas' | 'paradas-e-transito'>('paradas');
   // Página keep-mounted: quando escondida (.sg-page[hidden] = display:none),
@@ -394,7 +394,6 @@ export default function Sg2Page() {
         if (cancelled) return;
         setTroopsAt(status.troopsAt);
         setSnapshot(stored);
-        setDefenseAt(status.defenseAt);
         setDefense(storedDefense);
       })
       .catch((error) => {
@@ -564,13 +563,36 @@ export default function Sg2Page() {
 
   /** Recarrega a defesa em memória (mesma coleta do SG_3 — sem fetch novo). */
   async function refreshDefense(): Promise<DefenseSnapshot | null> {
-    const [status, storedDefense] = await Promise.all([
-      window.staffhub.troops.status(),
-      window.staffhub.troops.getDefense(),
-    ]);
-    setDefenseAt(status.defenseAt);
+    const storedDefense = await window.staffhub.troops.getDefense();
     setDefense(storedDefense);
     return storedDefense;
+  }
+
+  /** Botão "Atualizar da memória": puxa a coleta mais recente guardada no app
+   *  (feita aqui ou no SG_3) sem recoletar — e invalida o resultado da fonte
+   *  nova (nunca misturar listas de coletas diferentes). */
+  async function refreshDefenseFromMemory(): Promise<void> {
+    if (defenseRefreshing) return;
+    setDefenseRefreshing(true);
+    try {
+      const stored = await refreshDefense();
+      if (fonte === 'disponivel-agora') {
+        setResult(null);
+        setActionError('');
+      }
+      push(
+        stored !== null
+          ? 'ok'
+          : 'info',
+        stored !== null
+          ? `Defesa atualizada da memória (coleta de ${new Date(stored.collectedAt).toLocaleString('pt-BR')}).`
+          : 'Sem defesa em memória neste mundo — colete na Análise de Defesa (SG_3) ou pelo botão "Coletar defesa agora".',
+      );
+    } catch (error) {
+      push('error', errorMessage(error));
+    } finally {
+      setDefenseRefreshing(false);
+    }
   }
 
   /** Coleta da defesa por aldeia (botão do gate) — reusa o fluxo de coleta
@@ -581,12 +603,23 @@ export default function Sg2Page() {
     setProgress(null);
     setActionError('');
     try {
-      await window.staffhub.troops.collectMembers('defense');
+      const coletado = await window.staffhub.troops.collectMembers('defense');
       const stored = await refreshDefense();
-      if (stored === null) {
-        push('error', 'A coleta de defesa terminou sem dados — confira a sessão do jogo.');
+      const failed = coletado.failures ?? [];
+      if (stored === null || stored.entries.length === 0) {
+        push(
+          'error',
+          failed.length > 0
+            ? `A coleta de defesa terminou sem dados (${failed.length} membro(s) com erro) — confira a sessão do jogo.`
+            : 'A coleta de defesa terminou sem dados — confira a sessão do jogo.',
+        );
+        if (failed.length > 0) setCollectFailures(failed);
+      } else if (failed.length > 0) {
+        push('info', `Defesa coletada: ${stored.entries.length} aldeia(s), com ${failed.length} membro(s) em erro — lista abaixo do painel de memória.`);
+        setCollectFailures(failed);
       } else {
         push('ok', `Defesa coletada: ${stored.entries.length} aldeia(s) — a fonte "Disponível na aldeia" já pode ser usada.`);
+        setCollectFailures(null);
       }
     } catch (error) {
       const message = errorMessage(error);
@@ -828,10 +861,12 @@ export default function Sg2Page() {
     if (typeof fields['maxYText'] === 'string') setMaxYText(fields['maxYText']);
     if (typeof fields['kText'] === 'string') setKText(fields['kText']);
     if (fields['kMode'] === 'incluir' || fields['kMode'] === 'excluir') setKMode(fields['kMode']);
-    if (fields['fonte'] === 'disponivel-agora') setFonte('disponivel-agora');
-    if (fields['fonte'] === 'recrutadas' || fields['fonte'] === undefined) setFonte('recrutadas');
-    if (fields['paradasTransito'] === 'paradas-e-transito') setParadasTransito('paradas-e-transito');
-    else setParadasTransito('paradas');
+    // Fonte/contagem do preset invalidam o resultado quando MUDAM (mesma
+    // invariante dos radios — nunca misturar listas de fontes diferentes).
+    const nextFonte = fields['fonte'] === 'disponivel-agora' ? 'disponivel-agora' : 'recrutadas';
+    const nextContagem = fields['paradasTransito'] === 'paradas-e-transito' ? 'paradas-e-transito' : 'paradas';
+    if (nextFonte !== fonte) trocarFonte(nextFonte);
+    if (nextContagem !== paradasTransito) trocarContagem(nextContagem);
   }
 
   /**
@@ -873,6 +908,8 @@ export default function Sg2Page() {
     setFsPlayersText('');
     setFsPlayersMode('excluir');
     setAutoCollectHours('0');
+    setFonte('recrutadas');
+    setParadasTransito('paradas');
     void resetPrefs();
   }
 
@@ -1039,22 +1076,32 @@ export default function Sg2Page() {
         </div>
       )}
 
-      {snapshot === null ? (
+      {snapshot === null && defense === null ? (
         <div className="card">
           <EmptyState
             icon={Swords}
             title="Nenhuma coleta em memória"
-            hint="O painel começa vazio: colete as informações de tropas (membro a membro, com progresso) ou o resumo em 1 requisição para alimentar os filtros."
+            hint='O painel começa vazio: colete as informações de tropas (membro a membro, com progresso) para os filtros completos — ou a defesa por aldeia (mesma coleta do SG_3) para já usar a fonte "Disponível na aldeia (agora)".'
             action={
-              <button
-                type="button"
-                className="btn"
-                onClick={() => void startCollect('members')}
-                disabled={collecting !== null}
-              >
-                <Users size={14} aria-hidden="true" />
-                Coletar agora
-              </button>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => void startCollect('members')}
+                  disabled={collecting !== null}
+                >
+                  <Users size={14} aria-hidden="true" />
+                  Coletar tropas agora
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => void startDefenseCollect()}
+                  disabled={collecting !== null}
+                >
+                  Coletar defesa (SG_3)
+                </button>
+              </div>
             }
           />
         </div>
@@ -1169,15 +1216,14 @@ export default function Sg2Page() {
                             </label>
                           </div>
                         </fieldset>
-                        {defense === null && (
+                        {defense === null ? (
                           <div className="callout callout--warn sg2-span-2" role="alert">
                             <span className="callout-icon">!</span>
                             <div className="callout-body">
                               <p className="callout-title">Defesa por aldeia ainda não coletada</p>
                               <p>
                                 A fonte "Disponível na aldeia" usa a mesma coleta da Análise de Defesa
-                                {defenseAt !== null ? ` (última: ${new Date(defenseAt).toLocaleString('pt-BR')})` : ''}.
-                               Colete para habilitar a consulta agora.
+                                (SG_3). Colete para habilitar a consulta agora.
                               </p>
                               <button
                                 type="button"
@@ -1196,6 +1242,21 @@ export default function Sg2Page() {
                               </button>
                             </div>
                           </div>
+                        ) : (
+                          <p className="field-hint sg2-span-2" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <span>
+                              Defesa em memória deste mundo: {new Date(defense.collectedAt).toLocaleString('pt-BR')}.
+                            </span>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              disabled={defenseRefreshing || collecting !== null}
+                              onClick={() => void refreshDefenseFromMemory()}
+                              data-tip="Relê a última coleta da Análise de Defesa (SG_3) já guardada no app — sem recoletar. Coletou lá? Clique aqui."
+                            >
+                              {defenseRefreshing ? 'Atualizando…' : 'Atualizar da memória'}
+                            </button>
+                          </p>
                         )}
                       </>
                     )}
