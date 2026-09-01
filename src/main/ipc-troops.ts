@@ -57,4 +57,15 @@ export function registerTroopsIpc(deps: TroopsIpcDeps): void {
       fail('Falha ao ler as tropas salvas', error);
     }
   });
+
+  // v0.31 — defesa por aldeia ("Na Aldeia" + "a caminho") para a fonte
+  // "Disponível na aldeia (agora)" da Análise de Tropas. Leitura local do
+  // snapshot já coletado pelo SG_3 — sem rede, sem coleta nova aqui.
+  ipcMain.handle('troops:get-defense', async () => {
+    try {
+      return await troops.getDefenseVillages();
+    } catch (error) {
+      fail('Falha ao ler a defesa salva', error);
+    }
+  });
 }

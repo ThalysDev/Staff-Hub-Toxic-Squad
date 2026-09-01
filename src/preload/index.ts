@@ -128,6 +128,7 @@ const api = {
     collectMembers: (kind: TroopKind) => invoke('troops:collect-members', kind),
     status: () => invoke('troops:status'),
     get: (kind: TroopKind) => invoke('troops:get', kind),
+    getDefense: () => invoke('troops:get-defense') as Promise<import('@shared/sg2-engine').DefenseSnapshot | null>,
   },
   sg3: {
     checkBlind: (input: Omit<BlindCheckInput, 'defense'>) =>

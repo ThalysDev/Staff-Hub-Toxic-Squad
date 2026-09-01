@@ -11,7 +11,7 @@ import type {
   WorldPlayer,
   WorldVillage,
 } from './types';
-import type { Sg2FilterResult, Sg2Filters, TroopSnapshot } from './sg2-engine';
+import type { DefenseSnapshot, Sg2FilterResult, Sg2Filters, TroopSnapshot } from './sg2-engine';
 import type { BlindCheckInput, BlindVillageResult } from './sg3-engine';
 import type { IncomingCommandRow, PlayerCommandTotal } from './parsers/village-parsers';
 import type { GroupEntry, GroupSaveInput } from './groups-rules';
@@ -48,7 +48,7 @@ export type {
   WorldPlayer,
   WorldVillage,
 };
-export type { Sg2FilterResult, Sg2Filters, TroopSnapshot };
+export type { DefenseSnapshot, Sg2FilterResult, Sg2Filters, TroopSnapshot };
 export type { BlindCheckInput, BlindVillageResult };
 
 export interface Sg6MutationOutcome {
@@ -403,6 +403,10 @@ export interface StaffHubApi {
     status(): Promise<TroopsStatus>;
     /** Snapshot guardado em memória (null = ainda não coletado; F5 não perde). */
     get(kind: TroopKind): Promise<TroopSnapshot | null>;
+    /** v0.31: defesa por aldeia ("Na Aldeia" + "a caminho") para a fonte
+     *  "Disponível na aldeia (agora)" da Análise de Tropas (null = não coletada
+     *  no mundo atual). */
+    getDefense(): Promise<DefenseSnapshot | null>;
   };
   sg3: {
     /** Verificação de blind sobre a última coleta de defesa (paradas × paradas+trânsito). */

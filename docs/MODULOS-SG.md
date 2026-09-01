@@ -61,6 +61,7 @@ ofensivas vs defensivas (por população; ver `src/shared/units.ts` — decisão
 score ofensivo = bárbaro/cav. leve/arqueiro a cavalo/ariete(+nobre/paladino); defensivo =
 lanceiro/espadachim/arqueiro + pesada×4).
 
+- **Fonte "Disponível na aldeia (agora)" (v0.31.0)** — achar defesa parada na back: o filtro passa a medir pelas tropas FISICAMENTE presentes na aldeia (linha "Na Aldeia" da defesa, INCLUINDO apoio recebido de terceiros), em vez das recrutadas. Conversor puro `sg2-defense-source.ts` (`defenseToTroopSnapshot`) reaproveita o `filterTroops` inteiro (mínimos, modalidade, escopo aldeia/jogador com soma, coords/K/eixos, classificação) sobre o snapshot de defesa — `DefenseSnapshot` já vinha da MESMA coleta do SG_3 (`members_defense`; parser separa "Na Aldeia" × "a caminho"). Toggle "Paradas (só Na Aldeia)" (padrão) × "Paradas + a caminho". IPC novo de leitura `troops.getDefense()`; sem coleta em memória → callout com a data da última + botão "Coletar defesa agora" (mesma coleta do SG_3, pacing/journal idênticos). Fonte e contagem persistem nas prefs `sg2` e viajam nos presets da consulta; trocar fonte limpa o resultado (anti-stale). O contador Full/Semi do resultado segue a fonte ativa; Resumo Geral/histórico seguem na fonte recrutada.
 ## SG_3 — Análise de Defesa das Aldeias
 Fonte: `screen=ally&mode=members_defense` — tropas FISICAMENTE na aldeia (de qualquer dono)
 + em trânsito. Coleta análoga ao SG_2 (mesmo painel de memória).

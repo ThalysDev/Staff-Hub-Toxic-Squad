@@ -14,7 +14,8 @@ import { parseCoordList, type AxesRange } from '@shared/coords';
 import type { QueueProgress } from '@shared/ipc-types';
 import HistoryEvolutionSection from './HistoryEvolutionSection';
 import MemorySummarySection from './MemorySummarySection';
-import { filterTroops, playersSummary } from '@shared/sg2-engine';
+import { filterTroops, playersSummary, type DefenseSnapshot } from '@shared/sg2-engine';
+import { defenseToTroopSnapshot } from '@shared/sg2-defense-source';
 import type { Sg2FilterResult, Sg2Filters, TroopSnapshot } from '@shared/sg2-engine';
 import {
   fullSemiReport,
@@ -99,6 +100,8 @@ type Sg2Prefs = {
   fsPlayersText: string;
   fsPlayersMode: 'incluir' | 'excluir';
   autoCollectHours: AutoCollectHours;
+  fonte: 'recrutadas' | 'disponivel-agora';
+  paradasTransito: 'paradas' | 'paradas-e-transito';
 };
 
 /** Unidades do conjunto OFENSIVO por padrão do contador Full/Semi. */
@@ -141,6 +144,11 @@ export default function Sg2Page() {
   const [collectFailures, setCollectFailures] = useState<{ playerName: string; reason: string }[] | null>(null);
   const [showSummary, setShowSummary] = useState(false);
   const [snapshot, setSnapshot] = useState<TroopSnapshot | null>(null);
+  // v0.31 — fonte "Disponível na aldeia (agora)": defesa por aldeia (SG_3).
+  const [defense, setDefense] = useState<DefenseSnapshot | null>(null);
+  const [defenseAt, setDefenseAt] = useState<string | null>(null);
+  const [fonte, setFonte] = useState<'recrutadas' | 'disponivel-agora'>('recrutadas');
+  const [paradasTransito, setParadasTransito] = useState<'paradas' | 'paradas-e-transito'>('paradas');
   // Página keep-mounted: quando escondida (.sg-page[hidden] = display:none),
   // TOASTS DAQUI são invisíveis. Fluxos em 2º plano (auto-coleta) só avisam
   // com a página visível — a TitleBar (useQueueActivity) e o journal sinalizam
@@ -182,11 +190,27 @@ export default function Sg2Page() {
   const unitPopsRef = useRef<{ world: string | null; pops: Record<string, number> } | null>(null);
   const session = useSessionStatus();
 
+  /** Snapshot da fonte ATIVA: recrutadas, ou defesa convertida ("Na Aldeia",
+   *  com/sem "a caminho") — todo o filtro/agregação opera nele, sem duplicar
+   *  lógica. Resumo Geral e demais painéis seguem no snapshot recrutado. */
+  const snapshotConsulta = useMemo<TroopSnapshot | null>(() => {
+    if (fonte !== 'disponivel-agora') return snapshot;
+    if (defense === null) return null;
+    return defenseToTroopSnapshot(defense, paradasTransito === 'paradas-e-transito');
+  }, [fonte, defense, paradasTransito, snapshot]);
+
+  /** Rótulo da fonte (resultado/toasts) + data da coleta que a alimenta. */
+  const fonteLabel =
+    fonte === 'disponivel-agora'
+      ? `Disponível na aldeia (${paradasTransito === 'paradas-e-transito' ? 'paradas + a caminho' : 'agora'})`
+      : 'Tropas recrutadas';
+  const fonteColetadaEm = fonte === 'disponivel-agora' ? defense?.collectedAt ?? null : troopsAt;
+
   /** Unidades presentes no snapshot (ordem do formulário, depois as demais). */
   const snapshotUnitIds = useMemo<string[]>(() => {
-    if (snapshot === null) return [];
+    if (snapshotConsulta === null) return [];
     const present = new Set<string>();
-    for (const entry of snapshot.entries) {
+    for (const entry of snapshotConsulta.entries) {
       for (const [unit, count] of Object.entries(entry.units)) {
         if (count > 0) present.add(unit);
       }
@@ -196,7 +220,7 @@ export default function Sg2Page() {
       if (!ordered.includes(unit)) ordered.push(unit);
     }
     return ordered;
-  }, [snapshot]);
+  }, [snapshotConsulta]);
 
   /** IDs contabilizados no modo atual (undefined = todas as unidades). */
   function fsUnitIds(): string[] | undefined {
@@ -231,6 +255,8 @@ export default function Sg2Page() {
     fsPlayersText: '',
     fsPlayersMode: 'excluir',
     autoCollectHours: '0',
+    fonte: 'recrutadas',
+    paradasTransito: 'paradas',
   });
 
   // Hidratação única: aplica o que veio do store sobre os estados do formulário.
@@ -258,6 +284,8 @@ export default function Sg2Page() {
     if (prefs.fsPlayersText !== undefined) setFsPlayersText(prefs.fsPlayersText);
     if (prefs.fsPlayersMode !== undefined) setFsPlayersMode(prefs.fsPlayersMode);
     if (prefs.autoCollectHours !== undefined) setAutoCollectHours(normalizeAutoCollect(prefs.autoCollectHours));
+    if (prefs.fonte === 'disponivel-agora') setFonte('disponivel-agora');
+    if (prefs.paradasTransito === 'paradas-e-transito') setParadasTransito('paradas-e-transito');
   }, [prefs]);
 
   // Persistência por campo (só depois de hidratado, para não sobrescrever o stored).
@@ -341,6 +369,14 @@ export default function Sg2Page() {
     if (!prefsHydrated.current) return;
     savePrefs({ autoCollectHours });
   }, [autoCollectHours, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ fonte });
+  }, [fonte, savePrefs]);
+  useEffect(() => {
+    if (!prefsHydrated.current) return;
+    savePrefs({ paradasTransito });
+  }, [paradasTransito, savePrefs]);
 
   // Resultado.
   const [result, setResult] = useState<Sg2FilterResult | null>(null);
@@ -349,11 +385,17 @@ export default function Sg2Page() {
   // Carrega o que já está em memória ao abrir a página.
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([window.staffhub.troops.status(), window.staffhub.troops.get('troops')])
-      .then(([status, stored]) => {
+    void Promise.all([
+      window.staffhub.troops.status(),
+      window.staffhub.troops.get('troops'),
+      window.staffhub.troops.getDefense(),
+    ])
+      .then(([status, stored, storedDefense]) => {
         if (cancelled) return;
         setTroopsAt(status.troopsAt);
         setSnapshot(stored);
+        setDefenseAt(status.defenseAt);
+        setDefense(storedDefense);
       })
       .catch((error) => {
         if (!cancelled) push('error', errorMessage(error));
@@ -520,15 +562,66 @@ export default function Sg2Page() {
     return filters;
   }
 
+  /** Recarrega a defesa em memória (mesma coleta do SG_3 — sem fetch novo). */
+  async function refreshDefense(): Promise<DefenseSnapshot | null> {
+    const [status, storedDefense] = await Promise.all([
+      window.staffhub.troops.status(),
+      window.staffhub.troops.getDefense(),
+    ]);
+    setDefenseAt(status.defenseAt);
+    setDefense(storedDefense);
+    return storedDefense;
+  }
+
+  /** Coleta da defesa por aldeia (botão do gate) — reusa o fluxo de coleta
+   *  existente com kind='defense' (pacing, progresso e journal idênticos). */
+  async function startDefenseCollect(): Promise<void> {
+    if (collecting !== null) return;
+    setCollecting('members');
+    setProgress(null);
+    setActionError('');
+    try {
+      await window.staffhub.troops.collectMembers('defense');
+      const stored = await refreshDefense();
+      if (stored === null) {
+        push('error', 'A coleta de defesa terminou sem dados — confira a sessão do jogo.');
+      } else {
+        push('ok', `Defesa coletada: ${stored.entries.length} aldeia(s) — a fonte "Disponível na aldeia" já pode ser usada.`);
+      }
+    } catch (error) {
+      const message = errorMessage(error);
+      setActionError(message);
+      push('error', message);
+    } finally {
+      setCollecting(null);
+      setProgress(null);
+    }
+  }
+
+  /** Trocar fonte/contagem invalida o resultado (nunca misturar listas). */
+  function trocarFonte(next: 'recrutadas' | 'disponivel-agora'): void {
+    setFonte(next);
+    setResult(null);
+    setActionError('');
+  }
+  function trocarContagem(next: 'paradas' | 'paradas-e-transito'): void {
+    setParadasTransito(next);
+    setResult(null);
+    setActionError('');
+  }
+
   function runQuery(): void {
-    if (snapshot === null) {
-      const message = 'Colete primeiro — não há dados de tropas em memória.';
+    if (snapshotConsulta === null) {
+      const message =
+        fonte === 'disponivel-agora'
+          ? 'Colete primeiro a defesa por aldeia (Análise de Defesa / botão abaixo) — sem ela não há como medir as tropas disponíveis agora.'
+          : 'Colete primeiro — não há dados de tropas em memória.';
       setActionError(message);
       push('error', message);
       return;
     }
     try {
-      const next = filterTroops(snapshot, buildFilters());
+      const next = filterTroops(snapshotConsulta, buildFilters());
       setResult(next);
       setExpanded(new Set());
       setActionError('');
@@ -554,16 +647,16 @@ export default function Sg2Page() {
 
   /** Entradas do snapshot restritas ao resultado da filtragem corrente. */
   function resultEntries(): { playerName: string; coord: { x: number; y: number }; units: Record<string, number> }[] {
-    if (snapshot === null || result === null) return [];
+    if (snapshotConsulta === null || result === null) return [];
     const porJogador = new Map(result.players.map((player) => [player.playerName, new Set(player.coords)]));
-    return snapshot.entries
+    return snapshotConsulta.entries
       .filter((entry) => entry.coord.x >= 0)
       .filter((entry) => porJogador.get(entry.playerName)?.has(`${entry.coord.x}|${entry.coord.y}`) === true)
       .map((entry) => ({ playerName: entry.playerName, coord: entry.coord, units: entry.units as Record<string, number> }));
   }
 
   async function runFullSemi(): Promise<void> {
-    if (result === null || snapshot === null) return;
+    if (result === null || snapshotConsulta === null) return;
     const fullPop = Number(fullPopText);
     const semiPop = Number(semiPopText);
     setFullSemiBusy(true);
@@ -735,6 +828,10 @@ export default function Sg2Page() {
     if (typeof fields['maxYText'] === 'string') setMaxYText(fields['maxYText']);
     if (typeof fields['kText'] === 'string') setKText(fields['kText']);
     if (fields['kMode'] === 'incluir' || fields['kMode'] === 'excluir') setKMode(fields['kMode']);
+    if (fields['fonte'] === 'disponivel-agora') setFonte('disponivel-agora');
+    if (fields['fonte'] === 'recrutadas' || fields['fonte'] === undefined) setFonte('recrutadas');
+    if (fields['paradasTransito'] === 'paradas-e-transito') setParadasTransito('paradas-e-transito');
+    else setParadasTransito('paradas');
   }
 
   /**
@@ -1005,6 +1102,8 @@ export default function Sg2Page() {
                         maxYText,
                         kText,
                         kMode,
+                        fonte,
+                        paradasTransito,
                       }}
                       onApply={applyConsultaPreset}
                     />
@@ -1017,6 +1116,90 @@ export default function Sg2Page() {
                       runQuery();
                     }}
                   >
+                    <fieldset className="sg2-fieldset sg2-span-2">
+                      <legend className="field-label">Fonte das tropas</legend>
+                      <div className="sg2-radio-row">
+                        <label className="checkbox-field" data-tip="Tropas RECRUTADAS da aldeia, onde quer que estejam (em casa, apoiando fora, em ataque). É a fonte usada desde sempre.">
+                          <input
+                            type="radio"
+                            name="sg2-fonte"
+                            value="recrutadas"
+                            checked={fonte === 'recrutadas'}
+                            onChange={() => trocarFonte('recrutadas')}
+                          />
+                          <span>Tropas recrutadas (total de aldeia)</span>
+                        </label>
+                        <label className="checkbox-field" data-tip="Tropas FISICAMENTE na aldeia neste momento (a linha Na Aldeia da defesa), INCLUINDO apoio recebido de outros jogadores — enxerga a defesa parada na back.">
+                          <input
+                            type="radio"
+                            name="sg2-fonte"
+                            value="disponivel-agora"
+                            checked={fonte === 'disponivel-agora'}
+                            onChange={() => trocarFonte('disponivel-agora')}
+                          />
+                          <span>Disponível na aldeia (agora)</span>
+                        </label>
+                      </div>
+                    </fieldset>
+
+                    {fonte === 'disponivel-agora' && (
+                      <>
+                        <fieldset className="sg2-fieldset">
+                          <legend className="field-label">Contagem</legend>
+                          <div className="sg2-radio-row">
+                            <label className="checkbox-field" data-tip="Só as tropas paradas na aldeia agora (sem as que estão chegando).">
+                              <input
+                                type="radio"
+                                name="sg2-contagem"
+                                value="paradas"
+                                checked={paradasTransito === 'paradas'}
+                                onChange={() => trocarContagem('paradas')}
+                              />
+                              <span>Paradas (só Na Aldeia)</span>
+                            </label>
+                            <label className="checkbox-field" data-tip="Soma também o apoio a caminho (tropas chegando à aldeia).">
+                              <input
+                                type="radio"
+                                name="sg2-contagem"
+                                value="paradas-e-transito"
+                                checked={paradasTransito === 'paradas-e-transito'}
+                                onChange={() => trocarContagem('paradas-e-transito')}
+                              />
+                              <span>Paradas + a caminho</span>
+                            </label>
+                          </div>
+                        </fieldset>
+                        {defense === null && (
+                          <div className="callout callout--warn sg2-span-2" role="alert">
+                            <span className="callout-icon">!</span>
+                            <div className="callout-body">
+                              <p className="callout-title">Defesa por aldeia ainda não coletada</p>
+                              <p>
+                                A fonte "Disponível na aldeia" usa a mesma coleta da Análise de Defesa
+                                {defenseAt !== null ? ` (última: ${new Date(defenseAt).toLocaleString('pt-BR')})` : ''}.
+                               Colete para habilitar a consulta agora.
+                              </p>
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                style={{ marginTop: 8 }}
+                                disabled={collecting !== null}
+                                onClick={() => void startDefenseCollect()}
+                              >
+                                {collecting === 'members' ? (
+                                  <>
+                                    <span className="btn-spinner" aria-hidden="true" /> Coletando defesa…
+                                  </>
+                                ) : (
+                                  'Coletar defesa agora'
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+
                     <fieldset className="sg2-fieldset sg2-span-2">
                       <legend className="field-label">Unidades (quantidade mínima)</legend>
                       <div className="sg2-units-grid">
@@ -1213,7 +1396,10 @@ export default function Sg2Page() {
                 <div className="card-header">
                   <h3 className="card-title">Contador Full/Semi</h3>
                   <span className="spacer" />
-                  <span className="pill pill--muted">{result.totalVillages} aldeia(s) no filtro</span>
+                  <span className="pill pill--muted">
+                    {result.totalVillages} aldeia(s) no filtro · fonte: {fonteLabel}
+                    {fonteColetadaEm !== null ? ` · coletada em ${new Date(fonteColetadaEm).toLocaleString('pt-BR')}` : ''}
+                  </span>
                 </div>
                 <div className="card-body">
                   <PresetManager
