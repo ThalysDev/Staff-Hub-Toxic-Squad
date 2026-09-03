@@ -605,7 +605,7 @@ describe('generateMassPlan — conflito de ms, ordem e determinismo', () => {
     expect(result.warnings.some((warning) => warning.includes('OP pesada'))).toBe(true);
   });
 
-  it('falha quando o cruzamento excede o teto sanitário de 1M de pares', () => {
+  it('1,2M de pares gera com aviso de OP pesada (teto 50M)', () => {
     const many = (start: number, n: number): MassGroupConfig['origins'] =>
       Array.from({ length: n }, (_, i) => {
         const x = start + (i % 60);
@@ -617,6 +617,23 @@ describe('generateMassPlan — conflito de ms, ordem e determinismo', () => {
       originQuotas: many(100, 1200).map(() => 1),
       targets: many(400, 1000),
       targetQuotas: many(400, 1000).map(() => 1),
+    });
+    const result = generateMassPlan([big], baseCtx());
+    expect(result.commands.length).toBeGreaterThan(0);
+  });
+
+  it('falha quando o cruzamento excede o teto sanitário de 50M de pares', () => {
+    const many = (start: number, n: number): MassGroupConfig['origins'] =>
+      Array.from({ length: n }, (_, i) => {
+        const x = start + (i % 60);
+        const y = start + Math.floor(i / 60);
+        return { coord: `${x}|${y}`, x, y };
+      });
+    const big = baseGroup({
+      origins: many(100, 8000),
+      originQuotas: many(100, 8000).map(() => 1),
+      targets: many(400, 7000),
+      targetQuotas: many(400, 7000).map(() => 1),
     });
     expect(() => generateMassPlan([big], baseCtx())).toThrow(/teto/);
   });

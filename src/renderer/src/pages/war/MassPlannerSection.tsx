@@ -666,9 +666,18 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
     }
     setGenerating(true);
     try {
-      // A engine roda SÍNCRONA no renderer e, na OP real da staff (444k pares),
-      // ocupa a thread por segundos: este yield deixa o botão pintar o
-      // "Gerando…" e o spinner ANTES do trabalho pesado começar.
+      // A engine roda SÍNCRONA no renderer e, numa OP pesada/mundo inteiro,
+      // ocupa a thread por segundos ou dezenas de segundos: este yield deixa o
+      // botão pintar o "Gerando…" e o spinner, e o toast avisa que está viva.
+      const pares = groups.reduce((sum, group) => sum + group.origins.length * group.targets.length, 0);
+      if (pares > MASS_HEAVY_PAIRS) {
+        push(
+          'info',
+          pares > 5_000_000
+            ? 'Gerando operação de mundo inteiro — pode levar dezenas de segundos a alguns minutos, não feche o app…'
+            : 'Gerando operação pesada — pode levar alguns segundos…',
+        );
+      }
       await new Promise((resolve) => setTimeout(resolve, 50));
       const result = generateMassPlan(groups, planContext);
       if (result.commands.length === 0) {

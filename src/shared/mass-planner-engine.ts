@@ -41,14 +41,17 @@ const D_MORAL_NO_POINTS = 'Moral exigida sem pontos no dump (origem/alvo)';
 
 /**
  * Teto sanitário do cruzamento: pares candidatos por grupo (origens × alvos).
- * 1.000.000 cobre as OPs reais da staff (a "full" de 2428×183 = 444k passava
- * do teto antigo de 250k e travava a operação inteira); acima disso o volume
- * de memória/comandos deixa de fazer sentido num planner de tribo.
+ * 50.000.000 a pedido do dono (equipamentos robustos) — cobre a OP de mundo
+ * inteiro da staff ("Full - Br142" de 7005×1701 = 11,9M) com folga de 4×.
+ * Pico de memória no modo Otimizado: ~1,2 GB em arrays tipados.
  */
-export const MASS_MAX_PAIRS = 1_000_000;
+export const MASS_MAX_PAIRS = 50_000_000;
 
 /** Acima disso a geração é avisada como pesada (segundos de espera normal). */
 export const MASS_HEAVY_PAIRS = 100_000;
+
+/** Escala de "mundo inteiro": a geração pode levar dezenas de segundos a minutos. */
+export const MASS_WORLD_PAIRS = 5_000_000;
 
 // ---------------------------------------------------------------------------
 // Geometria: distância do ponto ao segmento (Torre de Vigia, raio 15 campos)
@@ -331,17 +334,6 @@ interface PlannedCommand {
   originIndex: number;
 }
 
-/** Map targetIndex → pares daquele alvo, na ordem de candidates. */
-function buildIndexByTarget(candidates: readonly CandidatePair[]): Map<number, CandidatePair[]> {
-  const index = new Map<number, CandidatePair[]>();
-  for (const pair of candidates) {
-    const list = index.get(pair.targetIndex);
-    if (list === undefined) index.set(pair.targetIndex, [pair]);
-    else list.push(pair);
-  }
-  return index;
-}
-
 /**
  * Gera a operação inteira a partir dos grupos NA ORDEM INFORMADA. Falha
  * (throw PT-BR) quando um grupo é estruturalmente inválido ou o mundo não tem
@@ -365,7 +357,11 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
         `Grupo "${group.nome}" cruza ${group.origins.length} origens × ${group.targets.length} destinos — acima do teto de ${MASS_MAX_PAIRS} pares. Reduza as listas.`,
       );
     }
-    if (group.origins.length * group.targets.length > MASS_HEAVY_PAIRS) {
+    if (group.origins.length * group.targets.length > MASS_WORLD_PAIRS) {
+      warnings.push(
+        `Grupo "${group.nome}": OP de mundo inteiro (${group.origins.length}×${group.targets.length} = ${group.origins.length * group.targets.length} pares) — a geração pode levar dezenas de segundos a alguns minutos; aguarde sem fechar o app.`,
+      );
+    } else if (group.origins.length * group.targets.length > MASS_HEAVY_PAIRS) {
       warnings.push(
         `Grupo "${group.nome}": OP pesada (${group.origins.length}×${group.targets.length} = ${group.origins.length * group.targets.length} pares) — a geração pode levar alguns segundos.`,
       );
@@ -383,10 +379,23 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
       warnings.push(`Grupo "${group.nome}": mundo sem moral por pontos — a moral mínima informada foi ignorada.`);
     }
 
-    // (1) Pares candidatos com os filtros DE PAR (distância, torre, moral).
-    const candidates: CandidatePair[] = [];
-    group.origins.forEach((origin, originIndex) => {
-      group.targets.forEach((target, targetIndex) => {
+    // (1) Pares candidatos com os filtros DE PAR (distância, torre, moral) —
+    // em ARRAYS TIPADOS PARALELOS: uma OP de mundo inteiro (7005×1701 = 11,9M
+    // pares) como array de objetos custaria ~1 GB de heap e derrubaria o
+    // renderer; aqui são ~16 bytes/par. O ALVO é o loop externo, então os pares
+    // de cada alvo ficam CONTÍGUOS (slice por targetOffset) e, dentro do alvo,
+    // em ordem de origem digitada — a MESMA ordem relativa (e os mesmos
+    // critérios de empate) do array de objetos antigo.
+    const pairCapacity = group.origins.length * group.targets.length;
+    const candOrigin = new Int32Array(pairCapacity);
+    const candTarget = new Int32Array(pairCapacity);
+    const candDist = new Float64Array(pairCapacity);
+    /** Primeiro índice de cada alvo no array de candidatos (+1 slot final). */
+    const targetOffset = new Int32Array(group.targets.length + 1);
+    let candTotal = 0;
+    group.targets.forEach((target, targetIndex) => {
+      targetOffset[targetIndex] = candTotal;
+      group.origins.forEach((origin, originIndex) => {
         const distanceFields = fieldsBetween(origin, target);
         if (distanceFields < group.minDistance) {
           countDiscard(D_MIN_DIST);
@@ -413,9 +422,13 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
             return;
           }
         }
-        candidates.push({ originIndex, targetIndex, distanceFields });
+        candOrigin[candTotal] = originIndex;
+        candTarget[candTotal] = targetIndex;
+        candDist[candTotal] = distanceFields;
+        candTotal += 1;
       });
     });
+    targetOffset[group.targets.length] = candTotal;
 
     // (2) Cruzamento com capacidades POR VILA (cotas "1;2" resolvidas) + modo.
     const originRemaining = group.origins.map((_, index) => group.originQuotas[index] ?? 1);
@@ -449,67 +462,76 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
     };
 
     const assignments: CandidatePair[] = [];
-    // Índice de candidatos POR ALVO para os modos que resolvem slot a slot:
-    // varrer o conjunto inteiro a cada slot era O(pares × slots) — a OP real
-    // da staff (2428×183) levava segundos no modo por-jogador. A lista de cada
-    // alvo preserva a ordem de candidates (origem digitada primeiro), então o
-    // resultado é IDÊNTICO ao scan linear antigo.
-    const byTarget = group.assignMode === 'otimizado' ? null : buildIndexByTarget(candidates);
     if (group.assignMode === 'por-jogador') {
       // DISTRIBUÍDO POR PLAYERS (tool real): justo entre os JOGADORES de origem.
       // Alvos na ordem digitada; cada um vai para o jogador com MENOS comandos
       // até agora (empate: jogador do par mais curto; depois ordem digitada).
+      // Os candidatos de cada alvo são o SLICE contíguo [targetOffset[t],
+      // targetOffset[t+1]) — mesma ordem e empates do scan linear original.
       const playerOfOrigin = (originIndex: number): string => {
         const owner = ctx.ownerByCoord.get(group.origins[originIndex]?.coord ?? '');
         return owner === undefined ? `vila:${group.origins[originIndex]?.coord ?? '?'}` : `nick:${owner}`;
       };
       const loadByPlayer = new Map<string, number>();
       for (let targetIndex = 0; targetIndex < group.targets.length; targetIndex++) {
+        const sliceStart = targetOffset[targetIndex] ?? 0;
+        const sliceEnd = targetOffset[targetIndex + 1] ?? 0;
         while ((targetRemaining[targetIndex] ?? 0) > 0) {
-          let best: CandidatePair | null = null;
-          const bestLoad = (pair: CandidatePair): number =>
-            loadByPlayer.get(playerOfOrigin(pair.originIndex)) ?? 0;
-          for (const pair of byTarget?.get(targetIndex) ?? []) {
-            if ((originRemaining[pair.originIndex] ?? 0) <= 0) continue;
-            if (!repeatOk(pair.originIndex, pair.targetIndex)) continue;
-            if (best === null) {
-              best = pair;
+          let bestIdx = -1;
+          for (let i = sliceStart; i < sliceEnd; i++) {
+            const oi = candOrigin[i] ?? -1;
+            if (oi < 0) continue;
+            if ((originRemaining[oi] ?? 0) <= 0) continue;
+            if (!repeatOk(oi, targetIndex)) continue;
+            if (bestIdx < 0) {
+              bestIdx = i;
               continue;
             }
-            const loadDiff = bestLoad(pair) - bestLoad(best);
+            const loadA = loadByPlayer.get(playerOfOrigin(oi)) ?? 0;
+            const bo = candOrigin[bestIdx] ?? -1;
+            const loadB = loadByPlayer.get(playerOfOrigin(bo)) ?? 0;
+            const distA = candDist[i] ?? Number.POSITIVE_INFINITY;
+            const distB = candDist[bestIdx] ?? Number.POSITIVE_INFINITY;
+            const loadDiff = loadA - loadB;
             if (
               loadDiff < 0 ||
-              (loadDiff === 0 &&
-                (pair.distanceFields < best.distanceFields ||
-                  (pair.distanceFields === best.distanceFields && pair.originIndex < best.originIndex)))
+              (loadDiff === 0 && (distA < distB || (distA === distB && oi < bo)))
             ) {
-              best = pair;
+              bestIdx = i;
             }
           }
-          if (best === null) break;
-          assignSlot(best.originIndex, best.targetIndex);
-          const player = playerOfOrigin(best.originIndex);
+          if (bestIdx < 0) break;
+          const winner = candOrigin[bestIdx] ?? -1;
+          assignSlot(winner, targetIndex);
+          const player = playerOfOrigin(winner);
           loadByPlayer.set(player, (loadByPlayer.get(player) ?? 0) + 1);
-          assignments.push(best);
+          assignments.push({ originIndex: winner, targetIndex, distanceFields: candDist[bestIdx] ?? 0 });
         }
       }
     } else if (group.assignMode === 'otimizado') {
       // Guloso global: o par mais curto disponível do CONJUNTO primeiro —
       // aproximação determinística do matching de custo mínimo do tool real
       // (empate: ordem digitada). Um par pode virar VÁRIOS comandos (ondas).
-      const ordered = [...candidates].sort(
+      // Ordem por índice (o array de índices number[] custa 8 bytes/par — o
+      // sort do V8 é iterativo, sem risco de stack).
+      const order: number[] = new Array<number>(candTotal);
+      for (let i = 0; i < candTotal; i++) order[i] = i;
+      order.sort(
         (a, b) =>
-          a.distanceFields - b.distanceFields ||
-          a.originIndex - b.originIndex ||
-          a.targetIndex - b.targetIndex,
+          (candDist[a] ?? 0) - (candDist[b] ?? 0) ||
+          (candOrigin[a] ?? 0) - (candOrigin[b] ?? 0) ||
+          (candTarget[a] ?? 0) - (candTarget[b] ?? 0),
       );
-      for (const pair of ordered) {
+      for (const i of order) {
+        const oi = candOrigin[i] ?? -1;
+        const ti = candTarget[i] ?? -1;
+        if (oi < 0 || ti < 0) continue;
         for (;;) {
-          if ((originRemaining[pair.originIndex] ?? 0) <= 0) break;
-          if ((targetRemaining[pair.targetIndex] ?? 0) <= 0) break;
-          if (!repeatOk(pair.originIndex, pair.targetIndex)) break;
-          assignSlot(pair.originIndex, pair.targetIndex);
-          assignments.push(pair);
+          if ((originRemaining[oi] ?? 0) <= 0) break;
+          if ((targetRemaining[ti] ?? 0) <= 0) break;
+          if (!repeatOk(oi, ti)) break;
+          assignSlot(oi, ti);
+          assignments.push({ originIndex: oi, targetIndex: ti, distanceFields: candDist[i] ?? 0 });
         }
       }
     } else {
@@ -518,26 +540,31 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
       // na origem digitada primeiro. Sem candidato elegível: alvo fica carente.
       const wantFar = group.assignMode === 'mais-longe';
       for (let targetIndex = 0; targetIndex < group.targets.length; targetIndex++) {
+        const sliceStart = targetOffset[targetIndex] ?? 0;
+        const sliceEnd = targetOffset[targetIndex + 1] ?? 0;
         while ((targetRemaining[targetIndex] ?? 0) > 0) {
-          let best: CandidatePair | null = null;
-          for (const pair of byTarget?.get(targetIndex) ?? []) {
-            if ((originRemaining[pair.originIndex] ?? 0) <= 0) continue;
-            if (!repeatOk(pair.originIndex, pair.targetIndex)) continue;
-            if (best === null) {
-              best = pair;
+          let bestIdx = -1;
+          for (let i = sliceStart; i < sliceEnd; i++) {
+            const oi = candOrigin[i] ?? -1;
+            if (oi < 0) continue;
+            if ((originRemaining[oi] ?? 0) <= 0) continue;
+            if (!repeatOk(oi, targetIndex)) continue;
+            if (bestIdx < 0) {
+              bestIdx = i;
               continue;
             }
-            const better =
-              wantFar
-                ? pair.distanceFields > best.distanceFields
-                : pair.distanceFields < best.distanceFields;
-            if (better || (pair.distanceFields === best.distanceFields && pair.originIndex < best.originIndex)) {
-              best = pair;
+            const distA = candDist[i] ?? Number.POSITIVE_INFINITY;
+            const distB = candDist[bestIdx] ?? Number.POSITIVE_INFINITY;
+            const bo = candOrigin[bestIdx] ?? -1;
+            const better = wantFar ? distA > distB : distA < distB;
+            if (better || (distA === distB && oi < bo)) {
+              bestIdx = i;
             }
           }
-          if (best === null) break;
-          assignSlot(best.originIndex, best.targetIndex);
-          assignments.push(best);
+          if (bestIdx < 0) break;
+          const winner = candOrigin[bestIdx] ?? -1;
+          assignSlot(winner, targetIndex);
+          assignments.push({ originIndex: winner, targetIndex, distanceFields: candDist[bestIdx] ?? 0 });
         }
       }
     }

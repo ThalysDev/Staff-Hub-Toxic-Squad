@@ -1,7 +1,7 @@
-// STRESS de escala real (relato da staff 01/09): grupo "full" com 2428 origens
-// × 183 alvos. v0.32: o teto subiu para 1M de pares — a OP real GERA. Este
-// suite fixa isso (regressão) e mede os tempos por modo (o aviso "OP pesada"
-// dispara acima de 100k pares).
+// STRESS de escala real (relatos da staff 01-02/09): OP "full" do colega
+// (2428×183 = 444k) e OP "Full - Br142" do dono (7005×1701 = 11,9M pares —
+// "mundo inteiro"). v0.32.2: candidatos em ARRAYS TIPADOS paralelos (objeto
+// por par custaria ~1 GB aqui); teto 50M. Fixa a regressão e mede tempos.
 import { describe, expect, it } from 'vitest';
 import { generateMassPlan } from '@shared/mass-planner-engine';
 import type { MassGroupConfig, MassPlanContext } from '@shared/mass-planner-types';
@@ -9,24 +9,26 @@ import type { MassGroupConfig, MassPlanContext } from '@shared/mass-planner-type
 function coords(n: number, startX: number, startY: number) {
   const list = [];
   for (let i = 0; i < n; i++) {
-    const x = startX + (i % 60);
-    const y = startY + Math.floor(i / 60);
+    const x = startX + (i % 90);
+    const y = startY + Math.floor(i / 90);
     list.push({ coord: `${x}|${y}`, x, y });
   }
   return list;
 }
 
-const ORIGENS = 2428;
-const ALVOS = 183;
-
-function buildGroup(mode: MassGroupConfig['assignMode']): MassGroupConfig {
+function buildGroup(
+  origins: number,
+  targets: number,
+  targetQuota: number,
+  mode: MassGroupConfig['assignMode'],
+): MassGroupConfig {
   return {
     id: 'g1',
-    nome: 'full',
-    origins: coords(ORIGENS, 100, 100),
-    originQuotas: Array.from({ length: ORIGENS }, () => 1),
-    targets: coords(ALVOS, 500, 500),
-    targetQuotas: Array.from({ length: ALVOS }, () => 14),
+    nome: 'Full - Br142',
+    origins: coords(origins, 100, 100),
+    originQuotas: Array.from({ length: origins }, () => 1),
+    targets: coords(targets, 600, 600),
+    targetQuotas: Array.from({ length: targets }, () => targetQuota),
     towers: [],
     towerRadius: 15,
     slowestUnit: 'ram',
@@ -50,30 +52,42 @@ const ctx: MassPlanContext = {
   unitMinutesPerField: { ram: 26.67 },
   nightBonus: { nightBonusActive: true, nightStartHour: 23, nightEndHour: 7 },
   villagePoints: new Map(),
-  ownerByCoord: new Map(), // SEM dump: 1 bloco só nas exportações (pior caso)
+  ownerByCoord: new Map(),
   playerPoints: new Map(),
   villageIdByCoord: new Map(),
   moralActive: false,
 };
 
-describe('stress — escala real da staff (2428×183 = 444k pares)', () => {
+describe('stress — OP do colega (2428×183 = 444k pares)', () => {
   it.each([['otimizado'], ['por-jogador'], ['mais-perto']] as const)(
     'gera no modo %s com aviso de OP pesada',
     { timeout: 120_000 },
     (mode) => {
       const t0 = performance.now();
-      const result = generateMassPlan([buildGroup(mode)], ctx);
-      const elapsed = performance.now() - t0;
-      console.log(`[stress] ${mode}: ${result.commands.length} comandos em ${elapsed.toFixed(0)}ms`);
-      expect(result.commands.length).toBe(2428); // cotas alvo 14×183=2562 ≥ origens 2428
+      const result = generateMassPlan([buildGroup(2428, 183, 14, mode)], ctx);
+      console.log(`[stress] 2428×183 ${mode}: ${result.commands.length} comandos em ${(performance.now() - t0).toFixed(0)}ms`);
+      expect(result.commands.length).toBe(2428);
       expect(result.warnings.some((warning) => warning.includes('OP pesada'))).toBe(true);
     },
   );
 
   it('rascunho da escala real cabe no store dedicado (bem abaixo do teto de 2 MB)', () => {
-    const json = JSON.stringify([buildGroup('otimizado')]);
-    console.log(`[stress] rascunho JSON: ${(json.length / 1024).toFixed(1)} KB`);
-    expect(json.length).toBeGreaterThan(19_000); // não caberia nas prefs (cap 20k)
-    expect(json.length).toBeLessThan(2_000_000); // cabe no planner-draft
+    const json = JSON.stringify([buildGroup(2428, 183, 14, 'otimizado')]);
+    expect(json.length).toBeGreaterThan(19_000);
+    expect(json.length).toBeLessThan(2_000_000);
   });
+});
+
+describe('stress — OP do dono, mundo inteiro (7005×1701 = 11,9M pares)', () => {
+  it.each([['mais-perto'], ['por-jogador'], ['otimizado']] as const)(
+    'gera no modo %s com aviso de mundo inteiro',
+    { timeout: 300_000 },
+    (mode) => {
+      const t0 = performance.now();
+      const result = generateMassPlan([buildGroup(7005, 1701, 5, mode)], ctx);
+      console.log(`[stress] 7005×1701 ${mode}: ${result.commands.length} comandos em ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+      expect(result.commands.length).toBe(7005); // cotas alvo 5×1701=8505 ≥ origens
+      expect(result.warnings.some((warning) => warning.includes('mundo inteiro'))).toBe(true);
+    },
+  );
 });
