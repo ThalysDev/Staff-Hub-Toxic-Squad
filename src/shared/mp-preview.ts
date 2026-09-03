@@ -28,7 +28,10 @@ export function previewMps(
 ): MpPreviewEntry[] {
   const selecionadas = limit === undefined ? entries : entries.slice(0, limit);
   return selecionadas.map((entry) => {
-    let body = bodyTemplate.replaceAll('#alvos#', entry.coords.join(' '));
+    // Mesmos placeholders do envio real (sg6-service) — prévia e envio nunca divergem.
+    let body = bodyTemplate
+      .replaceAll('#jogador#', entry.playerName)
+      .replaceAll('#alvos#', entry.coords.join(' '));
     if (body.includes('#horarios#')) {
       if (entry.horarios === undefined || entry.horarios.length === 0) {
         throw new Error(`O corpo usa #horarios#, mas a entrada de "${entry.playerName}" não trouxe horários — gere o pacote de comunicação no SG_4.`);

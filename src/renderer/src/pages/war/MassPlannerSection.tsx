@@ -18,7 +18,7 @@ import {
   validateMassGroup,
 } from '@shared/mass-planner-engine';
 import { formatColavel, formatRussianPlanner, formatTwMassPlanner, unitLabel } from '@shared/mass-planner-formats';
-import { buildOpComms, executorNick } from '@shared/op-comms';
+import { buildOpComms, opCommsInputs } from '@shared/op-comms';
 import { renderTemplate, type PlayerComms } from '@shared/comms-package';
 import {
   MASS_BUILDINGS,
@@ -38,6 +38,7 @@ import { useSessionStatus } from '../../hooks/useSessionStatus';
 import { useToast } from '../../hooks/useToast';
 import EmptyState from '../../components/EmptyState';
 import TemplateLibrary from '../../components/TemplateLibrary';
+import OpMapSection from './OpMapSection';
 
 /** Ordem de exibição das unidades do mundo (catálogo pt-BR, não a ordem do XML). */
 const UNIT_ORDER: readonly UnitId[] = [
@@ -747,23 +748,11 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
     }
     setArchiving(true);
     try {
-      const byExecutor = new Map<string, string[]>();
-      for (const command of plan.result.commands) {
-        // Executor pela regra única (dono da origem; fallback grupo; teto 40) —
-        // o mesmo nick da seção "Comunicação da OP" e dos exports.
-        const executor = executorNick(command);
-        const list = byExecutor.get(executor) ?? [];
-        list.push(command.target);
-        byExecutor.set(executor, list);
-      }
-      const distribution = [...byExecutor.entries()].map(([nick, targets]) => `${nick};${targets.join(' ')}`).join('\n');
+      // Insumos pela FONTE ÚNICA (op-comms): a distribuição arquivada é a
+      // MESMA que alimenta as MPs da "Comunicação da OP" — nunca divergem.
+      const { distribution, sendSchedule } = opCommsInputs(plan.result.commands);
       const targets = [...new Set(plan.result.commands.map((command) => command.target))];
-      await window.staffhub.opArchive.save({
-        title,
-        targets,
-        distribution,
-        sendSchedule: formatColavel(plan.result.commands),
-      });
+      await window.staffhub.opArchive.save({ title, targets, distribution, sendSchedule });
       push('ok', `OP "${title}" arquivada — acompanhe no monitoramento da Sala de Guerra.`);
       onOpenMonitor();
     } catch (err) {
@@ -832,6 +821,8 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   const commsPlayers = comms.players;
   const commsPreview = comms.players !== null ? comms.preview : '';
   const commsPreviewError = comms.players !== null ? comms.previewError : '';
+  /** Erro de construção (fail-closed do op-comms) — sem isto o card ficaria mudo. */
+  const commsBuildError = comms.players === null ? comms.error : '';
 
   async function sendOpMps(): Promise<void> {
     if (mpPending === null || sendingMps) return;
@@ -1679,11 +1670,14 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
               </p>
 
               <TemplateLibrary
-                variant="sg4"
-                currentSubject=""
+                variant="sg6"
+                currentSubject={commsSubject}
                 currentBody={commsBody}
-                onApply={(_subject, body) => {
+                onApply={(subject, body) => {
                   setCommsBody(body);
+                  // Template com assunto próprio (ex.: seed "⚔ Diretrizes de
+                  // OP") aplica o assunto junto — o sugerido cobre o resto.
+                  if (subject.trim() !== '') setCommsSubject(subject);
                   setCommsError('');
                 }}
               />
@@ -1718,8 +1712,19 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
               {commsError !== '' && (
                 <p className="error" role="alert">{commsError}</p>
               )}
+              {commsBuildError !== '' && (
+                <p className="error" role="alert">
+                  Não foi possível montar as MPs desta OP: {commsBuildError}
+                </p>
+              )}
               {commsPreviewError !== '' && (
                 <p className="error" role="alert">{commsPreviewError}</p>
+              )}
+              {planStale && (
+                <p className="error" role="alert">
+                  Os grupos mudaram depois desta geração — clique em "Gerar Operação" de novo antes
+                  de enviar MPs (os destinatários/horários podem estar defasados).
+                </p>
               )}
 
               {commsPlayers !== null && (
@@ -1734,7 +1739,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
                       <button
                         type="button"
                         className="btn"
-                        disabled={commsPreviewError !== '' || sendingMps}
+                        disabled={commsPreviewError !== '' || commsBuildError !== '' || planStale || sendingMps}
                         onClick={() => setMpPending(commsPlayers)}
                       >
                         <Send size={16} aria-hidden="true" />
@@ -1775,6 +1780,16 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
             </div>
           </section>
         )}
+
+      {/* ---- Mapa da OP gerada: trajetórias origem→alvo sobre o mapa do mundo ---- */}
+      {planCommands.length > 0 && (
+        <OpMapSection
+          targets={new Set(planCommands.map((command) => command.target))}
+          origins={new Set(planCommands.map((command) => command.origin))}
+          connections={planCommands.map((command) => ({ from: command.origin, to: command.target }))}
+          label={archiveTitle.trim() !== '' ? `OP "${archiveTitle.trim()}"` : 'OP gerada'}
+        />
+      )}
     </div>
   );
 }

@@ -197,7 +197,11 @@ export class Sg6Service {
     const { csrf, villageId } = this.pageTokens(page);
     const outcomes: MpOutcome[] = [];
     for (const entry of entries) {
-      let message = bodyTemplate.replaceAll('#alvos#', entry.coords.join(' '));
+      // Placeholders idênticos ao renderTemplate (prévia e envio NUNCA divergem
+      // — lição do reviewer v0.33): #jogador#, #alvos# e #horarios#.
+      let message = bodyTemplate
+        .replaceAll('#jogador#', entry.playerName)
+        .replaceAll('#alvos#', entry.coords.join(' '));
       if (message.includes('#horarios#') && entry.horarios !== undefined) {
         message = message.replaceAll('#horarios#', horariosBlock(entry.coords, entry.horarios));
       }

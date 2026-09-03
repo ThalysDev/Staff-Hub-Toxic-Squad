@@ -355,7 +355,7 @@ export default function Sg6Page() {
                       setMpEntriesText(converted);
                       push('ok', 'Agenda da OP convertida em destinatários com horários.');
                     } catch (err) {
-                      setError(err instanceof Error ? err.message : String(err));
+                      push('error', err instanceof Error ? err.message : String(err));
                     }
                   }}
                 >

@@ -92,3 +92,12 @@ describe('validateNicks', () => {
     expect(validateNicks([], DUMP)).toEqual({ valid: [], caseMismatch: [], unknown: [] });
   });
 });
+
+describe('previewMps — placeholder #jogador# (v0.33: prévia e envio nunca divergem)', () => {
+  it('substitui #jogador# pelo nick do destinatário, igual ao sg6-service', () => {
+    const [preview] = previewMps('OP', 'Olá #jogador#, seus alvos: #alvos#', [
+      { playerName: 'Zé', coords: ['500|500'] },
+    ]);
+    expect(preview?.body).toBe('Olá Zé, seus alvos: 500|500');
+  });
+});

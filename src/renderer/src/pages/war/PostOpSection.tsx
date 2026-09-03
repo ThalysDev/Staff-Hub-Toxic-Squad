@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import { AlertTriangle, ClipboardCheck, RefreshCw } from 'lucide-react';
 import type { OpArchiveEntry } from '@shared/ipc-types';
 import { formatCoord } from '@shared/coords';
+import { filterOutcomes } from '@shared/war-view-filter';
 import {
   attributeNoblesPerTarget,
   verifyPostOpLive,
@@ -139,6 +140,12 @@ export default function PostOpSection({ op, onArchived }: PostOpSectionProps): J
   const [verifiedAt, setVerifiedAt] = useState<string | null>(null);
   const [attachedAt, setAttachedAt] = useState<string | null>(null);
   const [owners, setOwners] = useState<OwnerDictionaries | null>(null);
+  /** v0.33: busca por alvo na tabela de verificação (fold). */
+  const [outcomeQuery, setOutcomeQuery] = useState('');
+  const visibleOutcomes = useMemo(
+    () => (result === null ? [] : filterOutcomes(result.outcomes, { query: outcomeQuery })),
+    [result, outcomeQuery],
+  );
 
   // Troca de OP nunca mistura resultado antigo; o resumo anexado (se houver)
   // volta como referência. Falha da leitura é fail-soft: segue sem banner.
@@ -371,6 +378,22 @@ export default function PostOpSection({ op, onArchived }: PostOpSectionProps): J
               />
             </div>
 
+            {/* v0.33: busca por alvo (fold — ignora acento/caixa). */}
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              <input
+                className="input"
+                style={{ maxWidth: 260 }}
+                placeholder="Buscar alvo (ignora acento)…"
+                aria-label="Buscar alvo na verificação pós-OP"
+                value={outcomeQuery}
+                onChange={(event) => setOutcomeQuery(event.target.value)}
+              />
+              {outcomeQuery !== '' && (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOutcomeQuery('')}>
+                  Limpar
+                </button>
+              )}
+            </div>
             <div className="table-wrap">
               <table className="table">
                 <thead>
@@ -383,7 +406,7 @@ export default function PostOpSection({ op, onArchived }: PostOpSectionProps): J
                   </tr>
                 </thead>
                 <tbody>
-                  {result.outcomes.map((outcome) => (
+                  {visibleOutcomes.map((outcome) => (
                     <tr key={outcome.coord}>
                       <td className="cell-nowrap">{outcome.coord}</td>
                       <td className="cell-nowrap">

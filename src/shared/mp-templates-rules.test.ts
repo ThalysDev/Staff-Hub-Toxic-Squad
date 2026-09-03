@@ -7,6 +7,7 @@ import {
   markDefault,
   removeTemplate,
   sanitizeTemplateInput,
+  SEED_MP_TEMPLATES,
   sortTemplatesNewestFirst,
   templateNotFoundError,
   upsertTemplate,
@@ -196,5 +197,15 @@ describe('MP_PLACEHOLDERS e ordenação', () => {
     ];
     expect(sortTemplatesNewestFirst(list).map((template) => template.id)).toEqual(['c', 'a', 'b']);
     expect(list.map((template) => template.id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('SEED_MP_TEMPLATES (v0.33)', () => {
+  it('todos os seeds passam na sanitização fail-closed e têm placeholder obrigatório', () => {
+    for (const seed of SEED_MP_TEMPLATES) {
+      expect(() => sanitizeTemplateInput(seed)).not.toThrow();
+      const sanitized = sanitizeTemplateInput(seed);
+      expect(sanitized.body.includes('#alvos#') || sanitized.body.includes('#horarios#')).toBe(true);
+    }
   });
 });

@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, Crosshair, Download, Hammer, MonitorDot, Paperclip, RefreshCw, Trash2, Upload, Users } from 'lucide-react';
+import type { JSX } from 'react';
+import { Copy, Crosshair, Download, Hammer, MonitorDot, Paperclip, RefreshCw, Search, Trash2, Upload, Users, X } from 'lucide-react';
 import type { OpArchiveEntry, OpConferenceSnapshot, OpTotalsSnapshot, Sg5VerifyResult } from '@shared/ipc-types';
 import { groupToOriginsText, groupToTargetsText, type GroupEntry } from '@shared/groups-rules';
 import { buildArrivalTimeline, formatCountdown } from '@shared/sg5-arrivals';
 import { formatHms } from '@shared/sg4-timing';
 import { buildScorecard, parseDistribution, warRoomStatus } from '@shared/war-room';
+import {
+  EMPTY_WAR_VIEW_FILTER,
+  filterPerPlayer,
+  filterScorecard,
+  hasWarFilter,
+  type WarViewFilter,
+} from '@shared/war-view-filter';
 import EmptyState from '../../components/EmptyState';
 import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
@@ -13,6 +21,8 @@ import { useSessionStatus } from '../../hooks/useSessionStatus';
 import { useToast, type ToastVariant } from '../../hooks/useToast';
 import type { PageId } from '../../modules';
 import MassPlannerSection from './MassPlannerSection';
+import OpAgendaSection from './OpAgendaSection';
+import OpMapSection from './OpMapSection';
 import OpShareSection from './OpShareSection';
 import PostOpSection from './PostOpSection';
 import WorldEvolutionSection from './WorldEvolutionSection';
@@ -150,6 +160,42 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
   }, [ops]);
 
   const commandCount = verifyResult?.villages.reduce((sum, village) => sum + village.commands.length, 0) ?? 0;
+
+  // ---- v0.33: filtros de busca das tabelas do monitoramento (fold: acento/caixa) ----
+  const [playerFilter, setPlayerFilter] = useState<WarViewFilter>(EMPTY_WAR_VIEW_FILTER);
+  const [scoreFilter, setScoreFilter] = useState<WarViewFilter>(EMPTY_WAR_VIEW_FILTER);
+  const visiblePerPlayer = useMemo(
+    () => (warRoom === null ? [] : filterPerPlayer(warRoom.perPlayer, playerFilter)),
+    [warRoom, playerFilter],
+  );
+  const visibleScoreRows = useMemo(
+    () => filterScorecard(scorecard.rows ?? [], scoreFilter),
+    [scorecard.rows, scoreFilter],
+  );
+  /** Campo de busca padrão (tabelas do monitor): busca + limpar quando ativo. */
+  function searchBox(value: string, onChange: (query: string) => void, label: string): JSX.Element {
+    return (
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        <label className="field" style={{ margin: 0, maxWidth: 260 }}>
+          <span className="field-label" style={{ position: 'absolute', left: -9999, top: 'auto', width: 1, height: 1, overflow: 'hidden' }}>{label}</span>
+          <Search size={13} aria-hidden="true" style={{ position: 'absolute', marginLeft: 8, marginTop: 10, opacity: 0.6 }} />
+          <input
+            className="input"
+            style={{ paddingLeft: 26 }}
+            placeholder="Buscar (ignora acento)…"
+            aria-label={label}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </label>
+        {value !== '' && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => onChange('')} aria-label="Limpar busca">
+            <X size={13} aria-hidden="true" /> Limpar
+          </button>
+        )}
+      </div>
+    );
+  }
 
   async function runVerify(): Promise<void> {
     if (selected === null) return;
@@ -370,6 +416,7 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
             )}
 
             {/* (c) Situação por jogador */}
+            {searchBox(playerFilter.query, (query) => setPlayerFilter({ query }), 'Buscar jogador no painel de guerra')}
             <div className="table-wrap">
               <table className="table">
                 <thead>
@@ -381,7 +428,7 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {warRoom.perPlayer.map((row) => {
+                  {visiblePerPlayer.map((row) => {
                     const missing = row.assigned - row.sent;
                     return (
                       <tr key={row.playerName}>
@@ -437,6 +484,18 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
         </section>
       )}
 
+      {/* ---- v0.33: Agenda da OP (o sendSchedule arquivado, antes nunca lido)
+           e Mapa dos alvos — sempre que há uma OP selecionada. ---- */}
+      {selected !== null && (
+        <>
+          <OpAgendaSection op={selected} />
+          <OpMapSection
+            targets={new Set(selected.targets)}
+            label={`Alvos da OP "${selected.title}"`}
+          />
+        </>
+      )}
+
       {/* ---- Verificação Pós-OP: só com OP selecionada e distribuição válida
            (mesma condição do "Reverificar agora", acrescida da distribuição) ---- */}
       {selected !== null && parsedDistribution !== null && !('error' in parsedDistribution) && (
@@ -456,7 +515,7 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
           <p className="error" role="alert">
             Arquivo de OPs com distribuição malformada: {scorecard.error}
           </p>
-        ) : (scorecard.rows ?? []).length === 0 ? (
+        ) : visibleScoreRows.length === 0 && !hasWarFilter(scoreFilter) ? (
           <EmptyState
             compact
             icon={Paperclip}
@@ -464,8 +523,10 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
             hint="Anexe uma conferência a partir do monitoramento acima."
           />
         ) : (
-          <div className="table-wrap">
-            <table className="table">
+          <div className="col" style={{ gap: 8, padding: '12px 16px' }}>
+            {searchBox(scoreFilter.query, (query) => setScoreFilter({ query }), 'Buscar jogador no scorecard')}
+            <div className="table-wrap">
+              <table className="table">
               <thead>
                 <tr>
                   <th scope="col">Jogador</th>
@@ -476,7 +537,7 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
                 </tr>
               </thead>
               <tbody>
-                {(scorecard.rows ?? []).map((row) => (
+                {visibleScoreRows.map((row) => (
                   <tr key={row.playerName}>
                     <td className="cell-nowrap">{row.playerName}</td>
                     <td className="cell-num">{row.opsParticipated}</td>
@@ -487,6 +548,10 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
                 ))}
               </tbody>
             </table>
+            </div>
+            {visibleScoreRows.length === 0 && hasWarFilter(scoreFilter) && (
+              <p className="muted">Nenhum jogador corresponde à busca.</p>
+            )}
           </div>
         )}
       </section>
