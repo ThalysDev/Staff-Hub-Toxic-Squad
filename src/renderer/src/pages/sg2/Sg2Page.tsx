@@ -1365,6 +1365,12 @@ export default function Sg2Page() {
                             >
                               {defenseRefreshing ? 'Recarregando…' : 'Recarregar da memória'}
                             </button>
+                            {/* Visível de propósito (o data-tip ninguém lê — caso real
+                                da staff 02/09: "não atualiza nem a pau"): o botão
+                                RELÊ a memória; dados novos exigem nova coleta. */}
+                            <span className="muted">
+                              Este botão só relê a memória — para dados novos, colete de novo ("Coletar defesa" em Dados coletados).
+                            </span>
                           </p>
                         )}
                       </>
