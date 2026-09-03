@@ -11,7 +11,7 @@ import {
   Users,
 } from 'lucide-react';
 import { parseCoordList, type AxesRange } from '@shared/coords';
-import { parsePlayerNames } from '@shared/names-filter';
+import { migrateLegacyNamesText, parsePlayerNames } from '@shared/names-filter';
 import type { QueueProgress } from '@shared/ipc-types';
 import HistoryEvolutionSection from './HistoryEvolutionSection';
 import MemorySummarySection from './MemorySummarySection';
@@ -285,7 +285,12 @@ export default function Sg2Page() {
     if (prefs.fsSort !== undefined) setFsSort(prefs.fsSort);
     if (prefs.fsKText !== undefined) setFsKText(prefs.fsKText);
     if (prefs.fsKMode !== undefined) setFsKMode(prefs.fsKMode);
-    if (prefs.fsPlayersText !== undefined) setFsPlayersText(prefs.fsPlayersText);
+    if (prefs.fsPlayersText !== undefined) {
+      // Migração do legado pré-v0.33 (lista separada por ESPAÇO): no formato
+      // antigo nick com espaço nunca funcionou, então texto com espaço e sem
+      // ";" só pode ser lista multi-nick — converte para ";" (1 vez, na leitura).
+      setFsPlayersText(migrateLegacyNamesText(prefs.fsPlayersText));
+    }
     if (prefs.fsPlayersMode !== undefined) setFsPlayersMode(prefs.fsPlayersMode);
     if (prefs.autoCollectHours !== undefined) setAutoCollectHours(normalizeAutoCollect(prefs.autoCollectHours));
     if (prefs.fonte === 'disponivel-agora') setFonte('disponivel-agora');
@@ -883,7 +888,10 @@ export default function Sg2Page() {
     if (typeof fields['minFullsText'] === 'string') setMinFullsText(fields['minFullsText']);
     if (typeof fields['minSemisText'] === 'string') setMinSemisText(fields['minSemisText']);
     if (typeof fields['fsKText'] === 'string') setFsKText(fields['fsKText']);
-    if (typeof fields['fsPlayersText'] === 'string') setFsPlayersText(fields['fsPlayersText']);
+    if (typeof fields['fsPlayersText'] === 'string') {
+      // Presets salvos antes da v0.33 podem ter lista por espaço (legado).
+      setFsPlayersText(migrateLegacyNamesText(fields['fsPlayersText']));
+    }
     if (fields['fsKMode'] === 'incluir' || fields['fsKMode'] === 'excluir') setFsKMode(fields['fsKMode']);
     if (fields['fsPlayersMode'] === 'incluir' || fields['fsPlayersMode'] === 'excluir') {
       setFsPlayersMode(fields['fsPlayersMode']);

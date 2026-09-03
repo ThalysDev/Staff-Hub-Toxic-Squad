@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { KeyRound, MapPin } from 'lucide-react';
+import { ClipboardPaste } from 'lucide-react';
 import type { Sg6MutationOutcome } from '@shared/ipc-types';
 import { parseCoordList } from '@shared/coords';
+import { agendaToSg6Entries } from '@shared/comms-package';
 import { previewMps, validateNicks, type MpPreviewEntry, type NickValidation } from '@shared/mp-preview';
 import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
@@ -339,6 +341,28 @@ export default function Sg6Page() {
               <p className="field-hint" id="sg6-mp-entries-hint">
                 Formato: nick;coordenadas e, com a agenda do SG4, também os horários.
               </p>
+              <div className="row" style={{ gap: 8, marginTop: 6 }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  data-tip="Cole acima a AGENDA da OP (formato nick;alvo;HH:MM:SS copiado da Sala de Guerra ou do SG_4) e clique aqui: o hub agrupa por jogador nos destinatários com horários."
+                  onClick={() => {
+                    try {
+                      const converted = agendaToSg6Entries(mpEntriesText);
+                      if (converted.trim() === '') {
+                        throw new Error('Nada para converter — cole a agenda colável (linhas "nick;alvo;HH:MM:SS").');
+                      }
+                      setMpEntriesText(converted);
+                      push('ok', 'Agenda da OP convertida em destinatários com horários.');
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : String(err));
+                    }
+                  }}
+                >
+                  <ClipboardPaste size={14} aria-hidden="true" />
+                  Converter agenda da OP colada acima
+                </button>
+              </div>
             </div>
             {mpPending === null ? (
               <div>

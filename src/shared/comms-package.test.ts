@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  agendaToSg6Entries,
   buildPlayerComms,
   parseSendSchedule,
   planBbcode,
@@ -160,5 +161,25 @@ describe('parseSendSchedule — sufixo @dd/MM (v0.27: envio fora do dia da chega
 
   it('continua rejeitando horário malformado mesmo com sufixo', () => {
     expect(() => parseSendSchedule('joao;402|303;2030 @14/08')).toThrow(/inválida/);
+  });
+});
+
+describe('agendaToSg6Entries (v0.33 — cola da agenda da OP no SG_6)', () => {
+  it('agrupa a agenda colável por jogador na ordem de 1ª aparição', () => {
+    const agenda = [
+      '# Chegada desejada: 22:00:00 (17/09)',
+      'Zé;600|600;21:00:00',
+      'Bia;601|601;21:30:00 @16/09',
+      'Zé;602|602;21:05:00',
+    ].join('\n');
+    expect(agendaToSg6Entries(agenda)).toBe('Zé;600|600 602|602;21:00:00,21:05:00\nBia;601|601;21:30:00 @16/09');
+  });
+
+  it('agenda vazia (só comentários) devolve string vazia', () => {
+    expect(agendaToSg6Entries('# Chegada desejada: 22:00:00')).toBe('');
+  });
+
+  it('linha torta é fail-closed citando a linha', () => {
+    expect(() => agendaToSg6Entries('Zé;600|600')).toThrow(/inválida/i);
   });
 });

@@ -34,8 +34,46 @@ export interface MpTemplateSaveInput {
 
 /** Placeholders substituíveis no corpo (documentação viva para a UI). */
 export const MP_PLACEHOLDERS: readonly { token: string; description: string }[] = [
+  { token: '#jogador#', description: 'Nick do destinatário da MP (v0.33).' },
   { token: '#alvos#', description: 'Coordenadas atribuídas ao jogador, separadas por espaço.' },
   { token: '#horarios#', description: 'Bloco "alvo → HH:MM:SS" gerado pela calculadora de envio do SG_4.' },
+];
+
+/**
+ * Seeds da v0.33 (modelos aprovados pelo dono): instalados UMA vez quando a
+ * biblioteca está VAZIA — depois o usuário edita/exclui livremente. O de
+ * cobrança usa #faltam# (substituído pelo painel "Cobrar faltas" da Sala de
+ * Guerra antes do envio) além de #jogador#/#alvos#.
+ */
+export const SEED_MP_TEMPLATES: readonly MpTemplateSaveInput[] = [
+  {
+    name: '⚔ Diretrizes de OP',
+    subject: '⚔ OP — seus alvos e horários',
+    body:
+      '[b]⚔ OP — Diretrizes da operação[/b]\n\n' +
+      '[b]📍 SEUS ALVOS[/b]\n[spoiler=Clique para ver seus alvos]\n#alvos#\n[/spoiler]\n\n' +
+      '[b]⏰ SEUS HORÁRIOS DE ENVIO[/b]\n[spoiler=Clique para ver quando enviar]\n#horarios#\n[/spoiler]\n\n' +
+      '[b]📌 Diretrizes:[/b]\n' +
+      '1. [b]Confirme[/b] respondendo esta MP com "OK";\n' +
+      '2. Ataque com [b]toda a tropa indicada[/b] — nada de poupar;\n' +
+      '3. [b]Não mire nada além do informado[/b];\n' +
+      '4. Alvo caiu antes? [b]Envie mesmo assim[/b] no horário combinado;\n' +
+      '5. Não pode participar? Avise [b]agora[/b] para realocarmos seus alvos;\n' +
+      '6. [b]Não compartilhe[/b] esta MP fora da operação.\n\n' +
+      'Boa sorte! 🍀\n— Comando',
+    isDefault: true,
+  },
+  {
+    name: '🔔 Cobrança de faltas',
+    subject: '🔔 OP — faltam seus ataques',
+    body:
+      '[b]🔔 #jogador#, a OP ainda está esperando você[/b]\n\n' +
+      'Faltam [b]#faltam# ataque(s)[/b] seus na operação em andamento.\n\n' +
+      'Seus alvos:\n[spoiler=Clique para ver]\n#alvos#\n[/spoiler]\n\n' +
+      'Manda o que puder [b]agora[/b] — qualquer ajuda conta. Se não conseguir, responda avisando para realocarmos.\n\n' +
+      '— Comando',
+    isDefault: false,
+  },
 ];
 
 /** Limite do assunto opcional (mesma folga do critério em groups-rules). */

@@ -13,6 +13,7 @@ import {
   type MpTemplateSaveInput,
   markDefault,
   removeTemplate,
+  SEED_MP_TEMPLATES,
   sortTemplatesNewestFirst,
   upsertTemplate,
 } from '@shared/mp-templates-rules';
@@ -54,6 +55,27 @@ export function registerTemplatesIpc(deps: TemplatesIpcDeps): void {
   // terminar antes do próximo — sem esta cadeia, dois saves seguidos leriam a
   // mesma base e o primeiro se perderia (mesma razão do preferences).
   let chain: Promise<unknown> = Promise.resolve();
+
+  // Seeds da v0.33 (modelos aprovados pelo dono: Diretrizes de OP + Cobrança
+  // de faltas): instalados UMA vez quando a biblioteca está VAZIA — usuário
+  // que já curou a própria biblioteca nunca é sobrescrito. Best-effort: falha
+  // aqui só significa começar sem modelos padrão.
+  chain = chain.then(async () => {
+    try {
+      const state = await store.load();
+      if (state.templates.length > 0) return;
+      let templates = state.templates;
+      for (const seed of SEED_MP_TEMPLATES) templates = upsertTemplate(templates, seed, new Date());
+      await store.save({ templates });
+      try {
+        await journal.append('system', 'templates-seed', `seeds=${SEED_MP_TEMPLATES.length}`, false);
+      } catch {
+        // Journal é best-effort.
+      }
+    } catch {
+      // Seed é conveniência: nunca derruba o registro dos handlers.
+    }
+  });
 
   ipcMain.handle('templates:list', async (): Promise<MpTemplateEntry[]> => {
     try {

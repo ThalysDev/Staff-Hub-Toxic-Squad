@@ -16,16 +16,19 @@ export interface ParsedPlayerNames {
 }
 
 /**
- * Separa a lista crua de jogadores APENAS por `;`, faz trim em cada item,
- * descarta vazios e remove duplicatas (comparação via `fold`, preservando a
- * primeira aparição e contando as removidas).
+ * Separa a lista crua de jogadores por `;` (regra principal) e por QUEBRA DE
+ * LINHA (colo de lista um-por-linha — nick do Tribal Wars nunca contém
+ * newline, então é seguro). Faz trim em cada item, descarta vazios e remove
+ * duplicatas (comparação via `fold`, preservando a primeira aparição e
+ * contando as removidas). Espaço, tab, vírgula, acentos e caracteres
+ * especiais DENTRO de um nick são válidos e preservados intactos.
  */
 export function parsePlayerNames(raw: string): ParsedPlayerNames {
   const names: string[] = [];
   const seen = new Set<string>();
   let duplicatesRemoved = 0;
 
-  for (const part of raw.split(';')) {
+  for (const part of raw.split(/[;\r\n]+/)) {
     const name = part.trim();
     if (name === '') continue;
 
@@ -39,6 +42,17 @@ export function parsePlayerNames(raw: string): ParsedPlayerNames {
   }
 
   return { names, duplicatesRemoved };
+}
+
+/**
+ * Migração do dado LEGADO (pré-v0.33, separador era espaço): um texto SEM `;`
+ * e SEM quebra de linha, mas COM espaço/tab, é convertido para a lista com
+ * `;`. Segura por construção: no formato antigo nick-com-espaço nunca
+ * funcionou, então texto legado com espaço só pode ser lista multi-nick.
+ */
+export function migrateLegacyNamesText(raw: string): string {
+  if (raw.includes(';') || /[\r\n]/.test(raw) || !/\s/.test(raw.trim())) return raw;
+  return raw.trim().split(/\s+/).join('; ');
 }
 
 /** Set de chaves normalizadas (via `fold`) para consulta rápida. */

@@ -153,10 +153,11 @@ export function horariosBlock(coords: readonly string[], horarios: readonly stri
 }
 
 /**
- * Substitui TODAS as ocorrências de #alvos# (coords separadas por espaço) e
- * #horarios# (um "alvo → HH:MM:SS" por linha, mesma ordem das coords) no template.
- * O template precisa ter #alvos#, #horarios# ou ambos — nenhum placeholder é erro,
- * pois o corpo ficaria idêntico para todo mundo.
+ * Substitui TODAS as ocorrências de #jogador# (nick do destinatário), #alvos#
+ * (coords separadas por espaço) e #horarios# (um "alvo → HH:MM:SS" por linha,
+ * mesma ordem das coords) no template. O template precisa ter #alvos#,
+ * #horarios# ou ambos — nenhum placeholder é erro, pois o corpo ficaria
+ * idêntico para todo mundo (#jogador# sozinho não basta).
  */
 export function renderTemplate(template: string, player: PlayerComms): string {
   if (!template.includes('#alvos#') && !template.includes('#horarios#')) {
@@ -170,6 +171,7 @@ export function renderTemplate(template: string, player: PlayerComms): string {
     );
   }
   return template
+    .replaceAll('#jogador#', player.playerName)
     .replaceAll('#alvos#', player.coords.join(' '))
     .replaceAll('#horarios#', horariosBlock(player.coords, player.horarios));
 }
@@ -257,4 +259,21 @@ export function sg6EntriesText(players: PlayerComms[]): string {
   return players
     .map((player) => `${player.playerName};${player.coords.join(' ')};${player.horarios.join(',')}`)
     .join('\n');
+}
+
+/**
+ * Agenda COLÁVEL da OP ("nick;alvo;HH:MM:SS" por linha, com comentários "#")
+ * → entradas do SG_6 agrupadas por jogador (v0.33): cola a agenda que a Sala
+ * de Guerra copia direto na textarea de destinatários do SG_6. Fail-closed
+ * herdado do parseSendSchedule (linha torta aborta citando a linha).
+ */
+export function agendaToSg6Entries(agendaText: string): string {
+  const byNick = new Map<string, { coords: string[]; horarios: string[] }>();
+  for (const entry of parseSendSchedule(agendaText)) {
+    const current = byNick.get(entry.playerName) ?? { coords: [], horarios: [] };
+    current.coords.push(entry.targetCoord);
+    current.horarios.push(entry.time);
+    byNick.set(entry.playerName, current);
+  }
+  return sg6EntriesText([...byNick.entries()].map(([playerName, data]) => ({ playerName, coords: data.coords, horarios: data.horarios })));
 }

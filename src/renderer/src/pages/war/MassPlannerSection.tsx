@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ClipboardCopy, Layers, ListPlus, Pencil, RefreshCw, Save, Trash2, TriangleAlert } from 'lucide-react';
+import { ClipboardCopy, Layers, ListPlus, Pencil, RefreshCw, Save, Send, Trash2, TriangleAlert } from 'lucide-react';
 import { coordCountLabel, normalizeCoordText } from '@shared/coord-input';
 import {
   generateMassPlan,
@@ -18,6 +18,8 @@ import {
   validateMassGroup,
 } from '@shared/mass-planner-engine';
 import { formatColavel, formatRussianPlanner, formatTwMassPlanner, unitLabel } from '@shared/mass-planner-formats';
+import { buildOpComms, executorNick } from '@shared/op-comms';
+import { renderTemplate, type PlayerComms } from '@shared/comms-package';
 import {
   MASS_BUILDINGS,
   type MassArrivalKind,
@@ -35,6 +37,7 @@ import { usePreferences } from '../../hooks/usePreferences';
 import { useSessionStatus } from '../../hooks/useSessionStatus';
 import { useToast } from '../../hooks/useToast';
 import EmptyState from '../../components/EmptyState';
+import TemplateLibrary from '../../components/TemplateLibrary';
 
 /** Ordem de exibição das unidades do mundo (catálogo pt-BR, não a ordem do XML). */
 const UNIT_ORDER: readonly UnitId[] = [
@@ -44,6 +47,22 @@ const UNIT_ORDER: readonly UnitId[] = [
 /** Rascunho dos grupos mora no store dedicado "planner-draft" (v0.32) — o cap
  *  de 20k das prefs só vale para o formulário. mpGroupsJson ficou para MIGRAÇÃO
  *  (leitura única na hidratação do store; não é mais gravado). */
+
+/** Corpo padrão da MP da OP (molde "⚔ Diretrizes de OP" aprovado pelo dono —
+ *  v0.33). Espelha o seed da biblioteca de templates; placeholders do sistema:
+ *  #jogador#, #alvos#, #horarios#. */
+const DEFAULT_OP_MP_BODY =
+  '[b]⚔ OP — Diretrizes da operação[/b]\n\n' +
+  '[b]📍 SEUS ALVOS[/b]\n[spoiler=Clique para ver seus alvos]\n#alvos#\n[/spoiler]\n\n' +
+  '[b]⏰ SEUS HORÁRIOS DE ENVIO[/b]\n[spoiler=Clique para ver quando enviar]\n#horarios#\n[/spoiler]\n\n' +
+  '[b]📌 Diretrizes:[/b]\n' +
+  '1. [b]Confirme[/b] respondendo esta MP com "OK";\n' +
+  '2. Ataque com [b]toda a tropa indicada[/b] — nada de poupar;\n' +
+  '3. [b]Não mire nada além do informado[/b];\n' +
+  '4. Alvo caiu antes? [b]Envie mesmo assim[/b] no horário combinado;\n' +
+  '5. Não pode participar? Avise [b]agora[/b] para realocarmos seus alvos;\n' +
+  '6. [b]Não compartilhe[/b] esta MP fora da operação.\n\n' +
+  'Boa sorte! 🍀\n— Comando';
 
 interface PlannerPrefs extends Record<string, unknown> {
   mpNome: string;
@@ -730,9 +749,9 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
     try {
       const byExecutor = new Map<string, string[]>();
       for (const command of plan.result.commands) {
-        // Teto de 40 no nick: a distribuição "nick;coords" é relida pelo parser
-        // da Sala de Guerra (nick 2–40) — "Grupo <nome>" precisa caber.
-        const executor = (command.originOwner ?? `Grupo ${command.groupName}`).replace(/;/g, '−').slice(0, 40);
+        // Executor pela regra única (dono da origem; fallback grupo; teto 40) —
+        // o mesmo nick da seção "Comunicação da OP" e dos exports.
+        const executor = executorNick(command);
         const list = byExecutor.get(executor) ?? [];
         list.push(command.target);
         byExecutor.set(executor, list);
@@ -768,6 +787,85 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   }
 
   const planCommands = plan?.result.commands ?? [];
+
+  // ---- Comunicação da OP (v0.33): MPs por executor com prévia e envio direto ----
+  // Corpo default = molde "⚔ Diretrizes de OP" aprovado pelo dono (o mesmo que
+  // vira seed da biblioteca); a UI deixa trocar/salvar via TemplateLibrary.
+  const [commsBody, setCommsBody] = useState(DEFAULT_OP_MP_BODY);
+  const [commsSubject, setCommsSubject] = useState('');
+  const [commsError, setCommsError] = useState('');
+  /** Confirmação dupla: 1º clique arma este painel com os destinatários. */
+  const [mpPending, setMpPending] = useState<PlayerComms[] | null>(null);
+  const [sendingMps, setSendingMps] = useState(false);
+
+  // Assunto sugerido acompanha a OP gerada (1ª chegada = referência).
+  useEffect(() => {
+    if (plan === null) return;
+    const first = plan.result.commands[0];
+    if (first !== undefined) {
+      setCommsSubject(`⚔ OP ${archiveTitle.trim() !== '' ? archiveTitle.trim() : 'de guerra'} — chegada ${formatFullClock(first.arrivalMs)}`);
+    }
+    setMpPending(null);
+    setCommsError('');
+  }, [plan]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** MPs por executor + prévia da 1ª (fail-closed: erro vira estado, nunca throw em render). */
+  const comms = useMemo<
+    | { players: PlayerComms[]; preview: string; previewError: string }
+    | { players: null; error: string }
+  >(() => {
+    if (plan === null || planCommands.length === 0) return { players: null, error: '' };
+    try {
+      const players = buildOpComms(planCommands, archiveTitle.trim() || 'OP', commsBody);
+      try {
+        const first = players[0];
+        return { players, preview: first !== undefined ? renderTemplate(commsBody, first) : '', previewError: '' };
+      } catch (previewError) {
+        return { players, preview: '', previewError: previewError instanceof Error ? previewError.message : String(previewError) };
+      }
+    } catch (error) {
+      return { players: null, error: error instanceof Error ? error.message : String(error) };
+    }
+  }, [plan, planCommands, archiveTitle, commsBody]);
+
+  /** Chaves achatadas do memo acima (narrowing amigável a callbacks JSX). */
+  const commsPlayers = comms.players;
+  const commsPreview = comms.players !== null ? comms.preview : '';
+  const commsPreviewError = comms.players !== null ? comms.previewError : '';
+
+  async function sendOpMps(): Promise<void> {
+    if (mpPending === null || sendingMps) return;
+    setSendingMps(true);
+    setCommsError('');
+    try {
+      const outcomes = await window.staffhub.sg6.sendMps(
+        {
+          subject: commsSubject.trim() !== '' ? commsSubject.trim() : '⚔ OP — seus alvos e horários',
+          body: commsBody,
+          entries: mpPending.map((player) => ({
+            playerName: player.playerName,
+            coords: player.coords,
+            horarios: player.horarios,
+          })),
+        },
+        true,
+      );
+      const falhas = outcomes.filter((outcome) => !outcome.ok).length;
+      if (falhas === 0) {
+        push('ok', `MPs da OP enviadas para ${mpPending.length} executor(es) — o journal registra cada envio.`);
+      } else {
+        push('error', `${falhas} de ${outcomes.length} MP(s) falharam — detalhes no Journal (SG_6).`);
+      }
+      setMpPending(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCommsError(message);
+      push('error', message);
+    } finally {
+      setSendingMps(false);
+    }
+  }
+
   /** Teto de renderização da tabela: OP gigante não pode derrubar o DOM. */
   const RENDER_LIMIT = 1000;
   const visibleCommands = planCommands.slice(0, RENDER_LIMIT);
@@ -1559,6 +1657,124 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
           </div>
         </section>
       )}
+
+        {/* ---- Comunicação da OP: MPs por executor com prévia e envio direto ---- */}
+        {planCommands.length > 0 && (
+          <section className="card" aria-labelledby="mp-comms-title">
+            <div className="card-header">
+              <h2 className="card-title" id="mp-comms-title">
+                <Send size={16} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -3 }} />
+                Comunicação da OP
+              </h2>
+              <span className="spacer" />
+              {commsPlayers !== null && (
+                <span className="pill pill--muted">{commsPlayers.length} destinatário(s)</span>
+              )}
+            </div>
+            <div className="card-body col" style={{ gap: 12 }}>
+              <p className="muted">
+                Gera a MP de cada executor com os alvos e horários DELE (mesmo motor do SG_6: pacing
+                humano, journal por envio). A prévia mostra o 1º destinatário — todo mundo recebe a
+                versão com os próprios dados.
+              </p>
+
+              <TemplateLibrary
+                variant="sg4"
+                currentSubject=""
+                currentBody={commsBody}
+                onApply={(_subject, body) => {
+                  setCommsBody(body);
+                  setCommsError('');
+                }}
+              />
+
+              <div className="field" style={{ maxWidth: 520 }}>
+                <label className="field-label" htmlFor="mp-comms-subject" data-tip="Assunto da MP que cada executor vai receber.">
+                  Assunto
+                </label>
+                <input
+                  id="mp-comms-subject"
+                  className="input"
+                  maxLength={200}
+                  value={commsSubject}
+                  onChange={(event) => setCommsSubject(event.target.value)}
+                />
+              </div>
+
+              <div className="field">
+                <label className="field-label" htmlFor="mp-comms-body" data-tip="Placeholders: #jogador# #alvos# #horarios# — substituídos por executor no envio.">
+                  Mensagem (BBCode — use #alvos# e #horarios#)
+                </label>
+                <textarea
+                  id="mp-comms-body"
+                  className="textarea"
+                  rows={10}
+                  spellCheck={false}
+                  value={commsBody}
+                  onChange={(event) => setCommsBody(event.target.value)}
+                />
+              </div>
+
+              {commsError !== '' && (
+                <p className="error" role="alert">{commsError}</p>
+              )}
+              {commsPreviewError !== '' && (
+                <p className="error" role="alert">{commsPreviewError}</p>
+              )}
+
+              {commsPlayers !== null && (
+                <>
+                  <details>
+                    <summary className="muted">Prévia da MP (1º destinatário)</summary>
+                    <pre className="sg7-code" style={{ maxHeight: 260, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{commsPreview}</pre>
+                  </details>
+
+                  {mpPending === null ? (
+                    <div className="row">
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={commsPreviewError !== '' || sendingMps}
+                        onClick={() => setMpPending(commsPlayers)}
+                      >
+                        <Send size={16} aria-hidden="true" />
+                        Enviar MPs para {commsPlayers.length} executor(es)
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="callout callout--warn" role="alert">
+                      <span className="callout-icon"><TriangleAlert size={16} aria-hidden="true" /></span>
+                      <div className="callout-body">
+                        <p className="callout-title">Confirmar o envio de {mpPending.length} MP(s)?</p>
+                        <p>
+                          Destinatários: {mpPending.map((player) => `${player.playerName} (${player.coords.length} alvo(s))`).join(' · ')}.
+                          O envio usa o pacing humano do SG_6 e registra cada MP no journal — pode levar
+                          alguns minutos para listas grandes.
+                        </p>
+                        <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                          <button type="button" className="btn" disabled={sendingMps} onClick={() => void sendOpMps()}>
+                            {sendingMps ? (
+                              <>
+                                <span className="btn-spinner" aria-hidden="true" /> Enviando…
+                              </>
+                            ) : (
+                              <>
+                                <Send size={14} aria-hidden="true" /> Confirmar envio
+                              </>
+                            )}
+                          </button>
+                          <button type="button" className="btn btn-ghost" disabled={sendingMps} onClick={() => setMpPending(null)}>
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </section>
+        )}
     </div>
   );
 }

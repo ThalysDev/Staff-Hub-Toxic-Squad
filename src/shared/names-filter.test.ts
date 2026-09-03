@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchesName, nameSet, parsePlayerNames } from './names-filter';
+import { matchesName, migrateLegacyNamesText, nameSet, parsePlayerNames } from './names-filter';
 
 describe('parsePlayerNames', () => {
   it('separa apenas por ponto e vírgula, preservando espaços internos dos nicks', () => {
@@ -47,5 +47,23 @@ describe('nameSet + matchesName', () => {
 
   it('set vazio nunca dá match', () => {
     expect(matchesName(nameSet([]), 'qualquer')).toBe(false);
+  });
+});
+
+describe('quebra de linha como separador + migração do legado (v0.33.1 P2 da revisão)', () => {
+  it('lista um-por-linha (colagem comum) separa por quebra de linha', () => {
+    const parsed = parsePlayerNames('Zé\nJogador Um\n\nOutro');
+    expect(parsed.names).toEqual(['Zé', 'Jogador Um', 'Outro']);
+  });
+
+  it('migrateLegacyNamesText converte lista por ESPAÇO (pré-v0.33) para ponto e vírgula', () => {
+    expect(migrateLegacyNamesText('nick1 nick2 nick3')).toBe('nick1; nick2; nick3');
+    expect(migrateLegacyNamesText('  nick1\tnick2 ')).toBe('nick1; nick2');
+  });
+
+  it('migrateLegacyNamesText NÃO mexe no que já é formato novo ou num nick só', () => {
+    expect(migrateLegacyNamesText('Jogador Um; Zé')).toBe('Jogador Um; Zé');
+    expect(migrateLegacyNamesText('Zé\nOutro')).toBe('Zé\nOutro');
+    expect(migrateLegacyNamesText('Zé')).toBe('Zé');
   });
 });
