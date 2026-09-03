@@ -174,10 +174,13 @@ Tela: tópico de blindagem em `screen=forum&screenmode=view_thread&thread_id=X&p
 ### SG_2 — Análise de Tropas das Aldeias
 - **Resumo Geral dos Dados em Memória**: coleta em 1 requisição + painel de resumo
   (`sg2-summary.ts` + `MemorySummarySection.tsx`) — totais, linha por jogador e por aldeia.
-- **Histórico e Evolução** (`snapshot-history.ts` + `HistoryEvolutionSection.tsx`): cada
-  coleta arquiva versão compacta por jogador (cap 20); comparação A/B com Δ de pop
-  ofensiva/defensiva/aldeias, ranking de crescimento e **alerta de recrutamento massivo**
-  (≥20k pop ofensiva ou ≥3 aldeias novas — sinal de OP inimiga se formando).
+- **Aba "Auditoria de Membros"** (v0.34; `snapshot-history.ts` + `member-audit.ts` +
+  `MemberAuditSection.tsx`): cada coleta por membro arquiva versão compacta por jogador
+  (cap 20). A página de Análise ficou SÓ decisão; o histórico vive em aba própria com:
+  comparação A/B com Δ de pop/aldeias + filtro por nome + "somente mudanças" + TSV,
+  **sinais de auditoria** (recrutamento massivo ≥20k off ou ≥3 aldeias; queda acentuada
+  ≥15k off ou ≥3 aldeias; entrou/saiu da tribo; inativo com tolerância ±500), ficha por
+  jogador (timeline versão a versão), evolução da tribo e remoção de versão.
 - **Contagem Full/Semi** (`full-semi.ts`): classificação das aldeias de origem da tribo.
 - **Presets de consulta** (inclui full/semi) via `PresetManager`.
 - **Coleta automática agendada** (v0.26): intervalo 4/6/12/24h persistido nas prefs

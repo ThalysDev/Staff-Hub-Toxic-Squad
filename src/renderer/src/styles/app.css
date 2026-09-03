@@ -3247,6 +3247,8 @@ kbd {
 }
 
 /* ===== v0.25: Histórico de tropas, Evolução do mundo, Débito de blind ===== */
+/* (.hist-alert-* saiu junto com a HistoryEvolutionSection na v0.34 — a Auditoria
+   de Membros usa .audit-*; os deltas sobrevivem, reusados pela auditoria.) */
 .hist-delta--up {
   color: var(--ok-ink);
   font-weight: 600;
@@ -3259,21 +3261,6 @@ kbd {
 
 .hist-delta--flat {
   color: var(--text-muted);
-}
-
-.hist-alert-item {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  flex-wrap: wrap;
-  padding: var(--sp-2);
-  border: 1px solid var(--divider);
-  border-radius: var(--radius-sm);
-  background: var(--danger-bg);
-}
-
-.hist-alert-item + .hist-alert-item {
-  margin-top: var(--sp-2);
 }
 
 .bdebt-saldo-pos {
@@ -3695,4 +3682,160 @@ select:not(.select) {
   padding: 2px 8px;
   font-size: var(--fs-body);
   user-select: all;
+}
+
+/* =====================================================================
+   Auditoria de Membros (SG_2, aba própria) — bloco aditivo, prefixo .audit-.
+   Só tokens (--sp/--fs/--r/cores) = vale nos temas claro e escuro.
+   Reaproveita .hist-delta--up/--down/--flat, .pill*, .card, .table e
+   .checkbox-field já definidos acima. Os antigos .hist-selectors/.hist-arrow/
+   .hist-transition nunca chegaram a existir no CSS — seus papéis vivem agora
+   em .audit-field/.audit-arrow/.audit-transition.
+   ===================================================================== */
+.audit-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2) var(--sp-4);
+}
+
+/* Resumo "N de 20 versões · dd/MM HH:mm → dd/MM HH:mm" à direita. */
+.audit-summary {
+  margin-left: auto;
+  /* Pequeno, mas legível em 1900px (QA visual v0.34: caption era fraco demais). */
+  font-size: var(--fs-small);
+  color: var(--text);
+}
+
+/* Título de bloco interno (h3) no vocabulário caption-caps do resumo. */
+.audit-block-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.audit-compare-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.audit-compare-head .btn {
+  margin-left: auto;
+}
+
+/* Linha de controles: alinha por baixo para selects com etiqueta, busca e
+   checkbox ficarem na mesma régua. */
+.audit-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.audit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 240px;
+}
+
+/* Busca por jogador: come estreita, cresce com o espaço livre. */
+.audit-field--grow {
+  flex: 1;
+  min-width: 200px;
+}
+
+.audit-controls > .audit-arrow {
+  align-self: flex-end;
+  margin-bottom: var(--sp-2);
+}
+
+.audit-arrow {
+  color: var(--text-muted);
+}
+
+/* Célula "A → B (Δ)" / "valor (Δ)": número, seta e delta na mesma linha. */
+.audit-transition {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.audit-signal {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.audit-row-new {
+  background: var(--ok-bg);
+}
+
+/* Cards de sinal: um por tipo presente, auto-fit para caber em qualquer largura. */
+.audit-alerts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+
+.audit-alert-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+  /* Estica na célula do grid: cards com 1 jogador não ficam mais baixos que
+     o card cheio (borda inferior alinhada — QA visual v0.34). */
+  height: 100%;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border-card);
+  border-radius: var(--r-md);
+  background: var(--bg-inset);
+}
+
+.audit-alert-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.audit-alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.audit-alert-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-small);
+}
+
+.audit-alert-item strong {
+  color: var(--text-strong);
+}
+
+.audit-filters-note {
+  font-size: var(--fs-caption);
 }

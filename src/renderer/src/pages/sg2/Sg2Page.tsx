@@ -3,7 +3,9 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  ClipboardList,
   Copy,
+  Crosshair,
   Eye,
   Layers,
   ShieldCheck,
@@ -13,7 +15,7 @@ import {
 import { parseCoordList, type AxesRange } from '@shared/coords';
 import { migrateLegacyNamesText, parsePlayerNames } from '@shared/names-filter';
 import type { QueueProgress } from '@shared/ipc-types';
-import HistoryEvolutionSection from './HistoryEvolutionSection';
+import MemberAuditSection from './MemberAuditSection';
 import MemorySummarySection from './MemorySummarySection';
 import { filterTroops, playersSummary, type DefenseSnapshot } from '@shared/sg2-engine';
 import { defenseToTroopSnapshot } from '@shared/sg2-defense-source';
@@ -106,6 +108,8 @@ type Sg2Prefs = {
   autoCollectHours: AutoCollectHours;
   fonte: 'recrutadas' | 'disponivel-agora';
   paradasTransito: 'paradas' | 'paradas-e-transito';
+  /** Aba ativa: 'analise' (decisão) × 'auditoria' (histórico/evolução). */
+  abaAudit: 'analise' | 'auditoria';
 };
 
 /** Unidades do conjunto OFENSIVO por padrão do contador Full/Semi. */
@@ -148,6 +152,12 @@ export default function Sg2Page() {
   const [defenseRefreshing, setDefenseRefreshing] = useState(false);
   const [fonte, setFonte] = useState<'recrutadas' | 'disponivel-agora'>('recrutadas');
   const [paradasTransito, setParadasTransito] = useState<'paradas' | 'paradas-e-transito'>('paradas');
+  // v0.34 — abas "Análise" (decisão) × "Auditoria de Membros" (histórico/
+  // evolução): ambas SEMPRE montadas (troca sem perder estado), aba persistida
+  // nas prefs (padrão da Sala de Guerra). refreshKey aviva a auditoria quando
+  // uma coleta arquiva versão nova.
+  const [abaAudit, setAbaAudit] = useState<'analise' | 'auditoria'>('analise');
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   // Página keep-mounted: quando escondida (.sg-page[hidden] = display:none),
   // TOASTS DAQUI são invisíveis. Fluxos em 2º plano (auto-coleta) só avisam
   // com a página visível — a TitleBar (useQueueActivity) e o journal sinalizam
@@ -264,6 +274,7 @@ export default function Sg2Page() {
     autoCollectHours: '0',
     fonte: 'recrutadas',
     paradasTransito: 'paradas',
+    abaAudit: 'analise',
   });
 
   // Hidratação única: aplica o que veio do store sobre os estados do formulário.
@@ -306,6 +317,7 @@ export default function Sg2Page() {
     if (prefs.autoCollectHours !== undefined) setAutoCollectHours(normalizeAutoCollect(prefs.autoCollectHours));
     if (prefs.fonte === 'disponivel-agora') setFonte('disponivel-agora');
     if (prefs.paradasTransito === 'paradas-e-transito') setParadasTransito('paradas-e-transito');
+    if (prefs.abaAudit === 'auditoria') setAbaAudit('auditoria');
   }, [prefs]);
 
   // Persistência por campo (só depois de hidratado, para não sobrescrever o stored).
@@ -467,12 +479,15 @@ export default function Sg2Page() {
       setShowSummary(true);
       // Roadmap 19 — histórico: cada coleta POR MEMBRO bem-sucedida arquiva uma
       // versão. Fail-soft de propósito: falha no arquivamento não derruba a
-      // coleta nem o toast de sucesso (e o ok não gera toast extra — a seção
-      // "Histórico e Evolução" mostra o resultado).
+      // coleta nem o toast de sucesso. O refreshKey aviva a aba "Auditoria de
+      // Membros" (que lê o histórico) assim que a versão nova cai.
       if (kind === 'members' && stored !== null) {
-        void window.staffhub.troopsHistory.archive(stored).catch((error: unknown) => {
-          console.warn('Falha ao arquivar versão do histórico de tropas:', error);
-        });
+        void window.staffhub.troopsHistory
+          .archive(stored)
+          .then(() => setHistoryRefreshKey((key) => key + 1))
+          .catch((error: unknown) => {
+            console.warn('Falha ao arquivar versão do histórico de tropas:', error);
+          });
       }
       if (failed.length > 0) {
         push('info', `Coleta concluída com ${failed.length} membro(s) com erro — lista abaixo do painel de memória.`);
@@ -948,6 +963,11 @@ export default function Sg2Page() {
     void resetPrefs();
   }
 
+  function switchAbaAudit(tab: 'analise' | 'auditoria'): void {
+    setAbaAudit(tab);
+    savePrefs({ abaAudit: tab });
+  }
+
   const updatedLabel =
     troopsAt !== null ? new Date(troopsAt).toLocaleString('pt-BR') : 'Nunca coletado';
 
@@ -968,9 +988,45 @@ export default function Sg2Page() {
       <PageHeader
         kicker={moduleInfo !== undefined ? `Módulo ${moduleInfo.id.toUpperCase()} — Fase ${moduleInfo.phase}` : 'Módulo SG2 — Fase 2'}
         title={moduleInfo?.originalLabel ?? 'Análise de Tropas das Aldeias'}
-        description="Coleta as tropas recrutadas de cada aldeia da tribo (com progresso e memória local), filtra por unidade, escopo, coordenadas e eixos — e classifica ofensivas vs defensivas sem filtro de tropas."
+        description={
+          abaAudit === 'analise'
+            ? 'Coleta as tropas recrutadas de cada aldeia da tribo (com progresso e memória local), filtra por unidade, escopo, coordenadas e eixos — e classifica ofensivas vs defensivas sem filtro de tropas.'
+            : 'Evolução da tribo coleta a coleta: quem cresce, quem estagna, quem entra ou sai — sinais de auditoria (recrutamento massivo, queda, inatividade) para decisões de liderança.'
+        }
       />
 
+      {/* v0.34 — abas: "Análise" é a página de DECISÃO (coleta/filtros/resultado);
+          "Auditoria de Membros" leva o histórico e a evolução para um lugar
+          próprio. Ambas montadas (padrão da Sala de Guerra): trocar aba não
+          perde estado, e a aba ativa persiste nas prefs do módulo. */}
+      <div className="seg-tabs" role="tablist" aria-label="Seções da Análise de Tropas">
+        <button
+          type="button"
+          role="tab"
+          id="sg2-tab-analise"
+          aria-controls="sg2-panel-analise"
+          aria-selected={abaAudit === 'analise'}
+          className={`seg-tab${abaAudit === 'analise' ? ' seg-tab--active' : ''}`}
+          onClick={() => switchAbaAudit('analise')}
+        >
+          <Crosshair size={15} aria-hidden="true" />
+          Análise
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="sg2-tab-auditoria"
+          aria-controls="sg2-panel-auditoria"
+          aria-selected={abaAudit === 'auditoria'}
+          className={`seg-tab${abaAudit === 'auditoria' ? ' seg-tab--active' : ''}`}
+          onClick={() => switchAbaAudit('auditoria')}
+        >
+          <ClipboardList size={15} aria-hidden="true" />
+          Auditoria de Membros
+        </button>
+      </div>
+
+      <div className="col" id="sg2-panel-analise" role="tabpanel" aria-labelledby="sg2-tab-analise" hidden={abaAudit !== 'analise'}>
       {/* Padrão das páginas de módulo (SG_1/SG_3): restaurar sempre visível,
           na mesma âncora abaixo do cabeçalho — inclusive sem dados em memória. */}
       <div className="row">
@@ -1096,10 +1152,6 @@ export default function Sg2Page() {
           sourceLabel={snapshot.source === 'summary' ? 'resumo (por jogador)' : 'por aldeia (por membro)'}
         />
       )}
-
-      {/* Roadmap 19 — histórico de coletas: autossuficiente (sem props), lê o
-          histórico arquivado pelas coletas por membro e compara duas versões. */}
-      <HistoryEvolutionSection />
 
       {actionError !== '' && (
         <div className="callout callout--danger">
@@ -1907,7 +1959,13 @@ export default function Sg2Page() {
           )}
         </>
       )}
+      </div>
 
+      {/* ---- Auditoria de Membros: histórico/evolução em aba própria (v0.34).
+          Montada sempre — o refreshKey sobe quando uma coleta arquiva versão. ---- */}
+      <div className="col" id="sg2-panel-auditoria" role="tabpanel" aria-labelledby="sg2-tab-auditoria" hidden={abaAudit !== 'auditoria'}>
+        <MemberAuditSection refreshKey={historyRefreshKey} />
+      </div>
     </section>
   );
 }

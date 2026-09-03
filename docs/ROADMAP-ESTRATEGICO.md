@@ -93,7 +93,7 @@ Bugs de código que afetam a confiabilidade AGORA:
 | 16 | Fakes inteligentes (espalhados, atribuição a quem tem comando sobrando) | SG_4 | M | ✅ v0.19 — `fakes-intelligent.ts` (proximidade + máx. por origem) |
 | 17 | Verificação pós-OP (taxa de conquista, nobres desperdiçados) | SG_5 + novo | M | ✅ v0.21 — `post-op.ts`/`post-op-live.ts` + `PostOpSection` |
 | 18 | Dashboard de guerra (diff de dumps = conquistas/perdas) | SG_1/novo | M | ✅ v0.25 — `world-history.ts` + `WorldEvolutionSection` (Sala de Guerra) |
-| 19 | Perfis de inimigos no tempo (crescimento/queda por jogador) | novo | M | ✅ v0.25 — `snapshot-history.ts` + `HistoryEvolutionSection` (SG_2) |
+| 19 | Perfis de inimigos no tempo (crescimento/queda por jogador) | novo | M | ✅ v0.25 `snapshot-history.ts`; v0.34 aba "Auditoria de Membros" (`member-audit.ts` + `MemberAuditSection`) com sinais/ficha/linha do tempo |
 | 20 | Notificações T-minus (countdown na bandeja do sistema) | app | S | ✅ v0.19 — `tminus.ts` (marcas configuráveis desde v0.24) |
 | 21 | Overlay da OP no mapa (alvos/fakes/origens + linhas) | SG_4/SG_1 | S | ✅ v0.21 — `WorldMapCanvas` (setas origem→alvo) |
 | 22 | Export/import de OP em JSON (compartilhar entre a staff) | novo | S | ✅ v0.19 — `op-export.ts` + `OpShareSection` |
