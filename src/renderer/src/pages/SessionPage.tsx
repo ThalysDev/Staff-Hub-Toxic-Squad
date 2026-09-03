@@ -303,6 +303,10 @@ function SessaoSistema() {
       } else {
         push('error', resultado.erro ?? 'Não foi possível trocar a senha.');
       }
+    } catch (erro) {
+      // Rejeição de IPC (rede/offline) também precisa de feedback — sem isto
+      // virava unhandled rejection silenciosa (P3 da revisão integrada).
+      push('error', erro instanceof Error ? erro.message : 'Não foi possível trocar a senha.');
     } finally {
       setOcupado(false);
     }

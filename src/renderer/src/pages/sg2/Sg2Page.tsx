@@ -99,6 +99,9 @@ type Sg2Prefs = {
   fsKText: string;
   fsKMode: 'incluir' | 'excluir';
   fsPlayersText: string;
+  /** v0.33.1: true depois da migração ÚNICA do separador legado — nick com
+   *  espaço salvo no formato novo (;) NUNCA é re-migrado (P2 da revisão). */
+  fsPlayersMigrated?: boolean;
   fsPlayersMode: 'incluir' | 'excluir';
   autoCollectHours: AutoCollectHours;
   fonte: 'recrutadas' | 'disponivel-agora';
@@ -286,10 +289,18 @@ export default function Sg2Page() {
     if (prefs.fsKText !== undefined) setFsKText(prefs.fsKText);
     if (prefs.fsKMode !== undefined) setFsKMode(prefs.fsKMode);
     if (prefs.fsPlayersText !== undefined) {
-      // Migração do legado pré-v0.33 (lista separada por ESPAÇO): no formato
+      // Migração ÚNICA do legado pré-v0.33 (lista por ESPAÇO): no formato
       // antigo nick com espaço nunca funcionou, então texto com espaço e sem
-      // ";" só pode ser lista multi-nick — converte para ";" (1 vez, na leitura).
-      setFsPlayersText(migrateLegacyNamesText(prefs.fsPlayersText));
+      // ";" só pode ser lista multi-nick. A flag grava que já migramos — sem
+      // ela, nick COM espaço salvo no formato novo seria re-quebrado a cada
+      // boot (P2 da revisão integrada v0.33.1).
+      if (prefs.fsPlayersMigrated === true) {
+        setFsPlayersText(prefs.fsPlayersText);
+      } else {
+        const migrated = migrateLegacyNamesText(prefs.fsPlayersText);
+        setFsPlayersText(migrated);
+        savePrefs({ fsPlayersText: migrated, fsPlayersMigrated: true });
+      }
     }
     if (prefs.fsPlayersMode !== undefined) setFsPlayersMode(prefs.fsPlayersMode);
     if (prefs.autoCollectHours !== undefined) setAutoCollectHours(normalizeAutoCollect(prefs.autoCollectHours));
@@ -419,7 +430,11 @@ export default function Sg2Page() {
     return () => {
       cancelled = true;
     };
-  }, [push]);
+    // session.state nas deps: re-lê a memória quando a sessão do jogo muda de
+    // estado (login novo) e o toast de falha funciona no 1º boot logado (antes
+    // o efeito fechava sobre state 'unknown' e o ramo do toast era morto — P3
+    // da revisão integrada).
+  }, [push, session.state]);
 
   // Progresso das coletas do processo principal.
   useEffect(() => {

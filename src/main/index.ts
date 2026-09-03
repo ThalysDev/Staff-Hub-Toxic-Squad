@@ -219,13 +219,19 @@ function createMainWindow(): void {
                 // documento inteiro tem a altura do viewport. Para a foto da
                 // página COMPLETA: desmonta o scroll (QA-only, app encerra em
                 // seguida), espera um layout e só então mede/fotografa.
-                await wcDebugger.sendCommand('Runtime.evaluate', {
+                // exceptionDetails é checado: CDP NÃO rejeita quando a
+                // expressão lança na página (silêncio aqui = foto cortada
+                // sem .err — evidência mentirosa, P3 da revisão integrada).
+                const evaluation = (await wcDebugger.sendCommand('Runtime.evaluate', {
                   expression:
                     "(() => { const s = document.createElement('style'); s.id = 'shs-fullpage';" +
                     " s.textContent = '.app-shell{height:auto!important;overflow:visible!important}" +
                     ".content{overflow:visible!important;height:auto!important}';" +
-                    " document.head.appendChild(s); return document.body.scrollHeight; })()",
-                });
+                    " document.head.appendChild(s); return document.getElementById('shs-fullpage') !== null; })()",
+                })) as { result?: { value?: unknown }; exceptionDetails?: unknown };
+                if (evaluation.exceptionDetails !== undefined || evaluation.result?.value !== true) {
+                  throw new Error('a expansão do layout (style shs-fullpage) não aplicou na página');
+                }
                 await new Promise((resolve) => setTimeout(resolve, 200));
                 const metrics = (await wcDebugger.sendCommand('Page.getLayoutMetrics', {})) as {
                   cssContentSize?: { width?: number; height?: number };

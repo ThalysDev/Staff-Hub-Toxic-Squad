@@ -2,7 +2,7 @@
 // comms-package → PlayerComms por executor. Prova o caminho completo que a
 // UI usa (prévia + envio via sg6.sendMps com {playerName, coords, horarios}).
 import { describe, expect, it } from 'vitest';
-import { buildOpComms, executorNick, opCommsInputs } from './op-comms';
+import { buildOpComms, executorNick, opCommsInputs, renderChargeBody } from './op-comms';
 import { renderTemplate } from './comms-package';
 import type { MassPlanCommand } from './mass-planner-types';
 
@@ -73,5 +73,19 @@ describe('buildOpComms', () => {
   it('template sem placeholder é fail-closed no RENDER (validação do comms-package)', () => {
     const players = buildOpComms([command()], 'OP', 'mensagem fixa sem placeholders');
     expect(() => renderTemplate('mensagem fixa', players[0]!)).toThrow(/placeholder/i);
+  });
+});
+
+describe('renderChargeBody (v0.33.1 — cobrança da Sala de Guerra)', () => {
+  const debtor = { playerName: 'Zé', missing: 3, coords: ['500|500', '501|501'] };
+
+  it('substitui #faltam#/#jogador#/#alvos# no corpo inteiro (idêntico ao que é enviado)', () => {
+    const body = renderChargeBody('Olá #jogador#, faltam #faltam# ataque(s) em #alvos#', debtor);
+    expect(body).toBe('Olá Zé, faltam 3 ataque(s) em 500|500 501|501');
+    expect(body.includes('#')).toBe(false);
+  });
+
+  it('sem #jogador# nem #alvos# é fail-closed (mensagem igual p/ todos não personaliza)', () => {
+    expect(() => renderChargeBody('Faltam #faltam# ataques!', debtor)).toThrow(/placeholder/i);
   });
 });

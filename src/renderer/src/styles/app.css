@@ -3094,6 +3094,9 @@ kbd {
   font-size: var(--fs-caption);
   font-weight: 400;
   color: var(--text-muted);
+  /* Alinha o contador à linha de base do label (QA visual v0.33.1). */
+  vertical-align: baseline;
+  margin-left: 2px;
 }
 
 .tmpl-list {

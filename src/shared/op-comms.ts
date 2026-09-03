@@ -43,6 +43,27 @@ export function opCommsInputs(commands: readonly MassPlanCommand[]): {
 }
 
 /**
+ * Corpo da MP de COBRANÇA de um devedor (v0.33.1). Render PRÓPRIO — não usa
+ * renderTemplate (que exige coords/horários alinhados; cobrança não tem
+ * horários e o guard dele travava o fluxo inteiro, P1 da revisão integrada).
+ * Substitui #faltam#/#jogador#/#alvos#; o corpo resultante já vai PRONTO ao
+ * sendMps (uma chamada por devedor — o contrato do SG_6 tem body único).
+ * Fail-closed: sem #jogador# nem #alvos# a mensagem seria igual para todos.
+ */
+export function renderChargeBody(
+  body: string,
+  debtor: { playerName: string; missing: number; coords: readonly string[] },
+): string {
+  if (!body.includes('#jogador#') && !body.includes('#alvos#')) {
+    throw new Error('Mensagem de cobrança sem placeholder — inclua #jogador# e/ou #alvos# para personalizar por jogador.');
+  }
+  return body
+    .replaceAll('#faltam#', String(debtor.missing))
+    .replaceAll('#jogador#', debtor.playerName)
+    .replaceAll('#alvos#', debtor.coords.join(' '));
+}
+
+/**
  * MPs por executor da OP: alvos dele + horário de envio de cada um (o
  * fail-closed do comms-package aplica: nick sem horário ou alvo sem par na
  * agenda aborta com erro claro — como ambos vêm da MESMA lista de comandos,

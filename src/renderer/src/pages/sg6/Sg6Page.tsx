@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { KeyRound, MapPin } from 'lucide-react';
+import { Bookmark, Send } from 'lucide-react';
 import { ClipboardPaste } from 'lucide-react';
 import type { Sg6MutationOutcome } from '@shared/ipc-types';
 import { parseCoordList } from '@shared/coords';
@@ -223,7 +224,14 @@ export default function Sg6Page() {
       </div>
 
       <section className="page-section" aria-labelledby="sg6-reserve-title">
-        <h2 className="section-title" id="sg6-reserve-title">Reserva em Massa (Planejador)</h2>
+        <h2 className="section-title" id="sg6-reserve-title">
+          <Bookmark size={16} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -3 }} />
+          Passo 1 · Reserva em Massa (Planejador)
+        </h2>
+        <p className="muted" style={{ margin: '-4px 0 8px' }}>
+          Reserve os ALVOS da OP no planejador do jogo para ninguém atacar fora de hora — cole a
+          lista de alvos (o botão "Copiar alvos (reservas)" da Sala de Guerra gera pronta).
+        </p>
         <div className="card">
           <div className="card-body">
             <label className="field">
@@ -301,7 +309,15 @@ export default function Sg6Page() {
       </section>
 
       <section className="page-section" aria-labelledby="sg6-mps-title">
-        <h2 className="section-title" id="sg6-mps-title">MPs Personalizadas em Cadeia</h2>
+        <h2 className="section-title" id="sg6-mps-title">
+          <Send size={16} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -3 }} />
+          Passo 2 · MPs Personalizadas em Cadeia
+        </h2>
+        <p className="muted" style={{ margin: '-4px 0 8px' }}>
+          Monte em ordem: os <strong>destinatários</strong> (cole as linhas do formato do app ou a
+          agenda da OP e clique em converter), o <strong>modelo</strong> da mensagem, a
+          <strong> prévia</strong> e o <strong>envio</strong> com confirmação dupla.
+        </p>
         <TemplateLibrary
           variant="sg6"
           currentSubject={mpSubject}

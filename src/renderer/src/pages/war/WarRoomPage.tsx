@@ -4,7 +4,7 @@ import { Copy, Crosshair, Download, Hammer, MonitorDot, Paperclip, RefreshCw, Se
 import { BellRing, TriangleAlert } from 'lucide-react';
 import { Activity, Trophy } from 'lucide-react';
 import type { OpArchiveEntry, OpConferenceSnapshot, OpTotalsSnapshot, Sg5VerifyResult } from '@shared/ipc-types';
-import { renderTemplate } from '@shared/comms-package';
+import { renderChargeBody as opCommsCharge } from '@shared/op-comms';
 import { groupToOriginsText, groupToTargetsText, type GroupEntry } from '@shared/groups-rules';
 import { buildArrivalTimeline, formatCountdown } from '@shared/sg5-arrivals';
 import { formatHms } from '@shared/sg4-timing';
@@ -112,6 +112,9 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
     setSelectedId(id);
     setVerifyResult(null); // troca de OP nunca mistura painel antigo
     setError('');
+    // Cobrança armada da OP ANTERIOR não pode sobreviver à troca (P2 da
+    // revisão integrada): confirmar enviaria MPs com alvos/contagens erradas.
+    setChargePending(null);
   }
 
   // Distribuição da OP selecionada (parse puro — erro fica inline).
@@ -195,14 +198,10 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
       }));
   }, [warRoom, parsedDistribution]);
 
-  /** Corpo da cobrança de UM devedor: #faltam# antes; #jogador#/#alvos# pelo
-   *  renderTemplate (fonte única — horários vazios: cobrança não tem hora). */
+  /** Corpo da cobrança de UM devedor — motor PURO em @shared/op-comms
+   *  (renderChargeBody, testado; P1 da revisão integrada v0.33.1). */
   function renderChargeBody(body: string, debtor: Debtor): string {
-    return renderTemplate(body.replaceAll('#faltam#', String(debtor.missing)), {
-      playerName: debtor.playerName,
-      coords: debtor.coords,
-      horarios: [],
-    });
+    return opCommsCharge(body, debtor);
   }
 
   const chargePreview = useMemo<{ text: string; error: string }>(() => {
@@ -221,20 +220,30 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
     if (chargePending === null || charging) return;
     setCharging(true);
     try {
-      const outcomes = await window.staffhub.sg6.sendMps(
-        {
-          subject: '🔔 OP — faltam seus ataques',
-          body: chargeBody,
-          entries: chargePending.map((debtor) => ({ playerName: debtor.playerName, coords: debtor.coords })),
-        },
-        true,
-      );
-      const falhas = outcomes.filter((outcome) => !outcome.ok).length;
+      // Uma chamada por devedor com o corpo JÁ renderizado (o contrato do
+      // SG_6 tem body único por chamada e não conhece #faltam# — enviar o
+      // cru mandaria o literal, P1-2 da revisão integrada). Pacing/journal
+      // vêm do motor; a confirmação dupla da UI cobre o conjunto.
+      let enviadas = 0;
+      let falhas = 0;
+      for (const debtor of chargePending) {
+        const body = renderChargeBody(chargeBody, debtor);
+        const outcomes = await window.staffhub.sg6.sendMps(
+          {
+            subject: '🔔 OP — faltam seus ataques',
+            body,
+            entries: [{ playerName: debtor.playerName, coords: debtor.coords }],
+          },
+          true,
+        );
+        enviadas += outcomes.filter((outcome) => outcome.ok).length;
+        falhas += outcomes.filter((outcome) => !outcome.ok).length;
+      }
       push(
         falhas === 0 ? 'ok' : 'error',
         falhas === 0
-          ? `Cobranças enviadas para ${chargePending.length} jogador(es) — o journal registra cada MP.`
-          : `${falhas} de ${outcomes.length} cobrança(s) falharam — detalhes no Journal.`,
+          ? `Cobranças enviadas para ${enviadas} jogador(es) — o journal registra cada MP.`
+          : `${falhas} cobrança(s) falharam de ${enviadas + falhas} — detalhes no Journal.`,
       );
       setChargePending(null);
     } catch (error) {
@@ -284,6 +293,9 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
     if (selected === null) return;
     setBusy('verify');
     setError('');
+    // Reverificar refaz o quadro de faltas: cobrança armada com o snapshot
+    // antigo cai fora (mesma invariante da troca de OP — P2 da revisão).
+    setChargePending(null);
     try {
       const entries = parseDistribution(selected.distribution);
       const result = await window.staffhub.sg5.verify(entries);

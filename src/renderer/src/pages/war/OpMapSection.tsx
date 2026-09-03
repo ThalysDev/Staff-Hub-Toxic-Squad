@@ -8,6 +8,7 @@ import { Loader2, Map as MapIcon } from 'lucide-react';
 import type { JSX } from 'react';
 import type { WorldVillage } from '@shared/types';
 import WorldMapCanvas from '../sg1/WorldMapCanvas';
+import { useSessionStatus } from '../../hooks/useSessionStatus';
 import { useToast } from '../../hooks/useToast';
 
 export interface OpMapSectionProps {
@@ -21,13 +22,16 @@ export interface OpMapSectionProps {
   label: string;
 }
 
-/** Cache do dump de aldeias por sessão (module-level: montar/desmontar o mapa
- *  não refaz o fetch; a página é keep-mounted, o cache morre com o app). */
-let villagesCache: WorldVillage[] | null = null;
+/** Cache do dump de aldeias POR MUNDO (module-level): trocar de mundo na mesma
+ *  sessão do app refaz o fetch (P3 da revisão integrada — antes o fundo do
+ *  mapa ficava do mundo antigo). A página é keep-mounted, o cache morre com o app. */
+let villagesCache: { world: string | null; villages: WorldVillage[] } | null = null;
 
 export default function OpMapSection({ targets, origins, connections, label }: OpMapSectionProps): JSX.Element {
   const { push } = useToast();
-  const [villages, setVillages] = useState<WorldVillage[] | null>(villagesCache);
+  const session = useSessionStatus();
+  const cacheValido = villagesCache !== null && villagesCache.world === session.world;
+  const [villages, setVillages] = useState<WorldVillage[] | null>(cacheValido ? villagesCache?.villages ?? null : null);
   const [loading, setLoading] = useState(false);
   const [visible, setVisible] = useState(false);
   const [error, setError] = useState('');
@@ -37,12 +41,12 @@ export default function OpMapSection({ targets, origins, connections, label }: O
   const emptySet = useMemo(() => new Set<string>(), []);
 
   async function loadVillages(): Promise<void> {
-    if (loading || villagesCache !== null) return;
+    if (loading || (villagesCache !== null && villagesCache.world === session.world)) return;
     setLoading(true);
     setError('');
     try {
-      villagesCache = await window.staffhub.world.villages();
-      setVillages(villagesCache);
+      villagesCache = { world: session.world, villages: await window.staffhub.world.villages() };
+      setVillages(villagesCache.villages);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);

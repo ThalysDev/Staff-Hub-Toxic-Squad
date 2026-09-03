@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ClipboardCopy, Layers, ListPlus, Pencil, RefreshCw, Save, Send, Trash2, TriangleAlert } from 'lucide-react';
+import { BookmarkPlus, ClipboardCopy, Layers, ListPlus, Pencil, RefreshCw, Save, Send, Trash2, TriangleAlert } from 'lucide-react';
 import { coordCountLabel, normalizeCoordText } from '@shared/coord-input';
 import {
   generateMassPlan,
@@ -333,9 +333,19 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
         .catch((error: unknown) => setDraftStoreError(error instanceof Error ? error.message : String(error)));
     }, 400);
     return () => {
-      flushDraftRef.current();
+      // Só CANCELA o timer: o flush roda exclusivamente no unmount real (efeito
+      // dedicado abaixo) — rodar aqui gravava a cada mudança e neutralizava o
+      // debounce (P3 da revisão integrada: rajada = N saves imediatos de ~90k).
+      if (draftTimer.current !== null) clearTimeout(draftTimer.current);
     };
   }, [groups]);
+  // Flush do pendente no UNMOUNT REAL (troca de conta/logout desmonta a war) —
+  // o cleanup do efeito [groups] roda a cada mudança e não serve para isso.
+  useEffect(() => {
+    return () => {
+      flushDraftRef.current();
+    };
+  }, []);
   // Página keep-mounted: o cleanup acima só roda no encerramento do app — o
   // beforeunload cobre F5/fechamento com o flush pendente (best-effort).
   useEffect(() => {
@@ -789,6 +799,10 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   /** Confirmação dupla: 1º clique arma este painel com os destinatários. */
   const [mpPending, setMpPending] = useState<PlayerComms[] | null>(null);
   const [sendingMps, setSendingMps] = useState(false);
+  /** v0.33.1 — Reservas da OP (novo método): reserva os ALVOS no planejador
+   *  do jogo direto da OP gerada (mesmo motor/pacing/journal do SG_6). */
+  const [reservePending, setReservePending] = useState(false);
+  const [reserving, setReserving] = useState(false);
 
   // Assunto sugerido acompanha a OP gerada (1ª chegada = referência).
   useEffect(() => {
@@ -827,8 +841,31 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   /** Erro de construção (fail-closed do op-comms) — sem isto o card ficaria mudo. */
   const commsBuildError = comms.players === null ? comms.error : '';
 
-  async function sendOpMps(): Promise<void> {
-    if (mpPending === null || sendingMps) return;
+  /** Reserva os ALVOS únicos da OP no planejador do jogo (mutação real —
+   *  motor do SG_6 com pacing e journal por coordenada). */
+  async function reserveOpTargets(): Promise<void> {
+    if (reserving) return;
+    const targets = [...new Set(planCommands.map((command) => command.target))];
+    setReserving(true);
+    try {
+      const outcomes = await window.staffhub.sg6.reserveMass(targets, true);
+      const okCount = outcomes.filter((outcome) => outcome.ok).length;
+      push(
+        okCount === outcomes.length ? 'ok' : 'error',
+        okCount === outcomes.length
+          ? `Reservas: ${okCount} alvo(s) reservados no planejador — journal registra cada uma.`
+          : `Reservas: ${okCount} ok, ${outcomes.length - okCount} com aviso (detalhes no Journal do SG_6).`,
+      );
+      setReservePending(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      push('error', message);
+    } finally {
+      setReserving(false);
+    }
+  }
+
+  async function sendOpMps(): Promise<void> {    if (mpPending === null || sendingMps) return;
     setSendingMps(true);
     setCommsError('');
     try {
@@ -1620,7 +1657,60 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
                   >
                     <ClipboardCopy size={14} aria-hidden="true" /> Copiar agenda do app
                   </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    data-tip="Copia os ALVOS únicos da OP, um por linha — para colar na Reserva em Massa do SG_6."
+                    onClick={() =>
+                      copyText(
+                        [...new Set(planCommands.map((command) => command.target))].join('\n'),
+                        'Alvos da OP copiados — cole na Reserva em Massa (SG_6).',
+                      )
+                    }
+                  >
+                    <ClipboardCopy size={14} aria-hidden="true" /> Copiar alvos (reservas)
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    data-tip="Reserva os ALVOS da OP no planejador do jogo direto daqui (novo método) — mesmo motor do SG_6, com confirmação."
+                    disabled={reserving || sendingMps}
+                    onClick={() => setReservePending(true)}
+                  >
+                    <BookmarkPlus size={14} aria-hidden="true" /> Reservar alvos no jogo
+                  </button>
                 </div>
+
+                {reservePending && (
+                  <div className="callout callout--warn" role="alert">
+                    <span className="callout-icon"><TriangleAlert size={16} aria-hidden="true" /></span>
+                    <div className="callout-body">
+                      <p className="callout-title">
+                        Reservar {new Set(planCommands.map((command) => command.target)).size} alvo(s) no planejador?
+                      </p>
+                      <p>
+                        Reserva cada ALVO único da OP no planejador do jogo (motor do SG_6: pacing humano e
+                        journal por coordenada). Pode levar alguns minutos para listas grandes.
+                      </p>
+                      <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                        <button type="button" className="btn" disabled={reserving} onClick={() => void reserveOpTargets()}>
+                          {reserving ? (
+                            <>
+                              <span className="btn-spinner" aria-hidden="true" /> Reservando…
+                            </>
+                          ) : (
+                            <>
+                              <BookmarkPlus size={14} aria-hidden="true" /> Confirmar reservas
+                            </>
+                          )}
+                        </button>
+                        <button type="button" className="btn btn-ghost" disabled={reserving} onClick={() => setReservePending(false)}>
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="mp-archive">
                   <div className="field" style={{ maxWidth: 420 }}>

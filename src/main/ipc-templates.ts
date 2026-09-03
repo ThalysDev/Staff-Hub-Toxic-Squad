@@ -79,7 +79,9 @@ export function registerTemplatesIpc(deps: TemplatesIpcDeps): void {
 
   ipcMain.handle('templates:list', async (): Promise<MpTemplateEntry[]> => {
     try {
-      const state = await store.load();
+      // Dentro da chain: a 1ª listagem da vida do app espera o SEED terminar
+      // (corrida da revisão integrada — renderer listava biblioteca vazia).
+      const state = await chain.then(async () => store.load());
       return sortTemplatesNewestFirst(state.templates);
     } catch (error) {
       fail('Falha ao listar os templates de MP', error);

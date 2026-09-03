@@ -27,6 +27,9 @@ export function previewMps(
   limit?: number,
 ): MpPreviewEntry[] {
   const selecionadas = limit === undefined ? entries : entries.slice(0, limit);
+  if (selecionadas.length > 0 && !bodyTemplate.includes('#alvos#') && !bodyTemplate.includes('#horarios#')) {
+    throw new Error('Template de MP sem placeholder: inclua #alvos# e/ou #horarios# para que cada jogador receba os dados dele.');
+  }
   return selecionadas.map((entry) => {
     // Mesmos placeholders do envio real (sg6-service) — prévia e envio nunca divergem.
     let body = bodyTemplate
