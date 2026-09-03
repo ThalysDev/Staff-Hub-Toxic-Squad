@@ -12,6 +12,7 @@ import { coordCountLabel, normalizeCoordText } from '@shared/coord-input';
 import {
   generateMassPlan,
   MASS_HEAVY_PAIRS,
+  MASS_WORLD_PAIRS,
   parseMassCoordGroups,
   parseMassCoordText,
   validateMassGroup,
@@ -669,11 +670,14 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
       // A engine roda SÍNCRONA no renderer e, numa OP pesada/mundo inteiro,
       // ocupa a thread por segundos ou dezenas de segundos: este yield deixa o
       // botão pintar o "Gerando…" e o spinner, e o toast avisa que está viva.
+      // A engine avisa POR GRUPO (pesada/mundo inteiro); este toast estima o
+      // TRABALHO TOTAL da OP (soma de todos os grupos) — intencionalmente mais
+      // conservador que o limiar por grupo da engine.
       const pares = groups.reduce((sum, group) => sum + group.origins.length * group.targets.length, 0);
       if (pares > MASS_HEAVY_PAIRS) {
         push(
           'info',
-          pares > 5_000_000
+          pares > MASS_WORLD_PAIRS
             ? 'Gerando operação de mundo inteiro — pode levar dezenas de segundos a alguns minutos, não feche o app…'
             : 'Gerando operação pesada — pode levar alguns segundos…',
         );

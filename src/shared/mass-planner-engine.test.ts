@@ -586,6 +586,56 @@ describe('generateMassPlan — conflito de ms, ordem e determinismo', () => {
     expect(() => generateMassPlan([baseGroup({ targets: [] })], baseCtx())).toThrow(/sem origens ou sem destinos/);
   });
 
+  it.each([['otimizado'], ['por-jogador'], ['mais-perto'], ['mais-longe']] as const)(
+    'zero candidatos elegíveis (todos descartados por distância) não lança no modo %s — v0.32.2 typed arrays',
+    (mode) => {
+      const result = generateMassPlan([baseGroup({ assignMode: mode, minDistance: 9999 })], baseCtx());
+      expect(result.commands).toHaveLength(0);
+      expect(result.discards.some((discard) => discard.reason.includes('Distância menor'))).toBe(true);
+      expect(result.warnings.some((warning) => warning.includes('sem origem elegível'))).toBe(true);
+    },
+  );
+
+  it('alvo SEM candidatos elegíveis (slice vazio no targetOffset) fica carente sem quebrar os demais', () => {
+    // 1º alvo perto (elegível), 2º alvo além da distância máxima (slice vazio).
+    const group = baseGroup({
+      origins: [{ coord: '500|500', x: 500, y: 500 }],
+      originQuotas: [1],
+      targets: [
+        { coord: '501|501', x: 501, y: 501 },
+        { coord: '900|900', x: 900, y: 900 },
+      ],
+      targetQuotas: [1, 1],
+      maxDistance: 10,
+    });
+    const result = generateMassPlan([group], baseCtx());
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0]?.target).toBe('501|501');
+    expect(result.warnings.some((warning) => warning.includes('900|900'))).toBe(true);
+  });
+
+  it.each([['otimizado'], ['por-jogador'], ['mais-perto'], ['mais-longe']] as const)(
+    'empate EXATO de distância cai na origem digitada primeiro (v0.32.2 typed arrays) — modo %s',
+    (mode) => {
+      // Duas origens equidistantes do alvo (100.00 campos cada): o desempate
+      // universal é a ordem digitada — é o ramo mais sensível do refactor.
+      const group = baseGroup({
+        assignMode: mode,
+        origins: [
+          { coord: '400|500', x: 400, y: 500 },
+          { coord: '600|500', x: 600, y: 500 },
+        ],
+        originQuotas: [1, 1],
+        targets: [{ coord: '500|500', x: 500, y: 500 }],
+        targetQuotas: [1],
+      });
+      const result = generateMassPlan([group], baseCtx());
+      expect(result.commands).toHaveLength(1);
+      expect(result.commands[0]?.origin).toBe('400|500');
+      expect(result.commands[0]?.distanceFields).toBe(100);
+    },
+  );
+
   it('OP real da staff (2428×183 = 444k pares) passa do antigo teto de 250k e gera', () => {
     const many = (start: number, n: number): MassGroupConfig['origins'] =>
       Array.from({ length: n }, (_, i) => {

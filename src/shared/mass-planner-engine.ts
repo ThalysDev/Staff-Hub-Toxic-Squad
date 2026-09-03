@@ -43,7 +43,10 @@ const D_MORAL_NO_POINTS = 'Moral exigida sem pontos no dump (origem/alvo)';
  * Teto sanitário do cruzamento: pares candidatos por grupo (origens × alvos).
  * 50.000.000 a pedido do dono (equipamentos robustos) — cobre a OP de mundo
  * inteiro da staff ("Full - Br142" de 7005×1701 = 11,9M) com folga de 4×.
- * Pico de memória no modo Otimizado: ~1,2 GB em arrays tipados.
+ * Custo no CAP, modo Otimizado (medida da revisão v0.32.3): ~800 MB em typed
+ * arrays (ArrayBuffer, fora do heap) + ~400-600 MB de heap JS normal (array
+ * de ordenação + TimSort do V8) e sort síncrono da ordem de 1-4 minutos. Os
+ * modos por-alvo são bem mais leves (sem ordenação global, sem candTarget).
  */
 export const MASS_MAX_PAIRS = 50_000_000;
 
@@ -388,7 +391,10 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
     // critérios de empate) do array de objetos antigo.
     const pairCapacity = group.origins.length * group.targets.length;
     const candOrigin = new Int32Array(pairCapacity);
-    const candTarget = new Int32Array(pairCapacity);
+    // Só o modo 'otimizado' lê o índice do alvo (ordenar o conjunto inteiro);
+    // nos modos por-alvo o alvo é o próprio slice — alocar 200 MB à toa no
+    // cap de 50M seria desperdício puro.
+    const candTarget = group.assignMode === 'otimizado' ? new Int32Array(pairCapacity) : new Int32Array(0);
     const candDist = new Float64Array(pairCapacity);
     /** Primeiro índice de cada alvo no array de candidatos (+1 slot final). */
     const targetOffset = new Int32Array(group.targets.length + 1);
@@ -423,7 +429,7 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
           }
         }
         candOrigin[candTotal] = originIndex;
-        candTarget[candTotal] = targetIndex;
+        if (group.assignMode === 'otimizado') candTarget[candTotal] = targetIndex;
         candDist[candTotal] = distanceFields;
         candTotal += 1;
       });
@@ -437,10 +443,17 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
     // DIFERENTES do mesmo jogador. Ondas no MESMO alvo são papel de "Comandos
     // por Alvo" e continuam valendo com a repetição desligada.
     const originVsPlayer = new Map<string, Set<string>>();
+    // Cache da identidade do alvo (dono pela tribo do dump): OP de mundo
+    // inteiro consulta milhões de vezes e a chave é concatenada a cada lookup.
+    const identityByTarget: string[] = new Array<string>(group.targets.length).fill('');
     const targetIdentity = (targetIndex: number): string => {
+      const cached = identityByTarget[targetIndex];
+      if (cached !== undefined && cached !== '') return cached;
       const owner = ctx.ownerByCoord.get(group.targets[targetIndex]?.coord ?? '');
       // Alvo sem dono conhecido (bárbaro/dump ausente): a VILA é a identidade.
-      return owner === undefined ? `vila:${group.targets[targetIndex]?.coord ?? '?'}` : `nick:${owner}`;
+      const identity = owner === undefined ? `vila:${group.targets[targetIndex]?.coord ?? '?'}` : `nick:${owner}`;
+      identityByTarget[targetIndex] = identity;
+      return identity;
     };
     const repeatOk = (originIndex: number, targetIndex: number): boolean => {
       if (group.repeatOriginSamePlayer) return true;
@@ -468,9 +481,16 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
       // até agora (empate: jogador do par mais curto; depois ordem digitada).
       // Os candidatos de cada alvo são o SLICE contíguo [targetOffset[t],
       // targetOffset[t+1]) — mesma ordem e empates do scan linear original.
+      // Cache do jogador por origem: OP de mundo inteiro consulta o Map milhões
+      // de vezes e a chave é concatenada a cada lookup — aqui monta uma vez.
+      const playerByOrigin: string[] = new Array<string>(group.origins.length).fill('');
       const playerOfOrigin = (originIndex: number): string => {
+        const cached = playerByOrigin[originIndex];
+        if (cached !== undefined && cached !== '') return cached;
         const owner = ctx.ownerByCoord.get(group.origins[originIndex]?.coord ?? '');
-        return owner === undefined ? `vila:${group.origins[originIndex]?.coord ?? '?'}` : `nick:${owner}`;
+        const player = owner === undefined ? `vila:${group.origins[originIndex]?.coord ?? '?'}` : `nick:${owner}`;
+        playerByOrigin[originIndex] = player;
+        return player;
       };
       const loadByPlayer = new Map<string, number>();
       for (let targetIndex = 0; targetIndex < group.targets.length; targetIndex++) {
