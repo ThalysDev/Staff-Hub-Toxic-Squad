@@ -400,7 +400,10 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
       setVillageIdByCoord(vIds);
       setWorldLoadedOnce(true);
     } catch (err) {
-      setWorldError(err instanceof Error ? err.message : String(err));
+      // O gate/IPC às vezes devolve o envelope "Error invoking remote method
+      // '…': Error: …" — o usuário vê só a mensagem limpa, sem miudezas técnicas.
+      const raw = err instanceof Error ? err.message : String(err);
+      setWorldError(raw.replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, ''));
     } finally {
       setWorldLoading(false);
     }

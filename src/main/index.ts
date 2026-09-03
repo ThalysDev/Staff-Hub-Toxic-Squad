@@ -191,15 +191,76 @@ function createMainWindow(): void {
   // (usado para inspeção visual e futuros baselines de regressão).
   // SHS_CAPTURE_DELAY=<ms> espera ANTES da foto — páginas que hidratam dados
   // via IPC (ex.: rascunho do planner) precisam de um instante a mais.
+  // SHS_CAPTURE_FULL=1 fotografa a PÁGINA INTEIRA via CDP (captureBeyondViewport)
+  // — capturePage() só cobre o viewport e o Windows limita a janela à tela,
+  // então páginas longas ficavam cortadas (lição do QA visual v0.33).
   const shotPath = process.env.SHS_CAPTURE;
   if (shotPath) {
     const shotDelay = Number.parseInt(process.env.SHS_CAPTURE_DELAY ?? '0', 10) || 0;
+    const shotFull = process.env.SHS_CAPTURE_FULL === '1';
     mainWindow.webContents.once('did-finish-load', () => {
       setTimeout(async () => {
         // UnknownVizError do compositor é INTERMITENTE (Chromium): 3 tentativas
         // com espera cobrem o flake sem mascarar falha real (erro vai ao .err).
         let lastError = 'capturePage devolveu imagem vazia';
-        for (let attempt = 0; attempt < 3; attempt++) {
+        if (shotFull) {
+          // FullPage via CDP: habilita o domínio Page e usa LAYOUT METRICS +
+          // override de viewport (captureBeyondViewport sozinho não basta em
+          // Electron headed). Falha ALTO: sem fallback para capturePage — uma
+          // foto só do viewport quando se pediu a página inteira é evidência
+          // mentirosa (lição do QA visual v0.33).
+          try {
+            const wcDebugger = mainWindow?.webContents.debugger;
+            if (wcDebugger !== undefined) {
+              wcDebugger.attach('1.3');
+              try {
+                await wcDebugger.sendCommand('Page.enable', {});
+                // O app usa shell 100vh com scroll INTERNO (.content) — o
+                // documento inteiro tem a altura do viewport. Para a foto da
+                // página COMPLETA: desmonta o scroll (QA-only, app encerra em
+                // seguida), espera um layout e só então mede/fotografa.
+                await wcDebugger.sendCommand('Runtime.evaluate', {
+                  expression:
+                    "(() => { const s = document.createElement('style'); s.id = 'shs-fullpage';" +
+                    " s.textContent = '.app-shell{height:auto!important;overflow:visible!important}" +
+                    ".content{overflow:visible!important;height:auto!important}';" +
+                    " document.head.appendChild(s); return document.body.scrollHeight; })()",
+                });
+                await new Promise((resolve) => setTimeout(resolve, 200));
+                const metrics = (await wcDebugger.sendCommand('Page.getLayoutMetrics', {})) as {
+                  cssContentSize?: { width?: number; height?: number };
+                };
+                const width = Math.max(1, Math.round(metrics.cssContentSize?.width ?? 1600));
+                const height = Math.max(1, Math.round(metrics.cssContentSize?.height ?? 1000));
+                await wcDebugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+                  width,
+                  height,
+                  deviceScaleFactor: 1,
+                  mobile: false,
+                });
+                try {
+                  const shot = (await wcDebugger.sendCommand('Page.captureScreenshot', {
+                    format: 'png',
+                    fromSurface: true,
+                  })) as { data?: string };
+                  if (shot.data !== undefined && shot.data !== '') {
+                    await fs.writeFile(shotPath, Buffer.from(shot.data, 'base64'));
+                    lastError = '';
+                  } else {
+                    lastError = 'captura fullPage devolveu imagem vazia';
+                  }
+                } finally {
+                  await wcDebugger.sendCommand('Emulation.clearDeviceMetricsOverride', {}).catch(() => undefined);
+                }
+              } finally {
+                wcDebugger.detach();
+              }
+            }
+          } catch (captureError) {
+            lastError = `captura fullPage falhou: ${String(captureError)}`;
+          }
+        }
+        for (let attempt = 0; !shotFull && lastError !== '' && attempt < 3; attempt++) {
           try {
             const image = await mainWindow?.webContents.capturePage();
             if (image && !image.isEmpty()) {

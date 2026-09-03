@@ -406,7 +406,15 @@ export default function Sg2Page() {
         setDefense(storedDefense);
       })
       .catch((error) => {
-        if (!cancelled) push('error', errorMessage(error));
+        if (cancelled) return;
+        // Sem sessão do JOGO os canais protegidos recusam no boot — é o estado
+        // esperado do app recém-aberto, não um erro digno de toast (o callout
+        // da própria página orienta). Com sessão ativa, aí sim avisa.
+        if (session.state === 'logged-in') {
+          push('error', errorMessage(error));
+        } else {
+          console.warn('[sg2] leitura inicial sem sessão do jogo:', error);
+        }
       });
     return () => {
       cancelled = true;
@@ -928,16 +936,16 @@ export default function Sg2Page() {
   const updatedLabel =
     troopsAt !== null ? new Date(troopsAt).toLocaleString('pt-BR') : 'Nunca coletado';
 
-  /** "Próxima coleta automática": última coleta (ou mount) + intervalo; '?' desligado. */
+  /** "Próxima coleta automática": última coleta (ou mount) + intervalo; '—' desligado. */
   const nextAutoCollectLabel = useMemo(() => {
     const hours = Number(autoCollectHours);
-    if (!Number.isFinite(hours) || hours <= 0) return '?';
+    if (!Number.isFinite(hours) || hours <= 0) return '— (desligada)';
     const lastMs = troopsAt !== null ? Date.parse(troopsAt) : Number.NaN;
     const base = Number.isFinite(lastMs) ? lastMs : mountedAtRef.current;
     const next = base + hours * 60 * 60 * 1000;
     return Number.isFinite(next)
       ? `~${new Date(next).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
-      : '?';
+      : '—';
   }, [autoCollectHours, troopsAt]);
 
   return (
@@ -1093,7 +1101,7 @@ export default function Sg2Page() {
           <EmptyState
             icon={Swords}
             title="Nenhuma coleta em memória"
-            hint='O painel começa vazio: colete as informações de tropas (membro a membro, com progresso) para os filtros completos — ou a defesa por aldeia (mesma coleta do SG_3) para já usar a fonte "Disponível na aldeia (agora)".'
+            hint='O painel começa vazio: colete as informações de tropas (membro a membro, com progresso) para os filtros completos — ou a defesa por aldeia (mesma coleta do SG_3) para já usar a fonte "Disponível na aldeia (agora)". Depois da coleta, o formulário abre com mínimo por unidade, jogadores (por ";"), coordenadas, K e eixos.'
             action={
               <div className="row" style={{ gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
                 <button

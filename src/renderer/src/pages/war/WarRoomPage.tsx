@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { Copy, Crosshair, Download, Hammer, MonitorDot, Paperclip, RefreshCw, Search, Trash2, Upload, Users, X } from 'lucide-react';
+import { BellRing, TriangleAlert } from 'lucide-react';
+import { Activity, Trophy } from 'lucide-react';
 import type { OpArchiveEntry, OpConferenceSnapshot, OpTotalsSnapshot, Sg5VerifyResult } from '@shared/ipc-types';
+import { renderTemplate } from '@shared/comms-package';
 import { groupToOriginsText, groupToTargetsText, type GroupEntry } from '@shared/groups-rules';
 import { buildArrivalTimeline, formatCountdown } from '@shared/sg5-arrivals';
 import { formatHms } from '@shared/sg4-timing';
@@ -29,6 +32,14 @@ import WorldEvolutionSection from './WorldEvolutionSection';
 
 type DistributionEntry = ReturnType<typeof parseDistribution>[number];
 type ParsedDistribution = { entries: DistributionEntry[] } | { error: string };
+
+/** Corpo padrão da cobrança (espelho do seed '🔔 Cobrança de faltas' — v0.33). */
+const DEFAULT_CHARGE_BODY =
+  '[b]🔔 #jogador#, a OP ainda está esperando você[/b]\n\n' +
+  'Faltam [b]#faltam# ataque(s)[/b] seus na operação em andamento.\n\n' +
+  'Seus alvos:\n[spoiler=Clique para ver]\n#alvos#\n[/spoiler]\n\n' +
+  'Manda o que puder [b]agora[/b] — qualquer ajuda conta. Se não conseguir, responda avisando para realocarmos.\n\n' +
+  '— Comando';
 
 interface WarRoomPageProps {
   /** Leva o líder à criação de OP quando a sala está vazia. */
@@ -160,6 +171,78 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
   }, [ops]);
 
   const commandCount = verifyResult?.villages.reduce((sum, village) => sum + village.commands.length, 0) ?? 0;
+
+  // ---- v0.33 — Cobrar faltas: MPs para quem ainda deve ataques na OP ----
+  interface Debtor {
+    playerName: string;
+    missing: number;
+    coords: string[];
+  }
+  const [chargePending, setChargePending] = useState<Debtor[] | null>(null);
+  const [chargeBody, setChargeBody] = useState(DEFAULT_CHARGE_BODY);
+  const [charging, setCharging] = useState(false);
+
+  /** Devedores do painel: falta > 0, com os alvos dele vindos da distribuição. */
+  const debtors = useMemo<Debtor[]>(() => {
+    if (warRoom === null || parsedDistribution === null || 'error' in parsedDistribution) return [];
+    const coordsByNick = new Map(parsedDistribution.entries.map((entry) => [entry.playerName, entry.coords]));
+    return warRoom.perPlayer
+      .filter((row) => row.assigned - row.sent > 0)
+      .map((row) => ({
+        playerName: row.playerName,
+        missing: row.assigned - row.sent,
+        coords: coordsByNick.get(row.playerName) ?? [],
+      }));
+  }, [warRoom, parsedDistribution]);
+
+  /** Corpo da cobrança de UM devedor: #faltam# antes; #jogador#/#alvos# pelo
+   *  renderTemplate (fonte única — horários vazios: cobrança não tem hora). */
+  function renderChargeBody(body: string, debtor: Debtor): string {
+    return renderTemplate(body.replaceAll('#faltam#', String(debtor.missing)), {
+      playerName: debtor.playerName,
+      coords: debtor.coords,
+      horarios: [],
+    });
+  }
+
+  const chargePreview = useMemo<{ text: string; error: string }>(() => {
+    if (chargePending === null || chargePending.length === 0) return { text: '', error: '' };
+    try {
+      return { text: renderChargeBody(chargeBody, chargePending[0]!), error: '' };
+    } catch (error) {
+      return { text: '', error: error instanceof Error ? error.message : String(error) };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chargePending, chargeBody]);
+  const chargePreviewText = chargePreview.text;
+  const chargePreviewError = chargePreview.error;
+
+  async function sendChargeMps(): Promise<void> {
+    if (chargePending === null || charging) return;
+    setCharging(true);
+    try {
+      const outcomes = await window.staffhub.sg6.sendMps(
+        {
+          subject: '🔔 OP — faltam seus ataques',
+          body: chargeBody,
+          entries: chargePending.map((debtor) => ({ playerName: debtor.playerName, coords: debtor.coords })),
+        },
+        true,
+      );
+      const falhas = outcomes.filter((outcome) => !outcome.ok).length;
+      push(
+        falhas === 0 ? 'ok' : 'error',
+        falhas === 0
+          ? `Cobranças enviadas para ${chargePending.length} jogador(es) — o journal registra cada MP.`
+          : `${falhas} de ${outcomes.length} cobrança(s) falharam — detalhes no Journal.`,
+      );
+      setChargePending(null);
+    } catch (error) {
+      push('error', error instanceof Error ? error.message : String(error));
+    } finally {
+      setCharging(false);
+    }
+  }
 
   // ---- v0.33: filtros de busca das tabelas do monitoramento (fold: acento/caixa) ----
   const [playerFilter, setPlayerFilter] = useState<WarViewFilter>(EMPTY_WAR_VIEW_FILTER);
@@ -304,7 +387,10 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
       {/* ---- Seletor da OP ativa ---- */}
       <section className="card">
         <div className="card-header">
-          <h2 className="card-title">OP ativa</h2>
+          <h2 className="card-title">
+            <Crosshair size={16} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -3 }} />
+            OP ativa
+          </h2>
         </div>
         <div className="card-body">
           {ops.length === 0 ? (
@@ -384,7 +470,10 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
       {warRoom !== null && (
         <section className="card">
           <div className="card-header">
-            <h2 className="card-title">Painel de guerra</h2>
+            <h2 className="card-title">
+              <Activity size={16} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -3 }} />
+              Painel de guerra
+            </h2>
             <span className="spacer" />
             <span className="pill pill--muted">
               {pluralize(commandCount, 'comando', 'comandos')} ·{' '}
@@ -442,6 +531,70 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
                 </tbody>
               </table>
             </div>
+
+            {/* (c.1) v0.33 — Cobrar faltas: MPs de cobrança para quem ainda deve ataques */}
+            {debtors.length > 0 && chargePending === null && (
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={charging}
+                  onClick={() => setChargePending(debtors)}
+                >
+                  <BellRing size={15} aria-hidden="true" />
+                  Cobrar faltas ({debtors.length} jogador(es))
+                </button>
+              </div>
+            )}
+            {chargePending !== null && (
+              <div className="callout callout--warn" role="alert">
+                <span className="callout-icon"><TriangleAlert size={16} aria-hidden="true" /></span>
+                <div className="callout-body">
+                  <p className="callout-title">Cobrar {chargePending.length} jogador(es) por MP?</p>
+                  <p>
+                    {chargePending.map((debtor) => `${debtor.playerName} (faltam ${debtor.missing})`).join(' · ')}.
+                    Cada um recebe a mensagem com os PRÓPRIOS alvos — envio pelo motor do SG_6 (pacing
+                    humano, journal por MP).
+                  </p>
+                  <div className="field" style={{ marginTop: 8 }}>
+                    <label className="field-label" htmlFor="charge-body" data-tip="Placeholders: #jogador# #faltam# #alvos# — substituídos por jogador no envio.">
+                      Mensagem de cobrança
+                    </label>
+                    <textarea
+                      id="charge-body"
+                      className="textarea"
+                      rows={7}
+                      spellCheck={false}
+                      value={chargeBody}
+                      onChange={(event) => setChargeBody(event.target.value)}
+                    />
+                  </div>
+                  {chargePreviewError !== '' && <p className="error" role="alert">{chargePreviewError}</p>}
+                  {chargePreviewText !== '' && (
+                    <details>
+                      <summary className="muted">Prévia (1º jogador)</summary>
+                      <pre className="sg7-code" style={{ maxHeight: 200, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{chargePreviewText}</pre>
+                    </details>
+                  )}
+                  <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                    <button type="button" className="btn" disabled={charging || chargePreviewError !== ''} onClick={() => void sendChargeMps()}>
+                      {charging ? (
+                        <>
+                          <span className="btn-spinner" aria-hidden="true" /> Enviando…
+                        </>
+                      ) : (
+                        <>
+                          <BellRing size={14} aria-hidden="true" /> Confirmar cobrança
+                        </>
+                      )}
+                    </button>
+                    <button type="button" className="btn btn-ghost" disabled={charging} onClick={() => setChargePending(null)}>
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* (d) Próximas chegadas */}
             <div className="col" style={{ gap: 6 }}>
@@ -505,7 +658,10 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
       {/* ---- Scorecard de participação ---- */}
       <section className="card">
         <div className="card-header">
-          <h2 className="card-title">Scorecard de participação</h2>
+          <h2 className="card-title">
+            <Trophy size={16} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -3 }} />
+            Scorecard de participação
+          </h2>
           <span className="spacer" />
           <span className="pill pill--muted">
             {pluralize(scorecard.rows?.length ?? 0, 'jogador', 'jogadores')}
