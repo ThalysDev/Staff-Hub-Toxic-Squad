@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { ClipboardCopy, KeyRound, RefreshCw, ShieldOff, ShieldCheck, Undo2, UserCheck } from 'lucide-react';
 import type { AdminUserRow, AuthAdminAudit } from '@shared/ipc-types';
+import Callout from '../components/Callout';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
 import { useToast } from '../hooks/useToast';
@@ -137,31 +138,21 @@ export default function AdminPage(): JSX.Element {
       />
 
       {erro !== '' && (
-        <div className="callout callout--danger" role="alert">
-          <span className="callout-icon">!</span>
-          <div className="callout-body">
-            <p className="callout-title">Falha ao carregar</p>
-            <p>{erro}</p>
-          </div>
-        </div>
+        <Callout variant="danger" title="Falha ao carregar">
+          <p>{erro}</p>
+        </Callout>
       )}
 
       {senhaTemp !== null && (
-        <div className="callout callout--warn" role="status">
-          <span className="callout-icon">
-            <KeyRound size={16} aria-hidden="true" />
-          </span>
-          <div className="callout-body">
-            <p className="callout-title">Senha temporária de {senhaTemp.nick}</p>
-            <p>
-              <code className="login-senha-temp">{senhaTemp.senha}</code>{' '}
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copiarSenha()}>
-                <ClipboardCopy size={14} aria-hidden="true" /> Copiar
-              </button>
-            </p>
-            <p className="field-hint">Repasse por mensagem privada e oriente a trocar no 1º login (perfil em Sessão).</p>
-          </div>
-        </div>
+        <Callout variant="warn" icon={KeyRound} title={`Senha temporária de ${senhaTemp.nick}`}>
+          <p>
+            <code className="login-senha-temp">{senhaTemp.senha}</code>{' '}
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copiarSenha()}>
+              <ClipboardCopy size={14} aria-hidden="true" /> Copiar
+            </button>
+          </p>
+          <p className="field-hint">Repasse por mensagem privada e oriente a trocar no 1º login (perfil em Sessão).</p>
+        </Callout>
       )}
 
       <section className="card">

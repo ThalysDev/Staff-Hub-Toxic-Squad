@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Download, FileJson, FilterX, History, RefreshCw, Trash2 } from 'lucide-react';
 import type { JournalEntry } from '@shared/ipc-types';
 import {
+  coalesceRepeated,
   distinctActions,
   filterJournalEntries,
+  groupByDay,
   journalToCsv,
   journalToJson,
 } from '@shared/journal-filter';
@@ -12,9 +14,15 @@ import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
 import { useToast } from '../hooks/useToast';
 
-const KIND_LABELS: Record<JournalEntry['kind'], string> = {
+/** O main marca mutações (sg6-sendmps, op-archive, forum-post…) com o kind
+ * 'write' — sem mapear, a célula de tipo nasce vazia. Herda rótulo/tom de
+ * 'mutation'. */
+type PillKind = JournalEntry['kind'] | 'write';
+
+const KIND_LABELS: Record<PillKind, string> = {
   read: 'Leitura',
   mutation: 'Mutação',
+  write: 'Mutação',
   session: 'Sessão',
   system: 'Sistema',
 };
@@ -22,9 +30,10 @@ const KIND_LABELS: Record<JournalEntry['kind'], string> = {
 /** Ordem fixa dos chips de tipo na barra de filtros. */
 const KIND_ORDER: readonly JournalEntry['kind'][] = ['read', 'mutation', 'session', 'system'];
 
-const KIND_PILLS: Record<JournalEntry['kind'], string> = {
+const KIND_PILLS: Record<PillKind, string> = {
   read: 'pill--info',
   mutation: 'pill--gold',
+  write: 'pill--gold',
   session: 'pill--ok',
   system: 'pill--muted',
 };
@@ -86,56 +95,6 @@ function formatTime(ts: string): string {
   return Number.isNaN(date.getTime())
     ? ts
     : date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-}
-
-interface DayGroup {
-  key: string;
-  label: string;
-  entries: JournalEntry[];
-}
-
-const DAY_MS = 86_400_000;
-
-function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-/** Agrupa por dia (data local) com header "Hoje"/"Ontem"/data por extenso. */
-function groupByDay(entries: readonly JournalEntry[]): DayGroup[] {
-  const startOfDay = (date: Date): number =>
-    new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const todayStart = startOfDay(new Date());
-  const groups = new Map<string, DayGroup>();
-  for (const entry of entries) {
-    const date = new Date(entry.ts);
-    const valid = !Number.isNaN(date.getTime());
-    const dayStart = valid ? startOfDay(date) : 0;
-    const key = valid ? String(dayStart) : 'data-indisponivel';
-    let group = groups.get(key);
-    if (group === undefined) {
-      let label = 'Data indisponível';
-      if (valid) {
-        const daysAgo = Math.round((todayStart - dayStart) / DAY_MS);
-        label =
-          daysAgo === 0
-            ? 'Hoje'
-            : daysAgo === 1
-              ? 'Ontem'
-              : capitalize(
-                  date.toLocaleDateString('pt-BR', {
-                    weekday: 'long',
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                  }),
-                );
-      }
-      group = { key, label, entries: [] };
-      groups.set(key, group);
-    }
-    group.entries.push(entry);
-  }
-  return [...groups.values()];
 }
 
 // ---- Limite configurável (persistido em preferences('journal').limite) ----
@@ -222,7 +181,7 @@ export default function JournalPage() {
   }, [load]);
 
   async function handleClear(): Promise<void> {
-    if (!window.confirm('Limpar todas as entradas do journal? Essa ação não pode ser desfeita.')) {
+    if (!window.confirm('Limpar todas as entradas do journal? Esta ação não pode ser desfeita.')) {
       return;
     }
     setBusy(true);
@@ -354,12 +313,12 @@ export default function JournalPage() {
             <button
               type="button"
               className="btn btn-ghost btn-ghost--danger btn-sm"
-              data-tip="Apagar todas as entradas"
+              data-tip="Remover todas as entradas"
               onClick={() => void handleClear()}
               disabled={busy || total === 0}
             >
               <Trash2 size={14} aria-hidden="true" />
-              Limpar
+              Remover histórico
             </button>
           </>
         }
@@ -492,18 +451,20 @@ export default function JournalPage() {
             <div className="card-header">
               <h3 className="card-title">Entradas</h3>
               <span className="muted">
-                {visible} de {total} {total === 1 ? 'entrada' : 'entradas'}
+                {visible < total
+                  ? `${visible} de ${total} ${total === 1 ? 'entrada' : 'entradas'}`
+                  : `${visible} ${visible === 1 ? 'entrada' : 'entradas'}`}
               </span>
             </div>
             <div className="table-wrap">
               <table className="table journal-table">
                 <thead>
                   <tr>
-                    <th>Hora</th>
+                    <th className="cell-num">Hora</th>
                     <th>Tipo</th>
                     <th>Ação</th>
                     <th>Detalhe</th>
-                    <th>Teste?</th>
+                    <th title="Simulação = leitura sem alterar o jogo (dry-run)">Simulação?</th>
                   </tr>
                 </thead>
                 {groups.length === 0 ? (
@@ -515,32 +476,49 @@ export default function JournalPage() {
                     </tr>
                   </tbody>
                 ) : (
-                  groups.map((group) => (
-                    <tbody key={group.key}>
-                      <tr className="table-group-row">
-                        <th colSpan={5} scope="rowgroup">
-                          {group.label}
-                        </th>
-                      </tr>
-                      {group.entries.map((entry) => (
-                        <tr key={entry.id}>
-                          <td className="cell-nowrap tabular">{formatTime(entry.ts)}</td>
-                          <td>
-                            <span className={`pill ${KIND_PILLS[entry.kind]}`}>{KIND_LABELS[entry.kind]}</span>
-                          </td>
-                          <td>
-                            <span title={`Ação interna: ${entry.action}`}>{journalActionLabel(entry.action)}</span>
-                          </td>
-                          <td className="cell-detail cell-detail--clamp" title={entry.detail}>
-                            {entry.detail}
-                          </td>
-                          <td className="cell-nowrap">
-                            {entry.dryRun ? <span className="text-warn">Sim</span> : <span className="muted">Não</span>}
-                          </td>
+                  groups.map((group) => {
+                    // Flood antigo (boots consecutivos): repetições CONSECUTIVAS
+                    // idênticas viram uma linha só com pílula "×N" (title com o
+                    // intervalo de timestamps do trecho).
+                    const runs = coalesceRepeated(group.entries);
+                    return (
+                      <tbody key={group.key}>
+                        <tr className="table-group-row">
+                          <th colSpan={5} scope="rowgroup">
+                            {group.label}
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  ))
+                        {runs.map((run) => (
+                          <tr key={run.entry.id}>
+                            <td className="cell-num tabular">{formatTime(run.entry.ts)}</td>
+                            <td>
+                              <span className={`pill ${KIND_PILLS[run.entry.kind]}`}>{KIND_LABELS[run.entry.kind]}</span>
+                            </td>
+                            <td>
+                              <span title={`Ação interna: ${run.entry.action}`}>
+                                {journalActionLabel(run.entry.action)}
+                                {run.count > 1 && (
+                                  <span
+                                    className="pill pill--muted"
+                                    style={{ marginLeft: 6 }}
+                                    title={`Repetido ${run.count}× nesta lista — de ${formatTime(run.lastTs)} a ${formatTime(run.firstTs)}`}
+                                  >
+                                    ×{run.count}
+                                  </span>
+                                )}
+                              </span>
+                            </td>
+                            <td className="cell-detail cell-detail--clamp" title={run.entry.detail}>
+                              {run.entry.detail}
+                            </td>
+                            <td className="cell-nowrap">
+                              {run.entry.dryRun ? <span className="text-warn">Sim</span> : <span className="muted">Não</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    );
+                  })
                 )}
               </table>
             </div>

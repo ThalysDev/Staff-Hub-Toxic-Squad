@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { AlertTriangle, History, Info, Map as MapIcon, Pause, Play, X } from 'lucide-react';
+import { History, Map as MapIcon, Pause, Play, X } from 'lucide-react';
 import {
   diffWorldVersions,
   MAX_WORLD_HISTORY,
@@ -9,6 +9,7 @@ import {
 } from '@shared/world-history';
 import type { TribeMarking, WorldAlly, WorldVillage } from '@shared/types';
 import WorldMapCanvas from '../sg1/WorldMapCanvas';
+import Callout from '../../components/Callout';
 import { useToast } from '../../hooks/useToast';
 
 /**
@@ -365,29 +366,21 @@ export default function WorldEvolutionSection(): JSX.Element {
         </p>
 
         {error !== '' && (
-          <div className="callout callout--danger" role="alert">
-            <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-            <div className="callout-body">
-              <p className="callout-title">Falha ao carregar o histórico do mundo</p>
-              <p>{error}</p>
-            </div>
-          </div>
+          <Callout variant="danger" title="Falha ao carregar o histórico do mundo">
+            <p>{error}</p>
+          </Callout>
         )}
 
         {versions === null && error === '' && <p className="muted">Carregando histórico do mundo…</p>}
 
         {versions !== null && versions.length < 2 && (
-          <div className="callout callout--info">
-            <Info size={18} className="callout-icon" aria-hidden="true" />
-            <div className="callout-body">
-              <p className="callout-title">Histórico insuficiente para comparar</p>
-              <p>
-                O histórico nasce a cada 'Atualizar dados do mundo' (SG_1) — duas
-                atualizações habilitam a comparação.
-                {versions.length === 1 ? ' Atualmente há 1 versão arquivada.' : ' Nenhuma versão arquivada ainda.'}
-              </p>
-            </div>
-          </div>
+          <Callout variant="info" title="Histórico insuficiente para comparar">
+            <p>
+              O histórico nasce a cada 'Atualizar dados do mundo' (SG_1) — duas
+              atualizações habilitam a comparação.
+              {versions.length === 1 ? ' Atualmente há 1 versão arquivada.' : ' Nenhuma versão arquivada ainda.'}
+            </p>
+          </Callout>
         )}
 
         {timelineReady && !timelineMode && !hasComparison && (
@@ -559,13 +552,9 @@ export default function WorldEvolutionSection(): JSX.Element {
             <p className="muted">{changesDescription}</p>
 
             {mapError !== '' && (
-              <div className="callout callout--danger" role="alert">
-                <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-                <div className="callout-body">
-                  <p className="callout-title">Falha ao carregar o mapa do mundo</p>
-                  <p>{mapError}</p>
-                </div>
-              </div>
+              <Callout variant="danger" title="Falha ao carregar o mapa do mundo">
+                <p>{mapError}</p>
+              </Callout>
             )}
 
             {activeChanges.length > 0 && (

@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { AlertTriangle, Bell, Check, Clock, Copy, Crosshair, Info, Plus, Radar, Share2, Swords } from 'lucide-react';
+import { AlertTriangle, Bell, Check, Clock, Copy, Crosshair, Plus, Radar, Send, Share2, Swords } from 'lucide-react';
 import { parseCoord, parseCoordList } from '@shared/coords';
 import {
   centralOpAnalysis,
@@ -20,6 +20,7 @@ import { originsFromSnapshot } from '@shared/origins-from-snapshot';
 import { solveDepartureForArrival, type NightBonusCfg } from '@shared/night-bonus';
 import { buildPlayerComms, planBbcode, renderTemplate, reservationList, sg6EntriesText } from '@shared/comms-package';
 import type { WorldPlayer } from '@shared/types';
+import Callout from '../../components/Callout';
 import Field from '../../components/Field';
 import PageHeader from '../../components/PageHeader';
 import TemplateLibrary from '../../components/TemplateLibrary';
@@ -247,8 +248,29 @@ function Sg4Stepper({ steps }: { steps: StepperStep[] }) {
   );
 }
 
+/** Cabeçalho de seção colapsada (progressive disclosure): a dica em 1 linha
+ *  reaproveita a redação do callout de gate da própria seção e o botão ghost
+ *  libera o conteúdo completo para o usuário avançado adiantar a etapa. */
+function GatedHint({ hint, onReveal }: { hint: string; onReveal: () => void }) {
+  return (
+    <div className="row" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+      <span className="muted">{hint}</span>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={onReveal}>
+        Mostrar mesmo assim
+      </button>
+    </div>
+  );
+}
+
+/** Props do SG_4: a ponte de navegação é OPCIONAL — o App injeta depois
+ *  (P1 hand-off). Tipos frouxos de propósito: 'sg6' e 'guerra' hoje, PageId
+ *  real quando o App ligar o fio. Sem prop, os botões de atalho não renderizam. */
+export interface Sg4PageProps {
+  onNavigate?: (page: string) => void;
+}
+
 /** SG_4 — Criação de Operações (screen=ally&mode=contracts, grupo OP). */
-export default function Sg4Page() {
+export default function Sg4Page({ onNavigate }: Sg4PageProps = {}) {
   const { push } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg4');
   // Preferências do módulo: os campos de entrada sobrevivem a F5/reinício.
@@ -324,6 +346,13 @@ export default function Sg4Page() {
   const [planPending, setPlanPending] = useState(false);
   const [planPosting, setPlanPosting] = useState(false);
   const [planResult, setPlanResult] = useState<string | null>(null);
+  // ---- Progressive disclosure (3-J): cada seção downstream tem um "revelar"
+  //  manual — default COLAPSADA enquanto o pré-requisito falta; com o
+  //  pré-requisito satisfeito o flag é ignorado e a seção renderiza como
+  //  sempre. Nada de lógica nova: só apresenta o que já estava lá.
+  const [distRevealed, setDistRevealed] = useState(false);
+  const [agendaRevealed, setAgendaRevealed] = useState(false);
+  const [commsRevealed, setCommsRevealed] = useState(false);
 
   // ---- Invalidação em cascata (stale): deriva dos snapshots dos inputs.
   //  Banners avisam (não destrutivo) — resultados continuam na tela, mas os
@@ -481,7 +510,7 @@ export default function Sg4Page() {
       push(
         'error',
         relationsFailed
-          ? 'Diplomacia indisponível — clique em "Tentar novamente" no aviso vermelho.'
+          ? 'Diplomacia indisponível — clique em "Tentar de novo" no aviso de atenção.'
           : 'Diplomacia ainda carregando — tente de novo em instantes.',
       );
       return;
@@ -645,7 +674,7 @@ export default function Sg4Page() {
    *  (alvos, planificação, distribuição, agenda) dos inputs restaurados. */
   function restoreDefaults(): void {
     const confirmed = window.confirm(
-      'Restaurar os padrões do módulo? TODOS os campos salvos do SG4 voltam ao padrão e os resultados na tela (alvos, distribuição e agenda) somem.',
+      'Restaurar padrões? TODOS os campos salvos deste módulo voltam ao padrão e os resultados na tela somem. Esta ação não pode ser desfeita.',
     );
     if (!confirmed) return;
     setEnemyTagsText(sg4Defaults.enemyTagsText);
@@ -1166,6 +1195,19 @@ export default function Sg4Page() {
       ? `${commsPlayers.length} jogador(es) com MP pronta`
       : 'precisa de distribuição + agenda';
 
+  // ---- Gates do progressive disclosure: as MESMAS condições dos callouts de
+  //  "vazio" que cada seção já computa (distribuição: origem E alvos vazios —
+  //  e sem resultado na tela, que nunca pode sumir). Agenda e comunicação
+  //  abrem com a distribuição, igual aos callouts delas.
+  const distGated =
+    planning === null &&
+    distribution === null &&
+    originsText.trim() === '' &&
+    lines.every((line) => parseCoordList(line.coordsText).length === 0);
+  const distCollapsed = distGated && !distRevealed;
+  const agendaCollapsed = distribution === null && !agendaRevealed;
+  const commsCollapsed = distribution === null && !commsRevealed;
+
   return (
     <section className="page">
       <PageHeader
@@ -1212,39 +1254,33 @@ export default function Sg4Page() {
 
       {/* ===== Seção A — Criação de OP com Coordenada Central ===== */}
       <section className="page-section" aria-labelledby="sg4-op-title">
-        <h2 className="section-title" id="sg4-op-title">Criação de OP com Coordenada Central</h2>
+        <h2 className="section-title" id="sg4-op-title">Criação de OP com coordenada central</h2>
         <p className="muted">{stepAlvosStatus}</p>
         {opRows === null && (
-          <div className="callout callout--info" style={{ marginBottom: 12 }}>
-            <Info size={18} className="callout-icon" aria-hidden="true" />
-            <div className="callout-body">
-              <p>
-                <strong>Comece por aqui</strong> — informe as tags inimigas e a coordenada central e
-                clique em "Carregar aldeias inimigas"; depois marque quem é alvo e quem é fake.
-              </p>
-            </div>
-          </div>
+          <Callout variant="info">
+            <p>
+              <strong>Comece por aqui</strong> — informe as tags inimigas e a coordenada central e
+              clique em "Carregar aldeias inimigas"; depois marque quem é alvo e quem é fake.
+            </p>
+          </Callout>
         )}
         <div className="card">
           <div className="card-body">
             {relationsFailed && (
-              <div className="callout callout--danger">
-                <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-                <div className="callout-body">
-                  <p>
-                    <strong>Diplomacia indisponível</strong> — o botão de preencher tags fica
-                    desativado até ela voltar; a OP funciona com tags digitadas à mão.{' '}
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      disabled={relationsBusy}
-                      onClick={() => void retryRelations()}
-                    >
-                      Tentar novamente
-                    </button>
-                  </p>
-                </div>
-              </div>
+              <Callout variant="warn">
+                <p>
+                  <strong>Diplomacia indisponível</strong> — o botão de preencher tags fica
+                  desativado até ela voltar; a OP funciona com tags digitadas à mão.{' '}
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={relationsBusy}
+                    onClick={() => void retryRelations()}
+                  >
+                    Tentar de novo
+                  </button>
+                </p>
+              </Callout>
             )}
             <div className="sg4-form-grid">
               <div className="sg4-span-2">
@@ -1320,7 +1356,7 @@ export default function Sg4Page() {
         {opRows !== null && (
           <div className="card">
             <div className="card-header">
-              <h3 className="card-title">Análise por Jogador ({opRows.length})</h3>
+              <h3 className="card-title">Análise por jogador ({opRows.length})</h3>
               <span className="spacer" />
               <div className="sg4-cutoff">
                 <label className="field-label" htmlFor="sg4-cutoff">Incluir aldeias até X horas de nobre</label>
@@ -1345,13 +1381,9 @@ export default function Sg4Page() {
             </div>
             {analysisStale && (
               <div className="card-body" style={{ paddingBottom: 0 }}>
-                <div className="callout callout--warn">
-                  <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-                  <div className="callout-body">
-                    <p className="callout-title">Análise possivelmente desatualizada</p>
-                    <p>Coordenada central ou tags mudaram — recarregue as aldeias antes de confiar nesta análise.</p>
-                  </div>
-                </div>
+                <Callout variant="warn" title="Análise possivelmente desatualizada">
+                  <p>Coordenada central ou tags mudaram — recarregue as aldeias antes de confiar nesta análise.</p>
+                </Callout>
               </div>
             )}
             <div className="table-wrap">
@@ -1518,477 +1550,494 @@ export default function Sg4Page() {
         />
 
         {/* Análise de espionagem — subseção da Seção A, logo após o bloco
-         *  "Separar alvos e fakes". O título "Análise de Espionagem" vem do
-         *  próprio componente (evita heading duplicado). */}
+         *  "Separar alvos e fakes". O título da seção vem do próprio
+         *  componente (evita heading duplicado). */}
         <SpyReportSection onUseAsTarget={setCentralCoordText} />
       </section>
 
       {/* ===== Seção B — Distribuição de Alvos de OP ===== */}
       <section className="page-section" aria-labelledby="sg4-dist-title">
-        <h2 className="section-title" id="sg4-dist-title">Distribuição de Alvos de OP</h2>
+        <h2 className="section-title" id="sg4-dist-title">Distribuição de alvos da OP</h2>
         <p className="muted">{stepDistributionStatus}</p>
-        {originsText.trim() === '' && (
-          <div className="callout callout--info" style={{ marginBottom: 12 }}>
-            <Info size={18} className="callout-icon" aria-hidden="true" />
-            <div className="callout-body">
+        {distCollapsed ? (
+          <GatedHint
+            hint="Sem origens nem alvos nesta etapa — conclua a etapa anterior (alvos e fakes) para liberar."
+            onReveal={() => setDistRevealed(true)}
+          />
+        ) : (
+          <>
+          {originsText.trim() === '' && (
+            <Callout variant="info">
               <p>
                 <strong>Sem origens ainda</strong> — cole a saída do contador do SG2 no campo
                 "Origens da tribo" abaixo (ou use o botão "Preencher com o SG2").
               </p>
-            </div>
-          </div>
-        )}
-        {lines.every((line) => parseCoordList(line.coordsText).length === 0) && (
-          <div className="callout callout--info" style={{ marginBottom: 12 }}>
-            <Info size={18} className="callout-icon" aria-hidden="true" />
-            <div className="callout-body">
+            </Callout>
+          )}
+          {lines.every((line) => parseCoordList(line.coordsText).length === 0) && (
+            <Callout variant="info">
               <p>
                 <strong>Sem alvos nesta etapa</strong> — cole as coordenadas dos alvos (123|456
                 456|123) na primeira linha de alvos, ou traga os alvos da etapa 1 com o botão "Usar
                 estes alvos na distribuição".
               </p>
-            </div>
-          </div>
-        )}
-        <div className="card">
-          <div className="card-body">
-            <Field
-              id="sg4-origins"
-              label="Origens da tribo (nick;fulls;coords)"
-              hint="Cada coordenada de origem = 1 NT estacionado (1 alvo a receber). Formatos: nick;fulls;coords ou nick;fulls;semis;coords (coords fulls primeiro — saída do contador do SG2)."
-              error={errorsB.origins}
-            >
-              <textarea
-                id="sg4-origins"
-                className="textarea sg4-coords"
-                rows={4}
-                placeholder={'hasua;50;686|420 686|424\nou com semis: hasua;3;2;686|420 686|424 690|430 691|431'}
-                value={originsText}
-                data-tip="Um jogador por linha: nick;fulls;semis;coords (semis opcional; fulls primeiro). Cada coordenada = 1 nobre pronto = 1 alvo. Cole a saída do SG2 ou use o botão."
-                aria-describedby={errorsB.origins !== undefined ? 'sg4-origins-error' : 'sg4-origins-hint'}
-                onChange={(event) => setOriginsText(event.target.value)}
-              />
-              <div>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => void fillOriginsFromSnapshot()}
-                  data-tip="Substitui o campo com as aldeias com nobre da última coleta do SG2."
-                >
-                  <Swords size={14} aria-hidden="true" />
-                  Preencher com o SG2 (aldeias com nobre)
-                </button>
-              </div>
-            </Field>
-
-            {originsPreview !== null && (
-              <div className="col" style={{ gap: 8, marginBottom: 12 }}>
-                <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                  <span className="pill pill--muted">{originsPreview.summary.players} jogador(es)</span>
-                  <span className="pill pill--muted">{originsPreview.summary.fulls} full(s)</span>
-                  {originsPreview.summary.semis > 0 && <span className="pill pill--muted">{originsPreview.summary.semis} semi(s)</span>}
-                  <span className="pill pill--muted">{originsPreview.summary.villages} origem(ns)</span>
-                </div>
-                <div className="table-wrap">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Jogador</th>
-                        <th scope="col" className="cell-num">Fulls</th>
-                        <th scope="col" className="cell-num">Semis</th>
-                        <th scope="col">Origens (F = full · S = semi)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {originsPreview.players.map((player) => {
-                        const semiSet = new Set((player.semiOrigins ?? []).map((coord) => `${coord.x}|${coord.y}`));
-                        return (
-                          <tr key={player.playerName}>
-                            <td className="cell-nowrap">{player.playerName}</td>
-                            <td className="cell-num"><strong>{player.fulls}</strong></td>
-                            <td className="cell-num">{player.semis ?? 0}</td>
-                            <td className="cell-detail">
-                              {player.origins.map((coord) => {
-                                const label = `${coord.x}|${coord.y}`;
-                                return semiSet.has(label)
-                                  ? <span key={label} className="text-warn">S {label} </span>
-                                  : <span key={label}>F {label} </span>;
-                              })}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {lines.map((line, index) => (
-              <div className="sg4-line-grid" key={index}>
-                <label className="field">
-                  <span className="field-label">Fulls — de</span>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={200}
-                    placeholder="0"
-                    value={line.fullsFrom}
-                    data-tip="Só entram nesta linha jogadores com essa quantidade de fulls. Vazio = todos."
-                    onChange={(event) => updateLine(index, 'fullsFrom', event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span className="field-label">Fulls — até</span>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={200}
-                    placeholder="200"
-                    value={line.fullsTo}
-                    data-tip="Só entram nesta linha jogadores com essa quantidade de fulls. Vazio = todos."
-                    onChange={(event) => updateLine(index, 'fullsTo', event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span className="field-label">Semis — de</span>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={200}
-                    placeholder="0"
-                    value={line.semisFrom}
-                    aria-label={`Semis mínimas da linha ${index + 1}`}
-                    data-tip="Filtro extra pela quantidade de semis (origens em formato legado têm 0 semis)."
-                    onChange={(event) => updateLine(index, 'semisFrom', event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span className="field-label">Semis — até</span>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={200}
-                    placeholder="200"
-                    value={line.semisTo}
-                    aria-label={`Semis máximas da linha ${index + 1}`}
-                    data-tip="Filtro extra pela quantidade de semis (origens em formato legado têm 0 semis)."
-                    onChange={(event) => updateLine(index, 'semisTo', event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span className="field-label">
-                    Coordenadas de destino ({(LINE_NAMES[index] ?? `${index + 1}ª linha`).toLowerCase()})
-                  </span>
-                  <textarea
-                    className="textarea"
-                    rows={2}
-                    placeholder="123|456 456|123 111|222"
-                    value={line.coordsText}
-                    data-tip="Alvos desta linha, separados por espaço. Só jogadores na faixa de fulls/semis ao lado podem pegá-los."
-                    onChange={(event) => updateLine(index, 'coordsText', event.target.value)}
-                  />
-                  <div>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      disabled={lines.length <= 1}
-                      onClick={() => removeLine(index)}
-                    >
-                      Remover linha
-                    </button>
-                  </div>
-                </label>
-              </div>
-            ))}
-            <button type="button" className="btn btn-ghost btn-sm" onClick={addLine}>
-              <Plus size={14} aria-hidden="true" />
-              Adicionar linha de alvos
-            </button>
-
-            <div className="sg4-params">
-              <fieldset className="field" data-tip="Cada origem escolhe o alvo elegível mais perto (ou mais longe) primeiro.">
-                <legend className="field-label">Priorizar</legend>
-                <div className="sg4-radio-row">
-                  <label className="checkbox-field">
-                    <input
-                      type="radio"
-                      name="sg4-priority"
-                      checked={priority === 'nearest'}
-                      onChange={() => setPriority('nearest')}
-                    />
-                    mais próximas
-                  </label>
-                  <label className="checkbox-field">
-                    <input
-                      type="radio"
-                      name="sg4-priority"
-                      checked={priority === 'farthest'}
-                      onChange={() => setPriority('farthest')}
-                    />
-                    mais distantes
-                  </label>
-                </div>
-              </fieldset>
-              <label className="field">
-                <span className="field-label">Moral mínima (%) — 0 desliga</span>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={minMoraleText}
-                  disabled={!moraleActive}
-                  data-tip="Moral mínima do par atacante→alvo. 0 desliga o filtro."
-                  aria-describedby={!moraleActive ? 'sg4-morale-hint' : undefined}
-                  onChange={(event) => setMinMoraleText(event.target.value)}
-                />
-                {!moraleActive && (
-                  <p className="field-hint" id="sg4-morale-hint">
-                    Mundo clássico — sem moral por pontos
-                  </p>
-                )}
-              </label>
-              <label className="field">
-                <span className="field-label">Distância máxima (campos)</span>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  value={maxFieldsText}
-                  data-tip="Distância máxima origem→alvo, em campos. O heatmap mostra todos; o filtro vale na distribuição."
-                  onChange={(event) => setMaxFieldsText(event.target.value)}
-                />
-              </label>
-            </div>
-
-            {/* Curva da moral com a linha da moral mínima configurada — só
-                quando o valor é um número válido em 0–100 (senão, curva pura). */}
-            {moraleActive &&
-              (() => {
-                const mm = Number(minMoraleText);
-                return (
-                  <MoraleCurve
-                    {...(Number.isFinite(mm) && mm >= 0 && mm <= 100 ? { minMorale: Math.round(mm) } : {})}
-                  />
-                );
-              })()}
-
-            <div className="sg4-form-actions">
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={busyB}
-                onClick={() => void runDistribution(true)}
-                data-tip="Só calcula a matriz origem×alvo para revisar — nada é fechado."
-              >
-                <Crosshair size={15} aria-hidden="true" />
-                {busyB ? 'Calculando…' : 'Simular (ver mapa de calor)'}
-              </button>
-              <button
-                type="button"
-                className="btn sg4-btn-green"
-                disabled={busyB}
-                onClick={() => void runDistribution(false)}
-                data-tip="Fecha a distribuição: cada origem fica com 1 alvo e habilita agenda, MPs, mapa e arquivo."
-              >
-                <Share2 size={15} aria-hidden="true" />
-                {busyB ? 'Calculando…' : 'Distribuir agora'}
-              </button>
-            </div>
-            {runErrorB !== '' && (
-              <p className="error" role="alert">{runErrorB}</p>
-            )}
-          </div>
-        </div>
-
-        {planning !== null && (
+            </Callout>
+          )}
           <div className="card">
-            <div className="card-header">
-              <h3 className="card-title">Simulação (origem × alvo)</h3>
-              <span className="spacer" />
-              <span className="pill pill--muted">
-                {planning.matrix.length} origens · {planning.lineTargets.length} alvos
-              </span>
-            </div>
-            {planning.matrix.length === 0 || planning.lineTargets.length === 0 ? (
-              <div className="card-body">
-                <p className="muted">Matriz vazia — confira as origens e os alvos informados.</p>
-              </div>
-            ) : (
-              <div className="card-body">
-                <div className="table-wrap sg4-heat-wrap">
-                  <table className="table sg4-heat">
-                    <thead>
-                      <tr>
-                        <th scope="col">Origem (Jogador)</th>
-                        {planning.lineTargets.map((target, index) => (
-                          <th scope="col" key={`${target.x}|${target.y}-${index}`}>
-                            {target.x}|{target.y}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {planning.matrix.map((row) => (
-                        <tr key={row.origin}>
-                          <th scope="row" className="cell-nowrap sg4-heat-origin">
-                            <span className="muted">{row.origin}</span> {row.player}
-                            {row.tier === 'semi' && <span className="text-warn" title="Origem SEMI (população ofensiva abaixo do limiar de full)"> semi</span>}
-                          </th>
-                      {row.cells.map((cell, index) => {
-                        const span = heatRange.max - heatRange.min;
-                        const t = span === 0 ? 0.5 : (cell.hours - heatRange.min) / span;
-                        const morale = cell.morale;
-                        // Célula além da "Distância máxima": apagada (aviso, não filtro).
-                        const far = maxFieldsLimit !== null && cell.fields > maxFieldsLimit;
-                        const tipParts = [
-                          `${cell.hours.toFixed(1).replace('.', ',')}h de viagem`,
-                          `${cell.fields} campos`,
-                        ];
-                        if (morale !== null) tipParts.push(`moral ${morale}%`);
-                        if (far && maxFieldsLimit !== null) tipParts.push(`fora do limite de ${maxFieldsLimit} campos`);
-                        return (
-                          <td
-                            key={index}
-                            className={far ? 'sg4-heat-cell sg4-heat-cell--far' : 'sg4-heat-cell'}
-                            style={heatStyle(t)}
-                            data-tip={tipParts.join(' · ')}
-                          >
-                            {cell.hours.toFixed(1)}
-                          </td>
-                        );
-                      })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <p className="muted sg4-heat-legend">
-                  Horas de NOBRE da origem até o alvo: verde (mais perto) → amarelo → vermelho (mais longe).
-                  Células apagadas estão além da "Distância máxima" — o filtro vale na distribuição.
-                  Passe o mouse sobre as células para ver horas, campos e moral.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {distribution !== null && (
-          <div className="card">
-            <div className="card-header">
-              <h3 className="card-title">Distribuição</h3>
-              <span className="spacer" />
-              <span className="pill pill--muted">
-                {distribution.assignments.length} pares fechados · {distribution.orphanOrigins.length} origens sem
-                alvo · {distribution.orphanTargets.length} alvos sem atacante
-              </span>
-            </div>
-            {distributionStale && (
-              <div className="card-body" style={{ paddingBottom: 0 }}>
-                <div className="callout callout--warn">
-                  <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-                  <div className="callout-body">
-                    <p className="callout-title">Distribuição possivelmente desatualizada</p>
-                    <p>Os parâmetros mudaram depois da distribuição — redistribua antes de usar.</p>
-                  </div>
-                </div>
-              </div>
-            )}
             <div className="card-body">
-              <label className="field">
-                <span className="field-label">Resultado: quem ataca o quê (nick;coords)</span>
+              <Field
+                id="sg4-origins"
+                label="Origens da tribo (nick;fulls;coords)"
+                hint="Cada coordenada de origem = 1 NT estacionado (1 alvo a receber). Formatos: nick;fulls;coords ou nick;fulls;semis;coords (coords fulls primeiro — saída do contador do SG2)."
+                error={errorsB.origins}
+              >
                 <textarea
+                  id="sg4-origins"
                   className="textarea sg4-coords"
-                  rows={6}
-                  readOnly
-                  value={distributionSummaryText}
-                  aria-label="Resultado da distribuição: quem ataca o quê (nick;coords)"
+                  rows={4}
+                  placeholder={'hasua;50;686|420 686|424\nou com semis: hasua;3;2;686|420 686|424 690|430 691|431'}
+                  value={originsText}
+                  data-tip="Um jogador por linha: nick;fulls;semis;coords (semis opcional; fulls primeiro). Cada coordenada = 1 nobre pronto = 1 alvo. Cole a saída do SG2 ou use o botão."
+                  aria-describedby={errorsB.origins !== undefined ? 'sg4-origins-error' : 'sg4-origins-hint'}
+                  onChange={(event) => setOriginsText(event.target.value)}
                 />
                 <div>
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
-                    disabled={distribution.assignments.length === 0}
-                    onClick={() => void copyText(distributionSummary(distribution))}
+                    onClick={() => void fillOriginsFromSnapshot()}
+                    data-tip="Substitui o campo com as aldeias com nobre da última coleta do SG2."
                   >
-                    <Copy size={14} aria-hidden="true" />
-                    Copiar distribuição
+                    <Swords size={14} aria-hidden="true" />
+                    Preencher com o SG2 (aldeias com nobre)
                   </button>
                 </div>
-              </label>
-              {distribution.orphanOrigins.length > 0 && (
-                <p className="muted">
-                  Origens sem alvo:{' '}
-                  {distribution.orphanOrigins.map((orphan) => `${orphan.playerName} (${orphan.origin})`).join(' · ')}{' '}
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() =>
-                      void copyText(distribution.orphanOrigins.map((orphan) => orphan.origin).join(' '))
-                    }
-                  >
-                    <Copy size={14} aria-hidden="true" />
-                    Copiar
-                  </button>
-                </p>
+              </Field>
+
+              {originsPreview !== null && (
+                <div className="col" style={{ gap: 8, marginBottom: 12 }}>
+                  <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                    <span className="pill pill--muted">{originsPreview.summary.players} jogador(es)</span>
+                    <span className="pill pill--muted">{originsPreview.summary.fulls} full(s)</span>
+                    {originsPreview.summary.semis > 0 && <span className="pill pill--muted">{originsPreview.summary.semis} semi(s)</span>}
+                    <span className="pill pill--muted">{originsPreview.summary.villages} origem(ns)</span>
+                  </div>
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Jogador</th>
+                          <th scope="col" className="cell-num">Fulls</th>
+                          <th scope="col" className="cell-num">Semis</th>
+                          <th scope="col">Origens (F = full · S = semi)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {originsPreview.players.map((player) => {
+                          const semiSet = new Set((player.semiOrigins ?? []).map((coord) => `${coord.x}|${coord.y}`));
+                          return (
+                            <tr key={player.playerName}>
+                              <td className="cell-nowrap">{player.playerName}</td>
+                              <td className="cell-num"><strong>{player.fulls}</strong></td>
+                              <td className="cell-num">{player.semis ?? 0}</td>
+                              <td className="cell-detail">
+                                {player.origins.map((coord) => {
+                                  const label = `${coord.x}|${coord.y}`;
+                                  return semiSet.has(label)
+                                    ? <span key={label} className="text-warn">S {label} </span>
+                                    : <span key={label}>F {label} </span>;
+                                })}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               )}
-              {distribution.orphanTargets.length > 0 && (
-                <p className="muted">
-                  Alvos sem atacante: {distribution.orphanTargets.join(' ')}{' '}
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => void copyText(distribution.orphanTargets.join(' '))}
-                  >
-                    <Copy size={14} aria-hidden="true" />
-                    Copiar
-                  </button>
-                </p>
-              )}
-              {distribution.orphanOrigins.length === 0 && distribution.orphanTargets.length === 0 && (
-                <p className="ok">Todos os alvos receberam um atacante.</p>
-              )}
-              <div className="sg4-params" style={{ marginTop: 12 }}>
+
+              {lines.map((line, index) => (
+                <div className="sg4-line-grid" key={index}>
+                  {/* Faixas fulls/semis: UM rótulo por par (legível) — os limites
+                      de/até são identificados por aria-label e placeholder. */}
+                  <fieldset className="field" style={{ gridColumn: 'span 2' }}>
+                    <legend className="field-label">Fulls (de–até)</legend>
+                    <div className="row" style={{ flexWrap: 'nowrap' }}>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={200}
+                        placeholder="0"
+                        value={line.fullsFrom}
+                        style={{ flex: 1, minWidth: 0 }}
+                        aria-label={`Fulls mínimas da linha ${index + 1}`}
+                        data-tip="Só entram nesta linha jogadores com essa quantidade de fulls. Vazio = todos."
+                        onChange={(event) => updateLine(index, 'fullsFrom', event.target.value)}
+                      />
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={200}
+                        placeholder="200"
+                        value={line.fullsTo}
+                        style={{ flex: 1, minWidth: 0 }}
+                        aria-label={`Fulls máximas da linha ${index + 1}`}
+                        data-tip="Só entram nesta linha jogadores com essa quantidade de fulls. Vazio = todos."
+                        onChange={(event) => updateLine(index, 'fullsTo', event.target.value)}
+                      />
+                    </div>
+                  </fieldset>
+                  <fieldset className="field" style={{ gridColumn: 'span 2' }}>
+                    <legend className="field-label">Semis (de–até)</legend>
+                    <div className="row" style={{ flexWrap: 'nowrap' }}>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={200}
+                        placeholder="0"
+                        value={line.semisFrom}
+                        style={{ flex: 1, minWidth: 0 }}
+                        aria-label={`Semis mínimas da linha ${index + 1}`}
+                        data-tip="Filtro extra pela quantidade de semis (origens em formato legado têm 0 semis)."
+                        onChange={(event) => updateLine(index, 'semisFrom', event.target.value)}
+                      />
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={200}
+                        placeholder="200"
+                        value={line.semisTo}
+                        style={{ flex: 1, minWidth: 0 }}
+                        aria-label={`Semis máximas da linha ${index + 1}`}
+                        data-tip="Filtro extra pela quantidade de semis (origens em formato legado têm 0 semis)."
+                        onChange={(event) => updateLine(index, 'semisTo', event.target.value)}
+                      />
+                    </div>
+                  </fieldset>
+                  <label className="field">
+                    <span className="field-label">
+                      Coordenadas de destino ({(LINE_NAMES[index] ?? `${index + 1}ª linha`).toLowerCase()})
+                    </span>
+                    <textarea
+                      className="textarea"
+                      rows={2}
+                      placeholder="123|456 456|123 111|222"
+                      value={line.coordsText}
+                      data-tip="Alvos desta linha, separados por espaço. Só jogadores na faixa de fulls/semis ao lado podem pegá-los."
+                      onChange={(event) => updateLine(index, 'coordsText', event.target.value)}
+                    />
+                    <div>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        disabled={lines.length <= 1}
+                        onClick={() => removeLine(index)}
+                      >
+                        Remover linha
+                      </button>
+                    </div>
+                  </label>
+                </div>
+              ))}
+              <button type="button" className="btn btn-ghost btn-sm" onClick={addLine}>
+                <Plus size={14} aria-hidden="true" />
+                Adicionar linha de alvos
+              </button>
+
+              <div className="sg4-params">
+                <fieldset className="field" data-tip="Cada origem escolhe o alvo elegível mais perto (ou mais longe) primeiro.">
+                  <legend className="field-label">Priorizar</legend>
+                  <div className="sg4-radio-row">
+                    <label className="checkbox-field">
+                      <input
+                        type="radio"
+                        name="sg4-priority"
+                        checked={priority === 'nearest'}
+                        onChange={() => setPriority('nearest')}
+                      />
+                      mais próximas
+                    </label>
+                    <label className="checkbox-field">
+                      <input
+                        type="radio"
+                        name="sg4-priority"
+                        checked={priority === 'farthest'}
+                        onChange={() => setPriority('farthest')}
+                      />
+                      mais distantes
+                    </label>
+                  </div>
+                </fieldset>
                 <label className="field">
-                  <span className="field-label">Nome da OP (para o histórico)</span>
+                  <span className="field-label">Moral mínima (%) — 0 desliga</span>
                   <input
                     className="input"
-                    value={opTitle}
-                    data-tip="Nome com que a OP entra no arquivo de OPs (Sala de Guerra) e no plano do fórum."
-                    onChange={(event) => setOpTitle(event.target.value)}
-                    aria-label="Nome da OP para o histórico"
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={minMoraleText}
+                    disabled={!moraleActive}
+                    data-tip="Moral mínima do par atacante→alvo. 0 desliga o filtro."
+                    aria-describedby={!moraleActive ? 'sg4-morale-hint' : undefined}
+                    onChange={(event) => setMinMoraleText(event.target.value)}
+                  />
+                  {!moraleActive && (
+                    <p className="field-hint" id="sg4-morale-hint">
+                      Mundo clássico — sem moral por pontos
+                    </p>
+                  )}
+                </label>
+                <label className="field">
+                  <span className="field-label">Distância máxima (campos)</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    value={maxFieldsText}
+                    data-tip="Distância máxima origem→alvo, em campos. O heatmap mostra todos; o filtro vale na distribuição."
+                    onChange={(event) => setMaxFieldsText(event.target.value)}
                   />
                 </label>
-                <div className="field">
-                  <span className="field-label">Arquivo de OPs</span>
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    disabled={
-                      archiving || distribution.assignments.length === 0 || distributionStale
-                    }
-                    title={
-                      distributionStale
-                        ? 'Os parâmetros mudaram depois da distribuição — redistribua antes de arquivar.'
-                        : undefined
-                    }
-                    onClick={() => void archiveOp()}
-                  >
-                    {archiving ? <><span className="btn-spinner" aria-hidden="true" /> Arquivando…</> : 'Arquivar OP (Sala de Guerra)'}
-                  </button>
+              </div>
+
+              {/* Curva da moral com a linha da moral mínima configurada — só
+                  quando o valor é um número válido em 0–100 (senão, curva pura). */}
+              {moraleActive &&
+                (() => {
+                  const mm = Number(minMoraleText);
+                  return (
+                    <MoraleCurve
+                      {...(Number.isFinite(mm) && mm >= 0 && mm <= 100 ? { minMorale: Math.round(mm) } : {})}
+                    />
+                  );
+                })()}
+
+              <div className="sg4-form-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={busyB}
+                  onClick={() => void runDistribution(true)}
+                  data-tip="Só calcula a matriz origem×alvo para revisar — nada é fechado."
+                >
+                  <Crosshair size={15} aria-hidden="true" />
+                  {busyB ? 'Calculando…' : 'Simular (ver mapa de calor)'}
+                </button>
+                <button
+                  type="button"
+                  className="btn sg4-btn-green"
+                  disabled={busyB}
+                  onClick={() => void runDistribution(false)}
+                  data-tip="Fecha a distribuição: cada origem fica com 1 alvo e habilita agenda, MPs, mapa e arquivo."
+                >
+                  <Share2 size={15} aria-hidden="true" />
+                  {busyB ? 'Calculando…' : 'Distribuir agora'}
+                </button>
+              </div>
+              {runErrorB !== '' && (
+                <p className="error" role="alert">{runErrorB}</p>
+              )}
+            </div>
+          </div>
+
+          {planning !== null && (
+            <div className="card">
+              <div className="card-header">
+                <h3 className="card-title">Simulação (origem × alvo)</h3>
+                <span className="spacer" />
+                <span className="pill pill--muted">
+                  {planning.matrix.length} origens · {planning.lineTargets.length} alvos
+                </span>
+              </div>
+              {planning.matrix.length === 0 || planning.lineTargets.length === 0 ? (
+                <div className="card-body">
+                  <p className="muted">Matriz vazia — confira as origens e os alvos informados.</p>
+                </div>
+              ) : (
+                <div className="card-body">
+                  <div className="table-wrap sg4-heat-wrap">
+                    <table className="table sg4-heat">
+                      <thead>
+                        <tr>
+                          <th scope="col">Origem (Jogador)</th>
+                          {planning.lineTargets.map((target, index) => (
+                            <th scope="col" key={`${target.x}|${target.y}-${index}`}>
+                              {target.x}|{target.y}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {planning.matrix.map((row) => (
+                          <tr key={row.origin}>
+                            <th scope="row" className="cell-nowrap sg4-heat-origin">
+                              <span className="muted">{row.origin}</span> {row.player}
+                              {row.tier === 'semi' && <span className="text-warn" title="Origem SEMI (população ofensiva abaixo do limiar de full)"> semi</span>}
+                            </th>
+                        {row.cells.map((cell, index) => {
+                          const span = heatRange.max - heatRange.min;
+                          const t = span === 0 ? 0.5 : (cell.hours - heatRange.min) / span;
+                          const morale = cell.morale;
+                          // Célula além da "Distância máxima": apagada (aviso, não filtro).
+                          const far = maxFieldsLimit !== null && cell.fields > maxFieldsLimit;
+                          const tipParts = [
+                            `${cell.hours.toFixed(1).replace('.', ',')}h de viagem`,
+                            `${cell.fields} campos`,
+                          ];
+                          if (morale !== null) tipParts.push(`moral ${morale}%`);
+                          if (far && maxFieldsLimit !== null) tipParts.push(`fora do limite de ${maxFieldsLimit} campos`);
+                          return (
+                            <td
+                              key={index}
+                              className={far ? 'sg4-heat-cell sg4-heat-cell--far' : 'sg4-heat-cell'}
+                              style={heatStyle(t)}
+                              data-tip={tipParts.join(' · ')}
+                            >
+                              {cell.hours.toFixed(1)}
+                            </td>
+                          );
+                        })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="muted sg4-heat-legend">
+                    Horas de NOBRE da origem até o alvo: verde (mais perto) → amarelo → vermelho (mais longe).
+                    Células apagadas estão além da "Distância máxima" — o filtro vale na distribuição.
+                    Passe o mouse sobre as células para ver horas, campos e moral.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {distribution !== null && (
+            <div className="card">
+              <div className="card-header">
+                <h3 className="card-title">Distribuição</h3>
+                <span className="spacer" />
+                <span className="pill pill--muted">
+                  {distribution.assignments.length} pares fechados · {distribution.orphanOrigins.length} origens sem
+                  alvo · {distribution.orphanTargets.length} alvos sem atacante
+                </span>
+              </div>
+              {distributionStale && (
+                <div className="card-body" style={{ paddingBottom: 0 }}>
+                  <Callout variant="warn" title="Distribuição possivelmente desatualizada">
+                    <p>Os parâmetros mudaram depois da distribuição — redistribua antes de usar.</p>
+                  </Callout>
+                </div>
+              )}
+              <div className="card-body">
+                <label className="field">
+                  <span className="field-label">Resultado: quem ataca o quê (nick;coords)</span>
+                  <textarea
+                    className="textarea sg4-coords"
+                    rows={6}
+                    readOnly
+                    value={distributionSummaryText}
+                    aria-label="Resultado da distribuição: quem ataca o quê (nick;coords)"
+                  />
+                  <div>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      disabled={distribution.assignments.length === 0}
+                      onClick={() => void copyText(distributionSummary(distribution))}
+                    >
+                      <Copy size={14} aria-hidden="true" />
+                      Copiar distribuição
+                    </button>
+                  </div>
+                </label>
+                {distribution.orphanOrigins.length > 0 && (
+                  <p className="muted">
+                    Origens sem alvo:{' '}
+                    {distribution.orphanOrigins.map((orphan) => `${orphan.playerName} (${orphan.origin})`).join(' · ')}{' '}
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() =>
+                        void copyText(distribution.orphanOrigins.map((orphan) => orphan.origin).join(' '))
+                      }
+                    >
+                      <Copy size={14} aria-hidden="true" />
+                      Copiar
+                    </button>
+                  </p>
+                )}
+                {distribution.orphanTargets.length > 0 && (
+                  <p className="muted">
+                    Alvos sem atacante: {distribution.orphanTargets.join(' ')}{' '}
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => void copyText(distribution.orphanTargets.join(' '))}
+                    >
+                      <Copy size={14} aria-hidden="true" />
+                      Copiar
+                    </button>
+                  </p>
+                )}
+                {distribution.orphanOrigins.length === 0 && distribution.orphanTargets.length === 0 && (
+                  <p className="ok">Todos os alvos receberam um atacante.</p>
+                )}
+                <div className="sg4-params" style={{ marginTop: 12 }}>
+                  <label className="field">
+                    <span className="field-label">Nome da OP (para o histórico)</span>
+                    <input
+                      className="input"
+                      value={opTitle}
+                      data-tip="Nome com que a OP entra no arquivo de OPs (Sala de Guerra) e no plano do fórum."
+                      onChange={(event) => setOpTitle(event.target.value)}
+                      aria-label="Nome da OP para o histórico"
+                    />
+                  </label>
+                  <div className="field">
+                    <span className="field-label">Arquivo de OPs</span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      disabled={
+                        archiving || distribution.assignments.length === 0 || distributionStale
+                      }
+                      title={
+                        distributionStale
+                          ? 'Os parâmetros mudaram depois da distribuição — redistribua antes de arquivar.'
+                          : undefined
+                      }
+                      onClick={() => void archiveOp()}
+                    >
+                      {archiving ? <><span className="btn-spinner" aria-hidden="true" /> Arquivando…</> : 'Arquivar OP (Sala de Guerra)'}
+                    </button>
+                    {/* Hand-off pós-arquivo: atalho para acompanhar a OP na Sala
+                        de Guerra — só existe quando o App injeta onNavigate. */}
+                    {onNavigate !== undefined && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => onNavigate('guerra')}
+                        data-tip="Abre a Sala de Guerra para acompanhar esta OP arquivada."
+                      >
+                        Abrir Sala de Guerra
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {distribution !== null && distribution.assignments.length > 0 && (
-          <DistributionMap assignments={distribution.assignments} onError={handleMapError} />
+          {distribution !== null && distribution.assignments.length > 0 && (
+            <DistributionMap assignments={distribution.assignments} onError={handleMapError} />
+          )}
+          </>
         )}
       </section>
 
@@ -1996,18 +2045,20 @@ export default function Sg4Page() {
            Seção PERMANENTE no DOM (a âncora do stepper existe mesmo sem
            distribuição): sem distribuição, callout orienta o que fazer antes. */}
       <section className="page-section" aria-labelledby="sg4-agenda-title">
-        <h2 className="section-title" id="sg4-agenda-title">Agenda de Envio (timing da OP)</h2>
+        <h2 className="section-title" id="sg4-agenda-title">Agenda de envio (timing da OP)</h2>
         <p className="muted">{stepAgendaStatus}</p>
-        {distribution === null ? (
-          <div className="callout callout--info">
-            <Info size={18} className="callout-icon" aria-hidden="true" />
-            <div className="callout-body">
-              <p>
-                <strong>A agenda abre depois da distribuição</strong> — feche quem ataca o quê na
-                etapa 2 e volte aqui para calcular a que horas cada um precisa enviar.
-              </p>
-            </div>
-          </div>
+        {agendaCollapsed ? (
+          <GatedHint
+            hint="A agenda abre depois da distribuição — conclua a etapa anterior para liberar."
+            onReveal={() => setAgendaRevealed(true)}
+          />
+        ) : distribution === null ? (
+          <Callout variant="info">
+            <p>
+              <strong>A agenda abre depois da distribuição</strong> — feche quem ataca o quê na
+              etapa 2 e volte aqui para calcular a que horas cada um precisa enviar.
+            </p>
+          </Callout>
         ) : (
           <div className="card">
             <div className="card-header">
@@ -2017,13 +2068,9 @@ export default function Sg4Page() {
             </div>
             <div className="card-body">
               {scheduleStale && (
-                <div className="callout callout--warn">
-                  <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-                  <div className="callout-body">
-                    <p className="callout-title">Agenda possivelmente desatualizada</p>
-                    <p>Horários mudaram — recalcule a agenda.</p>
-                  </div>
-                </div>
+                <Callout variant="warn" title="Agenda possivelmente desatualizada">
+                  <p>Horários mudaram — recalcule a agenda.</p>
+                </Callout>
               )}
               <div className="sg4-params">
                 <label className="field">
@@ -2178,18 +2225,20 @@ export default function Sg4Page() {
       {/* ===== Etapa 4 — Pacote de Comunicação =====
            Também PERMANENTE no DOM: sem distribuição, callout orienta. */}
       <section className="page-section" aria-labelledby="sg4-comms-title">
-        <h2 className="section-title" id="sg4-comms-title">Pacote de Comunicação</h2>
+        <h2 className="section-title" id="sg4-comms-title">Pacote de comunicação</h2>
         <p className="muted">{stepCommsStatus}</p>
-        {distribution === null ? (
-          <div className="callout callout--info">
-            <Info size={18} className="callout-icon" aria-hidden="true" />
-            <div className="callout-body">
-              <p>
-                <strong>MPs e plano aparecem depois da distribuição</strong> — cada jogador só tem
-                alvos e horários para receber quando a OP está distribuída e agendada.
-              </p>
-            </div>
-          </div>
+        {commsCollapsed ? (
+          <GatedHint
+            hint="MPs e plano aparecem depois da distribuição — conclua a etapa anterior para liberar."
+            onReveal={() => setCommsRevealed(true)}
+          />
+        ) : distribution === null ? (
+          <Callout variant="info">
+            <p>
+              <strong>MPs e plano aparecem depois da distribuição</strong> — cada jogador só tem
+              alvos e horários para receber quando a OP está distribuída e agendada.
+            </p>
+          </Callout>
         ) : (
           <div className="card">
             <div className="card-header">
@@ -2219,7 +2268,7 @@ export default function Sg4Page() {
               />
               {scheduleRows === null || scheduleRows.length === 0 ? (
                 <p className="muted">
-                  Calcule a Agenda de Envio acima para gerar MPs com #horarios# — BBCode e lista de reservas já funcionam só com a distribuição.
+                  Calcule a agenda de envio acima para gerar MPs com #horarios# — BBCode e lista de reservas já funcionam só com a distribuição.
                 </p>
               ) : commsPlayers === null ? (
                 <p className="error" role="alert">
@@ -2229,13 +2278,9 @@ export default function Sg4Page() {
               ) : (
                 <>
                   {mpPreview.error !== '' && (
-                    <div className="callout callout--danger">
-                      <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-                      <div className="callout-body">
-                        <p className="callout-title">Prévia da MP falhou</p>
-                        <p>{mpPreview.error}</p>
-                      </div>
-                    </div>
+                    <Callout variant="danger" title="Prévia da MP falhou">
+                      <p>{mpPreview.error}</p>
+                    </Callout>
                   )}
                   {mpPreview.preview !== null && (
                     <div>
@@ -2250,8 +2295,21 @@ export default function Sg4Page() {
                       onClick={() => void copyText(sg6EntriesText(commsPlayers))}
                     >
                       <Copy size={14} aria-hidden="true" />
-                      Copiar destinatários (SG6)
+                      Copiar destinatários (Reservas e MPs)
                     </button>
+                    {/* Hand-off: leva a lista de destinatários ao módulo certo
+                        (Reservas e MPs) — só existe com onNavigate injetado. */}
+                    {onNavigate !== undefined && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => onNavigate('sg6')}
+                        data-tip="Abre o módulo de Reservas e MPs para disparar as MPs desta OP."
+                      >
+                        <Send size={14} aria-hidden="true" />
+                        Ir para Reservas e MPs
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="btn btn-ghost btn-sm"
@@ -2332,7 +2390,7 @@ export default function Sg4Page() {
                     </div>
                   )}
                   {(scheduleRows === null || scheduleRows.length === 0) && (
-                    <p className="muted">Calcule a Agenda de Envio antes de postar — o plano do fórum sem horários não serve ao time.</p>
+                    <p className="muted">Calcule a agenda de envio antes de postar — o plano do fórum sem horários não serve ao time.</p>
                   )}
                 </div>
               </div>
@@ -2388,7 +2446,7 @@ function DistributionMap({ assignments, onError }: { assignments: { playerName: 
   return (
     <div className="card sg4-mapviz">
       <div className="card-header">
-        <h3 className="card-title">Visualização da Distribuição</h3>
+        <h3 className="card-title">Visualização da distribuição</h3>
         <span className="muted">● origens (NTs) · □ alvos</span>
       </div>
       <div className="card-body">

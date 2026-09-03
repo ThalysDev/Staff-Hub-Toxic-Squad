@@ -15,10 +15,19 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { dialog } from 'electron';
 
 vi.mock('electron', async () => {
   const { createElectronMock } = await import('./electron-mock');
-  return createElectronMock();
+  // O electron-mock base não expõe `dialog` (nenhum service tocava). O
+  // chargeBatch abre o diálogo nativo DENTRO do service — mock default:
+  // CONFIRMADO (response 1); os testes de cancelamento sobrescrevem o retorno.
+  return {
+    ...createElectronMock(),
+    dialog: {
+      showMessageBox: vi.fn(async () => ({ response: 1, checkboxChecked: false })),
+    },
+  };
 });
 
 import {
@@ -85,8 +94,16 @@ async function buildHarness(options: { settings?: Partial<AppSettings>; login?: 
   return { service: new Sg6Service(twSession, journal, settingsStore, queue), journal, queue };
 }
 
+/** Acesso tipado ao stub do diálogo nativo instalado na factory do vi.mock. */
+function showMessageBoxMock() {
+  return vi.mocked(dialog.showMessageBox);
+}
+
 beforeEach(() => {
   resetElectronMock();
+  // Diálogo nativo: default CONFIRMADO; mockReset limpa calls/overrides do teste anterior.
+  showMessageBoxMock().mockReset();
+  showMessageBoxMock().mockResolvedValue({ response: 1, checkboxChecked: false });
 });
 
 afterAll(() => {
@@ -392,6 +409,162 @@ describe('Sg6Service.sendMps (MPs personalizadas)', () => {
         { playerName: 'Spartacus', coords: ['501|501'] },
       ], true),
     ).rejects.toThrow('maior que o teto das settings (1)');
+    expect(fetchCallCount('screen=mail')).toBe(0);
+  });
+});
+
+describe('Sg6Service.chargeBatch (cobrança em lote — Sala de Guerra)', () => {
+  const POST_SENT = '<html><body><div class="success">Mensagem enviada</div></body></html>';
+
+  function chargeEntry(nick: string, body = 'Faltam 2 ataque(s) em 500|500 501|501'): { nick: string; subject: string; body: string } {
+    return { nick, subject: '🔔 OP — faltam seus ataques', body };
+  }
+
+  function chargeRoutes(postHandler: (init: { body?: string; method?: string }, call: number) => ReturnType<typeof html>): FetchRoute[] {
+    let call = 0;
+    return [
+      { match: 'action=send', handler: (init) => { call += 1; return postHandler(init, call); } },
+      // mesmo formulário de nova MP do sendMps (tokens csrf/village)
+      { match: 'screen=mail&mode=new', handler: () => html(fixture('mail-new.html')) },
+    ];
+  }
+
+  it('lote aceito: UM diálogo nativo agregado, 2 MPs enviadas e journal com a linha do lote', async () => {
+    const bodies: string[] = [];
+    const { service, journal, queue } = await buildHarness({
+      routes: chargeRoutes((init) => {
+        bodies.push(init.body ?? '');
+        return html(POST_SENT);
+      }),
+    });
+
+    const { results } = await service.chargeBatch([chargeEntry('Reboucas'), chargeEntry('Spartacus', 'Falta 1 ataque(s) em 502|502')]);
+
+    expect(results).toEqual([
+      { nick: 'Reboucas', ok: true, detail: 'MP enviada.', cancelled: false },
+      { nick: 'Spartacus', ok: true, detail: 'MP enviada.', cancelled: false },
+    ]);
+    expect(bodies).toHaveLength(2);
+    expect(new URLSearchParams(bodies[0] ?? '').get('to')).toBe('Reboucas');
+    expect(new URLSearchParams(bodies[1] ?? '').get('to')).toBe('Spartacus');
+    // UM diálogo para o lote inteiro, com contagem + nicks agregados
+    expect(showMessageBoxMock()).toHaveBeenCalledTimes(1);
+    const options = showMessageBoxMock().mock.calls[0]?.[0] as { message: string; detail: string; buttons?: string[] };
+    expect(options.message).toBe('Confirmar o envio de 2 MP(s) de cobrança? (uma por jogador — o envio é real)');
+    expect(options.detail).toContain('Reboucas, Spartacus');
+    // cancelar é o default (defesa em profundidade, C9)
+    expect(options.buttons?.[0]).toBe('Cancelar');
+    // journal do lote (todos ok → nenhuma falha por item)
+    const batch = journal.list(20).find((entry) => entry.action === 'charge-batch');
+    expect(batch?.detail).toBe('cobrança em lote: 2 MPs — 2 enviadas, 0 falhas');
+    // single-flight liberado no fim
+    expect(queue.isRunning).toBe(false);
+  }, 10_000);
+
+  it('diálogo cancelado: zero POSTs, resultado "Cancelado pelo usuário" por jogador e nada no journal', async () => {
+    showMessageBoxMock().mockResolvedValue({ response: 0, checkboxChecked: false });
+    const { service, journal, queue } = await buildHarness({
+      routes: chargeRoutes(() => html(POST_SENT)),
+    });
+
+    const { results } = await service.chargeBatch([chargeEntry('Reboucas'), chargeEntry('Spartacus')]);
+
+    expect(results).toEqual([
+      { nick: 'Reboucas', ok: false, detail: 'Cancelado pelo usuário', cancelled: true },
+      { nick: 'Spartacus', ok: false, detail: 'Cancelado pelo usuário', cancelled: true },
+    ]);
+    expect(fetchCallCount('action=send')).toBe(0);
+    expect(journal.list(20).some((entry) => entry.action.startsWith('charge-'))).toBe(false);
+    expect(queue.isRunning).toBe(false);
+  });
+
+  it('falha isolada por item: 2º nick não encontrado → 1º segue ok, lote NÃO aborta e a falha é journalada', async () => {
+    const { service, journal } = await buildHarness({
+      routes: chargeRoutes((_init, call) =>
+        call === 1
+          ? html(POST_SENT)
+          : html('<html><body><p>O jogador "Fantasma" não existe.</p></body></html>'),
+      ),
+    });
+
+    const { results } = await service.chargeBatch([chargeEntry('Reboucas'), chargeEntry('Fantasma')]);
+
+    expect(results).toEqual([
+      { nick: 'Reboucas', ok: true, detail: 'MP enviada.', cancelled: false },
+      { nick: 'Fantasma', ok: false, detail: 'Nick não encontrado — confira o nome exato no jogo.', cancelled: false },
+    ]);
+    expect(fetchCallCount('action=send')).toBe(2);
+    const batch = journal.list(20).find((entry) => entry.action === 'charge-batch');
+    expect(batch?.detail).toBe('cobrança em lote: 2 MPs — 1 enviadas, 1 falhas');
+    const failure = journal.list(20).find((entry) => entry.action === 'charge-fail');
+    expect(failure?.detail).toBe('Cobrança Fantasma → Nick não encontrado — confira o nome exato no jogo.');
+  }, 10_000);
+
+  it('sentinela no MEIO do lote: interrompe, journala charge-halt e a linha do lote confessa as não tentadas', async () => {
+    const { service, journal, queue } = await buildHarness({
+      routes: chargeRoutes((_init, call) =>
+        call === 1
+          ? html(POST_SENT)
+          : html('<html><form id="login"><input name="password"></form></html>'),
+      ),
+    });
+
+    const { results } = await service.chargeBatch([
+      chargeEntry('Reboucas'),
+      chargeEntry('Spartacus'),
+      chargeEntry('Fantasma'),
+    ]);
+
+    // 1ª MP ok; a 2ª bateu numa página de login → sentinela INTERROMPE; a 3ª
+    // NEM chega a tentar e NÃO vira linha em results (comportamento atual —
+    // só quem recebeu tentativa aparece).
+    expect(results).toEqual([
+      { nick: 'Reboucas', ok: true, detail: 'MP enviada.', cancelled: false },
+      { nick: 'Spartacus', ok: false, detail: 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.', cancelled: false },
+    ]);
+    expect(fetchCallCount('action=send')).toBe(2);
+    const halt = journal.list(20).find((entry) => entry.action === 'charge-halt');
+    expect(halt?.detail).toBe('Cobrança interrompida em Spartacus (session-expired)');
+    // Contabilidade honesta: 3 MPs no lote, 1 enviada, 1 falha (o halt) e
+    // 1 NÃO TENTADA (Fantasma) confessada na linha do lote.
+    const batch = journal.list(20).find((entry) => entry.action === 'charge-batch');
+    expect(batch?.detail).toBe('cobrança em lote: 3 MPs — 1 enviadas, 1 falhas, 1 não tentadas (sessão interrompida)');
+    expect(queue.isRunning).toBe(false);
+  }, 10_000);
+
+  it('fila ocupada (coleta em andamento) rejeita ANTES do diálogo nativo e de qualquer POST', async () => {
+    const { service, queue } = await buildHarness({
+      routes: chargeRoutes(() => html(POST_SENT)),
+    });
+    queue.beginOperation();
+    try {
+      await expect(service.chargeBatch([chargeEntry('Reboucas')])).rejects.toThrow('Uma operação está em andamento');
+      expect(showMessageBoxMock()).not.toHaveBeenCalled();
+      expect(fetchCallCount('screen=mail')).toBe(0);
+    } finally {
+      queue.endOperation();
+    }
+  });
+
+  it('sem sessão ativa no jogo, aborta ANTES do diálogo nativo e de qualquer POST', async () => {
+    const { service } = await buildHarness({
+      login: false,
+      routes: chargeRoutes(() => html(POST_SENT)),
+    });
+
+    await expect(service.chargeBatch([chargeEntry('Reboucas')])).rejects.toThrow('Nenhuma sessão ativa no jogo');
+    expect(showMessageBoxMock()).not.toHaveBeenCalled();
+    expect(fetchCallCount('screen=mail')).toBe(0);
+  });
+
+  it('lote acima do teto das settings é rejeitado antes do diálogo e sem POST', async () => {
+    const { service } = await buildHarness({
+      settings: { requestCeiling: 1 },
+      routes: chargeRoutes(() => html(POST_SENT)),
+    });
+
+    await expect(service.chargeBatch([chargeEntry('Reboucas'), chargeEntry('Spartacus')])).rejects.toThrow('maior que o teto das settings (1)');
+    expect(showMessageBoxMock()).not.toHaveBeenCalled();
     expect(fetchCallCount('screen=mail')).toBe(0);
   });
 });

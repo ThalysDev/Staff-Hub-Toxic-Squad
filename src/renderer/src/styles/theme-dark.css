@@ -10,6 +10,7 @@
   --bg-card: #1c1916;
   --bg-card-hover: #24201b;
   --bg-inset: #24201b;
+  --bg-band: #2b2620; /* faixas de seção: um passo acima do inset, mesmo tom */
   --bg-field: #26221c;
 
   /* Linhas — mais claras que o fundo: elevação por luminosidade */
@@ -21,8 +22,9 @@
   /* Texto — claro quente (AA ≥ 4.5:1 sobre --bg-card/--bg-page) */
   --text-strong: #f2e9d8;
   --text: #e0d6c2;
-  --text-muted: #a99a80;
+  --text-muted: #b3a58b; /* era #a99a80 (6.4:1) — helper/muted ganharam um passo */
   --text-meta: #7d6f59;
+  --text-disabled: #857763; /* ≈3.6:1 sobre --bg-field — legível sem parecer habilitado */
 
   /* Marca — âmbar aceso */
   --accent: #c9975c;
@@ -90,20 +92,22 @@
   --content-max: none; /* v0.33: tela cheia (par com tokens.css claro) */
 }
 
-/* ===== Faixas "pergaminho" (#f6efdd) de app.css viram elevação escura =====
-   :not() preserva as variantes tokenizadas (callout--warn/danger/info,
-   btn-ghost--danger, nav-item--active), que já se adaptam sozinhas. */
-[data-theme='escuro'] .card-header,
-[data-theme='escuro'] .callout:not(.callout--warn):not(.callout--danger):not(.callout--info),
-[data-theme='escuro'] .table thead th,
-[data-theme='escuro'] .table-group-row th,
-[data-theme='escuro'] .table-group-row td,
-[data-theme='escuro'] .sg2-drilldown td,
-[data-theme='escuro'] .sg4-heat-origin,
-[data-theme='escuro'] .empty-state-icon,
-[data-theme='escuro'] .btn-ghost:not(.btn-ghost--danger):hover:not(:disabled),
-[data-theme='escuro'] .module-card--cta:hover {
-  background: var(--bg-inset);
+/* ===== Faixas "pergaminho" de app.css =====
+   Os pontos que eram #f6efdd agora usam var(--bg-band) direto em app.css —
+   o allowlist por seletor virou no-op e foi removido. Variantes tokenizadas
+   (callout--warn/danger/info, btn-ghost--danger) continuam se adaptando
+   sozinhas pelos seus próprios tokens. */
+
+/* ===== Botões desabilitados — o opacity:0.55 do claro apaga o rótulo no
+   escuro (~2:1 nos ghosts de SG_1/SG_2). Aqui o estado é explícito:
+   preenchimento sutil, borda visível e rótulo --text-disabled (≈3.6:1 sobre
+   o preenchimento) — legível sem parecer habilitado. Cobre .btn, .btn-ghost,
+   .btn-danger e variantes (todas carregam .btn). ===== */
+[data-theme='escuro'] .btn:disabled {
+  opacity: 1;
+  background: var(--bg-field);
+  color: var(--text-disabled);
+  border-color: var(--border-input);
 }
 
 /* ===== Scrollbar ===== */
@@ -218,6 +222,18 @@
   border-color: var(--danger);
 }
 
+/* sg4-btn-green mantém hex fixos em app.css (2º verde histórico) — aqui
+   espelha o .btn escuro; unificação total pendente. */
+[data-theme='escuro'] .sg4-btn-green {
+  background: var(--action);
+  color: var(--action-ink);
+  border-color: transparent;
+}
+
+[data-theme='escuro'] .sg4-btn-green:hover:not(:disabled) {
+  background: var(--action-hover);
+}
+
 [data-theme='escuro'] .sg7-code {
   border-color: var(--border-card);
 }
@@ -235,9 +251,9 @@
   background: linear-gradient(90deg, transparent, rgba(201, 151, 92, 0.45), transparent);
 }
 
-/* ===== Error Boundary — card de recuperação escuro ===== */
+/* ===== Error Boundary — só a borda precisa de override; o fundo já é
+   var(--bg-band) em app.css e escurece sozinho. ===== */
 [data-theme='escuro'] .error-boundary-card {
-  background: var(--bg-card);
   border-color: #6b5335;
 }
 

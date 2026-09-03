@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import { AlertTriangle, Check, ChevronDown, Crosshair, Info, Sparkles } from 'lucide-react';
+import { Check, ChevronDown, Crosshair, Sparkles } from 'lucide-react';
 import { parseCoord, type Coord } from '@shared/coords';
 import { distributeFakes, type FakeAssignment, type FakeDistributionResult } from '@shared/fakes-intelligent';
 import { parseOriginsInput } from '@shared/sg4-engine';
+import Callout from '../../components/Callout';
 import Field from '../../components/Field';
 
 /**
@@ -207,16 +208,12 @@ export default function FakesIntelligentSection({
                   Origens com comando sobrando mandam fakes para os alvos da caixa ALDEIAS ALVOS: a cada passo, a
                   origem com menos fakes pega o alvo livre mais próximo — a ilusão se espalha pelo máximo de vilas.
                 </p>
-                <div className="callout callout--info">
-                  <Info size={18} className="callout-icon" aria-hidden="true" />
-                  <div className="callout-body">
-                    <p className="callout-title">Distribua primeiro (etapa 2)</p>
-                    <p>
-                      Os alvos que ficarem SEM atacante voltam aqui como candidatos a fake. Sem distribuição, os
-                      fakes podem colidir com ataques reais.
-                    </p>
-                  </div>
-                </div>
+                <Callout variant="info" title="Distribua primeiro (etapa 2)">
+                  <p>
+                    Os alvos que ficarem SEM atacante voltam aqui como candidatos a fake. Sem distribuição, os
+                    fakes podem colidir com ataques reais.
+                  </p>
+                </Callout>
               </>
             ) : (
               <p className="muted fkint-hint">
@@ -294,23 +291,15 @@ export default function FakesIntelligentSection({
             </div>
 
             {warn !== '' && (
-              <div className="callout callout--warn">
-                <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-                <div className="callout-body">
-                  <p className="callout-title">Falta informação</p>
-                  <p>{warn}</p>
-                </div>
-              </div>
+              <Callout variant="warn" title="Falta informação">
+                <p>{warn}</p>
+              </Callout>
             )}
 
             {error !== '' && (
-              <div className="callout callout--danger">
-                <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-                <div className="callout-body">
-                  <p className="callout-title">Não foi possível distribuir os fakes</p>
-                  <p>{error}</p>
-                </div>
-              </div>
+              <Callout variant="danger" title="Não foi possível distribuir os fakes">
+                <p>{error}</p>
+              </Callout>
             )}
 
             {result !== null && (

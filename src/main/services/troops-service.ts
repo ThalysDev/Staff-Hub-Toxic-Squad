@@ -207,8 +207,15 @@ export class TroopsService {
   /** Snapshot completo de defesa por aldeia (com trânsito) para o SG_3. */
   async getDefenseVillages(): Promise<DefenseSnapshot | null> {
     const data = await this.store.load();
-    const currentWorld = this.world();
-    if (data.world && data.world !== currentWorld) return null;
+    // Fail-open SÓ na leitura do cache local: sem sessão ativa, o snapshot
+    // salvo em disco continua visível (dado salvo não pode virar "nunca
+    // coletado" só porque a sessão caiu) — MAS a validação de mundo vale
+    // SEMPRE que o mundo ainda é conhecido: markSessionLost PRESERVA o último
+    // mundo, então "sessão caiu" não vira desculpa para mostrar dado de outro
+    // mundo. Só sem mundo conhecido (logout(), nunca logado) a comparação é
+    // pulada. A COLETA continua exigindo sessão (world() fail-closed na escrita).
+    const { world } = this.twSession.getStatus();
+    if (world !== null && data.world !== world) return null;
     return data.defenseVillages;
   }
 
@@ -222,8 +229,15 @@ export class TroopsService {
   async get(kind: TroopKind): Promise<TroopSnapshot | null> {
     assertKind(kind);
     const data = await this.store.load();
-    const currentWorld = this.world();
-    if (data.world && data.world !== currentWorld) {
+    // Fail-open SÓ na leitura do cache local: sem sessão ativa, o snapshot
+    // salvo em disco continua visível (dado salvo não pode virar "nunca
+    // coletado" só porque a sessão caiu). A validação de mundo, porém, vale
+    // SEMPRE que o mundo ainda é conhecido: markSessionLost PRESERVA o último
+    // mundo, então "sessão caiu" não vira desculpa para mostrar dado de outro
+    // mundo. Só sem mundo conhecido (logout(), nunca logado) a comparação é
+    // pulada. A COLETA continua exigindo sessão (world() fail-closed na escrita).
+    const { world } = this.twSession.getStatus();
+    if (world !== null && data.world !== world) {
       return null; // dados de outro mundo = como se não tivesse coletado
     }
     return data[kind];

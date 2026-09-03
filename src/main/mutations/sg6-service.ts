@@ -1,9 +1,9 @@
-import { session } from 'electron';
+import { dialog, session } from 'electron';
 import { TW_PARTITION, type TwSessionManager } from '../tw/session';
 import type { Journal } from '../journal';
 import type { JsonStore } from '../stores/json-store';
 import type { RequestQueue } from '../tw/request-queue';
-import { DEFAULT_SETTINGS, type AppSettings } from '@shared/ipc-types';
+import { DEFAULT_SETTINGS, type AppSettings, type Sg6ChargeEntry, type Sg6ChargeOutcome } from '@shared/ipc-types';
 import { horariosBlock } from '@shared/comms-package';
 import { detectPageSentinels } from '../tw/request-queue';
 
@@ -243,6 +243,132 @@ export class Sg6Service {
       outcomes.push(outcome);
     }
       return outcomes;
+    } finally {
+      this.queue.endOperation();
+    }
+  }
+
+  /**
+   * Diálogo nativo ÚNICO para o lote de cobrança (cancelar é o default, C9).
+   * Agregado e compacto: contagem + os 5 primeiros nicks (o resumo completo já
+   * foi exibido no painel de confirmação da Sala de Guerra).
+   */
+  private async confirmChargeBatch(count: number, nicks: string[]): Promise<boolean> {
+    const preview = nicks.slice(0, 5).join(', ');
+    const extra = nicks.length - 5;
+    const detail = extra > 0 ? `${preview} e mais ${extra}` : preview;
+    const { response } = await dialog.showMessageBox({
+      type: 'warning',
+      title: 'Cobrança de faltas',
+      message: `Confirmar o envio de ${count} MP(s) de cobrança? (uma por jogador — o envio é real)`,
+      detail,
+      buttons: ['Cancelar', 'Confirmar cobrança'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    return response === 1;
+  }
+
+  /**
+   * Cobrança de faltas em lote (Sala de Guerra): UM diálogo nativo para o lote
+   * inteiro (era um por jogador), depois o MESMO motor do sendMps — pacing
+   * humano, 1 tentativa por MP, fail-soft por item (um nick que falha não
+   * aborta o resto) e journal do lote + das falhas por item.
+   */
+  async chargeBatch(entries: Sg6ChargeEntry[]): Promise<{ results: Sg6ChargeOutcome[] }> {
+    if (entries.length === 0) throw new Error('Nenhum jogador informado na cobrança em lote.');
+    for (const entry of entries) {
+      if (entry.subject.trim() === '') throw new Error('Assunto vazio.');
+      if (entry.body.trim() === '') throw new Error(`Corpo vazio na cobrança de "${entry.nick}".`);
+    }
+    this.assertQueueIdle();
+    // Sessão/teto validados ANTES do diálogo: nada de perguntar confirmação
+    // para depois falhar alto sem sessão ou acima do teto.
+    const world = this.world();
+    const settings = await this.settings();
+    if (entries.length > settings.requestCeiling) {
+      throw new Error(`Cobrança maior que o teto das settings (${settings.requestCeiling}) — ${entries.length} MPs.`);
+    }
+    const cancelledRow = (entry: Sg6ChargeEntry): Sg6ChargeOutcome => ({
+      nick: entry.nick,
+      ok: false,
+      detail: 'Cancelado pelo usuário',
+      cancelled: true,
+    });
+    const confirmed = await this.confirmChargeBatch(
+      entries.length,
+      entries.map((entry) => entry.nick),
+    );
+    if (!confirmed) {
+      // Mesma semântica do cancelamento nativo: nada foi enviado e nada é
+      // journalado como mutação — o renderer mantém o painel armado.
+      return { results: entries.map(cancelledRow) };
+    }
+    // Re-checagem: a fila pode ter começado uma coleta enquanto o diálogo
+    // nativo ficava aberto (single-flight C4, fail-closed).
+    this.assertQueueIdle();
+    this.queue.beginOperation();
+    try {
+      const base = `https://${world}.tribalwars.com.br/game.php?screen=mail&mode=new`;
+      await sleep(settings.requestMinIntervalMs);
+      const page = await this.twSession.fetchText(base);
+      const { csrf, villageId } = this.pageTokens(page);
+      const results: Sg6ChargeOutcome[] = [];
+      for (const entry of entries) {
+        await sleep(settings.requestMinIntervalMs + Math.random() * settings.requestJitterMs);
+        let outcome: Sg6ChargeOutcome;
+        try {
+          const response = await this.postForm(`${base}&village=${villageId}&action=send&h=${csrf}`, {
+            to: entry.nick,
+            subject: entry.subject,
+            text: entry.body,
+            send: 'Enviar',
+          });
+          const sentinel = detectPageSentinels(response.body);
+          if (sentinel === 'session-expired' || sentinel === 'captcha-suspected') {
+            // Mesma semântica do sendMps: sentinela INTERROMPE a cadeia.
+            await this.journal.append('mutation', 'charge-halt', `Cobrança interrompida em ${entry.nick} (${sentinel})`, false);
+            results.push({
+              nick: entry.nick,
+              ok: false,
+              detail: sentinel === 'session-expired' ? 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.' : 'CAPTCHA — operação interrompida.',
+              cancelled: false,
+            });
+            break;
+          }
+          const notFound = /não existe|destinatário inválido|unknown recipient/i.test(response.body);
+          outcome = {
+            nick: entry.nick,
+            ok: notFound ? false : response.ok,
+            detail: notFound
+              ? 'Nick não encontrado — confira o nome exato no jogo.'
+              : response.ok
+                ? 'MP enviada.'
+                : `HTTP ${response.status}`,
+            cancelled: false,
+          };
+        } catch (err) {
+          outcome = { nick: entry.nick, ok: false, detail: `Falha de rede: ${err instanceof Error ? err.message : String(err)}`, cancelled: false };
+        }
+        if (!outcome.ok) {
+          await this.journal.append('mutation', 'charge-fail', `Cobrança ${entry.nick} → ${outcome.detail}`, false);
+        }
+        results.push(outcome);
+      }
+      const enviadas = results.filter((outcome) => outcome.ok).length;
+      const falhas = results.length - enviadas;
+      // Contabilidade honesta do halt: entradas depois do sentinela NEM chegam
+      // a virar linha em results — o lote não pode contar como "enviada/falha"
+      // o que nunca foi tentado.
+      const notTried = entries.length - results.length;
+      await this.journal.append(
+        'mutation',
+        'charge-batch',
+        `cobrança em lote: ${entries.length} MPs — ${enviadas} enviadas, ${falhas} falhas${notTried > 0 ? `, ${notTried} não tentadas (sessão interrompida)` : ''}`,
+        false,
+      );
+      return { results };
     } finally {
       this.queue.endOperation();
     }

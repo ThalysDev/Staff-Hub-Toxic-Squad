@@ -220,30 +220,33 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
     if (chargePending === null || charging) return;
     setCharging(true);
     try {
-      // Uma chamada por devedor com o corpo JÁ renderizado (o contrato do
-      // SG_6 tem body único por chamada e não conhece #faltam# — enviar o
-      // cru mandaria o literal, P1-2 da revisão integrada). Pacing/journal
-      // vêm do motor; a confirmação dupla da UI cobre o conjunto.
-      let enviadas = 0;
-      let falhas = 0;
-      for (const debtor of chargePending) {
-        const body = renderChargeBody(chargeBody, debtor);
-        const outcomes = await window.staffhub.sg6.sendMps(
-          {
-            subject: '🔔 OP — faltam seus ataques',
-            body,
-            entries: [{ playerName: debtor.playerName, coords: debtor.coords }],
-          },
-          true,
-        );
-        enviadas += outcomes.filter((outcome) => outcome.ok).length;
-        falhas += outcomes.filter((outcome) => !outcome.ok).length;
+      // UMA chamada em lote (era 1 sendMps por devedor = 1 dialog nativo por
+      // jogador): corpos JÁ renderizados (o motor do SG_6 não conhece #faltam#,
+      // P1-2 da revisão integrada). Um único diálogo nativo cobre o lote;
+      // pacing, journal e single-flight continuam no motor.
+      const entries = chargePending.map((debtor) => ({
+        nick: debtor.playerName,
+        subject: '🔔 OP — faltam seus ataques',
+        body: renderChargeBody(chargeBody, debtor),
+      }));
+      const { results } = await window.staffhub.sg6.chargeBatch(entries);
+      const enviadas = results.filter((outcome) => outcome.ok).length;
+      const falhas = results.length - enviadas;
+      // Sentinela no meio do lote: as entradas seguintes NEM viram linha em
+      // results — contabilizá-las como "não tentadas" em vez de sumir com elas.
+      const naoTentadas = entries.length - results.length;
+      if (results.length > 0 && results.every((outcome) => outcome.cancelled)) {
+        // Cancelamento no diálogo nativo: painel continua armado (semântica de
+        // antes, quando o cancelamento chegava como erro) — dá para ajustar a
+        // mensagem e reconfirmar sem remontar a cobrança.
+        push('info', 'Cobrança cancelada na confirmação nativa — nada foi enviado ao jogo.');
+        return;
       }
       push(
         falhas === 0 ? 'ok' : 'error',
         falhas === 0
-          ? `Cobranças enviadas para ${enviadas} jogador(es) — o journal registra cada MP.`
-          : `${falhas} cobrança(s) falharam de ${enviadas + falhas} — detalhes no Journal.`,
+          ? `Cobranças enviadas para ${enviadas} jogador(es) — o journal registra o lote.`
+          : `${falhas} cobrança(s) falharam de ${enviadas + falhas}${naoTentadas > 0 ? `, ${naoTentadas} não tentada(s) (sessão interrompida)` : ''} — detalhes no Journal.`,
       );
       setChargePending(null);
     } catch (error) {

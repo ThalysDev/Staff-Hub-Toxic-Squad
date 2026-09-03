@@ -473,6 +473,7 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
           type="button"
           className="btn btn-ghost btn-sm"
           onClick={() => {
+            if (!window.confirm('Restaurar padrões? TODOS os campos salvos deste módulo voltam ao padrão e os resultados na tela somem. Esta ação não pode ser desfeita.')) return;
             setDesired(SG3_DEFAULTS.desired);
             setCountMode(SG3_DEFAULTS.countMode);
             setSizeMetric(SG3_DEFAULTS.sizeMetric);
@@ -493,7 +494,7 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
       </div>
 
       <section className="page-section" aria-labelledby="sg3-memory-title">
-        <h2 className="section-title" id="sg3-memory-title">Dados em Memória</h2>
+        <h2 className="section-title" id="sg3-memory-title">Dados coletados</h2>
         <div className="card">
           <div className="card-body">
             <div className="row">
@@ -501,7 +502,7 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
                 Data da última atualização: <strong>{formatted}</strong>
               </p>
               <button type="button" className="btn" onClick={() => void collectDefense()} disabled={collecting}>
-                {collecting ? <><span className="btn-spinner" aria-hidden="true" /> Coletando…</> : 'Coletar Informações de Defesa'}
+                {collecting ? <><span className="btn-spinner" aria-hidden="true" /> Coletando…</> : 'Coletar defesa'}
               </button>
               {(collecting || supportersBusy) && progress !== null && (
                 <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
@@ -517,7 +518,7 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
       </section>
 
       <section className="page-section" aria-labelledby="sg3-blind-title">
-        <h2 className="section-title" id="sg3-blind-title">Verificação de Blindagem</h2>
+        <h2 className="section-title" id="sg3-blind-title">Verificação de blindagem</h2>
         <div className="card">
           <div className="card-body">
             <div className="sg2-units-grid">
@@ -552,9 +553,9 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
               </div>
             </div>
             <label className="field">
-              <span className="field-label">Coordenadas do front (cole da análise SG1 — vazio = todas)</span>
+              <span className="field-label">Coordenadas do front (cole da análise de aldeias — vazio = todas)</span>
               <textarea
-                className="textarea"
+                className="textarea sg3-coords-textarea"
                 rows={3}
                 placeholder="123|456 456|123 111|222 ..."
                 value={coordsText}
@@ -566,7 +567,7 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
                 <p className="field-hint" aria-live="polite">{coordCountLabel(coordsMeta)}</p>
               )}
             </label>
-            <fieldset className="field">
+            <fieldset className="field sg3-measure-fieldset">
               <legend className="field-label" id="sg3-size-metric-label">Medir tamanho por</legend>
               <div className="sg4-radio-row" role="radiogroup" aria-labelledby="sg3-size-metric-label">
                 <label className="checkbox-field">
@@ -638,7 +639,7 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
             {error !== '' && <p className="error" role="alert">{error}</p>}
             <button type="button" className="btn" onClick={() => void runBlind()} disabled={busy}>
               <ShieldAlert size={16} aria-hidden="true" />
-              {busy ? <><span className="btn-spinner" aria-hidden="true" /> Consultando…</> : 'Realizar Consulta de Blindagem'}
+              {busy ? <><span className="btn-spinner" aria-hidden="true" /> Consultando…</> : 'Realizar consulta de blindagem'}
             </button>
           </div>
         </div>
@@ -709,7 +710,7 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
       )}
 
       <section className="page-section" aria-labelledby="sg3-supporters-title">
-        <h2 className="section-title" id="sg3-supporters-title">Exibir Apoiadores</h2>
+        <h2 className="section-title" id="sg3-supporters-title">Exibir apoiadores</h2>
         <div className="card">
           <div className="card-body">
             <p className="muted">
@@ -734,9 +735,9 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
             </label>
             {supportersError !== '' && <p className="error" role="alert">{supportersError}</p>}
             <div className="row">
-              <button type="button" className="btn" onClick={() => void runSupporters()} disabled={supportersBusy}>
+              <button type="button" className="btn btn-ghost" onClick={() => void runSupporters()} disabled={supportersBusy}>
                 <Users size={16} aria-hidden="true" />
-                {supportersBusy ? <><span className="btn-spinner" aria-hidden="true" /> Consultando…</> : 'Exibir Apoiadores'}
+                {supportersBusy ? <><span className="btn-spinner" aria-hidden="true" /> Consultando…</> : 'Exibir apoiadores'}
               </button>
             </div>
             {supportersResult !== null && (
@@ -776,7 +777,7 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
       </section>
 
       <section className="page-section" aria-labelledby="sg3-incoming-title">
-        <h2 className="section-title" id="sg3-incoming-title">Ataques Recebidos (aldeias próprias)</h2>
+        <h2 className="section-title" id="sg3-incoming-title">Ataques recebidos (aldeias próprias)</h2>
         <div className="card">
           <div className="card-body">
             <p className="muted">

@@ -61,7 +61,7 @@ export class Sg1Service {
     const ownAlly = findAlly(input.ownTag);
     if (ownAlly === undefined) {
       throw new Error(
-        `Tribo "${input.ownTag}" não encontrada no dump do mundo — use a TAG (ex.: ${allAllies.slice(0, 3).map((a) => a.tag).join(', ')}…) ou o nome exato.`,
+        `Tribo "${input.ownTag}" não encontrada no dados do mundo — use a TAG (ex.: ${allAllies.slice(0, 3).map((a) => a.tag).join(', ')}…) ou o nome exato.`,
       );
     }
     const ownPlayerIds = new Set(allPlayers.filter((player) => player.allyId === ownAlly.id).map((player) => player.id));
@@ -73,7 +73,7 @@ export class Sg1Service {
     for (const tag of input.enemyTags) {
       const ally = findAlly(tag);
       if (ally === undefined) {
-        throw new Error(`Tribo inimiga "${tag}" não encontrada no dump do mundo — confira as tags informadas.`);
+        throw new Error(`Tribo inimiga "${tag}" não encontrada no dados do mundo — confira as tags informadas.`);
       }
       enemyAllyIds.add(ally.id);
     }

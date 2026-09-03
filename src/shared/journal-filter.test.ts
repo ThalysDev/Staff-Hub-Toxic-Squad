@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { JournalEntry } from './ipc-types';
 import {
+  coalesceRepeated,
   distinctActions,
   filterJournalEntries,
+  groupByDay,
   journalToCsv,
   journalToJson,
   type JournalFilterState,
@@ -81,28 +83,39 @@ describe('filterJournalEntries / kinds e actions', () => {
   });
 });
 
-describe('filterJournalEntries / período', () => {
+/** ts ISO construído em hora LOCAL (testes independentes do fuso da máquina). */
+function localTs(month: number, day: number, hour: number, minute = 0): string {
+  return new Date(2026, month - 1, day, hour, minute).toISOString();
+}
+
+describe('filterJournalEntries / período (dias LOCAIS)', () => {
+  // Entradas em horas LOCAIS de 25–27/08/2026 (new Date(y, m, d, h) — sem UTC).
   const entries = [
-    entry({ id: 'ante', ts: '2026-08-25T23:59:59.999Z' }),
-    entry({ id: 'meia-noite', ts: '2026-08-26T00:00:00.000Z' }),
-    entry({ id: 'meio-dia', ts: '2026-08-26T12:00:00.000Z' }),
-    entry({ id: 'fim-do-dia', ts: '2026-08-26T23:59:59.999Z' }),
-    entry({ id: 'depois', ts: '2026-08-27T00:00:00.000Z' }),
+    entry({ id: 'ante-23h', ts: localTs(8, 25, 23) }),
+    entry({ id: 'meia-noite', ts: localTs(8, 26, 0) }),
+    entry({ id: 'meio-dia', ts: localTs(8, 26, 12) }),
+    entry({ id: 'noite-22h', ts: localTs(8, 26, 22) }),
+    entry({ id: 'depois', ts: localTs(8, 27, 0) }),
   ];
 
-  it('from é inclusivo: entra o dia inteiro do from em diante', () => {
+  it('from é inclusivo na meia-noite LOCAL: 23h local do dia anterior fica de fora', () => {
     const kept = filterJournalEntries(entries, state({ from: '2026-08-26' }));
-    expect(kept.map((e) => e.id)).toEqual(['meia-noite', 'meio-dia', 'fim-do-dia', 'depois']);
+    expect(kept.map((e) => e.id)).toEqual(['meia-noite', 'meio-dia', 'noite-22h', 'depois']);
   });
 
-  it('to é inclusivo no próprio dia e exclusivo no dia seguinte', () => {
+  it('to é inclusivo até o fim do dia LOCAL: 22h local do próprio dia entra (em UTC-3 antes ficava de fora)', () => {
     const kept = filterJournalEntries(entries, state({ to: '2026-08-26' }));
-    expect(kept.map((e) => e.id)).toEqual(['ante', 'meia-noite', 'meio-dia', 'fim-do-dia']);
+    expect(kept.map((e) => e.id)).toEqual(['ante-23h', 'meia-noite', 'meio-dia', 'noite-22h']);
   });
 
-  it('from + to fecham a janela', () => {
+  it('to no dia anterior EXCLUI a entrada de 22h local do dia X', () => {
+    const kept = filterJournalEntries(entries, state({ to: '2026-08-25' }));
+    expect(kept.map((e) => e.id)).toEqual(['ante-23h']);
+  });
+
+  it('from + to fecham o dia LOCAL inteiro', () => {
     const kept = filterJournalEntries(entries, state({ from: '2026-08-26', to: '2026-08-26' }));
-    expect(kept.map((e) => e.id)).toEqual(['meia-noite', 'meio-dia', 'fim-do-dia']);
+    expect(kept.map((e) => e.id)).toEqual(['meia-noite', 'meio-dia', 'noite-22h']);
   });
 
   it('período que não cobre nenhuma entrada devolve lista vazia', () => {
@@ -113,10 +126,10 @@ describe('filterJournalEntries / período', () => {
     expect(filterJournalEntries(entries, state({ to: '2999-12-31' }))).toHaveLength(5);
   });
 
-  it('to+1 dia atravessa virada de mês e de ano', () => {
+  it('to atravessa virada de mês e de ano (fim do dia LOCAL)', () => {
     const virada = [
-      entry({ id: 'fim', ts: '2026-12-31T23:59:59.999Z' }),
-      entry({ id: 'ano-novo', ts: '2027-01-01T00:00:00.000Z' }),
+      entry({ id: 'fim', ts: new Date(2026, 11, 31, 22).toISOString() }),
+      entry({ id: 'ano-novo', ts: new Date(2027, 0, 1, 0, 1).toISOString() }),
     ];
     const kept = filterJournalEntries(virada, state({ to: '2026-12-31' }));
     expect(kept.map((e) => e.id)).toEqual(['fim']);
@@ -222,5 +235,145 @@ describe('journalToJson', () => {
 
   it('lista vazia devolve "[]"', () => {
     expect(journalToJson([])).toBe('[]');
+  });
+});
+
+// ---- WAVE 1-B: agrupamento por dia + coalescência de repetições ----
+
+/** "Agora" fixo: quarta-feira, 2 de setembro de 2026, meio-dia local. */
+const AGORA = new Date(2026, 8, 2, 12, 0);
+
+describe('groupByDay', () => {
+  it('MESMO dia em horas diferentes cai em UM grupo único (relativo não divide o dia)', () => {
+    const entries = [
+      entry({ id: 'hoje-09', ts: localTs(9, 2, 9) }),
+      entry({ id: 'ontem-22', ts: localTs(9, 1, 22) }),
+      entry({ id: 'hoje-11', ts: localTs(9, 2, 11, 30) }),
+      entry({ id: 'hoje-08', ts: localTs(9, 2, 8) }),
+    ];
+    const groups = groupByDay(entries, AGORA);
+    expect(groups.map((g) => g.key)).toEqual(['2026-09-02', '2026-09-01']);
+    expect(groups[0]?.entries.map((e) => e.id)).toEqual(['hoje-11', 'hoje-09', 'hoje-08']);
+    expect(groups[1]?.entries.map((e) => e.id)).toEqual(['ontem-22']);
+  });
+
+  it('chave é a data LOCAL "YYYY-MM-DD" (não a data UTC do toISOString)', () => {
+    const groups = groupByDay([entry({ id: 'madrugada', ts: localTs(9, 2, 0, 30) })], AGORA);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.key).toBe('2026-09-02');
+    expect(groups[0]?.key).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('grupos e entradas ficam ordenados desc mesmo com entrada fora de ordem (defensivo)', () => {
+    const entries = [
+      entry({ id: 'dia-31', ts: localTs(8, 31, 10) }),
+      entry({ id: 'hoje', ts: localTs(9, 2, 10) }),
+      entry({ id: 'ontem', ts: localTs(9, 1, 10) }),
+      entry({ id: 'hoje-cedo', ts: localTs(9, 2, 7) }),
+    ];
+    const groups = groupByDay(entries, AGORA);
+    expect(groups.map((g) => g.key)).toEqual(['2026-09-02', '2026-09-01', '2026-08-31']);
+    expect(groups[0]?.entries.map((e) => e.id)).toEqual(['hoje', 'hoje-cedo']);
+  });
+
+  it('rótulo de hoje tem a forma "Hoje · <data por extenso pt-BR>"', () => {
+    const groups = groupByDay([entry({ ts: localTs(9, 2, 9) })], AGORA);
+    const label = groups[0]?.label ?? '';
+    expect(label.startsWith('Hoje · ')).toBe(true);
+    expect(label).toContain('2 de setembro de 2026');
+  });
+
+  it('ontem usa prefixo "Ontem · " e dia mais antigo só a data por extenso', () => {
+    const groups = groupByDay(
+      [entry({ id: 'o', ts: localTs(9, 1, 9) }), entry({ id: 'v', ts: localTs(8, 31, 9) })],
+      AGORA,
+    );
+    expect(groups[0]?.label.startsWith('Ontem · ')).toBe(true);
+    expect(groups[0]?.label).toContain('1 de setembro de 2026');
+    expect(groups[1]?.label).toBe('Segunda-feira, 31 de agosto de 2026');
+    expect(groups[1]?.label).not.toContain('·');
+  });
+
+  it('ts inválido vira grupo "Data indisponível" isolado e por último', () => {
+    const groups = groupByDay(
+      [entry({ id: 'lixo', ts: 'não é data' }), entry({ id: 'hoje', ts: localTs(9, 2, 9) })],
+      AGORA,
+    );
+    expect(groups.map((g) => g.key)).toEqual(['2026-09-02', 'data-indisponivel']);
+    expect(groups[1]?.label).toBe('Data indisponível');
+    expect(groups[1]?.entries.map((e) => e.id)).toEqual(['lixo']);
+  });
+
+  it('lista vazia devolve lista vazia', () => {
+    expect(groupByDay([], AGORA)).toEqual([]);
+  });
+});
+
+describe('coalesceRepeated', () => {
+  const runs = (
+    id: string,
+    ts: string,
+    kind: JournalEntry['kind'] = 'system',
+    action = 'settings-boot',
+    detail = 'pacing boot: 350ms',
+  ) => entry({ id, ts, kind, action, detail });
+
+  it('colapsa trecho CONSECUTIVO idêntico em uma linha com contagem e intervalo de ts', () => {
+    const out = coalesceRepeated([
+      runs('novo', '2026-09-02T12:00:00.000Z'),
+      runs('meio', '2026-09-01T12:00:00.000Z'),
+      runs('velho', '2026-08-31T12:00:00.000Z'),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.count).toBe(3);
+    expect(out[0]?.entry.id).toBe('novo');
+    expect(out[0]?.firstTs).toBe('2026-09-02T12:00:00.000Z');
+    expect(out[0]?.lastTs).toBe('2026-08-31T12:00:00.000Z');
+  });
+
+  it('repetição NÃO adjacente continua separada', () => {
+    const out = coalesceRepeated([
+      runs('a', '2026-09-02T12:00:00.000Z'),
+      entry({ id: 'b', ts: '2026-09-02T11:00:00.000Z', action: 'mp-send', detail: 'MP' }),
+      runs('a2', '2026-09-02T10:00:00.000Z'),
+    ]);
+    expect(out.map((r) => r.entry.id)).toEqual(['a', 'b', 'a2']);
+    expect(out.every((r) => r.count === 1)).toBe(true);
+  });
+
+  it('diferença em kind, action ou detail quebra o trecho', () => {
+    const out = coalesceRepeated([
+      runs('a', '2026-09-02T12:00:00.000Z'),
+      runs('kind', '2026-09-02T11:00:00.000Z', 'read'),
+      runs('action', '2026-09-02T10:00:00.000Z', 'system', 'settings-update'),
+      runs('detail', '2026-09-02T09:00:00.000Z', 'system', 'settings-boot', 'outro detalhe'),
+    ]);
+    expect(out).toHaveLength(4);
+    expect(out.every((r) => r.count === 1)).toBe(true);
+  });
+
+  it('entrada única fica com count 1 e lista vazia devolve []', () => {
+    const single = coalesceRepeated([runs('só', '2026-09-02T12:00:00.000Z')]);
+    expect(single).toHaveLength(1);
+    expect(single[0]?.count).toBe(1);
+    expect(single[0]?.firstTs).toBe(single[0]?.lastTs);
+    expect(coalesceRepeated([])).toEqual([]);
+  });
+});
+
+describe('filtro por tipo — alias legado write (P2 revisão 2 v0.35)', () => {
+  const linhas = [
+    { ts: '2026-09-03T10:00:00', kind: 'write' as const, action: 'sg6-sendmps', detail: 'legado' },
+    { ts: '2026-09-03T11:00:00', kind: 'mutation' as const, action: 'sg6-sendmps', detail: 'novo' },
+    { ts: '2026-09-03T12:00:00', kind: 'read' as const, action: 'collect-members', detail: 'leitura' },
+  ];
+
+  it('chip Mutação pega mutation E o legado write', () => {
+    const out = filterJournalEntries(linhas, { query: '', actions: [], kinds: ['mutation'] });
+    expect(out.map((e) => e.detail)).toEqual(['legado', 'novo']);
+  });
+
+  it('chip Leitura continua sem pegar write', () => {
+    expect(filterJournalEntries(linhas, { query: '', actions: [], kinds: ['read'] }).map((e) => e.detail)).toEqual(['leitura']);
   });
 });

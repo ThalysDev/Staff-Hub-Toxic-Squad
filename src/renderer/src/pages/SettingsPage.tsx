@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Lock, RefreshCw, RotateCcw, Save } from 'lucide-react';
 import type { AppSettings, UpdateCheckResult } from '@shared/ipc-types';
 import { DEFAULT_SETTINGS } from '@shared/ipc-types';
+import Callout from '../components/Callout';
 import PageHeader from '../components/PageHeader';
 import { useToast } from '../hooks/useToast';
 import { currentThemeChoice, setThemeChoice, THEME_EVENT, type ThemeChoice } from '../theme';
@@ -309,81 +310,81 @@ export default function SettingsPage() {
           </div>
         </div>
       </section>
-      <div className="card">
-        <div className="card-body">
-          <form
-            className="settings-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void handleSave();
-            }}
-          >
-            <NumberField
-              id="requestMinIntervalMs"
-              label="Intervalo mínimo entre requisições (ms)"
-              hint="Pausa mínima entre uma requisição e outra ao jogo."
-              error={errors.min}
-              value={draft.requestMinIntervalMs}
-              min={1}
-              onChange={(value) => setDraft({ ...draft, requestMinIntervalMs: value })}
-            />
-            <NumberField
-              id="requestJitterMs"
-              label="Jitter (ms)"
-              hint="Variação aleatória somada ao intervalo, para o ritmo parecer humano."
-              error={errors.jitter}
-              value={draft.requestJitterMs}
-              min={0}
-              onChange={(value) => setDraft({ ...draft, requestJitterMs: value })}
-            />
-            <NumberField
-              id="requestCeiling"
-              label="Teto de requisições por operação"
-              hint="Limite por operação de coleta — trava antes de virar ruído no servidor."
-              error={errors.ceiling}
-              value={draft.requestCeiling}
-              min={1}
-              onChange={(value) => setDraft({ ...draft, requestCeiling: value })}
-            />
+      <section className="page-section">
+        <h2 className="section-title">Pacing e limites</h2>
+        <div className="card">
+          <div className="card-body">
+            <form
+              className="settings-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleSave();
+              }}
+            >
+              <NumberField
+                id="requestMinIntervalMs"
+                label="Intervalo mínimo entre requisições (ms)"
+                hint="Pausa mínima entre uma requisição e outra ao jogo. (piso anti-ban: valores abaixo de 350 não são aplicados)"
+                error={errors.min}
+                value={draft.requestMinIntervalMs}
+                min={350}
+                onChange={(value) => setDraft({ ...draft, requestMinIntervalMs: value })}
+              />
+              <NumberField
+                id="requestJitterMs"
+                label="Jitter (ms)"
+                hint="Variação aleatória somada ao intervalo, para o ritmo parecer humano."
+                error={errors.jitter}
+                value={draft.requestJitterMs}
+                min={0}
+                onChange={(value) => setDraft({ ...draft, requestJitterMs: value })}
+              />
+              <NumberField
+                id="requestCeiling"
+                label="Teto de requisições por operação"
+                hint="Limite por operação de coleta — trava antes de virar ruído no servidor."
+                error={errors.ceiling}
+                value={draft.requestCeiling}
+                min={1}
+                onChange={(value) => setDraft({ ...draft, requestCeiling: value })}
+              />
 
-            <div className="callout callout--warn">
-              <Lock size={18} className="callout-icon" aria-hidden="true" />
-              <div className="callout-body">
+              <Callout variant="warn" icon={Lock}>
                 <p>Mutações rodam sempre em modo real — a confirmação dupla e o journal seguem ativos.</p>
-              </div>
-            </div>
+              </Callout>
 
-            <div className="row">
-              <button type="submit" className="btn" disabled={saving || !canSave}>
-                {saving ? (
-                  <>
-                    <span className="btn-spinner" aria-hidden="true" />
-                    Salvando…
-                  </>
-                ) : justSaved ? (
-                  <>
-                    <CheckCircle2 size={15} aria-hidden="true" />
-                    Salvo
-                  </>
-                ) : (
-                  <>
-                    <Save size={15} aria-hidden="true" />
-                    Salvar
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => setDraft(toDraft(DEFAULT_SETTINGS))}
-              >
-                <RotateCcw size={15} aria-hidden="true" />
-                Restaurar padrões
-              </button>
-            </div>
-          </form>
+              <div className="row">
+                <button type="submit" className="btn" disabled={saving || !canSave}>
+                  {saving ? (
+                    <>
+                      <span className="btn-spinner" aria-hidden="true" />
+                      Salvando…
+                    </>
+                  ) : justSaved ? (
+                    <>
+                      <CheckCircle2 size={15} aria-hidden="true" />
+                      Salvo
+                    </>
+                  ) : (
+                    <>
+                      <Save size={15} aria-hidden="true" />
+                      Salvar
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setDraft(toDraft(DEFAULT_SETTINGS))}
+                >
+                  <RotateCcw size={15} aria-hidden="true" />
+                  Restaurar padrões
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </div>
+      </section>
 
       <section className="page-section">
         <h2 className="section-title">Atualizações</h2>
@@ -396,51 +397,59 @@ export default function SettingsPage() {
                 void handleSaveChannel();
               }}
             >
-              <div className="field">
-                <label className="field-label" htmlFor="updateChannelUrl">
-                  Canal de atualização (latest.json)
-                </label>
-                <input
-                  id="updateChannelUrl"
-                  className="input"
-                  type="url"
-                  value={updateUrlDraft}
-                  aria-describedby={
-                    channelError !== undefined ? 'updateChannelUrl-error' : 'updateChannelUrl-hint'
-                  }
-                  aria-invalid={channelError !== undefined || undefined}
-                  onChange={(event) => setUpdateUrlDraft(event.target.value)}
-                />
-                {channelError !== undefined ? (
-                  <p className="field-error" id="updateChannelUrl-error" role="alert">
-                    {channelError}
-                  </p>
-                ) : (
-                  <p className="field-hint" id="updateChannelUrl-hint">
-                    Endereço do manifest que o hub consulta por novas versões.
-                  </p>
-                )}
-              </div>
+              <details>
+                <summary className="muted">Avançado — canal de atualização</summary>
+                <div className="col" style={{ marginTop: 12 }}>
+                  <div className="field">
+                    <label className="field-label" htmlFor="updateChannelUrl">
+                      Canal de atualização (latest.json)
+                    </label>
+                    <input
+                      id="updateChannelUrl"
+                      className="input"
+                      type="url"
+                      value={updateUrlDraft}
+                      aria-describedby={
+                        channelError !== undefined ? 'updateChannelUrl-error' : 'updateChannelUrl-hint'
+                      }
+                      aria-invalid={channelError !== undefined || undefined}
+                      onChange={(event) => setUpdateUrlDraft(event.target.value)}
+                    />
+                    {channelError !== undefined ? (
+                      <p className="field-error" id="updateChannelUrl-error" role="alert">
+                        {channelError}
+                      </p>
+                    ) : (
+                      <p className="field-hint" id="updateChannelUrl-hint">
+                        Endereço do manifest que o hub consulta por novas versões.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="row">
+                    <button
+                      type="submit"
+                      className="btn"
+                      aria-label="Salvar o canal de atualização"
+                      disabled={savingChannel || channelError !== undefined || channelTrimmed === ''}
+                    >
+                      {savingChannel ? (
+                        <>
+                          <span className="btn-spinner" aria-hidden="true" />
+                          Salvando…
+                        </>
+                      ) : (
+                        <>
+                          <Save size={15} aria-hidden="true" />
+                          Salvar canal
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </details>
 
               <div className="row">
-                <button
-                  type="submit"
-                  className="btn"
-                  aria-label="Salvar o canal de atualização"
-                  disabled={savingChannel || channelError !== undefined || channelTrimmed === ''}
-                >
-                  {savingChannel ? (
-                    <>
-                      <span className="btn-spinner" aria-hidden="true" />
-                      Salvando…
-                    </>
-                  ) : (
-                    <>
-                      <Save size={15} aria-hidden="true" />
-                      Salvar canal
-                    </>
-                  )}
-                </button>
                 <button
                   type="button"
                   className="btn btn-ghost"

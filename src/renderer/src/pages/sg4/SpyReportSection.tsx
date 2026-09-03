@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { AlertTriangle, BrickWall, Crosshair, Eye, Info, MapPin, Shield, Swords } from 'lucide-react';
+import { BrickWall, Crosshair, Eye, MapPin, Shield, Swords } from 'lucide-react';
 import {
   DEFAULT_POP_PER_FULL,
   parseSpyReport,
@@ -10,11 +10,12 @@ import {
 import { SUMMARY_UNIT_ORDER } from '@shared/sg2-summary';
 import { UNITS, type UnitId } from '@shared/units';
 import { TW_UNIT_ICONS } from '../../assets';
+import Callout from '../../components/Callout';
 import Field from '../../components/Field';
 import { useToast } from '../../hooks/useToast';
 
 /**
- * SG_4 — "Análise de Espionagem" (roadmap P2). Seção autossuficiente que consome
+ * SG_4 — "Análise de espionagem" (roadmap P2). Seção autossuficiente que consome
  * o motor puro '@shared/spy-report': o usuário cola o CORPO de um relatório de
  * espionagem, o parser fail-closed extrai alvo/unidades/muralha/populações e o
  * painel de sugestão estima quantos fulls ofensivos limpam a defesa espiada.
@@ -112,7 +113,7 @@ export default function SpyReportSection({ onUseAsTarget }: SpyReportSectionProp
 
   return (
     <section className="page-section spy" aria-labelledby="sg4-spy-title">
-      <h2 className="section-title" id="sg4-spy-title">Análise de Espionagem</h2>
+      <h2 className="section-title" id="sg4-spy-title">Análise de espionagem</h2>
 
       <div className="card spy-report">
         <div className="card-body">
@@ -156,28 +157,20 @@ export default function SpyReportSection({ onUseAsTarget }: SpyReportSectionProp
           </div>
 
           {error !== '' && (
-            <div className="callout callout--danger spy-error">
-              <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-              <div className="callout-body">
-                <p className="callout-title">Não foi possível analisar o relatório</p>
-                <p>{error}</p>
-              </div>
-            </div>
+            <Callout variant="danger" title="Não foi possível analisar o relatório">
+              <p>{error}</p>
+            </Callout>
           )}
 
           {report === null && error === '' && (
-            <div className="callout callout--info spy-empty">
-              <Info size={18} className="callout-icon" aria-hidden="true" />
-              <div className="callout-body">
-                <p className="callout-title">Nenhum relatório analisado ainda</p>
-                <p>
-                  Formato aceito: coordenada do alvo na linha “Espionagem em 471|463” (ou a
-                  primeira coordenada “x|y” do texto), tropas como pares “unidade quantidade” —
-                  Lanceiro 10.000, Cavalaria Pesada 1.200 — e a muralha como “Muralha Nível 12”.
-                  Linhas de perdas do seu explorador são ignoradas.
-                </p>
-              </div>
-            </div>
+            <Callout variant="info" title="Nenhum relatório analisado ainda">
+              <p>
+                Formato aceito: coordenada do alvo na linha “Espionagem em 471|463” (ou a
+                primeira coordenada “x|y” do texto), tropas como pares “unidade quantidade” —
+                Lanceiro 10.000, Cavalaria Pesada 1.200 — e a muralha como “Muralha Nível 12”.
+                Linhas de perdas do seu explorador são ignoradas.
+              </p>
+            </Callout>
           )}
         </div>
       </div>

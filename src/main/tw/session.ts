@@ -219,6 +219,24 @@ export class TwSessionManager {
   }
 
   /**
+   * Sessão possivelmente perdida, detectada PELA FILA (sentinela de login ou
+   * captcha num corpo de resposta do jogo): espelha logged-out NA HORA para a
+   * UI parar de mostrar "Ativa" e o agendador de coleta automática (SG_2) parar
+   * de bater numa sessão morta. Diferente do logout, NÃO limpa cookies — pode
+   * ser só captcha (a sessão ainda pode estar válida); a revalidação fica por
+   * conta do usuário (tela Sessão, caminho "Verificar" já existente). O mundo é
+   * preservado (a UI pode dizer "expirou no mundo X") e o jogador vai para
+   * null. O emit() propaga pelo caminho normal (session:changed → renderer).
+   */
+  markSessionLost(reason: 'session-expired' | 'captcha-suspected'): void {
+    // `reason` é informativo hoje (SessionStatus não carrega causa) — reservado
+    // para journal/diagnóstico futuro.
+    void reason;
+    this.status = { state: 'logged-out', world: this.status.world, player: null, checkedAt: new Date().toISOString() };
+    this.emit();
+  }
+
+  /**
    * Import de sessão via sid colado pelo próprio usuário (fluxo EditThisCookie,
    * autorizado pelo dono — ver AGENTS.md). Aceita o export completo da extensão
    * ou o valor puro. Grava os cookies na partição e valida com um probe real;

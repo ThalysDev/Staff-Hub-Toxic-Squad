@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { AlertTriangle, ClipboardCheck, RefreshCw } from 'lucide-react';
+import { ClipboardCheck, RefreshCw } from 'lucide-react';
 import type { OpArchiveEntry } from '@shared/ipc-types';
 import { formatCoord } from '@shared/coords';
 import { filterOutcomes } from '@shared/war-view-filter';
@@ -13,6 +13,7 @@ import {
 } from '@shared/post-op-live';
 import type { DiplomacyRelations, WorldAlly, WorldPlayer } from '@shared/types';
 import { parseDistribution } from '@shared/war-room';
+import Callout from '../../components/Callout';
 import StatBlock from '../../components/StatBlock';
 import { loadRelationsShared } from '../../hooks/useDiplomacyRelations';
 import { useToast } from '../../hooks/useToast';
@@ -286,13 +287,9 @@ export default function PostOpSection({ op, onArchived }: PostOpSectionProps): J
         </p>
 
         {error !== '' && (
-          <div className="callout callout--danger" role="alert">
-            <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-            <div className="callout-body">
-              <p className="callout-title">Falha na verificação pós-OP</p>
-              <p>{error}</p>
-            </div>
-          </div>
+          <Callout variant="danger" title="Falha na verificação pós-OP">
+            <p>{error}</p>
+          </Callout>
         )}
 
         <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>

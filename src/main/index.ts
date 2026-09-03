@@ -446,6 +446,10 @@ function wireEvents(initialQueueSettings: { minIntervalMs: number; jitterMs: num
       onFailed: (info) => {
         void journal.append('read', 'queue-failed', `${info.label}: ${info.error.kind} — ${info.error.message}`, true);
       },
+      // Sentinela de login/captcha num corpo: espelha a queda no TwSessionManager
+      // NA HORA — a UI para de mostrar "Ativa" e o agendador de coleta automática
+      // (SG_2) para de bater numa sessão morta (sem spam de toast a cada 5 min).
+      onSentinel: (kind) => twSession.markSessionLost(kind),
     },
   );
   twSession.onStatusChanged(async (status) => {
@@ -461,18 +465,15 @@ app.whenReady().then(async () => {
   // usuário (nunca 350ms default sem ele saber).
   const persistedSettings = sanitizeSettings(await settingsStore.load());
   void twSession.restoreFromPartition();
-  registerIpc();
+  // registerIpc() fica PARA DEPOIS do gate central (abaixo): ele registra
+  // session:open-login / session:login-sid / tminus:schedule /
+  // dev:capture-fixture, que estão em CANAIS_PROTEGIDOS — chamá-lo antes do
+  // wrapper deixaria os 4 canais UNGATED (P1 da revisão 2 da v0.35).
   wireEvents({
     minIntervalMs: persistedSettings.requestMinIntervalMs,
     jitterMs: persistedSettings.requestJitterMs,
     ceiling: persistedSettings.requestCeiling,
   });
-  await journal.append(
-    'system',
-    'settings-boot',
-    `pacing boot: ${persistedSettings.requestMinIntervalMs}ms+jitter ${persistedSettings.requestJitterMs}ms teto ${persistedSettings.requestCeiling}`,
-    false,
-  );
 
   // v0.30 — sessão do SISTEMA (staffhub-auth na VPS), ANTES de qualquer
   // registro de IPC: o wrapper abaixo precisa existir primeiro.
@@ -490,9 +491,9 @@ app.whenReady().then(async () => {
     'sg1:analyze',
     'troops:collect-members', 'troops:collect-summary',
     'sg3:', 'sg5:', 'sg6:', 'sg7:',
-    'opArchive:', 'opShare:import-op', 'plannerDraft:',
+    'oparchive:', 'opshare:', 'plannerDraft:',
     'tminus:schedule',
-    'session:open-login', 'session:login-with-sid',
+    'session:open-login', 'session:login-sid',
     'dev:capture-fixture',
   ];
   const canalProtegido = (canal: string): boolean => CANAIS_PROTEGIDOS.some((prefixo) => canal.startsWith(prefixo));
@@ -503,6 +504,9 @@ app.whenReady().then(async () => {
       return (handler as (ev: Electron.IpcMainInvokeEvent, ...a: unknown[]) => unknown)(event, ...args);
     });
 
+  // DEPOIS do wrapper: tudo que registrar aqui passa pelo gate (só os
+  // prefixos da lista são bloqueados — os demais seguem livres).
+  registerIpc();
   registerAuthIpc({ auth: authService });
   registerWorldIpc({ twSession, queue: queue as RequestQueue, journal, worldData, sg1: sg1Service });
   const troopsService = new TroopsService(twSession, queue as RequestQueue, journal, settingsStore);

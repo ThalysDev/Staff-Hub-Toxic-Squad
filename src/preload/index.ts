@@ -148,6 +148,8 @@ const api = {
       input: { subject: string; body: string; entries: { playerName: string; coords: string[]; horarios?: string[] }[] },
       confirm: boolean,
     ) => invoke("sg6:send-mps", input, confirm),
+    chargeBatch: (entries: import('@shared/ipc-types').Sg6ChargeEntry[]) =>
+      invoke("sg6:charge-batch", entries) as Promise<{ results: import('@shared/ipc-types').Sg6ChargeOutcome[] }>,
   },
   opArchive: {
     list: () => invoke('oparchive:list') as Promise<OpArchiveEntry[]>,

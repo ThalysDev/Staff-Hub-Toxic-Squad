@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Gamepad2, Info, KeyRound, LogIn, LogOut, ShieldCheck } from 'lucide-react';
+import { Gamepad2, KeyRound, LogIn, LogOut, ShieldCheck } from 'lucide-react';
+import type { SessionState } from '@shared/ipc-types';
+import Callout from '../components/Callout';
 import EmptyState from '../components/EmptyState';
 import Field from '../components/Field';
 import PageHeader from '../components/PageHeader';
-import StatusPill from '../components/StatusPill';
 import { useAuthStatus } from '../hooks/useAuthStatus';
 import { useSessionStatus } from '../hooks/useSessionStatus';
 import { useToast } from '../hooks/useToast';
@@ -15,6 +16,28 @@ interface SidErrors {
 
 // Mundos regulares (br142), clássicos (brc2) e casuais (brp8).
 const WORLD_PATTERN = /^br[a-z]?\d{1,4}$/i;
+
+/** Vocabulário unificado do estado da sessão (P1) — os mesmos rótulos do
+ * Dashboard: Conectado / Desconectado / Não conectado. Nada de "Desconhecido". */
+const ESTADO_SESSAO: Record<SessionState, { label: string; className: string; pulse?: boolean }> = {
+  'logged-in': { label: 'Conectado', className: 'pill--ok' },
+  'logged-out': { label: 'Desconectado', className: 'pill--error' },
+  'logging-in': { label: 'Conectando…', className: 'pill--info', pulse: true },
+  unknown: { label: 'Não conectado', className: 'pill--muted' },
+};
+
+function EstadoSessaoPill({ state }: { state: SessionState }) {
+  const meta = ESTADO_SESSAO[state];
+  return (
+    <span className={`pill ${meta.className}`}>
+      <span
+        className={`pill-dot${meta.pulse === true ? ' pill-dot--pulse' : ''}`}
+        aria-hidden="true"
+      />
+      {meta.label}
+    </span>
+  );
+}
 
 export default function SessionPage() {
   const status = useSessionStatus();
@@ -93,20 +116,16 @@ export default function SessionPage() {
             </span>
             <h2 className="card-title">Estado da sessão</h2>
             <span className="spacer" />
-            <StatusPill state={status.state} />
+            <EstadoSessaoPill state={status.state} />
           </div>
           <div className="card-body">
             {loggingIn && (
-              <div className="callout callout--info">
-                <Info size={18} className="callout-icon" aria-hidden="true" />
-                <div className="callout-body">
-                  <p className="callout-title">Abrindo a página de login</p>
-                  <p>
-                    Faça login no portal e <strong>clique no seu mundo</strong> para entrar no jogo. O
-                    hub detecta sozinho quando você entra no mundo e fecha a janela.
-                  </p>
-                </div>
-              </div>
+              <Callout variant="info" title="Abrindo a página de login">
+                <p>
+                  Faça login no portal e <strong>clique no seu mundo</strong> para entrar no jogo. O
+                  hub detecta sozinho quando você entra no mundo e fecha a janela.
+                </p>
+              </Callout>
             )}
 
             {hasSession ? (
@@ -325,7 +344,7 @@ function SessaoSistema() {
           </span>
         )}
       </div>
-      <form className="col" style={{ gap: 10, maxWidth: 420 }} onSubmit={(e) => void trocar(e)}>
+      <form className="col" style={{ gap: 10 }} onSubmit={(e) => void trocar(e)}>
         <Field id="conta-senha-atual" label="Senha atual">
           <input
             id="conta-senha-atual"

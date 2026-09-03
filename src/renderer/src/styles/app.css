@@ -434,7 +434,7 @@ h2 {
   gap: var(--sp-3);
   padding: var(--sp-4) var(--sp-6);
   border-bottom: 1px solid var(--divider);
-  background: #f6efdd;
+  background: var(--bg-band);
 }
 
 .card-header .card-title {
@@ -522,7 +522,7 @@ h2 {
 }
 
 .btn-ghost:hover:not(:disabled) {
-  background: #f6efdd;
+  background: var(--bg-band);
   color: var(--accent-ink);
   border-color: var(--border-strong);
 }
@@ -735,7 +735,7 @@ h2 {
   padding: var(--sp-4);
   border: 1px solid var(--border-card);
   border-radius: var(--r-md);
-  background: #f6efdd;
+  background: var(--bg-band);
 }
 
 .callout-icon {
@@ -824,7 +824,7 @@ h2 {
   letter-spacing: var(--track-wide);
   text-transform: uppercase;
   color: var(--text-muted);
-  background: #f6efdd;
+  background: var(--bg-band);
   border-bottom: 1px solid var(--border-card);
   white-space: nowrap;
 }
@@ -863,7 +863,7 @@ h2 {
 .table-group-row th,
 .table-group-row td {
   padding: 7px 14px;
-  background: #f6efdd;
+  background: var(--bg-band);
   border-bottom: 1px solid var(--border-card);
   text-align: left;
   font-size: var(--fs-caption);
@@ -1007,7 +1007,7 @@ h2 {
   justify-content: center;
   border: 1px dashed var(--border-input);
   border-radius: 50%;
-  background: #f6efdd;
+  background: var(--bg-band);
   color: var(--accent);
   margin-bottom: var(--sp-1);
 }
@@ -1436,23 +1436,10 @@ h2 {
 }
 
 .module-card--cta:hover {
-  background: #f6efdd;
+  background: var(--bg-band);
   box-shadow: none;
 }
 
-/* Tile "em breve": parecido com o CTA, mas inerte — sem cursor de clique,
-   sem hover de ação. O pill "Em breve" explica o estado. */
-.module-card--soon {
-  cursor: default;
-}
-
-.module-card--soon,
-.module-card--soon:hover {
-  border-color: var(--border-card);
-  background: var(--bg-card);
-  transform: none;
-  box-shadow: none;
-}
 
 .module-card .icon-badge {
   margin-bottom: var(--sp-1);
@@ -1976,6 +1963,18 @@ kbd {
   gap: var(--sp-2) var(--sp-3);
 }
 
+/* SG_3 (Blindagem): o textarea de coordenadas só cresce na vertical — com o
+   resize padrão (both) o handle encosta na borda do fieldset logo abaixo. */
+.sg3-coords-textarea {
+  resize: vertical;
+}
+
+/* SG_3 (Blindagem): fieldset "Medir tamanho por" precisa de respiro após o
+   textarea de coordenadas (.card-body não tem gap entre os .field). */
+.sg3-measure-fieldset {
+  margin: var(--sp-4) 0 0;
+}
+
 .sg2-unit-row {
   display: flex;
   align-items: center;
@@ -2110,7 +2109,7 @@ kbd {
 
 /* Linha expandida do drill-down: coordenadas do jogador em fonte mono. */
 .sg2-drilldown td {
-  background: #f6efdd;
+  background: var(--bg-band);
   font-family: ui-monospace, Consolas, monospace;
   font-size: var(--fs-small);
   overflow-wrap: anywhere;
@@ -2258,7 +2257,7 @@ kbd {
   position: sticky;
   left: 0;
   z-index: 1;
-  background: #f6efdd;
+  background: var(--bg-band);
 }
 
 .sg4-heat-cell {
@@ -2508,7 +2507,7 @@ kbd {
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--border, #e0d5b8);
+  border-bottom: 1px solid var(--divider);
   background: rgba(46, 139, 87, 0.06);
 }
 .sidebar-player-dot {
@@ -2646,7 +2645,7 @@ kbd {
 .error-boundary-card {
   max-width: 480px;
   width: 90%;
-  background: #f6efdd;
+  background: var(--bg-band);
   border: 2px solid #d4b896;
   border-radius: 12px;
   padding: 32px;
@@ -2928,8 +2927,8 @@ kbd {
   flex-direction: column;
   background: var(--bg-card);
   border: 1px solid var(--divider);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  border-radius: var(--r-md);
+  box-shadow: var(--elev-2);
   overflow: hidden;
 }
 
@@ -2982,7 +2981,7 @@ kbd {
   align-items: center;
   gap: var(--sp-2);
   padding: var(--sp-2);
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-sm);
   cursor: pointer;
 }
 
@@ -3148,7 +3147,7 @@ kbd {
   flex-wrap: wrap;
   padding: var(--sp-2);
   border: 1px solid var(--divider);
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-sm);
 }
 
 .tmpl-name {
@@ -3391,11 +3390,7 @@ select:not(.select) {
   padding: var(--sp-3) var(--sp-5);
 }
 
-[data-theme='escuro'] .module-card--soon .pill--warn {
-  color: #e8d9ac;
-  border-color: #6b5a35;
-  background: #2a2416;
-}
+/* (tile "em breve" removido na v0.35 — Capturas virou card ativo) */
 
 /* ==========================================================================
    Sala de Guerra · Planner de OP em Massa (v0.28.0)
@@ -3413,7 +3408,7 @@ select:not(.select) {
   display: flex;
   gap: var(--sp-1);
   border: 1px solid var(--border-card);
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--r-md);
   background: var(--bg-inset);
   padding: var(--sp-1);
   width: fit-content;
@@ -3424,7 +3419,7 @@ select:not(.select) {
   align-items: center;
   gap: 6px;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm, 6px);
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--text-muted);
   font: inherit;
@@ -3483,6 +3478,12 @@ select:not(.select) {
   max-width: 190px;
 }
 
+/* War Room (planejador): select "puxar preset da Análise de Tropas" — a opção
+   mais longa não cabe no max-width do .select--compact (o min-width vence). */
+.mp-preset-select {
+  min-width: 260px;
+}
+
 .mp-novo {
   margin-left: 6px;
   font-size: var(--fs-caption);
@@ -3497,11 +3498,10 @@ select:not(.select) {
 
 /* Seção expansível de catapulta. */
 .mp-catapult {
-  display: col;
   flex-direction: column;
   gap: var(--sp-2);
   border: 1px dashed var(--border-input);
-  border-radius: var(--radius-sm, 6px);
+  border-radius: var(--r-sm);
   padding: var(--sp-3);
   display: flex;
 }
@@ -3518,28 +3518,6 @@ select:not(.select) {
   }
 }
 
-/* Botões de ação do planner (marrom = adiciona grupo; verde = gerar). */
-.mp-btn-add {
-  background: var(--accent);
-  color: #fff;
-  min-width: 220px;
-  justify-content: center;
-}
-
-.mp-btn-add:hover:not(:disabled) {
-  background: var(--accent-ink);
-}
-
-.mp-btn-generate {
-  background: var(--action);
-  color: var(--action-ink);
-  min-width: 220px;
-  justify-content: center;
-}
-
-.mp-btn-generate:hover:not(:disabled) {
-  background: var(--action-hover);
-}
 
 /* Linha de grupo adicionado (resumo + editar/remover). */
 .mp-group-row {
@@ -3548,7 +3526,7 @@ select:not(.select) {
   justify-content: space-between;
   gap: var(--sp-3);
   border: 1px solid var(--divider);
-  border-radius: var(--radius-sm, 6px);
+  border-radius: var(--r-sm);
   background: var(--bg-card);
   padding: var(--sp-2) var(--sp-3);
   flex-wrap: wrap;
@@ -3598,7 +3576,7 @@ select:not(.select) {
   width: min(420px, calc(100vw - 48px));
   background: var(--bg-card);
   border: 1px solid var(--border-card);
-  border-radius: var(--radius-lg, 10px);
+  border-radius: var(--r-lg);
   padding: var(--sp-6, 28px) var(--sp-6, 28px);
   display: flex;
   flex-direction: column;
@@ -3612,7 +3590,7 @@ select:not(.select) {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--r-md);
   background: var(--accent-soft);
   color: var(--accent-ink);
   margin: 0 auto var(--sp-2, 8px);
@@ -3678,7 +3656,7 @@ select:not(.select) {
   font-family: monospace;
   background: var(--bg-inset);
   border: 1px solid var(--border-input);
-  border-radius: var(--radius-sm, 6px);
+  border-radius: var(--r-sm);
   padding: 2px 8px;
   font-size: var(--fs-body);
   user-select: all;

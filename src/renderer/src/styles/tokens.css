@@ -28,6 +28,7 @@
   --bg-card: #fdf8ee; /* cards off-white quente */
   --bg-card-hover: #fbf4e2; /* hover de card/tabela */
   --bg-inset: #f2e9d0; /* tracks de progresso */
+  --bg-band: #f6efdd; /* faixas de seção: card-header, thead, callout, drilldown, hover ghost */
   --bg-field: #fffefa; /* inputs */
 
   /* ===== Linhas ===== */
@@ -41,6 +42,7 @@
   --text: #4a3a26; /* corpo */
   --text-muted: #6b5d49; /* secundário — escurecido p/ contraste AA confortável */
   --text-meta: #9b8b72; /* apenas decorativo/hairline — nunca texto pequeno */
+  --text-disabled: #93856c; /* rótulo de controle desabilitado (~3:1 sobre as superfícies) */
 
   /* ===== Marca — marrom-dourado ===== */
   --accent: #8b5e3c; /* barra ativa, ícones, bordas de destaque */

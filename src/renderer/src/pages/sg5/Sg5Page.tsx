@@ -11,6 +11,7 @@ import {
   type Sg5ViewFilter,
 } from '@shared/sg5-view-filter';
 import { useToast } from '../../hooks/useToast';
+import Callout from '../../components/Callout';
 import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
 import { usePreferences } from '../../hooks/usePreferences';
@@ -195,11 +196,17 @@ export default function Sg5Page() {
         description="Verificação alvo-a-alvo dos comandos compartilhados com a liderança, totalizador por jogador e documento imprimível da OP."
       />
 
+      {/* Padrão das páginas de módulo: restaurar sempre visível, direto abaixo
+          do cabeçalho — MUTAÇÃO ampla, sempre com confirmação. */}
       <div className="row">
         <button
           type="button"
           className="btn btn-ghost btn-sm"
           onClick={() => {
+            const confirmed = window.confirm(
+              'Restaurar padrões? TODOS os campos salvos deste módulo voltam ao padrão e os resultados na tela somem. Esta ação não pode ser desfeita.',
+            );
+            if (!confirmed) return;
             setDocTitle(DEFAULT_DOC_TITLE);
             // Reset do módulo "sg5" inteiro (inclui 'ultimaConferencia' do diff —
             // comportamento padrão de "Restaurar padrões do módulo").
@@ -210,20 +217,20 @@ export default function Sg5Page() {
         </button>
       </div>
 
-      <div className="callout callout--danger" role="note">
-        <ShieldQuestion size={18} className="callout-icon" aria-hidden="true" />
-        <div className="callout-body">
-          <p className="callout-title">Compartilhamento de comandos</p>
-          <p>
-            Os comandos só aparecem se os membros <strong>compartilharem comandos com a liderança</strong> nas
-            configurações do jogo. A verificação faz 1 requisição por aldeia (com pacing) — rode perto da OP
-            para dados frescos.
-          </p>
-        </div>
-      </div>
+      <Callout variant="danger" title="Compartilhamento de comandos" icon={ShieldQuestion}>
+        <p>
+          Os comandos só aparecem se os membros <strong>compartilharem comandos com a liderança</strong> nas
+          configurações do jogo.
+        </p>
+        {/* Detalhe de pacing rebaixado para hint — o conselho ("perto da OP")
+            continua visível; o custo técnico fica no tooltip. */}
+        <p className="muted" style={{ marginTop: 4, fontSize: 12 }} title="A verificação faz 1 requisição por aldeia (com pacing).">
+          Rode perto da OP para dados frescos.
+        </p>
+      </Callout>
 
       <section className="page-section" aria-labelledby="sg5-verify-title">
-        <h2 className="section-title" id="sg5-verify-title">Verificação de Comandos de OP</h2>
+        <h2 className="section-title" id="sg5-verify-title">Verificação de comandos de OP</h2>
         <div className="card">
           <div className="card-body">
             <label className="field">
@@ -244,7 +251,7 @@ export default function Sg5Page() {
             <div className="row">
               <button type="button" className="btn" onClick={() => void runVerify()} disabled={busy !== null}>
                 <ListChecks size={16} aria-hidden="true" />
-                {busy === 'verify' ? <><span className="btn-spinner" aria-hidden="true" /> Verificando…</> : 'Obter Verificação'}
+                {busy === 'verify' ? <><span className="btn-spinner" aria-hidden="true" /> Verificando…</> : 'Obter verificação'}
               </button>
               {busy !== null && progress !== null && (
               <>
@@ -278,7 +285,7 @@ export default function Sg5Page() {
       {/* Barra de filtros: só existe com verificação presente; filtro vazio = tudo. */}
       {filtered !== null && (
         <section className="page-section" aria-labelledby="sg5-filter-title">
-          <h2 className="section-title" id="sg5-filter-title">Filtros de Visualização</h2>
+          <h2 className="section-title" id="sg5-filter-title">Filtros de visualização</h2>
           <div className="card">
             <div className="card-body">
               <div className="row" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
@@ -354,7 +361,7 @@ export default function Sg5Page() {
 
       {filtered !== null && (
         <section className="page-section" aria-labelledby="sg5-doc-heading">
-          <h2 className="section-title" id="sg5-doc-heading">Documento de Conferência</h2>
+          <h2 className="section-title" id="sg5-doc-heading">Documento de conferência</h2>
           <div className="card sg5-printable">
             <h3 className="sg5-doc-title">{docTitle}</h3>
             {filtered.villages.length === 0 && (
@@ -401,7 +408,7 @@ export default function Sg5Page() {
 
       {timeline !== null && ganttWindow !== null && (
         <section className="page-section" aria-labelledby="sg5-gantt-title">
-          <h2 className="section-title" id="sg5-gantt-title">Gantt de Chegadas</h2>
+          <h2 className="section-title" id="sg5-gantt-title">Gantt de chegadas</h2>
           <div className="card sg5-printable">
             <div className="card-body">
               <div>
@@ -467,7 +474,7 @@ export default function Sg5Page() {
       <Sg5DiffSection current={verifyResult} />
 
       <section className="page-section" aria-labelledby="sg5-totals-title">
-        <h2 className="section-title" id="sg5-totals-title">Totalizador de Comandos</h2>
+        <h2 className="section-title" id="sg5-totals-title">Totalizador de comandos</h2>
         <div className="card">
           <div className="card-body">
             <label className="field">

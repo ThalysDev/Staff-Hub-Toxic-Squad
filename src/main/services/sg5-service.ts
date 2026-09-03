@@ -71,7 +71,7 @@ export class Sg5Service {
     const idByCoord = await this.coordToVillageId();
     const missing = coords.filter((coord) => !idByCoord.has(coord));
     if (missing.length > 0) {
-      throw new Error(`Coordenada(s) sem aldeia no dump do mundo: ${missing.slice(0, 5).join(' ')}${missing.length > 5 ? ' …' : ''} — atualize os dados do mundo.`);
+      throw new Error(`Coordenada(s) sem aldeia no dados do mundo: ${missing.slice(0, 5).join(' ')}${missing.length > 5 ? ' …' : ''} — atualize os dados do mundo.`);
     }
     const urls = coords.map((coord) => `https://${world}.tribalwars.com.br/game.php?screen=info_village&id=${idByCoord.get(coord)}`);
     const ceiling = await this.ceiling();
@@ -152,13 +152,13 @@ export class Sg5Service {
     const [villages, players] = await Promise.all([this.worldData.villages(), this.worldData.players()]);
     const self = players.find((candidate) => candidate.name === player);
     if (self === undefined) {
-      throw new Error(`Jogador logado "${player}" não está no dump do mundo — atualize os dados do mundo.`);
+      throw new Error(`Jogador logado "${player}" não está no dados do mundo — atualize os dados do mundo.`);
     }
     const ownCoords = villages
       .filter((village) => village.playerId === self.id)
       .map((village) => `${village.x}|${village.y}`);
     if (ownCoords.length === 0) {
-      throw new Error(`Nenhuma aldeia de "${player}" no dump do mundo — atualize os dados do mundo.`);
+      throw new Error(`Nenhuma aldeia de "${player}" no dados do mundo — atualize os dados do mundo.`);
     }
     const byCoord = await this.fetchVillagePages(ownCoords, `Varrendo ataques recebidos (${ownCoords.length} aldeias próprias)`);
     const attacks = [...byCoord.values()].reduce((sum, verification) => sum + verification.commands.length, 0);

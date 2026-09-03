@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow, dialog } from "electron";
+import type { Sg6ChargeEntry } from "@shared/ipc-types";
 import type { Journal } from "./journal";
 import type { Sg6Service, MpEntry } from "./mutations/sg6-service";
 
@@ -62,6 +63,16 @@ export function registerSg6Ipc(deps: Sg6IpcDeps): void {
         );
       }
       return await deps.sg6.sendMps(input.subject, input.body, input.entries, confirm);
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : String(error));
+    }
+  });
+  // Cobrança em lote (Sala de Guerra): SEM confirmMutation extra — o diálogo
+  // nativo agregado é aberto DENTRO do service (um só dialog para o lote;
+  // um segundo aqui virariam dois dialogs por cobrança).
+  ipcMain.handle("sg6:charge-batch", async (_event, entries: Sg6ChargeEntry[]) => {
+    try {
+      return await deps.sg6.chargeBatch(entries);
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : String(error));
     }

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { AlertTriangle } from 'lucide-react';
 import type { FilterPreset } from '@shared/filter-presets';
 import {
   MAX_PRESET_NAME_LENGTH,
@@ -11,6 +10,7 @@ import {
   upsertPreset,
 } from '@shared/filter-presets';
 import { useToast } from '../hooks/useToast';
+import Callout from './Callout';
 
 export interface PresetManagerProps {
   /** Módulo de preferências onde o preset persiste ('sg1'|'sg2'). */
@@ -165,7 +165,7 @@ export default function PresetManager({ module, scope, currentFields, onApply, l
   async function handleDelete(): Promise<void> {
     const preset = selected === '' ? undefined : presets[selected];
     if (preset === undefined || busy !== null) return;
-    if (!window.confirm(`Excluir o preset "${preset.name}"${labelSuffix}? Esta ação não pode ser desfeita.`)) return;
+    if (!window.confirm(`Remover o preset "${preset.name}"${labelSuffix}? Esta ação não pode ser desfeita.`)) return;
     setBusy('deleting');
     setActionError(null);
     try {
@@ -174,10 +174,10 @@ export default function PresetManager({ module, scope, currentFields, onApply, l
       setPresets(next);
       setSelected(''); // seleção volta a vazia
       setLoadError(null);
-      push('ok', `Preset "${preset.name}" excluído${labelSuffix}.`);
+      push('ok', `Preset "${preset.name}" removido${labelSuffix}.`);
     } catch (error) {
       setActionError({
-        title: 'Não foi possível excluir o preset',
+        title: 'Não foi possível remover o preset',
         message: error instanceof Error ? error.message : String(error),
       });
     } finally {
@@ -190,22 +190,14 @@ export default function PresetManager({ module, scope, currentFields, onApply, l
   return (
     <div className="prst">
       {loadError !== null && (
-        <div className="callout callout--danger prst-callout" role="alert">
-          <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-          <div className="callout-body">
-            <p className="callout-title">{loadError.title}</p>
-            <p>{loadError.message}</p>
-          </div>
-        </div>
+        <Callout variant="danger" title={loadError.title}>
+          <p>{loadError.message}</p>
+        </Callout>
       )}
       {actionError !== null && (
-        <div className="callout callout--danger prst-callout" role="alert">
-          <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-          <div className="callout-body">
-            <p className="callout-title">{actionError.title}</p>
-            <p>{actionError.message}</p>
-          </div>
-        </div>
+        <Callout variant="danger" title={actionError.title}>
+          <p>{actionError.message}</p>
+        </Callout>
       )}
       <div className="prst-row">
         {list.length === 0 ? (
@@ -229,7 +221,7 @@ export default function PresetManager({ module, scope, currentFields, onApply, l
         )}
         <button
           type="button"
-          className="btn btn-sm prst-apply"
+          className="btn btn-ghost btn-sm prst-apply"
           onClick={handleApply}
           disabled={selected === '' || buttonsDisabled}
         >
@@ -249,7 +241,7 @@ export default function PresetManager({ module, scope, currentFields, onApply, l
         />
         <button
           type="button"
-          className="btn btn-sm prst-save"
+          className="btn btn-ghost btn-sm prst-save"
           onClick={() => void handleSave()}
           disabled={nameText.trim() === '' || buttonsDisabled}
         >
@@ -261,7 +253,7 @@ export default function PresetManager({ module, scope, currentFields, onApply, l
           onClick={() => void handleDelete()}
           disabled={selected === '' || buttonsDisabled}
         >
-          Excluir
+          Remover preset
         </button>
         {list.length > 0 && (
           <span className="prst-count" title={`${list.length} preset(s) salvo(s)${labelSuffix}`}>

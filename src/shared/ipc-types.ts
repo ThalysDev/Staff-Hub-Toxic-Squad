@@ -58,6 +58,22 @@ export interface Sg6MutationOutcome {
   detail: string;
 }
 
+/** Entrada da cobrança em lote (Sala de Guerra): corpo JÁ renderizado por jogador. */
+export interface Sg6ChargeEntry {
+  nick: string;
+  subject: string;
+  body: string;
+}
+
+/** Resultado por jogador da cobrança em lote. */
+export interface Sg6ChargeOutcome {
+  nick: string;
+  ok: boolean;
+  detail: string;
+  /** true = linha SINTÉTICA do cancelamento no diálogo nativo (nada foi enviado). */
+  cancelled: boolean;
+}
+
 export interface ForumConferenceResult {
   threadId: number;
   firstPostMessage: string;
@@ -441,6 +457,10 @@ export interface StaffHubApi {
       body: string;
       entries: { playerName: string; coords: string[]; horarios?: string[] }[];
     }, confirm: boolean): Promise<Sg6MutationOutcome[]>;
+    /** Cobrança de faltas em lote (Sala de Guerra): UM diálogo nativo para o lote
+     *  inteiro e depois 1 MP por jogador — MUTAÇÃO: pacing humano, journal do lote
+     *  + falhas por item; um nick que falha não aborta o resto. */
+    chargeBatch(entries: Sg6ChargeEntry[]): Promise<{ results: Sg6ChargeOutcome[] }>;
   };
   opArchive: {
     /** OPs arquivadas, mais recente primeiro. */

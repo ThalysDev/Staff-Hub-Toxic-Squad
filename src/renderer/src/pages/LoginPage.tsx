@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
 import { KeyRound, LogIn, ShieldCheck, UserPlus } from 'lucide-react';
 import type { AuthStatus } from '@shared/ipc-types';
+import Callout from '../components/Callout';
 import { useToast } from '../hooks/useToast';
 
 type Modo = 'login' | 'criar' | 'aguardando';
@@ -197,15 +198,9 @@ export default function LoginPage({ status, onLogado }: LoginPageProps): JSX.Ele
 
         {modo === 'aguardando' && (
           <div className="col" style={{ gap: 12 }}>
-            <div className="callout callout--warn" role="status">
-              <span className="callout-icon">
-                <KeyRound size={16} aria-hidden="true" />
-              </span>
-              <div className="callout-body">
-                <p className="callout-title">Conta criada — aguardando aprovação</p>
-                <p>Avise o administrador (líder) que você criou sua conta. Assim que ele aprovar, entre com o nick e a senha.</p>
-              </div>
-            </div>
+            <Callout variant="warn" icon={KeyRound} title="Conta criada — aguardando aprovação">
+              <p>Avise o administrador (líder) que você criou sua conta. Assim que ele aprovar, entre com o nick e a senha.</p>
+            </Callout>
             {erro !== '' && erro !== 'As senhas não conferem.' && (
               <p className="error" role="alert">
                 {erro}

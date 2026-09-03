@@ -50,9 +50,10 @@ const GARBAGE_BODY = '<html><body><p>erro inesperado do jogo</p></body></html>';
 interface Harness {
   service: TroopsService;
   journal: Journal;
+  twSession: TwSessionManager;
 }
 
-async function buildHarness(routes: FetchRoute[]): Promise<Harness> {
+async function buildHarness(routes: FetchRoute[], options: { skipLogin?: boolean } = {}): Promise<Harness> {
   const journal = new Journal();
   const settingsStore = new JsonStore<AppSettings>('settings', DEFAULT_SETTINGS);
   await settingsStore.save({ ...DEFAULT_SETTINGS, requestMinIntervalMs: 0, requestJitterMs: 0, requestCeiling: 400 });
@@ -64,9 +65,13 @@ async function buildHarness(routes: FetchRoute[]): Promise<Harness> {
     // também casa com "screen=overview_villages" das rotas específicas acima.
     { match: 'screen=overview', handler: () => html(fixture('overview.html')) },
   ]);
-  const login = await twSession.loginWithSid(WORLD, SID);
-  expect(login.ok).toBe(true);
-  return { service: new TroopsService(twSession, queue, journal, settingsStore), journal };
+  // skipLogin: simula "sem sessão do jogo" (os testes de fail-open do cache
+  // local precisam do serviço nunca logado, com dado só no disco).
+  if (options.skipLogin !== true) {
+    const login = await twSession.loginWithSid(WORLD, SID);
+    expect(login.ok).toBe(true);
+  }
+  return { service: new TroopsService(twSession, queue, journal, settingsStore), journal, twSession };
 }
 
 beforeEach(() => {
@@ -357,5 +362,88 @@ describe('TroopsService — canário real (pager ANTES da tabela, 2 páginas)', 
     // A fila detecta a página de login e lança session-expired; o serviço
     // PROPAGA (fail-fast como no lote) em vez de seguir batendo no jogo.
     await expect(service.collectAllMembers('troops')).rejects.toThrow(/sess/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fail-open da LEITURA do cache local: com a sessão caída (ou nunca iniciada),
+// get/getDefenseVillages continuam devolvendo o snapshot salvo em disco — dado
+// salvo não pode virar "Nunca coletado" só porque a sessão caiu. A COLETA
+// continua exigindo sessão (world() fail-closed nos caminhos de escrita).
+// ---------------------------------------------------------------------------
+
+describe('TroopsService — leitura do cache sem sessão (fail-open)', () => {
+  it('get sem sessão devolve o snapshot salvo AS-IS (não vira "nunca coletado")', { timeout: 20_000 }, async () => {
+    const { service, twSession } = await buildHarness([
+      { match: 'player_id=111', handler: () => html(memberTroopsPage(P1_VILLAGES, '')) },
+      { match: 'mode=members_troops', handler: () => html(selectorBody(111, 'Líder Pager')) },
+    ]);
+
+    const collected = await service.collectAllMembers('troops'); // escrita: exige sessão (como hoje)
+    twSession.markSessionLost('session-expired'); // sentinela da fila derrubou a sessão
+
+    await expect(service.get('troops')).resolves.toEqual(collected);
+  });
+
+  it('getDefenseVillages sem sessão devolve a defesa por aldeia salva', { timeout: 20_000 }, async () => {
+    const { service, twSession } = await buildHarness([
+      { match: 'player_id=111', handler: () => html(fixture('ally-members-defense-player-reboucas.html')) },
+      { match: 'mode=members_defense', handler: () => html(selectorBody(111, 'Reboucas')) },
+    ]);
+
+    await service.collectAllMembers('defense');
+    twSession.markSessionLost('captcha-suspected');
+
+    const villages = await service.getDefenseVillages();
+    expect(villages).not.toBeNull();
+    expect(villages?.entries.length).toBeGreaterThan(0);
+  });
+
+  it('sem sessão e loja vazia segue null ("nunca coletado" verdadeiro); status() não precisa de sessão', { timeout: 20_000 }, async () => {
+    const { service } = await buildHarness([], { skipLogin: true });
+
+    await expect(service.get('troops')).resolves.toBeNull();
+    await expect(service.getDefenseVillages()).resolves.toBeNull();
+    await expect(service.status()).resolves.toEqual({ troopsAt: null, defenseAt: null });
+  });
+
+  it('regressão: COM sessão ativa em outro mundo, dado do mundo antigo segue null', { timeout: 20_000 }, async () => {
+    const { service, twSession } = await buildHarness([
+      { match: 'player_id=111', handler: () => html(memberTroopsPage(P1_VILLAGES, '')) },
+      { match: 'mode=members_troops', handler: () => html(selectorBody(111, 'Líder Pager')) },
+    ]);
+
+    await service.collectAllMembers('troops'); // world salvo no cache: br142
+    await twSession.loginWithSid('br143', SID); // sessão agora valida em br143
+
+    await expect(service.get('troops')).resolves.toBeNull();
+  });
+
+  it('sessão caiu mas o mundo fica (markSessionLost): dado de OUTRO mundo segue null', { timeout: 20_000 }, async () => {
+    const { service, twSession } = await buildHarness([
+      { match: 'player_id=111', handler: () => html(memberTroopsPage(P1_VILLAGES, '')) },
+      { match: 'mode=members_troops', handler: () => html(selectorBody(111, 'Líder Pager')) },
+    ]);
+
+    await service.collectAllMembers('troops'); // cache salvo com world=br142
+    await twSession.loginWithSid('br143', SID); // sessão troca para br143
+    twSession.markSessionLost('session-expired'); // cai, mas o mundo (br143) fica conhecido
+
+    // Fail-open NÃO vaza dado de outro mundo: o mundo conhecido (preservado
+    // pelo markSessionLost) manda comparar mesmo sem sessão ativa.
+    await expect(service.get('troops')).resolves.toBeNull();
+  });
+
+  it('logout limpa o mundo: sem mundo conhecido o snapshot salvo volta AS-IS (fail-open de exibição)', { timeout: 20_000 }, async () => {
+    const { service, twSession } = await buildHarness([
+      { match: 'player_id=111', handler: () => html(memberTroopsPage(P1_VILLAGES, '')) },
+      { match: 'mode=members_troops', handler: () => html(selectorBody(111, 'Líder Pager')) },
+    ]);
+
+    const collected = await service.collectAllMembers('troops'); // cache de br142
+    await twSession.loginWithSid('br143', SID);
+    await twSession.logout(); // world = null — só então a checagem de mundo é pulada
+
+    await expect(service.get('troops')).resolves.toEqual(collected);
   });
 });

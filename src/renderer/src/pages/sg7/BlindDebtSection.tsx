@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import { AlertTriangle, Plus, Scale, Trash2 } from 'lucide-react';
+import { Plus, Scale, Trash2 } from 'lucide-react';
 import { blindBalance, type BlindDebtEntry } from '@shared/blind-debt';
 import { useToast } from '../../hooks/useToast';
+import Callout from '../../components/Callout';
 
 /**
  * SG_7 — Débito de blind por jogador (roadmap item 14). Acumula, entre as
@@ -136,13 +137,13 @@ export default function BlindDebtSection({ pendingRound, onApplied }: BlindDebtS
     <div className="card bdebt">
       <div className="card-header">
         <h3 className="card-title">
-          <Scale size={15} aria-hidden="true" />
+          <Scale size={15} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -3 }} />
           Débito de blind
         </h3>
         <span className="spacer" />
         <button
           type="button"
-          className="btn btn-ghost btn-sm bdebt-clear"
+          className="btn btn-ghost btn-ghost--danger btn-sm bdebt-clear"
           disabled={busy !== null || entries.length === 0}
           onClick={() => void handleClear()}
         >
@@ -152,37 +153,32 @@ export default function BlindDebtSection({ pendingRound, onApplied }: BlindDebtS
       </div>
       <div className="card-body">
         {pendingRound !== null && (
-          <div className="callout callout--warn bdebt-callout">
-            <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-            <div className="callout-body">
-              <p className="callout-title">Rodada reconhecida pronta para somar</p>
-              <p>
-                {INT_FMT.format(pendingRound.length)} jogador(es) · pedido {INT_FMT.format(totalRequested)} · enviado{' '}
-                {INT_FMT.format(totalSent)} de blind.
-              </p>
-              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="btn btn-sm bdebt-apply"
-                  disabled={busy !== null || pendingRound.length === 0}
-                  onClick={() => void handleApply()}
-                >
-                  <Plus size={14} aria-hidden="true" />
-                  {busy === 'applying' ? 'Somando…' : 'Somar esta rodada ao débito'}
-                </button>
-              </div>
-            </div>
-          </div>
+          <Callout
+            variant="warn"
+            title="Rodada reconhecida pronta para somar"
+            actions={
+              <button
+                type="button"
+                className="btn btn-sm bdebt-apply"
+                disabled={busy !== null || pendingRound.length === 0}
+                onClick={() => void handleApply()}
+              >
+                <Plus size={14} aria-hidden="true" />
+                {busy === 'applying' ? 'Somando…' : 'Somar esta rodada ao débito'}
+              </button>
+            }
+          >
+            <p>
+              {INT_FMT.format(pendingRound.length)} jogador(es) · pedido {INT_FMT.format(totalRequested)} · enviado{' '}
+              {INT_FMT.format(totalSent)} de blind.
+            </p>
+          </Callout>
         )}
 
         {error !== '' && (
-          <div className="callout callout--danger bdebt-error" role="alert">
-            <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-            <div className="callout-body">
-              <p className="callout-title">Não foi possível atualizar o débito de blind</p>
-              <p>{error}</p>
-            </div>
-          </div>
+          <Callout variant="danger" title="Não foi possível atualizar o débito de blind">
+            <p>{error}</p>
+          </Callout>
         )}
 
         {entries.length === 0 ? (

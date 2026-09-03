@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import {
-  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -28,11 +27,12 @@ import type {
 } from '@shared/sg2-summary';
 import { UNITS, type UnitCounts, type UnitId } from '@shared/units';
 import { TW_UNIT_ICONS } from '../../assets';
+import Callout from '../../components/Callout';
 import { useToast } from '../../hooks/useToast';
 
 /**
  * SG_2 — "Resumo Geral" dos dados de tropas em memória.
- * Renderizado ABAIXO do painel "Dados em Memória": filtros vivos (sem botão
+ * Renderizado ABAIXO do painel "Dados coletados": filtros vivos (sem botão
  * aplicar) sobre o snapshot, cards de estatística e duas visões ordenáveis
  * (por jogador com totais / por aldeia com paginação), com cópia em TSV.
  * Todo o cálculo vem do motor puro '@shared/sg2-summary'.
@@ -326,7 +326,7 @@ export default function MemorySummarySection({ snapshot, collectedLabel, sourceL
 
   return (
     <section className="sg2-sum page-section" aria-labelledby="sg2-sum-title">
-      <h2 className="section-title" id="sg2-sum-title">Resumo Geral</h2>
+      <h2 className="section-title" id="sg2-sum-title">Resumo geral</h2>
       <div className="card">
         <div className="card-body">
           <p className="muted">Dados de {collectedLabel} · coleta {sourceLabel}</p>
@@ -414,27 +414,19 @@ export default function MemorySummarySection({ snapshot, collectedLabel, sourceL
           </div>
 
           {state.error !== null && (
-            <div className="callout callout--danger" role="alert">
-              <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-              <div className="callout-body">
-                <p className="callout-title">Falha no filtro</p>
-                <p>{state.error}</p>
-              </div>
-            </div>
+            <Callout variant="danger" title="Falha no filtro">
+              <p>{state.error}</p>
+            </Callout>
           )}
 
           {summary !== null && summary.summaryOnly && (
-            <div className="callout callout--warn">
-              <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-              <div className="callout-body">
-                <p className="callout-title">Coleta em modo Resumo</p>
-                <p>
-                  Esta coleta veio do modo Resumo (1 requisição, por jogador) e não traz as aldeias:
-                  os filtros por K e eixos não têm efeito e a aba "Por aldeia" fica vazia. Para o
-                  detalhe por aldeia, recolete com "Coletar Informações de Tropas" (por membro).
-                </p>
-              </div>
-            </div>
+            <Callout variant="warn" title="Coleta em modo Resumo">
+              <p>
+                Esta coleta veio do modo Resumo (1 requisição, por jogador) e não traz as aldeias:
+                os filtros por K e eixos não têm efeito e a aba "Por aldeia" fica vazia. Para o
+                detalhe por aldeia, recolete com "Coletar tropas" (por membro).
+              </p>
+            </Callout>
           )}
 
           {summary !== null && (

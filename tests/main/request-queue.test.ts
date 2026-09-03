@@ -102,3 +102,56 @@ describe('RequestQueue.run', () => {
     expect(onFailed.mock.calls[0]?.[0].error).toBeInstanceOf(QueueError);
   });
 });
+
+describe('RequestQueue.onSentinel', () => {
+  it('corpo com formulário de login avisa onSentinel 1x com session-expired e segue lançando o QueueError', async () => {
+    const onSentinel = vi.fn();
+    const queue = new RequestQueue(
+      async (url: string) => ({ ok: true, status: 200, body: '<form id="login"><input name="password"></form>', url }),
+      vi.fn(),
+      settings,
+      { onSentinel },
+    );
+    await expect(queue.run(['a'], { label: 'teste', ceiling: 10 })).rejects.toMatchObject({ kind: 'session-expired' });
+    expect(onSentinel).toHaveBeenCalledTimes(1);
+    expect(onSentinel).toHaveBeenCalledWith('session-expired');
+  });
+
+  it('captcha isolado avisa onSentinel com captcha-suspected', async () => {
+    const onSentinel = vi.fn();
+    const queue = new RequestQueue(
+      async (url: string) => ({ ok: true, status: 200, body: '<div class="page"><img id="captcha" src="x"></div>', url }),
+      vi.fn(),
+      settings,
+      { onSentinel },
+    );
+    await expect(queue.run(['a'], { label: 'teste', ceiling: 10 })).rejects.toMatchObject({ kind: 'captcha-suspected' });
+    expect(onSentinel).toHaveBeenCalledTimes(1);
+    expect(onSentinel).toHaveBeenCalledWith('captcha-suspected');
+  });
+
+  it('onSentinel que LANÇA não quebra o fail-fast: QueueError segue igual e onFailed dispara', async () => {
+    const onSentinel = vi.fn(() => {
+      throw new Error('listener quebrado');
+    });
+    const onFailed = vi.fn();
+    const queue = new RequestQueue(
+      async (url: string) => ({ ok: true, status: 200, body: '<input name="password">', url }),
+      vi.fn(),
+      settings,
+      { onSentinel, onFailed },
+    );
+    await expect(queue.run(['a'], { label: 'teste', ceiling: 10 })).rejects.toMatchObject({ kind: 'session-expired' });
+    expect(onSentinel).toHaveBeenCalledTimes(1);
+    expect(onFailed).toHaveBeenCalledTimes(1);
+  });
+
+  it('sem sentinela no corpo, onSentinel não é chamado', async () => {
+    const onSentinel = vi.fn();
+    const queue = new RequestQueue(async (url: string) => ({ ok: true, status: 200, body: okBody, url }), vi.fn(), settings, {
+      onSentinel,
+    });
+    await queue.run(['a'], { label: 'teste', ceiling: 10 });
+    expect(onSentinel).not.toHaveBeenCalled();
+  });
+});

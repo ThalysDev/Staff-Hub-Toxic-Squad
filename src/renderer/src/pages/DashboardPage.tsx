@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ArrowRight, Camera, CheckCircle2, Copy, DownloadCloud, Info, LogIn, Map, RefreshCw, User } from 'lucide-react';
+import { ArrowRight, Camera, CheckCircle2, Copy, DownloadCloud, Info, LogIn, Map, RefreshCw, User } from 'lucide-react';
 import type { OpArchiveEntry, UpdateManifest } from '@shared/ipc-types';
 import type { ScorecardOptions, ScorecardRow } from '@shared/war-room';
+import Callout from '../components/Callout';
 import StatBlock from '../components/StatBlock';
 import { usePreferences } from '../hooks/usePreferences';
 import { useSessionStatus } from '../hooks/useSessionStatus';
@@ -149,12 +150,11 @@ function UpdateCard() {
   // ---- Falha: callout vermelho + repetir ou adiar -------------------------
   if (stage === 'error') {
     return (
-      <div className="callout callout--danger" role="alert">
-        <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-        <div className="callout-body">
-          <p className="callout-title">Falha ao atualizar</p>
-          <p>{errorDetail}</p>
-          <div className="row">
+      <Callout
+        variant="danger"
+        title="Falha ao atualizar"
+        actions={
+          <>
             <button
               type="button"
               className="btn"
@@ -171,46 +171,48 @@ function UpdateCard() {
             >
               Mais tarde
             </button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      >
+        <p>{errorDetail}</p>
+      </Callout>
     );
   }
 
   // ---- Pronto: callout verde de sucesso + reinício explícito --------------
   if (stage === 'ready') {
     return (
-      <div className="callout callout--info">
-        <CheckCircle2 size={18} className="callout-icon" aria-hidden="true" />
-        <div className="callout-body">
-          <p className="callout-title">Versão {manifest.version} pronta</p>
-          <p>
-            Download conferido e extraído. O arquivo novo já está preparado — reinicie o hub para trocar
-            para a versão {manifest.version}.
-          </p>
-          <div className="row">
-            <button
-              type="button"
-              className="btn btn-danger"
-              aria-label={`Fechar o hub agora e abrir a nova versão ${manifest.version}`}
-              onClick={() => void handleRestart()}
-              disabled={restarting}
-            >
-              {restarting ? (
-                <>
-                  <span className="btn-spinner" aria-hidden="true" />
-                  Reiniciando…
-                </>
-              ) : (
-                <>
-                  <RefreshCw size={15} aria-hidden="true" />
-                  Reiniciar e atualizar
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
+      <Callout
+        variant="info"
+        icon={CheckCircle2}
+        title={`Versão ${manifest.version} pronta`}
+        actions={
+          <button
+            type="button"
+            className="btn btn-danger"
+            aria-label={`Fechar o hub agora e abrir a nova versão ${manifest.version}`}
+            onClick={() => void handleRestart()}
+            disabled={restarting}
+          >
+            {restarting ? (
+              <>
+                <span className="btn-spinner" aria-hidden="true" />
+                Reiniciando…
+              </>
+            ) : (
+              <>
+                <RefreshCw size={15} aria-hidden="true" />
+                Reiniciar e atualizar
+              </>
+            )}
+          </button>
+        }
+      >
+        <p>
+          Download conferido e extraído. O arquivo novo já está preparado — reinicie o hub para trocar
+          para a versão {manifest.version}.
+        </p>
+      </Callout>
     );
   }
 
@@ -225,10 +227,8 @@ function UpdateCard() {
         ? `${percent}% · ${formatMb(bytes.received)} / ${formatMb(bytes.total)} MB`
         : `${formatMb(bytes.received)} MB baixados`;
     return (
-      <div className="callout callout--info">
-        <DownloadCloud size={18} className="callout-icon" aria-hidden="true" />
-        <div className="callout-body" aria-live="polite">
-          <p className="callout-title">Preparando versão {manifest.version}</p>
+      <Callout variant="info" icon={DownloadCloud} title={`Preparando versão ${manifest.version}`}>
+        <div aria-live="polite">
           {stage === 'download' && (
             <div
               className="progress"
@@ -255,21 +255,18 @@ function UpdateCard() {
             </p>
           )}
         </div>
-      </div>
+      </Callout>
     );
   }
 
   // ---- Oferta inicial: notas do release + adiar ---------------------------
   return (
-    <div className="callout callout--info">
-      <DownloadCloud size={18} className="callout-icon" aria-hidden="true" />
-      <div className="callout-body">
-        <p className="callout-title">Versão {manifest.version} disponível</p>
-        <p style={{ whiteSpace: 'pre-wrap' }}>{manifest.notes}</p>
-        <p className="muted">
-          Versão atual: {update.currentVersion} · Nova versão: {manifest.version}
-        </p>
-        <div className="row">
+    <Callout
+      variant="info"
+      icon={DownloadCloud}
+      title={`Versão ${manifest.version} disponível`}
+      actions={
+        <>
           <button
             type="button"
             className="btn"
@@ -287,9 +284,14 @@ function UpdateCard() {
           >
             Mais tarde
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <p style={{ whiteSpace: 'pre-wrap' }}>{manifest.notes}</p>
+      <p className="muted">
+        Versão atual: {update.currentVersion} · Nova versão: {manifest.version}
+      </p>
+    </Callout>
   );
 }
 
@@ -561,12 +563,20 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
     };
   }, []);
 
-  // Gramática de vazio uniforme nos 3 cartões de jogo: valor serif "—" +
-  // badge de estado. Nada de "DESCONHECIDO".
+  // Gramática de vazio uniforme nos 3 cartões de jogo: sem sessão o valor vira
+  // "aguardando sessão" (muted) + badge de estado com o vocabulário unificado
+  // da sessão (o mesmo da página Sessão): Conectado / Desconectado / Não
+  // conectado. Nada de "DESCONHECIDO".
   const offlineBadge = (
     <span className="pill pill--muted">
       <span className="pill-dot" aria-hidden="true" />
       Desconectado
+    </span>
+  );
+  const unknownBadge = (
+    <span className="pill pill--muted">
+      <span className="pill-dot" aria-hidden="true" />
+      Não conectado
     </span>
   );
   const connectingBadge = (
@@ -575,6 +585,9 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       Conectando…
     </span>
   );
+  // Sem sessão: "Desconectado" só quando o estado é logged-out; desconhecido
+  // (ainda não verificado) usa o rótulo neutro "Não conectado".
+  const semSessaoBadge = status.state === 'unknown' ? unknownBadge : offlineBadge;
 
   return (
     <section className="page">
@@ -594,13 +607,9 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
       </div>
 
       {status.state !== 'logged-in' && (
-        <div className="callout callout--info">
-          <Info size={18} className="callout-icon" aria-hidden="true" />
-          <div className="callout-body">
-            <p className="callout-title">Faça login primeiro</p>
-            <p>Os módulos precisam de uma sessão ativa no jogo para funcionar. Use o botão 'Fazer login no jogo' acima ou vá em Sessão.</p>
-          </div>
-        </div>
+        <Callout variant="info" title="Faça login primeiro">
+          <p>Os módulos precisam de uma sessão ativa no jogo para funcionar. Use o botão 'Fazer login no jogo' acima ou vá em Sessão.</p>
+        </Callout>
       )}
 
       <UpdateCard />
@@ -610,7 +619,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           label="Sessão do jogo"
           tone={hasSession ? 'ok' : isLoggingIn ? 'info' : 'default'}
           icon={LogIn}
-          value={hasSession ? 'Ativa' : '—'}
+          value={hasSession ? 'Conectado' : <span className="muted">aguardando sessão</span>}
           delta={
             hasSession ? (
               status.checkedAt ? (
@@ -621,7 +630,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
             ) : isLoggingIn ? (
               connectingBadge
             ) : (
-              offlineBadge
+              semSessaoBadge
             )
           }
         />
@@ -629,7 +638,9 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
           label="Mundo"
           tone={hasSession ? 'gold' : 'default'}
           icon={Map}
-          value={(hasSession && status.world) || '—'}
+          value={
+            hasSession && status.world ? status.world : hasSession ? '—' : <span className="muted">aguardando sessão</span>
+          }
           delta={
             hasSession ? (
               status.world ? (
@@ -638,14 +649,16 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                 'Mundo não identificado'
               )
             ) : (
-              offlineBadge
+              semSessaoBadge
             )
           }
         />
         <StatBlock
           label="Jogador"
           icon={User}
-          value={(hasSession && status.player) || '—'}
+          value={
+            hasSession && status.player ? status.player : hasSession ? '—' : <span className="muted">aguardando sessão</span>
+          }
           delta={
             hasSession ? (
               status.player ? (
@@ -654,7 +667,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
                 'Jogador não identificado'
               )
             ) : (
-              offlineBadge
+              semSessaoBadge
             )
           }
         />
@@ -695,18 +708,26 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
               </button>
             );
           })}
-          {/* 8º tile: "em breve" — Capturas de tela ganhará entrada própria;
-              enquanto isso, o tile explica o estado em vez de fingir ação. */}
-          <div className="module-card module-card--soon" aria-disabled="true">
+          {/* 8º tile — Preparar Terreno (Capturas): fora da lista MODULES por não
+              ser módulo SG, mas a página existe e abre como os demais tiles. */}
+          <button
+            type="button"
+            className="module-card"
+            onClick={() => onNavigate('captures')}
+          >
             <span className="icon-badge">
               <Camera size={18} aria-hidden="true" />
             </span>
             <span className="module-title">Preparar terreno</span>
             <span className="module-original">Capturas de tela para conferência offline</span>
             <span className="module-foot">
-              <span className="pill pill--warn">Em breve</span>
+              <span className="pill pill--warn">Ferramenta</span>
+              <span className="module-open">
+                Abrir
+                <ArrowRight size={13} aria-hidden="true" />
+              </span>
             </span>
-          </div>
+          </button>
         </div>
       </div>
     </section>

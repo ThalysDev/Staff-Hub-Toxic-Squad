@@ -36,6 +36,7 @@ import { UNITS, type UnitId } from '@shared/units';
 import { usePreferences } from '../../hooks/usePreferences';
 import { useSessionStatus } from '../../hooks/useSessionStatus';
 import { useToast } from '../../hooks/useToast';
+import Callout from '../../components/Callout';
 import EmptyState from '../../components/EmptyState';
 import TemplateLibrary from '../../components/TemplateLibrary';
 import OpMapSection from './OpMapSection';
@@ -676,7 +677,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   function removeGroup(id: string): void {
     const group = groups.find((entry) => entry.id === id);
     if (group === undefined) return;
-    if (!window.confirm(`Remover o grupo "${group.nome}" da operação?`)) return;
+    if (!window.confirm(`Remover o grupo "${group.nome}" da operação? Esta ação não pode ser desfeita.`)) return;
     if (editingId === id) setEditingId(null);
     setGroups((current) => current.filter((entry) => entry.id !== id));
     setPlan(null);
@@ -904,17 +905,18 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   return (
     <div className="col">
       {worldError !== '' && (
-        <div className="callout callout--danger" role="alert">
-          <span className="callout-icon"><TriangleAlert size={16} aria-hidden="true" /></span>
-          <div className="callout-body">
-            <p className="callout-title">Dados do mundo indisponíveis</p>
-            <p>{worldError}</p>
-            <button type="button" className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => void loadWorld()} disabled={worldLoading}>
+        <Callout
+          variant="danger"
+          title="Dados do mundo indisponíveis"
+          actions={
+            <button type="button" className="btn btn-sm" onClick={() => void loadWorld()} disabled={worldLoading}>
               <RefreshCw size={14} aria-hidden="true" />
               {worldLoading ? 'Carregando…' : 'Tentar de novo'}
             </button>
-          </div>
-        </div>
+          }
+        >
+          <p>{worldError}</p>
+        </Callout>
       )}
 
       {/* ---- BLOCO 1 — Contexto (substitui "Servidor/Chave de Acesso" do tool original) ---- */}
@@ -934,7 +936,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
             <span className="muted">Sessão não conectada — abra o jogo (ou importe o SID) para carregar o mundo do planner.</span>
           )}
           {!worldReady && worldError === '' && (
-            <span className="muted">{worldLoading ? 'Carregando unidades, bônus noturno e dump do mundo…' : ''}</span>
+            <span className="muted">{worldLoading ? 'Carregando unidades, bônus noturno e dados do mundo…' : ''}</span>
           )}
         </div>
       </section>
@@ -1073,8 +1075,9 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
               </datalist>
               <div className="row" style={{ gap: 6, marginTop: 6, alignItems: 'center' }}>
                 <select
-                  className="select select--compact"
+                  className="select select--compact mp-preset-select"
                   aria-label="Puxar preset da Análise de Tropas"
+                  title="— puxar preset da Análise de Tropas —"
                   value=""
                   onChange={(event) => {
                     const preset = sg2Presets.find((entry) => entry.name === event.target.value);
@@ -1132,7 +1135,10 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
                 onBlur={() => markTouched('commandsPerOrigin')}
               />
               <span className="field-hint">
-                {parsedOrigins.quotaError ?? `Origem: até ${totalOriginCommands} comando(s)`}
+                {parsedOrigins.quotaError ??
+                  (parsedOrigins.entries.length === 0
+                    ? 'Cole as origens para calcular'
+                    : `Origem: até ${totalOriginCommands} comando(s)`)}
               </span>
               {showFieldError('commandsPerOrigin') !== undefined && <span className="field-error">{draftErrors.commandsPerOrigin}</span>}
             </div>
@@ -1151,7 +1157,10 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
                 onBlur={() => markTouched('commandsPerTarget')}
               />
               <span className="field-hint">
-                {parsedTargets.quotaError ?? `Alvos: até ${totalTargetCommands} comando(s)`}
+                {parsedTargets.quotaError ??
+                  (parsedTargets.entries.length === 0
+                    ? 'Cole os alvos para calcular'
+                    : `Alvos: até ${totalTargetCommands} comando(s)`)}
               </span>
               {showFieldError('commandsPerTarget') !== undefined && <span className="field-error">{draftErrors.commandsPerTarget}</span>}
             </div>
@@ -1389,9 +1398,10 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
             <p className="field-hint">Vale para grupos cuja unidade mais lenta é Catapulta — a mira vai junto nas exportações.</p>
           </div>
 
-          {/* 17. Adicionar Grupo */}
+          {/* 17. Adicionar Grupo — ghost de propósito: a ação PRIMÁRIA da página
+              é "Gerar Operação" no rodapé; adicionar grupo é passo do meio. */}
           <div className="row" style={{ justifyContent: 'center' }}>
-            <button type="button" className="btn mp-btn-add" onClick={addGroup}>
+            <button type="button" className="btn btn-ghost" onClick={addGroup}>
               <ListPlus size={16} aria-hidden="true" />
               {editingId !== null ? 'Salvar alterações do grupo' : 'Adicionar Grupo'}
             </button>
@@ -1406,12 +1416,12 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
           <span className="spacer" />
           {groups.length > 0 && (
             <>
-              <span className="pill pill--muted">{groups.length} grupo(s)</span>
+              <span className="pill pill--muted">{groups.length === 1 ? '1 grupo' : `${groups.length} grupos`}</span>
               <button
                 type="button"
                 className="btn btn-ghost btn-ghost--danger btn-sm"
                 onClick={() => {
-                  if (!window.confirm('Remover TODOS os grupos da operação?')) return;
+                  if (!window.confirm('Remover TODOS os grupos da operação? Esta ação não pode ser desfeita.')) return;
                   setGroups([]);
                   setEditingId(null);
                   setPlan(null);
@@ -1486,7 +1496,9 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
           <h2 className="card-title" id="mp-generate-title">Gerar operação</h2>
           <span className="spacer" />
           {groups.length > 0 && (
-            <span className="pill pill--muted">{groups.length} grupo(s) na operação</span>
+            <span className="pill pill--muted">
+              {groups.length === 1 ? '1 grupo na operação' : `${groups.length} grupos na operação`}
+            </span>
           )}
         </div>
         <div className="card-body col" style={{ gap: 12 }}>
@@ -1500,10 +1512,12 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
               <span>TW Mass Planner</span>
             </label>
           </div>
+          {/* CTA primário da página: .btn pleno (verde). Ação FINAL do fluxo —
+              hierarquia invertida no 3-J (antes o forte era "Adicionar Grupo"). */}
           <div className="row" style={{ gap: 12 }}>
             <button
               type="button"
-              className="btn mp-btn-generate"
+              className="btn"
               onClick={() => void generate()}
               disabled={generating || groups.length === 0 || !worldReady}
               title={worldReady ? undefined : 'Aguardando os dados do mundo carregarem.'}

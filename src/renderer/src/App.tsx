@@ -75,7 +75,7 @@ const SG_PAGES: Readonly<Record<ModuleId, () => ReactElement>> = {
 const isModulePage = (page: PageId): page is ModuleId | WarPageId =>
   MODULES.some((module) => module.id === page) || page === 'guerra';
 
-function renderSystemPage(page: SystemPageId, onNavigate: (page: PageId) => void) {
+function renderSystemPage(page: SystemPageId, onNavigate: (page: PageId) => void, ehAdmin: boolean) {
   switch (page) {
     case 'dashboard':
       return <DashboardPage onNavigate={onNavigate} />;
@@ -88,7 +88,9 @@ function renderSystemPage(page: SystemPageId, onNavigate: (page: PageId) => void
     case 'captures':
       return <CapturesPage />;
     case 'admin':
-      return <AdminPage />;
+      // Deep link ?page=admin: só admin monta a página — não-admin nem chega a
+      // disparar as chamadas de admin (o efeito abaixo corrige o estado).
+      return ehAdmin ? <AdminPage /> : <DashboardPage onNavigate={onNavigate} />;
   }
 }
 
@@ -97,7 +99,7 @@ const INITIAL_PAGE = ((): PageId => {
   const valid =
     MODULES.some((m) => m.id === param) ||
     param === 'guerra' ||
-    ["dashboard", "sessao", "config", "journal", "captures"].includes(param ?? "");
+    ["dashboard", "sessao", "config", "journal", "captures", "admin"].includes(param ?? "");
   return valid && param !== null ? (param as PageId) : "dashboard";
 })();
 
@@ -118,6 +120,12 @@ export default function App() {
     }
     setPage(next);
   };
+
+  // Deep link ?page=admin só vale para admin: assim que o papel é conhecido,
+  // não-admin cai no dashboard (o gate no render evita chamadas de admin).
+  useEffect(() => {
+    if (auth.estado !== 'verificando' && !ehAdmin && page === 'admin') navigate('dashboard');
+  });
 
   // Tema: aplica na troca, segue o sistema em 'system' e sincroniza quando
   // outra tela (Configurações/paleta) muda a escolha via theme.ts.
@@ -248,7 +256,11 @@ export default function App() {
             const SgPage = SG_PAGES[module.id];
             return (
               <div key={module.id} className="sg-page" hidden={page !== module.id}>
-                <SgPage />
+                {module.id === 'sg4' ? (
+                  <Sg4Page onNavigate={(p) => navigate(p as PageId)} />
+                ) : (
+                  <SgPage />
+                )}
               </div>
             );
           })}
@@ -259,7 +271,7 @@ export default function App() {
           )}
           {!isModulePage(page) && (
             <Suspense fallback={<p className="muted">Carregando…</p>}>
-              {renderSystemPage(page, navigate)}
+              {renderSystemPage(page, navigate, ehAdmin)}
             </Suspense>
           )}
         </main>

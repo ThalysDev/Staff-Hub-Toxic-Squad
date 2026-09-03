@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Copy, Map as MapIcon, Radar, Swords } from 'lucide-react';
+import { Copy, Map as MapIcon, Radar, Swords } from 'lucide-react';
 import { parseCoordList } from '@shared/coords';
 import type { QueueProgress } from '@shared/ipc-types';
 import type {
@@ -12,6 +12,7 @@ import type {
   WorldVillage,
 } from '@shared/types';
 import Field from '../../components/Field';
+import Callout from '../../components/Callout';
 import PageHeader from '../../components/PageHeader';
 import PresetManager from '../../components/PresetManager';
 import ProgressBar from '../../components/ProgressBar';
@@ -238,7 +239,7 @@ export default function Sg1Page() {
       push(
         'error',
         relationsFailed
-          ? 'Diplomacia indisponível — clique em "Tentar novamente" no aviso vermelho.'
+          ? 'Diplomacia indisponível — clique em "Recarregar" no aviso do formulário.'
           : 'Diplomacia ainda carregando — tente de novo em instantes.',
       );
       return;
@@ -249,6 +250,7 @@ export default function Sg1Page() {
 
   /** Volta o formulário aos padrões originais e apaga as preferências salvas. */
   function resetFormDefaults(): void {
+    if (!window.confirm('Restaurar padrões? TODOS os campos salvos deste módulo voltam ao padrão e os resultados na tela somem. Esta ação não pode ser desfeita.')) return;
     setOwnTag('');
     setEnemyTagsText('');
     setKDesiredText('');
@@ -262,7 +264,7 @@ export default function Sg1Page() {
 
   /**
    * Aplica um preset salvo nos campos do formulário. NÃO roda a análise — o
-   * usuário confere os campos e clica em "Obter Dados Aldeias". Os estados
+   * usuário confere os campos e clica em "Obter dados das aldeias". Os estados
    * mudados disparam o effect de persistência das preferências normalmente
    * (o último preset aplicado vira o filtro corrente). Presets guardam
    * strings; chave ausente vira '' via `?? ''`.
@@ -372,29 +374,9 @@ export default function Sg1Page() {
 
       {/* ===== Seção A — Análise de Aldeias ===== */}
       <section className="page-section" aria-labelledby="sg1-analyse-title">
-        <h2 className="section-title" id="sg1-analyse-title">Análise de Aldeias</h2>
+        <h2 className="section-title" id="sg1-analyse-title">Análise de aldeias</h2>
         <div className="card">
           <div className="card-body">
-            {relationsFailed && (
-              <div className="callout callout--danger">
-                <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-                <div className="callout-body">
-                  <p className="callout-title">Diplomacia indisponível</p>
-                  <p>
-                    Não foi possível carregar as relações diplomáticas — se você acabou
-                    de entrar no jogo, elas recarregam sozinhas; senão, tente de novo agora.
-                  </p>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    disabled={prefillBusy}
-                    onClick={() => void retryRelations()}
-                  >
-                    Tentar novamente
-                  </button>
-                </div>
-              </div>
-            )}
             {/* Presets nomeados de filtro: salvar/carregar/excluir snapshots dos
                 campos abaixo. Fora do <form> de propósito — Enter no input de
                 nome não pode submeter o formulário e rodar a análise. */}
@@ -530,6 +512,34 @@ export default function Sg1Page() {
                 </Field>
               </div>
 
+              {/* Aviso de diplomacia AQUI (abaixo dos campos, junto da ação que
+                  depende dela) e não no topo do cartão: condição auto-curável
+                  (recarrega sozinha pós-login), logo warn em vez de danger.
+                  Botão type="button" — Enter nos campos não dispara o retry. */}
+              {relationsFailed && (
+                <div className="sg1-span-2">
+                  <Callout
+                    variant="warn"
+                    title="Diplomacia indisponível"
+                    actions={
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        disabled={prefillBusy}
+                        onClick={() => void retryRelations()}
+                      >
+                        Recarregar
+                      </button>
+                    }
+                  >
+                    <p>
+                      Não foi possível carregar as relações diplomáticas — se você acabou
+                      de entrar no jogo, elas recarregam sozinhas; senão, tente de novo agora.
+                    </p>
+                  </Callout>
+                </div>
+              )}
+
               <div className="sg1-span-2 sg1-form-actions">
                 <button type="submit" className="btn" disabled={analyzing}>
                   {analyzing ? (
@@ -540,7 +550,7 @@ export default function Sg1Page() {
                   ) : (
                     <>
                       <Radar size={15} aria-hidden="true" />
-                      Obter Dados Aldeias
+                      Obter dados das aldeias
                     </>
                   )}
                 </button>
@@ -551,13 +561,9 @@ export default function Sg1Page() {
             </form>
 
             {analyzeError !== '' && (
-              <div className="callout callout--danger">
-                <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-                <div className="callout-body">
-                  <p className="callout-title">Falha na análise</p>
-                  <p>{analyzeError}</p>
-                </div>
-              </div>
+              <Callout variant="danger" title="Falha na análise">
+                <p>{analyzeError}</p>
+              </Callout>
             )}
           </div>
         </div>
@@ -613,9 +619,9 @@ export default function Sg1Page() {
         )}
       </section>
 
-      {/* ===== Seção B — Obter Análise do Mundo (Mapa do Mundo) ===== */}
+      {/* ===== Seção B — Obter análise do mundo (Mapa do Mundo) ===== */}
       <section className="page-section" aria-labelledby="sg1-world-title">
-        <h2 className="section-title" id="sg1-world-title">Obter Análise do Mundo</h2>
+        <h2 className="section-title" id="sg1-world-title">Obter análise do mundo</h2>
         <div className="card">
           <div className="card-body">
             <div className="sg1-form-actions">
@@ -633,7 +639,7 @@ export default function Sg1Page() {
                 ) : (
                   <>
                     <MapIcon size={15} aria-hidden="true" />
-                    Obter Análise do Mundo
+                    Obter análise do mundo
                   </>
                 )}
               </button>
@@ -674,7 +680,7 @@ export default function Sg1Page() {
         {tribes.length > 0 && (
           <div className="card card--flush">
             <div className="card-header">
-              <h3 className="card-title">Tribos do Mundo</h3>
+              <h3 className="card-title">Tribos do mundo</h3>
               <span className="spacer" />
               <span className="pill pill--muted">
                 {tribes.length} tribos · {villages.length.toLocaleString('pt-BR')} aldeias
@@ -746,7 +752,7 @@ export default function Sg1Page() {
                   disabled={villages.length === 0}
                 >
                   <MapIcon size={15} aria-hidden="true" />
-                  Gerar Mapa
+                  Gerar mapa
                 </button>
               </div>
             </div>

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import { Download, Info, Upload } from 'lucide-react';
+import { Download, Upload } from 'lucide-react';
 import type { OpArchiveEntry } from '@shared/ipc-types';
+import Callout from '../../components/Callout';
 import { useToast } from '../../hooks/useToast';
 
 export interface OpShareSectionProps {
@@ -85,13 +86,9 @@ export default function OpShareSection({ ops, onImported }: OpShareSectionProps)
         </p>
         <div className="row opshare-row">
           {ops.length === 0 ? (
-            <div className="callout callout--info opshare-callout">
-              <Info size={16} className="callout-icon" aria-hidden="true" />
-              <div className="callout-body">
-                <p className="callout-title">Nenhuma OP arquivada para exportar</p>
-                <p>Arquive uma OP pela Sala de Guerra ou importe um arquivo .json ao lado.</p>
-              </div>
-            </div>
+            <Callout variant="info" title="Nenhuma OP arquivada para exportar">
+              <p>Arquive uma OP pela Sala de Guerra ou importe um arquivo .json ao lado.</p>
+            </Callout>
           ) : (
             <select
               className="select opshare-select"

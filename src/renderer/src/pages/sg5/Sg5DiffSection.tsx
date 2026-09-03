@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
-import { AlertTriangle, GitCompare, Info, TrendingDown, TrendingUp } from 'lucide-react';
+import { GitCompare, TrendingDown, TrendingUp } from 'lucide-react';
 import type { Sg5VerifyResult } from '@shared/ipc-types';
 import { diffConferences } from '@shared/sg5-diff';
 import type { ConferenceCommand, ConferenceDiff, ConferenceSnapshot } from '@shared/sg5-diff';
+import Callout from '../../components/Callout';
 
 /**
  * SG_5 — seção "Comparação com a Conferência Anterior".
@@ -255,7 +256,7 @@ export default function Sg5DiffSection({ current }: Sg5DiffSectionProps): JSX.El
 
   return (
     <section className="page-section" aria-labelledby="sg5-diff-title">
-      <h2 className="section-title" id="sg5-diff-title">Comparação com a Conferência Anterior</h2>
+      <h2 className="section-title" id="sg5-diff-title">Comparação com a conferência anterior</h2>
       <div className="card">
         <div className="card-body">
           <div className="row">
@@ -278,31 +279,23 @@ export default function Sg5DiffSection({ current }: Sg5DiffSectionProps): JSX.El
 
           {!hasCurrent && (
             <p className="muted" style={{ margin: 0 }}>
-              Rode a “Obter Verificação” acima para registrar a conferência atual.
+              Rode a “Obter verificação” acima para registrar a conferência atual.
             </p>
           )}
 
           {isFirstConference && (
-            <div className="callout callout--info" role="note">
-              <Info size={18} className="callout-icon" aria-hidden="true" />
-              <div className="callout-body">
-                <p className="callout-title">Primeira conferência registrada</p>
-                <p>
-                  Primeira conferência registrada — a próxima poderá ser comparada. Os comandos novos/ cancelados, os
-                  alvos que apareceram/ sumiram e a variação de cobertura só fazem sentido entre duas rodadas.
-                </p>
-              </div>
-            </div>
+            <Callout variant="info" title="Primeira conferência registrada">
+              <p>
+                A próxima conferência já poderá ser comparada — comandos novos/ cancelados, alvos que
+                apareceram/ sumiram e a variação de cobertura só fazem sentido entre duas rodadas.
+              </p>
+            </Callout>
           )}
 
           {diffError !== null && (
-            <div className="callout callout--danger" role="alert">
-              <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-              <div className="callout-body">
-                <p className="callout-title">Falha ao comparar</p>
-                <p>{diffError}</p>
-              </div>
-            </div>
+            <Callout variant="danger" title="Falha ao comparar">
+              <p>{diffError}</p>
+            </Callout>
           )}
 
           {report !== null && (
@@ -338,7 +331,7 @@ export default function Sg5DiffSection({ current }: Sg5DiffSectionProps): JSX.El
 
               {unchanged ? (
                 <p className="muted" style={{ margin: 0 }}>
-                  Nenhuma mudança — todos os commandId e alvos da conferência anterior seguem presentes.
+                  Nenhuma mudança — todos os comandos e alvos da conferência anterior seguem presentes.
                 </p>
               ) : (
                 <>
@@ -424,11 +417,8 @@ export default function Sg5DiffSection({ current }: Sg5DiffSectionProps): JSX.El
           )}
 
           <p className="muted sgd-note" style={{ margin: 0, fontSize: 13 }}>
-            Como funciona: a cada verificação, a conferência atual é registrada como “anterior” da próxima comparação —
-            salva nas preferências quando o snapshot cabe no limite de 20.000 caracteres; quando não cabe, vale apenas a
-            memória da página (o SG_5 sobrevive à navegação enquanto o aplicativo estiver aberto). Após reiniciar, a
-            comparação usa a conferência persistida quando couber. A identidade do comando é o commandId do jogo:
-            mudança de nick/ nobre entre coletas não gera novo/ cancelado.
+            A comparação guarda automaticamente a última conferência bem-sucedida — rode a verificação acima para
+            atualizar.
           </p>
         </div>
       </div>

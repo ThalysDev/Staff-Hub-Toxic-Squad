@@ -1,6 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle,
   ChevronDown,
   ChevronRight,
   ClipboardList,
@@ -30,6 +29,7 @@ import {
 import { UNITS, type UnitCounts, type UnitId } from '@shared/units';
 import { TW_UNIT_ICONS } from '../../assets';
 import EmptyState from '../../components/EmptyState';
+import Callout from '../../components/Callout';
 import Field from '../../components/Field';
 import PageHeader from '../../components/PageHeader';
 import PresetManager from '../../components/PresetManager';
@@ -43,7 +43,7 @@ import { MODULES } from '../../modules';
 /**
  * SG_2 — Análise de Tropas das Aldeias (screen=ally&mode=members_troops).
  * Rótulos e formatos fiéis à ferramenta original (docs/MODULOS-SG.md):
- * painel "Dados em Memória" com data da última atualização, coleta completa
+ * painel "Dados coletados" com data da última atualização, coleta completa
  * (membro a membro, com pacing) ou resumo em 1 requisição, e o filtro de
  * tropas por unidade/escopo/coordenadas/eixos. A consulta roda LOCALMENTE
  * no renderer sobre o snapshot guardado em memória no processo principal.
@@ -417,11 +417,20 @@ export default function Sg2Page() {
   // Carrega o que já está em memória ao abrir a página.
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([
-      window.staffhub.troops.status(),
-      window.staffhub.troops.get('troops'),
-      window.staffhub.troops.getDefense(),
-    ])
+    // Cada leitura é independente: falha em get/getDefense (ex.: canais
+    // protegidos sem sessão do jogo) NÃO pode descartar o troopsAt do status()
+    // — o painel "Dados coletados" sempre renderiza a data da última coleta,
+    // com snapshot/defesa ficando null (fail-soft). O catch externo abaixo
+    // cobre só o status(), que mantém o comportamento de toast/callout.
+    const storedPromise = window.staffhub.troops.get('troops').catch((error: unknown) => {
+      console.warn('[sg2] snapshot de tropas em memória indisponível:', error);
+      return null;
+    });
+    const defensePromise = window.staffhub.troops.getDefense().catch((error: unknown) => {
+      console.warn('[sg2] defesa em memória indisponível:', error);
+      return null;
+    });
+    void Promise.all([window.staffhub.troops.status(), storedPromise, defensePromise])
       .then(([status, stored, storedDefense]) => {
         if (cancelled) return;
         setTroopsAt(status.troopsAt);
@@ -572,7 +581,7 @@ export default function Sg2Page() {
       // Sem setResult(null): exibir o resumo NÃO pode descartar um resultado
       // de consulta/fulls-semis que o usuário já tem na tela.
       if (stored === null) {
-        push('info', 'Nada em memória — colete as informações de tropas primeiro.');
+        push('info', 'Nada em memória — colete as tropas primeiro.');
         setShowSummary(false);
         return;
       }
@@ -615,7 +624,7 @@ export default function Sg2Page() {
     return storedDefense;
   }
 
-  /** Botão "Atualizar da memória": puxa a coleta mais recente guardada no app
+  /** Botão "Recarregar da memória": puxa a coleta mais recente guardada no app
    *  (feita aqui ou no SG_3) sem recoletar — e invalida o resultado da fonte
    *  nova (nunca misturar listas de coletas diferentes). */
   async function refreshDefenseFromMemory(): Promise<void> {
@@ -632,7 +641,7 @@ export default function Sg2Page() {
           ? 'ok'
           : 'info',
         stored !== null
-          ? `Defesa atualizada da memória (coleta de ${new Date(stored.collectedAt).toLocaleString('pt-BR')}).`
+          ? `Defesa recarregada da memória (coleta de ${new Date(stored.collectedAt).toLocaleString('pt-BR')}).`
           : 'Sem defesa em memória neste mundo — colete na Análise de Defesa (SG_3) ou pelo botão "Coletar defesa agora".',
       );
     } catch (error) {
@@ -938,6 +947,7 @@ export default function Sg2Page() {
 
   /** Volta os formulários aos padrões e apaga as preferências persistidas do módulo. */
   function resetFormPrefs(): void {
+    if (!window.confirm('Restaurar padrões? TODOS os campos salvos deste módulo voltam ao padrão e os resultados na tela somem. Esta ação não pode ser desfeita.')) return;
     setUnitInputs(emptyUnitInputs());
     setMode('has');
     setScope('village');
@@ -999,7 +1009,7 @@ export default function Sg2Page() {
           "Auditoria de Membros" leva o histórico e a evolução para um lugar
           próprio. Ambas montadas (padrão da Sala de Guerra): trocar aba não
           perde estado, e a aba ativa persiste nas prefs do módulo. */}
-      <div className="seg-tabs" role="tablist" aria-label="Seções da Análise de Tropas">
+      <div className="seg-tabs" role="tablist" aria-label="Seções da análise de tropas">
         <button
           type="button"
           role="tab"
@@ -1022,7 +1032,7 @@ export default function Sg2Page() {
           onClick={() => switchAbaAudit('auditoria')}
         >
           <ClipboardList size={15} aria-hidden="true" />
-          Auditoria de Membros
+          Auditoria de membros
         </button>
       </div>
 
@@ -1058,9 +1068,9 @@ export default function Sg2Page() {
         </section>
       )}
 
-      {/* ===== Painel Dados em Memória ===== */}
+      {/* ===== Painel Dados coletados ===== */}
       <section className="page-section" aria-labelledby="sg2-memory-title">
-        <h2 className="section-title" id="sg2-memory-title">Dados em Memória</h2>
+        <h2 className="section-title" id="sg2-memory-title">Dados coletados</h2>
         <div className="card">
           <div className="card-body">
             <div className="sg2-memory-bar">
@@ -1075,33 +1085,35 @@ export default function Sg2Page() {
                   disabled={collecting !== null || snapshot === null}
                 >
                   <Eye size={14} aria-hidden="true" />
-                  Exibir Dados
+                  Exibir dados
                 </button>
                 <button
                   type="button"
-                  className="btn btn-ghost"
+                  className="btn"
                   onClick={() => void startCollect('members')}
                   disabled={collecting !== null}
+                  title="Coleta completa, membro a membro"
                 >
                   {collecting === 'members' ? (
                     <span className="btn-spinner" aria-hidden="true" />
                   ) : (
                     <Users size={14} aria-hidden="true" />
                   )}
-                  Coletar Informações de Tropas
+                  Coletar tropas
                 </button>
                 <button
                   type="button"
-                  className="btn"
+                  className="btn btn-ghost"
                   onClick={() => void startCollect('summary')}
                   disabled={collecting !== null}
+                  title="1 requisição, por jogador"
                 >
                   {collecting === 'summary' ? (
                     <span className="btn-spinner" aria-hidden="true" />
                   ) : (
                     <Layers size={14} aria-hidden="true" />
                   )}
-                  Coletar Resumo (1 requisição)
+                  Coletar resumo
                 </button>
               </div>
             </div>
@@ -1137,8 +1149,20 @@ export default function Sg2Page() {
               está ativa.
             </p>
             {collecting !== null && progress !== null && (
-              <div className="sg2-progress">
+              <div className="sg2-progress row">
                 <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    void window.staffhub.queue
+                      .cancel()
+                      .then(() => push('info', 'Cancelamento pedido — a coleta para na próxima requisição.'))
+                      .catch(() => push('error', 'Não foi possível pedir o cancelamento.'));
+                  }}
+                >
+                  Cancelar coleta
+                </button>
               </div>
             )}
           </div>
@@ -1154,13 +1178,9 @@ export default function Sg2Page() {
       )}
 
       {actionError !== '' && (
-        <div className="callout callout--danger">
-          <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-          <div className="callout-body">
-            <p className="callout-title">Falha na operação</p>
-            <p>{actionError}</p>
-          </div>
-        </div>
+        <Callout variant="danger" title="Falha na operação">
+          <p>{actionError}</p>
+        </Callout>
       )}
 
       {snapshot === null && defense === null ? (
@@ -1168,7 +1188,7 @@ export default function Sg2Page() {
           <EmptyState
             icon={Swords}
             title="Nenhuma coleta em memória"
-            hint='O painel começa vazio: colete as informações de tropas (membro a membro, com progresso) para os filtros completos — ou a defesa por aldeia (mesma coleta do SG_3) para já usar a fonte "Disponível na aldeia (agora)". Depois da coleta, o formulário abre com mínimo por unidade, jogadores (por ";"), coordenadas, K e eixos.'
+            hint='O painel começa vazio: colete as tropas (membro a membro, com progresso) para os filtros completos — ou a defesa por aldeia (mesma coleta do SG_3) para já usar a fonte "Disponível na aldeia (agora)". Depois da coleta, o formulário abre com mínimo por unidade, jogadores (por ";"), coordenadas, K e eixos.'
             action={
               <div className="row" style={{ gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
                 <button
@@ -1186,7 +1206,7 @@ export default function Sg2Page() {
                   onClick={() => void startDefenseCollect()}
                   disabled={collecting !== null}
                 >
-                  Coletar defesa (SG_3)
+                  Coletar defesa
                 </button>
               </div>
             }
@@ -1194,10 +1214,10 @@ export default function Sg2Page() {
         </div>
       ) : (
         <>
-          {/* ===== Realizar Filtro de Tropas ===== */}
+          {/* ===== Realizar filtro de tropas ===== */}
           <section className="page-section" aria-labelledby="sg2-filter-title">
             <div className="sg2-filter-head">
-              <h2 className="section-title" id="sg2-filter-title">Realizar Filtro de Tropas</h2>
+              <h2 className="section-title" id="sg2-filter-title">Realizar filtro de tropas</h2>
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
@@ -1304,30 +1324,32 @@ export default function Sg2Page() {
                           </div>
                         </fieldset>
                         {defense === null ? (
-                          <div className="callout callout--warn sg2-span-2" role="alert">
-                            <span className="callout-icon">!</span>
-                            <div className="callout-body">
-                              <p className="callout-title">Defesa por aldeia ainda não coletada</p>
+                          <div className="sg2-span-2">
+                            <Callout
+                              variant="warn"
+                              title="Defesa por aldeia ainda não coletada"
+                              actions={
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost btn-sm"
+                                  disabled={collecting !== null}
+                                  onClick={() => void startDefenseCollect()}
+                                >
+                                  {collecting === 'members' ? (
+                                    <>
+                                      <span className="btn-spinner" aria-hidden="true" /> Coletando defesa…
+                                    </>
+                                  ) : (
+                                    'Coletar defesa agora'
+                                  )}
+                                </button>
+                              }
+                            >
                               <p>
                                 A fonte "Disponível na aldeia" usa a mesma coleta da Análise de Defesa
                                 (SG_3). Colete para habilitar a consulta agora.
                               </p>
-                              <button
-                                type="button"
-                                className="btn btn-sm"
-                                style={{ marginTop: 8 }}
-                                disabled={collecting !== null}
-                                onClick={() => void startDefenseCollect()}
-                              >
-                                {collecting === 'members' ? (
-                                  <>
-                                    <span className="btn-spinner" aria-hidden="true" /> Coletando defesa…
-                                  </>
-                                ) : (
-                                  'Coletar defesa agora'
-                                )}
-                              </button>
-                            </div>
+                            </Callout>
                           </div>
                         ) : (
                           <p className="field-hint sg2-span-2" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1339,9 +1361,9 @@ export default function Sg2Page() {
                               className="btn btn-ghost btn-sm"
                               disabled={defenseRefreshing || collecting !== null}
                               onClick={() => void refreshDefenseFromMemory()}
-                              data-tip="Relê a última coleta da Análise de Defesa (SG_3) já guardada no app — sem recoletar. Coletou lá? Clique aqui."
+                              data-tip="Recarrega a última coleta da Análise de Defesa (SG_3) já guardada no app — sem recoletar. Coletou lá? Clique aqui."
                             >
-                              {defenseRefreshing ? 'Atualizando…' : 'Atualizar da memória'}
+                              {defenseRefreshing ? 'Recarregando…' : 'Recarregar da memória'}
                             </button>
                           </p>
                         )}
@@ -1527,7 +1549,7 @@ export default function Sg2Page() {
                     <div className="sg2-span-2 sg2-form-actions">
                       <button type="submit" className="btn">
                         <Swords size={15} aria-hidden="true" />
-                        Realizar Consulta
+                        Realizar consulta
                       </button>
                       <span className="muted">
                         Sem mínimos de unidade, a consulta classifica todas as aldeias em
@@ -1687,12 +1709,11 @@ export default function Sg2Page() {
                   {report !== null && (
                     <>
                       {report.unknownUnits.length > 0 && (
-                        <div className="callout callout--warn" role="alert">
-                          <AlertTriangle size={16} className="callout-icon" aria-hidden="true" />
-                          <span>
+                        <Callout variant="warn">
+                          <p>
                             Unidades sem população no unit-info do mundo ({report.unknownUnits.join(', ')}) — as contagens podem subestimar.
-                          </span>
-                        </div>
+                          </p>
+                        </Callout>
                       )}
                       <div className="stat-row" style={{ marginTop: 12 }}>
                         <StatBlock label="Jogadores" icon={Users} value={report.totals.players} delta="após os filtros do contador" />
@@ -1853,7 +1874,7 @@ export default function Sg2Page() {
           {/* ===== Resultado ===== */}
           {result !== null && (
             <section className="page-section" aria-labelledby="sg2-result-title">
-              <h2 className="section-title" id="sg2-result-title">Resultado da Consulta</h2>
+              <h2 className="section-title" id="sg2-result-title">Resultado da consulta</h2>
               <div className="card card--flush">
                 <div className="card-header">
                   <h3 className="card-title">Jogadores</h3>

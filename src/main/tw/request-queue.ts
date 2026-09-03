@@ -37,6 +37,11 @@ export interface QueueEventHandlers {
   onStarted?: (info: { operationId: string; label: string; total: number }) => void;
   onFinished?: (info: { operationId: string; label: string; total: number }) => void;
   onFailed?: (info: { operationId: string; label: string; error: QueueError }) => void;
+  /** Sentinela de conteúdo detectado (login/captcha no corpo): aviso IMEDIATO
+   * antes do throw — o main usa para espelhar a queda de sessão no
+   * TwSessionManager (a UI para de mostrar "Ativa" na hora). Invocado de forma
+   * best-effort: um listener que lance NÃO altera o fail-fast da fila. */
+  onSentinel?: (kind: 'session-expired' | 'captcha-suspected') => void;
 }
 
 /** Sentinelas de conteúdo que interrompem a fila (detect-pause-notify).
@@ -130,6 +135,15 @@ export class RequestQueue {
         this.onProgress({ operationId: this.operationId, label: options.label, done: this.executed, total: urls.length });
         const sentinel = detectPageSentinels(result.body);
         if (sentinel) {
+          if (sentinel === 'session-expired' || sentinel === 'captcha-suspected') {
+            // Best-effort: erro num listener nunca pode impedir o fail-fast da
+            // fila — o QueueError segue inalterado de qualquer forma.
+            try {
+              this.events.onSentinel?.(sentinel);
+            } catch {
+              // listener do dono falhou — segue o lançamento normal abaixo
+            }
+          }
           throw new QueueError(sentinel, sentinel === 'captcha-suspected'
             ? 'Captcha detectado — operação pausada. Resolva manualmente na janela de login.'
             : 'Sessão expirada — operação interrompida. Faça login novamente.');

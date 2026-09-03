@@ -8,6 +8,7 @@ import { agendaToSg6Entries } from '@shared/comms-package';
 import { previewMps, validateNicks, type MpPreviewEntry, type NickValidation } from '@shared/mp-preview';
 import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
+import Callout from '../../components/Callout';
 import PageHeader from '../../components/PageHeader';
 import TemplateLibrary from '../../components/TemplateLibrary';
 import { MODULES } from '../../modules';
@@ -200,10 +201,17 @@ export default function Sg6Page() {
           type="button"
           className="btn btn-ghost btn-sm"
           onClick={() => {
+            // MUTAÇÃO ampla (padrão Sg4): confirma antes e derruba também os
+            // resultados voláteis na tela — o texto do confirm promete isso.
+            if (!window.confirm('Restaurar padrões? TODOS os campos salvos deste módulo voltam ao padrão e os resultados na tela somem. Esta ação não pode ser desfeita.')) return;
             setReserveCoords(SG6_DEFAULTS.reserveCoords);
             setMpSubject(SG6_DEFAULTS.mpSubject);
             setMpBody(SG6_DEFAULTS.mpBody);
             setMpEntriesText(SG6_DEFAULTS.mpEntriesText);
+            setReservePending(null);
+            setReserveResults(null);
+            setMpPending(null);
+            setMpResults(null);
             void resetPrefs();
           }}
         >
@@ -211,17 +219,13 @@ export default function Sg6Page() {
         </button>
       </div>
 
-      <div className="callout callout--warn" role="note">
-        <KeyRound size={18} className="callout-icon" aria-hidden="true" />
-        <div className="callout-body">
-          <p className="callout-title">Mutações reais</p>
-          <p>
-            Estas ações <strong>alteram o jogo de verdade</strong> (modo real permanente). Cada uma exige
-            confirmação dupla, faz <strong>uma única tentativa</strong> por item com pacing humano e guarda tudo no
-            Journal para auditoria.
-          </p>
-        </div>
-      </div>
+      <Callout variant="warn" title="Mutações reais" icon={KeyRound}>
+        <p>
+          Estas ações <strong>alteram o jogo de verdade</strong> (modo real permanente). Cada uma exige
+          confirmação dupla, faz <strong>uma única tentativa</strong> por item com pacing humano e guarda tudo no
+          Journal para auditoria.
+        </p>
+      </Callout>
 
       <section className="page-section" aria-labelledby="sg6-reserve-title">
         <h2 className="section-title" id="sg6-reserve-title">
@@ -315,8 +319,9 @@ export default function Sg6Page() {
         </h2>
         <p className="muted" style={{ margin: '-4px 0 8px' }}>
           Monte em ordem: os <strong>destinatários</strong> (cole as linhas do formato do app ou a
-          agenda da OP e clique em converter), o <strong>modelo</strong> da mensagem, a
-          <strong> prévia</strong> e o <strong>envio</strong> com confirmação dupla.
+          agenda da OP e clique em converter), o <strong>modelo</strong> da mensagem, a{' '}
+          <strong>prévia</strong> (aparece com destinatários e modelo preenchidos) e o{' '}
+          <strong>envio</strong> com confirmação dupla.
         </p>
         <TemplateLibrary
           variant="sg6"
@@ -351,12 +356,8 @@ export default function Sg6Page() {
                 rows={3}
                 placeholder={'nick;123|456 456|789;22:00:00,22:00:05\nnick;485|307'}
                 value={mpEntriesText}
-                aria-describedby="sg6-mp-entries-hint"
                 onChange={(event) => setMpEntriesText(event.target.value)}
               />
-              <p className="field-hint" id="sg6-mp-entries-hint">
-                Formato: nick;coordenadas e, com a agenda do SG4, também os horários.
-              </p>
               <div className="row" style={{ gap: 8, marginTop: 6 }}>
                 <button
                   type="button"
@@ -424,7 +425,7 @@ export default function Sg6Page() {
                 )}
                 {nickValidation !== null && nickValidation.source === 'dump' && nickValidation.validation !== null && (
                   <div className="sg6-nick-check">
-                    <p className="field-label">Nicks contra o dump do mundo:</p>
+                    <p className="field-label">Nicks contra os dados do mundo:</p>
                     <ul className="sg6-nick-list">
                       {nickValidation.validation.caseMismatch.map((mismatch) => (
                         <li key={mismatch.given} className="text-warn">
@@ -433,24 +434,24 @@ export default function Sg6Page() {
                       ))}
                       {nickValidation.validation.unknown.map((nick) => (
                         <li key={nick} className="error">
-                          ✕ {nick} — não existe no dump do mundo
+                          ✕ {nick} — não existe nos dados do mundo
                         </li>
                       ))}
                       {nickValidation.validation.valid.length > 0 && (
-                        <li className="ok">✓ {nickValidation.validation.valid.length} nick(s) confirmados no dump</li>
+                        <li className="ok">✓ {nickValidation.validation.valid.length} nick(s) confirmados nos dados do mundo</li>
                       )}
                     </ul>
                     {blockUnknownNicks && (
                       <p className="error" role="alert">
-                        Há nick(s) que NÃO existem no dump — corrija as linhas antes de enviar (MP para nick errado não entrega).
+                        Há nick(s) que NÃO existem nos dados do mundo — corrija as linhas antes de enviar (MP para nick errado não entrega).
                       </p>
                     )}
                   </div>
                 )}
                 {nickValidation !== null && nickValidation.source === 'indisponivel' && (
-                  <p className="muted">Não foi possível validar os nicks contra o dump do mundo (dump não baixado?) — revise manualmente.</p>
+                  <p className="muted">Não foi possível validar os nicks contra os dados do mundo (dados não baixados?) — revise manualmente.</p>
                 )}
-                {validatingNicks && <p className="muted">Validando nicks contra o dump do mundo…</p>}
+                {validatingNicks && <p className="muted">Validando nicks contra os dados do mundo…</p>}
                 <div className="row">
                   <button
                     type="button"

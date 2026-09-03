@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, BookmarkPlus, ClipboardCopy, ScrollText, ShieldAlert, X } from 'lucide-react';
+import { BookmarkPlus, ClipboardCopy, ScrollText, ShieldAlert, X } from 'lucide-react';
 import type { ForumConferenceResult } from '@shared/ipc-types';
 import { parseBlindTable } from '@shared/sg7-engine';
 import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
+import Callout from '../../components/Callout';
 import PageHeader from '../../components/PageHeader';
 import { MODULES } from '../../modules';
 import BlindDebtSection from './BlindDebtSection';
@@ -247,9 +248,18 @@ export default function Sg7Page() {
           type="button"
           className="btn btn-ghost btn-sm"
           onClick={() => {
+            // MUTAÇÃO ampla (padrão Sg4): confirma antes e derruba também os
+            // resultados voláteis na tela — o texto do confirm promete isso.
+            if (!window.confirm('Restaurar padrões? TODOS os campos salvos deste módulo voltam ao padrão e os resultados na tela somem. Esta ação não pode ser desfeita.')) return;
             setThreadUrl(SG7_DEFAULTS.threadUrl);
             setSavedTopics([]);
             setTopicLabel('');
+            setConference(null);
+            setAdjustResult(null);
+            setPendingAdjust(false);
+            setPendingDelete(false);
+            setDeleteResult(null);
+            setDebtRound(null);
             void resetPrefs();
           }}
         >
@@ -269,16 +279,12 @@ export default function Sg7Page() {
         </div>
       </div>
 
-      <div className="callout callout--warn" role="note">
-        <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-        <div className="callout-body">
-          <p className="callout-title">Mutações reais</p>
-          <p>
-            Ajustar a tabela e apagar comentários alteram o fórum de verdade — confirmação dupla,
-            verificação pós-envio e registro no Journal.
-          </p>
-        </div>
-      </div>
+      <Callout variant="warn" title="Mutações reais">
+        <p>
+          Ajustar a tabela e apagar comentários alteram o fórum de verdade — confirmação dupla,
+          verificação pós-envio e registro no Journal.
+        </p>
+      </Callout>
 
       <section className="page-section" aria-labelledby="sg7-conference-title">
         <h2 className="section-title" id="sg7-conference-title">Conferência do Tópico</h2>
@@ -419,7 +425,7 @@ export default function Sg7Page() {
 
       {conference !== null && conference.recognizedPostIds.length > 0 && (
         <section className="page-section" aria-labelledby="sg7-delete-title">
-          <h2 className="section-title" id="sg7-delete-title">Apagar mensagens ({conference.recognizedPostIds.length} com comentários)</h2>
+          <h2 className="section-title" id="sg7-delete-title">Remover mensagens ({conference.recognizedPostIds.length} com comentários)</h2>
           <div className="card">
             <div className="card-body">
               <p className="muted">Selecione os posts já contabilizados para excluir (moderação). Confirmação dupla + verificação real.</p>
@@ -440,13 +446,13 @@ export default function Sg7Page() {
               {!pendingDelete ? (
                 <div>
                   <button type="button" className="btn btn-danger" disabled={busy || selectedPosts.length === 0} onClick={() => setPendingDelete(true)}>
-                    Apagar mensagens
+                    Remover mensagens
                   </button>
                 </div>
               ) : (
                 <div className="sg6-confirm">
                   <p>
-                    Confirmar a exclusão de <strong>{selectedPosts.length}</strong> post(s)? Mutação única, tudo no Journal.
+                    Confirmar a exclusão de <strong>{selectedPosts.length}</strong> post(s)? Mutação única, tudo no Journal. Esta ação não pode ser desfeita.
                   </p>
                   <div className="row">
                     <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void runDelete()}>
@@ -476,7 +482,7 @@ export default function Sg7Page() {
       )}
 
       <section className="page-section" aria-labelledby="sg7-debt-title">
-        <h2 className="section-title" id="sg7-debt-title">Débito de Blind</h2>
+        <h2 className="section-title" id="sg7-debt-title">Débito de blind</h2>
         <BlindDebtSection pendingRound={debtRound} onApplied={() => setDebtRound(null)} />
       </section>
 

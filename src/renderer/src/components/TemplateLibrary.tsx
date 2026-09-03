@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { AlertTriangle, ArrowRight, ChevronDown, Loader2, Save, Star, Trash2 } from 'lucide-react';
+import { ArrowRight, ChevronDown, Loader2, Save, Star, Trash2 } from 'lucide-react';
 import { MP_PLACEHOLDERS, sortTemplatesNewestFirst } from '@shared/mp-templates-rules';
 import type { MpTemplateEntry } from '@shared/mp-templates-rules';
 import { useToast } from '../hooks/useToast';
+import Callout from './Callout';
 
 /**
  * Biblioteca de templates de MP (CRUD pelo bridge window.staffhub.templates),
@@ -133,18 +134,18 @@ export default function TemplateLibrary({
   }
 
   async function removeEntry(entry: MpTemplateEntry): Promise<void> {
-    if (!window.confirm(`Excluir o template "${entry.name}"? Esta ação não pode ser desfeita.`)) return;
+    if (!window.confirm(`Remover o template "${entry.name}"? Esta ação não pode ser desfeita.`)) return;
     setBusy(true);
     setActionError(null);
     try {
       // Remoção idempotente no main: corrida de UI (lista desatualizada) é no-op.
       await window.staffhub.templates.remove(entry.id);
       if (!mountedRef.current) return;
-      push('ok', `Template "${entry.name}" excluído da biblioteca.`);
+      push('ok', `Template "${entry.name}" removido da biblioteca.`);
       await refresh();
     } catch (error) {
       if (!mountedRef.current) return;
-      const message = errorMessage(error, 'Falha ao excluir o template.');
+      const message = errorMessage(error, 'Falha ao remover o template.');
       setActionError(message);
       push('error', `Biblioteca de templates: ${message}`);
     } finally {
@@ -200,13 +201,9 @@ export default function TemplateLibrary({
             </p>
 
             {actionError !== null && (
-              <div className="callout callout--danger" role="alert">
-                <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-                <div className="callout-body">
-                  <p className="callout-title">Biblioteca de templates</p>
-                  <p>{actionError}</p>
-                </div>
-              </div>
+              <Callout variant="danger" title="Biblioteca de templates">
+                <p>{actionError}</p>
+              </Callout>
             )}
 
             {/* ===== Lista ===== */}
@@ -257,7 +254,7 @@ export default function TemplateLibrary({
                         onClick={() => void removeEntry(entry)}
                       >
                         <Trash2 size={14} aria-hidden="true" />
-                        Excluir
+                        Remover template
                       </button>
                     </span>
                   </li>

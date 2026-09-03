@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   Copy,
   Hourglass,
-  Info,
   Trash2,
   TrendingDown,
   UserMinus,
@@ -35,6 +34,7 @@ import {
   type PlayerTimelinePoint,
 } from '@shared/member-audit';
 import { fold } from '@shared/fold';
+import Callout from '../../components/Callout';
 import { useToast } from '../../hooks/useToast';
 
 /**
@@ -368,7 +368,7 @@ export default function MemberAuditSection({ refreshKey = 0 }: { refreshKey?: nu
     <section className="audit page-section" aria-labelledby="audit-title">
       {/* ===== Cabeçalho + resumo (N versões · intervalo) — sem listar datas ===== */}
       <div className="audit-head">
-        <h2 className="section-title" id="audit-title">Auditoria de Membros</h2>
+        <h2 className="section-title" id="audit-title">Auditoria de membros</h2>
         {versions !== null && (
           <p className="muted audit-summary">
             {NUMBER_FMT.format(versions.length)} de {NUMBER_FMT.format(MAX_TROOPS_HISTORY)} versões
@@ -385,13 +385,9 @@ export default function MemberAuditSection({ refreshKey = 0 }: { refreshKey?: nu
       </div>
 
       {error !== '' && (
-        <div className="callout callout--danger" role="alert">
-          <AlertTriangle size={18} className="callout-icon" aria-hidden="true" />
-          <div className="callout-body">
-            <p className="callout-title">Falha ao carregar o histórico</p>
-            <p>{error}</p>
-          </div>
-        </div>
+        <Callout variant="danger" title="Falha ao carregar o histórico">
+          <p>{error}</p>
+        </Callout>
       )}
 
       {versions === null && error === '' && <p className="muted">Carregando histórico de coletas…</p>}
@@ -399,20 +395,16 @@ export default function MemberAuditSection({ refreshKey = 0 }: { refreshKey?: nu
       {/* Sem erro junto: falha de carga mostra SÓ o danger (não o "arquive
           coletas" — seria contraditório dizendo que nada foi arquivado). */}
       {versions !== null && versions.length < 2 && error === '' && (
-        <div className="callout callout--info">
-          <Info size={18} className="callout-icon" aria-hidden="true" />
-          <div className="callout-body">
-            <p className="callout-title">Arquive ao menos duas coletas</p>
-            <p>
-              Cada "Coletar Informações de Tropas" feita na aba "Análise de Tropas" arquiva
-              automaticamente uma versão do histórico. Com duas ou mais versões, esta auditoria mostra
-              quem cresceu, quem caiu, quem entrou e quem sumiu entre as coletas.
-              {versions.length === 1
-                ? ' Atualmente há 1 versão arquivada.'
-                : ' Nenhuma versão arquivada ainda.'}
-            </p>
-          </div>
-        </div>
+        <Callout variant="info" title="Arquive ao menos duas coletas">
+          <p>
+            Cada "Coletar tropas" feita na aba "Análise de Tropas" arquiva
+            automaticamente uma versão do histórico. Com duas ou mais versões, esta auditoria mostra
+            quem cresceu, quem caiu, quem entrou e quem sumiu entre as coletas.
+            {versions.length === 1
+              ? ' Atualmente há 1 versão arquivada.'
+              : ' Nenhuma versão arquivada ainda.'}
+          </p>
+        </Callout>
       )}
 
       {versions !== null && versions.length >= 2 && (

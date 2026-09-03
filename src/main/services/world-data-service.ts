@@ -161,7 +161,7 @@ export class WorldDataService {
       players = parseMapPlayerTxt(playerText);
       allies = parseMapAllyTxt(allyText);
     } catch (error) {
-      throw new Error(`Map dump do mundo com formato inesperado: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Map dados do mundo com formato inesperado: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (villages.length === 0) {
       throw new Error('village.txt.gz veio sem nenhuma aldeia — dump incompleto; tente de novo e reporte se persistir.');
