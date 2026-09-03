@@ -11,6 +11,7 @@ import {
   Users,
 } from 'lucide-react';
 import { parseCoordList, type AxesRange } from '@shared/coords';
+import { parsePlayerNames } from '@shared/names-filter';
 import type { QueueProgress } from '@shared/ipc-types';
 import HistoryEvolutionSection from './HistoryEvolutionSection';
 import MemorySummarySection from './MemorySummarySection';
@@ -112,11 +113,6 @@ function parseKs(text: string): number[] {
   return [...new Set((text.match(/\d{1,2}/g) ?? []).map(Number).filter((k) => k >= 0 && k <= 99))];
 }
 
-/** Nicks de um texto colado (espaço/;/quebra de linha como separadores). */
-function parseNames(text: string): string[] {
-  return text.split(/[\s;]+/).map((name) => name.trim()).filter((name) => name.length > 0);
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Falha de comunicação com o processo principal.';
 }
@@ -205,6 +201,14 @@ export default function Sg2Page() {
       ? `Disponível na aldeia (${paradasTransito === 'paradas-e-transito' ? 'paradas + a caminho' : 'agora'})`
       : 'Tropas recrutadas';
   const fonteColetadaEm = fonte === 'disponivel-agora' ? defense?.collectedAt ?? null : troopsAt;
+
+  /** Contagem viva do filtro de jogadores (parser por ';' do v0.33 — nick com
+   *  espaço/acento funciona; comparação ignora acento e maiúsculas). */
+  const fsPlayersParsed = useMemo(() => parsePlayerNames(fsPlayersText), [fsPlayersText]);
+  const fsPlayersLabel =
+    fsPlayersParsed.names.length === 0
+      ? '0 jogadores — separe por ; (a comparação ignora acento e maiúsculas)'
+      : `${fsPlayersParsed.names.length} jogador(es) no filtro${fsPlayersParsed.duplicatesRemoved > 0 ? ` · ${fsPlayersParsed.duplicatesRemoved} duplicado(s) ignorado(s)` : ''}`;
 
   /** Unidades presentes no snapshot (ordem do formulário, depois as demais). */
   const snapshotUnitIds = useMemo<string[]>(() => {
@@ -701,7 +705,7 @@ export default function Sg2Page() {
         unitPopsRef.current = { world: session.world, pops: await window.staffhub.world.unitPops() };
       }
       const ks = parseKs(fsKText);
-      const names = parseNames(fsPlayersText);
+      const names = parsePlayerNames(fsPlayersText).names;
       const units = fsUnitIds();
       if (units !== undefined && units.length === 0) {
         // 'ofensivas' sem nenhuma unidade ofensiva no snapshot (ou custom vazio):
@@ -745,7 +749,7 @@ export default function Sg2Page() {
     if (fsKs.length > 0) parts.push(`K contador ${fsKMode} ${fsKs.join(',')}`);
     const units = fsUnitIds();
     if (units !== undefined) parts.push(`unidades: ${units.map((id) => UNITS[id as UnitId]?.name ?? id).join('+')}`);
-    const fsNames = parseNames(fsPlayersText);
+    const fsNames = parsePlayerNames(fsPlayersText).names;
     if (fsNames.length > 0) parts.push(`jogadores ${fsPlayersMode} ${fsNames.join(',')}`);
     const minF = Number(minFullsText);
     const minS = Number(minSemisText);
@@ -1574,8 +1578,16 @@ export default function Sg2Page() {
                       </div>
                     </label>
                     <label className="field">
-                      <span className="field-label">Jogadores (nicks, um por linha ou espaço)</span>
-                      <textarea className="textarea" rows={2} placeholder="nick1 nick2" value={fsPlayersText} aria-label="Filtro por jogadores do contador" onChange={(event) => setFsPlayersText(event.target.value)} />
+                      <span className="field-label">Jogadores (separe por ; — nick com espaço funciona)</span>
+                      <textarea
+                        className="textarea"
+                        rows={2}
+                        placeholder="Jogador Um; Zé; Outro Nick"
+                        value={fsPlayersText}
+                        aria-label="Filtro por jogadores do contador"
+                        onChange={(event) => setFsPlayersText(event.target.value)}
+                      />
+                      <span className="field-hint">{fsPlayersLabel}</span>
                       <div className="sg2-radio-row" role="radiogroup" aria-label="Modo do filtro por jogadores">
                         <label className="checkbox-field">
                           <input type="radio" name="fs-pmode" checked={fsPlayersMode === 'incluir'} onChange={() => setFsPlayersMode('incluir')} />

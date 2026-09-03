@@ -47,14 +47,10 @@ export interface JournalFilterState {
 /**
  * Normalização acento/case-insensitive: NFD + strip de diacríticos combinantes
  * + toLowerCase. "Verificação" e "verificaçao" viram "verificacao" — a busca
- * do líder não depende de ele acentuar certo.
+ * do líder não depende de ele acentuar certo. v0.33: fonte única em ./fold
+ * (antes era cópia local normalizeText).
  */
-function normalizeText(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-}
+import { fold as normalizeText } from './fold';
 
 const DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 

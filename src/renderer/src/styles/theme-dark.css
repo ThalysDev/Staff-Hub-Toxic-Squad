@@ -87,7 +87,7 @@
   --t-base: 180ms cubic-bezier(0.2, 0.6, 0.3, 1);
 
   --sidebar-width: 236px;
-  --content-max: 1080px;
+  --content-max: none; /* v0.33: tela cheia (par com tokens.css claro) */
 }
 
 /* ===== Faixas "pergaminho" (#f6efdd) de app.css viram elevação escura =====

@@ -182,14 +182,18 @@ describe('fullSemiReport — estrutura do relatório', () => {
     expect(() => report(SNAP, { kFilter: { ks: [-1], mode: 'excluir' } })).toThrow(/Continente\(s\) inválido\(s\)/i);
   });
 
-  it('playerFilter incluir: só nicks exatos (case-sensitive); lista vazia = ninguém', () => {
+  it('playerFilter incluir: ignora acento/caixa (v0.33); lista vazia = ninguém', () => {
     const { players } = report(SNAP, { playerFilter: { names: ['ana'], mode: 'incluir' } });
     expect(players.map((p) => p.playerName)).toEqual(['ana']);
     const { players: none, totals } = report(SNAP, { playerFilter: { names: [], mode: 'incluir' } });
     expect(none).toEqual([]);
     expect(totals).toMatchObject({ players: 0, fulls: 0, semis: 0, villages: 0 });
+    // v0.33: "ANA" agora ACHA "ana" (fold de maiúsculas/minúsculas + acento).
     const { players: cs } = report(SNAP, { playerFilter: { names: ['ANA'], mode: 'incluir' } });
-    expect(cs).toEqual([]); // sem fold de maiúsculas/minúsculas
+    expect(cs.map((p) => p.playerName)).toEqual(['ana']);
+    // Nick inexistente continua não achando nada.
+    const { players: miss } = report(SNAP, { playerFilter: { names: ['ana clara'], mode: 'incluir' } });
+    expect(miss).toEqual([]);
   });
 
   it('playerFilter excluir: todos menos os nicks listados', () => {

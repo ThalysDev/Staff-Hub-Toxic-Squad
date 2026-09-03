@@ -9,6 +9,7 @@
 // nem full nem semi (e jogador sem nenhuma delas não aparece no resultado).
 
 import { continentOf } from './coords';
+import { matchesName, nameSet } from './names-filter';
 
 export interface FullSemiEntry {
   playerName: string;
@@ -281,8 +282,12 @@ export function fullSemiReport(
   }));
 
   if (namesFilter !== undefined) {
-    const names = new Set(namesFilter.names);
-    reports = reports.filter((p) => (namesFilter.mode === 'incluir' ? names.has(p.playerName) : !names.has(p.playerName)));
+    // Matching acento/caixa-insensível (v0.33): o filtro de jogadores aceita
+    // nicks com espaço — "João" na lista acha "JOAO" no snapshot.
+    const set = nameSet(namesFilter.names);
+    reports = reports.filter((p) =>
+      namesFilter.mode === 'incluir' ? matchesName(set, p.playerName) : !matchesName(set, p.playerName),
+    );
   }
   reports = reports.filter((p) => p.fulls >= minFulls && p.semis >= minSemis);
 

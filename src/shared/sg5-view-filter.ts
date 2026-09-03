@@ -31,10 +31,9 @@ export const EMPTY_SG5_VIEW_FILTER: Sg5ViewFilter = Object.freeze({
   status: 'todos',
 });
 
-/** Minúsculas sem acento (NFD + strip de diacríticos): "São" ≃ "sao" ≃ "SAO". */
-function fold(value: string): string {
-  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-}
+/** Minúsculas sem acento (NFD + strip de diacríticos): "São" ≃ "sao" ≃ "SAO".
+ *  v0.33: fonte única em ./fold (antes era cópia local). */
+import { fold } from './fold';
 
 interface Criteria {
   query: string;

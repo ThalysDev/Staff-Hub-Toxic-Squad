@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Info, KeyRound, LogIn, LogOut, ShieldCheck } from 'lucide-react';
+import { Gamepad2, Info, KeyRound, LogIn, LogOut, ShieldCheck } from 'lucide-react';
 import EmptyState from '../components/EmptyState';
 import Field from '../components/Field';
 import PageHeader from '../components/PageHeader';
@@ -70,178 +70,206 @@ export default function SessionPage() {
       <PageHeader
         kicker="Sistema"
         title="Sessão"
-        description="Conta do Staff Hub e conexão com o jogo: janela de login oficial ou import do cookie sid."
+        description="Duas coisas distintas vivem aqui: a SESSÃO DO JOGO (conexão com o Tribal Wars que captura os dados) e a sua CONTA DO STAFF HUB (login do sistema) — cada uma em sua seção abaixo."
       />
 
-      <div className="card">
-        <div className="card-header">
-          <span className="icon-badge">
-            <ShieldCheck size={17} aria-hidden="true" />
-          </span>
-          <h2 className="card-title">Conta do Staff Hub</h2>
-          <span className="spacer" />
-          <button
-            type="button"
-            className="btn btn-ghost btn-ghost--danger btn-sm"
-            data-tip="Encerra a sessão do SISTEMA (login/senha) neste computador."
-            onClick={() => {
-              if (window.confirm('Sair da conta do Staff Hub? Você voltará para a tela de login.')) {
-                void window.staffhub.auth.logout();
-              }
-            }}
-          >
-            <LogOut size={14} aria-hidden="true" /> Sair da conta
-          </button>
+      {/* ===== SEÇÃO 1 — Sessão do jogo (a conexão que alimenta o hub) ===== */}
+      <section className="page-section" aria-labelledby="sessao-jogo-title">
+        <div className="sg2-filter-head">
+          <h2 className="section-title" id="sessao-jogo-title">
+            <Gamepad2 size={17} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -3 }} />
+            Sessão do jogo (Tribal Wars)
+          </h2>
         </div>
-        <div className="card-body">
-          <SessaoSistema />
-        </div>
-      </div>
+        <p className="muted" style={{ margin: '-4px 0 8px' }}>
+          É daqui que o hub lê o jogo: coletas, dados do mundo, reservas e MPs. Entre pela janela
+          oficial — ou importe o cookie sid se você já está logado no navegador.
+        </p>
 
-      <div className="card">
-        <div className="card-header">
-          <span className="icon-badge">
-            <KeyRound size={17} aria-hidden="true" />
-          </span>
-          <h2 className="card-title">Entrar com SID</h2>
-        </div>
-        <div className="card-body">
-          <form
-            className="settings-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void handleSidLogin();
-            }}
-          >
-            <Field
-              id="sid-world"
-              label="Mundo"
-              error={sidErrors.world}
-            >
-              <input
-                id="sid-world"
-                className="input"
-                type="text"
-                placeholder="br142, brc2 ou brp8"
-                autoComplete="off"
-                value={sidWorld}
-                onChange={(event) => setSidWorld(event.target.value)}
-              />
-            </Field>
-            <Field
-              id="sid-value"
-              label="SID"
-              error={sidErrors.sid}
-            >
-              <input
-                id="sid-value"
-                className="input"
-                type="text"
-                placeholder="cole o export completo do EditThisCookie ou só o valor do sid"
-                autoComplete="off"
-                spellCheck={false}
-                value={sidValue}
-                onChange={(event) => setSidValue(event.target.value)}
-              />
-            </Field>
-            <ol className="step-list">
-              <li>Faça login no jogo pelo navegador, normalmente.</li>
-              <li>
-                Na extensão de cookies (EditThisCookie), clique em <strong>Export</strong>.
-              </li>
-              <li>
-                Cole o resultado no campo acima — o hub extrai o <strong>sid</strong> de
-                br###.tribalwars.com.br sozinho.
-              </li>
-            </ol>
-            <p className="hint-note">
-              Só o valor do sid também serve:{' '}
-              <code className="code-chip">0%3A2e4a9f77b1c3…</code> ou{' '}
-              <code className="code-chip">0:2e4a9f77b1c3…</code>. O hub grava apenas os cookies
-              que você colar — nunca gera ou renova sid.
-            </p>
-            <div className="row">
-              <button type="submit" className="btn btn-ghost" disabled={sidBusy}>
-                {sidBusy ? (
-                  <>
-                    <span className="btn-spinner" aria-hidden="true" />
-                    Entrando…
-                  </>
-                ) : (
-                  <>
-                    <KeyRound size={15} aria-hidden="true" />
-                    Entrar com SID
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-header">
-          <span className="icon-badge">
-            <ShieldCheck size={17} aria-hidden="true" />
-          </span>
-          <h2 className="card-title">Estado da sessão</h2>
-          <span className="spacer" />
-          <StatusPill state={status.state} />
-        </div>
-        <div className="card-body">
-          {loggingIn && (
-            <div className="callout callout--info">
-              <Info size={18} className="callout-icon" aria-hidden="true" />
-              <div className="callout-body">
-                <p className="callout-title">Abrindo a página de login</p>
-                <p>
-                  Faça login no portal e <strong>clique no seu mundo</strong> para entrar no jogo. O
-                  hub detecta sozinho quando você entra no mundo e fecha a janela.
-                </p>
+        <div className="card">
+          <div className="card-header">
+            <span className="icon-badge">
+              <Gamepad2 size={17} aria-hidden="true" />
+            </span>
+            <h2 className="card-title">Estado da sessão</h2>
+            <span className="spacer" />
+            <StatusPill state={status.state} />
+          </div>
+          <div className="card-body">
+            {loggingIn && (
+              <div className="callout callout--info">
+                <Info size={18} className="callout-icon" aria-hidden="true" />
+                <div className="callout-body">
+                  <p className="callout-title">Abrindo a página de login</p>
+                  <p>
+                    Faça login no portal e <strong>clique no seu mundo</strong> para entrar no jogo. O
+                    hub detecta sozinho quando você entra no mundo e fecha a janela.
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {hasSession ? (
-            <>
-              <dl className="session-dl">
-                <dt>Mundo</dt>
-                <dd>{status.world ?? '—'}</dd>
-                <dt>Jogador</dt>
-                <dd>{status.player ?? '—'}</dd>
-                <dt>Última verificação</dt>
-                <dd>
-                  {status.checkedAt ? new Date(status.checkedAt).toLocaleString('pt-BR') : '—'}
-                </dd>
-              </dl>
+            {hasSession ? (
+              <>
+                <dl className="session-dl">
+                  <dt>Mundo</dt>
+                  <dd>{status.world ?? '—'}</dd>
+                  <dt>Jogador</dt>
+                  <dd>{status.player ?? '—'}</dd>
+                  <dt>Última verificação</dt>
+                  <dd>
+                    {status.checkedAt ? new Date(status.checkedAt).toLocaleString('pt-BR') : '—'}
+                  </dd>
+                </dl>
+                <div className="row">
+                  <button type="button" className="btn btn-danger" onClick={handleLogout}>
+                    <LogOut size={15} aria-hidden="true" />
+                    Encerrar sessão
+                  </button>
+                </div>
+                <p className="hint-note">
+                  A sessão fica salva entre execuções do hub (partição própria do jogo). Encerre só
+                  quando for trocar de conta.
+                </p>
+              </>
+            ) : (
+              !loggingIn && (
+                <EmptyState
+                  icon={LogIn}
+                  title="Sem sessão ativa"
+                  hint="Faça login com a janela oficial — ou importe o cookie sid logo abaixo, se você já está logado no navegador."
+                  action={
+                    <button type="button" className="btn" onClick={handleLogin}>
+                      <LogIn size={15} aria-hidden="true" />
+                      Fazer login no jogo
+                    </button>
+                  }
+                />
+              )
+            )}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-header">
+            <span className="icon-badge">
+              <KeyRound size={17} aria-hidden="true" />
+            </span>
+            <h2 className="card-title">Alternativa: entrar com SID</h2>
+          </div>
+          <div className="card-body">
+            <form
+              className="settings-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleSidLogin();
+              }}
+            >
+              <Field
+                id="sid-world"
+                label="Mundo"
+                error={sidErrors.world}
+              >
+                <input
+                  id="sid-world"
+                  className="input"
+                  type="text"
+                  placeholder="br142, brc2 ou brp8"
+                  autoComplete="off"
+                  value={sidWorld}
+                  onChange={(event) => setSidWorld(event.target.value)}
+                />
+              </Field>
+              <Field
+                id="sid-value"
+                label="SID"
+                error={sidErrors.sid}
+              >
+                <input
+                  id="sid-value"
+                  className="input"
+                  type="text"
+                  placeholder="cole o export completo do EditThisCookie ou só o valor do sid"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={sidValue}
+                  onChange={(event) => setSidValue(event.target.value)}
+                />
+              </Field>
+              <ol className="step-list">
+                <li>Faça login no jogo pelo navegador, normalmente.</li>
+                <li>
+                  Na extensão de cookies (EditThisCookie), clique em <strong>Export</strong>.
+                </li>
+                <li>
+                  Cole o resultado no campo acima — o hub extrai o <strong>sid</strong> de
+                  br###.tribalwars.com.br sozinho.
+                </li>
+              </ol>
+              <p className="hint-note">
+                Só o valor do sid também serve:{' '}
+                <code className="code-chip">0%3A2e4a9f77b1c3…</code> ou{' '}
+                <code className="code-chip">0:2e4a9f77b1c3…</code>. O hub grava apenas os cookies
+                que você colar — nunca gera ou renova sid.
+              </p>
               <div className="row">
-                <button type="button" className="btn btn-danger" onClick={handleLogout}>
-                  <LogOut size={15} aria-hidden="true" />
-                  Encerrar sessão
+                <button type="submit" className="btn btn-ghost" disabled={sidBusy}>
+                  {sidBusy ? (
+                    <>
+                      <span className="btn-spinner" aria-hidden="true" />
+                      Entrando…
+                    </>
+                  ) : (
+                    <>
+                      <KeyRound size={15} aria-hidden="true" />
+                      Entrar com SID
+                    </>
+                  )}
                 </button>
               </div>
-              <p className="hint-note">
-                A sessão fica salva entre execuções do hub (partição própria do jogo). Encerre só
-                quando for trocar de conta.
-              </p>
-            </>
-          ) : (
-            !loggingIn && (
-              <EmptyState
-                icon={LogIn}
-                title="Sem sessão ativa"
-                hint="Faça login com a janela oficial abaixo — ou importe o cookie sid no cartão seguinte, se você já está logado no navegador."
-                action={
-                  <button type="button" className="btn" onClick={handleLogin}>
-                    <LogIn size={15} aria-hidden="true" />
-                    Fazer login no jogo
-                  </button>
-                }
-              />
-            )
-          )}
+            </form>
+          </div>
         </div>
-      </div>
+      </section>
+
+      {/* ===== SEÇÃO 2 — Conta do Staff Hub (o login do sistema) ===== */}
+      <section className="page-section" aria-labelledby="conta-hub-title">
+        <div className="sg2-filter-head">
+          <h2 className="section-title" id="conta-hub-title">
+            <ShieldCheck size={17} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -3 }} />
+            Conta do Staff Hub
+          </h2>
+        </div>
+        <p className="muted" style={{ margin: '-4px 0 8px' }}>
+          Seu acesso ao sistema (aprovado pelo admin). Não tem relação com a conta do jogo — trocar
+          senha aqui não afeta o Tribal Wars.
+        </p>
+
+        <div className="card">
+          <div className="card-header">
+            <span className="icon-badge">
+              <ShieldCheck size={17} aria-hidden="true" />
+            </span>
+            <h2 className="card-title">Sua conta</h2>
+            <span className="spacer" />
+            <button
+              type="button"
+              className="btn btn-ghost btn-ghost--danger btn-sm"
+              data-tip="Encerra a sessão do SISTEMA (login/senha) neste computador."
+              onClick={() => {
+                if (window.confirm('Sair da conta do Staff Hub? Você voltará para a tela de login.')) {
+                  void window.staffhub.auth.logout();
+                }
+              }}
+            >
+              <LogOut size={14} aria-hidden="true" /> Sair da conta
+            </button>
+          </div>
+          <div className="card-body">
+            <SessaoSistema />
+          </div>
+        </div>
+      </section>
     </section>
   );
 }

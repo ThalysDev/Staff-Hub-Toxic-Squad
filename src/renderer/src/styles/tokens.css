@@ -109,5 +109,7 @@
 
   /* ===== Layout ===== */
   --sidebar-width: 236px;
-  --content-max: 1080px; /* container padrão de conteúdo de TODAS as páginas */
+  /* v0.33: tela cheia a pedido do dono — conteúdo/tabelas acompanham a
+     janela maximizada (antes travavam em 1080px grudadas à esquerda). */
+  --content-max: none;
 }
