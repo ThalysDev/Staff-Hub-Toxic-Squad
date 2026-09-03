@@ -41,8 +41,15 @@ Marrom/Azul/Azul Ally/Vermelho, pré-marcado pela diplomacia do jogo), textarea
 no BR142 antes de escolher scraping vs dump.
 
 ## SG_2 — Análise de Tropas das Aldeias
-Fonte: `screen=ally&mode=members_troops` — itera o dropdown "Selecionar membro" por jogador
-(⚠ validar parâmetro player_id e paginação de jogadores com >1000 aldeias).
+Fonte: `screen=ally&mode=members_troops` — itera o dropdown "Selecionar membro" por jogador.
+✅ Validado no jogo real (canário 02/09, conta com 1156 aldeias): `player_id` funciona; o jogo
+PAGINA membros com 1000+ aldeias (1000/página) e renderiza o pager (`paged-nav-item`) numa
+tabela "vis w100" SEM `<th>` ANTES da tabela de dados — o parser escolhe a tabela com `<th>`
+(pager ignorado) e a coleta segue as páginas (teto 50/membro, falha isolada por página,
+dedupe por `villageId`; journal anota "Nome: N páginas"). A visão da própria conta (fallback)
+usa `overview_villages&mode=units&group=0` (todos os grupos; 152 aldeias/página no BR142),
+também paginada. Fixtures reais: `tests/fixtures/br142/troops-own-paged-p{1,2}-rows.html` e
+`own-units-paged-p1-rows.html`.
 TROPAS = recrutadas/pertencentes à aldeia (podem estar fora: apoio/ataque/coleta).
 
 Painel: `Coletar Informações de Tropas` (progresso N/M; após membros, repassa jogadores

@@ -365,14 +365,6 @@ export default function MemorySummarySection({ snapshot, collectedLabel, sourceL
               </select>
             </label>
 
-            <div className="sg2-sum-label">
-              <span>Eixos X/Y (mín/máx)</span>
-              <input type="number" className="input" min={0} max={999} placeholder="min X" aria-label="Eixo X mínimo" value={minXText} onChange={(event) => setMinXText(event.target.value)} />
-              <input type="number" className="input" min={0} max={999} placeholder="máx X" aria-label="Eixo X máximo" value={maxXText} onChange={(event) => setMaxXText(event.target.value)} />
-              <input type="number" className="input" min={0} max={999} placeholder="min Y" aria-label="Eixo Y mínimo" value={minYText} onChange={(event) => setMinYText(event.target.value)} />
-              <input type="number" className="input" min={0} max={999} placeholder="máx Y" aria-label="Eixo Y máximo" value={maxYText} onChange={(event) => setMaxYText(event.target.value)} />
-            </div>
-
             <label className="sg2-sum-label">
               <span>Classificação</span>
               <select
@@ -387,6 +379,19 @@ export default function MemorySummarySection({ snapshot, collectedLabel, sourceL
                 <option value="vazias">Vazias</option>
               </select>
             </label>
+
+            <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>
+              <FilterX size={14} aria-hidden="true" />
+              Limpar filtros
+            </button>
+
+            <div className="sg2-sum-label">
+              <span>Eixos X/Y (mín/máx)</span>
+              <input type="number" className="input" min={0} max={999} placeholder="min X" aria-label="Eixo X mínimo" value={minXText} onChange={(event) => setMinXText(event.target.value)} />
+              <input type="number" className="input" min={0} max={999} placeholder="máx X" aria-label="Eixo X máximo" value={maxXText} onChange={(event) => setMaxXText(event.target.value)} />
+              <input type="number" className="input" min={0} max={999} placeholder="min Y" aria-label="Eixo Y mínimo" value={minYText} onChange={(event) => setMinYText(event.target.value)} />
+              <input type="number" className="input" min={0} max={999} placeholder="máx Y" aria-label="Eixo Y máximo" value={maxYText} onChange={(event) => setMaxYText(event.target.value)} />
+            </div>
 
             <div className="sg2-sum-label">
               <span>Mínimo por unidade</span>
@@ -406,11 +411,6 @@ export default function MemorySummarySection({ snapshot, collectedLabel, sourceL
                 </label>
               ))}
             </div>
-
-            <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>
-              <FilterX size={14} aria-hidden="true" />
-              Limpar filtros
-            </button>
           </div>
 
           {state.error !== null && (

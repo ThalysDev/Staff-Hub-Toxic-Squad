@@ -11,3 +11,11 @@ StaffHubToxicSquad-*.zip
 vps/staffhub-auth/auth.db*
 vps/staffhub-auth/auth.env
 tests/diag/cap030/e2e-ud/
+
+# Diagnóstico/canário: cookies e HTML integral do jogo nunca no git
+# (fixtures REAIS recortadas vivem em tests/fixtures/br142)
+tests/diag/.probe-ud/
+tests/diag/canary-out/
+tests/diag/probe-out/
+tests/diag/cap-v0332/
+tests/diag/cap-v033/

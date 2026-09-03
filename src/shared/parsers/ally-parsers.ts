@@ -63,6 +63,24 @@ function findTableWith(html: string, marker: string, what: string): string {
   throw new ParseError(`${what}: tabela com "${marker}" não encontrada`);
 }
 
+/**
+ * Tabela de dados de unidades "vis w100": para membros com 1000+ aldeias o jogo
+ * renderiza um PAGER de paginação ANTES da tabela real, e o pager também usa
+ * class="vis w100" — porém sem cabeçalho. Por isso não basta a 1ª ocorrência:
+ * pegamos a 1ª "vis w100" com <th> e conteúdo de unidades (ícone unit_*) ou
+ * link info_village (visão por aldeia).
+ */
+function findUnitsDataTable(html: string, what: string): string {
+  for (const match of html.matchAll(/<table\b[^>]*>([\s\S]*?)<\/table>/g)) {
+    if (!(match[0] ?? '').includes('vis w100')) continue;
+    const table = match[1] ?? '';
+    if (!table.includes('<th')) continue; // pager de paginação: sem <th>
+    if (!/(info_village|unit_\w+\.webp)/.test(table)) continue;
+    return table;
+  }
+  throw new ParseError(`${what}: tabela "vis w100" com cabeçalho (<th>) não encontrada`);
+}
+
 // ---------------------------------------------------------------------------
 // screen=ally&mode=members (Sumário)
 // ---------------------------------------------------------------------------
@@ -370,7 +388,7 @@ function unitsFromCells(cells: readonly string[], start: number, columns: readon
  * Fixtures: tests/fixtures/br142/troops-{reboucas,spartacus}-rows.html
  */
 export function parseMemberVillageTroops(html: string): MemberVillageTroopsResult {
-  const table = findTableWith(html, 'vis w100', 'tabela de tropas por aldeia');
+  const table = findUnitsDataTable(html, 'tabela de tropas por aldeia');
   const rows = [...table.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/g)];
   const headerIndex = rows.findIndex((row) => (row[1] ?? '').includes('<th'));
   if (headerIndex === -1) {
@@ -402,7 +420,7 @@ export function parseMemberVillageTroops(html: string): MemberVillageTroopsResul
  * "a caminho" (em trânsito). Fixtures: defense-{reboucas,spartacus}-rows.html
  */
 export function parseMemberVillageDefense(html: string): MemberVillageDefenseResult {
-  const table = findTableWith(html, 'vis w100', 'tabela de defesa por aldeia');
+  const table = findUnitsDataTable(html, 'tabela de defesa por aldeia');
   const rows = [...table.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/g)];
   const headerIndex = rows.findIndex((row) => (row[1] ?? '').includes('<th'));
   if (headerIndex === -1) {
@@ -432,6 +450,27 @@ export function parseMemberVillageDefense(html: string): MemberVillageDefenseRes
     throw new ParseError('tabela de defesa por aldeia sem grupos de aldeia');
   }
   return { villages };
+}
+
+/**
+ * Números de páginas (>=2) apontados pelos links do pager (paged-nav-item);
+ * page=-1 ("todos") e page=0/1 são ignorados. Sem pager = [].
+ * O jogo usa aspas simples no class ('paged-nav-item'); aspas duplas também é aceito.
+ */
+export function extractPagedNavPages(html: string): number[] {
+  const pages = new Set<number>();
+  for (const anchor of html.matchAll(
+    /<a\b[^>]*\bclass\s*=\s*(?:"[^"]*paged-nav-item[^"]*"|'[^']*paged-nav-item[^']*')[^>]*>/g,
+  )) {
+    const href = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(anchor[0] ?? '');
+    // page=-1 não casa (\d+ não aceita "-"); \b evita prefixos (ex.: "vpage=")
+    const page = /\bpage=(\d+)(?!\d)/.exec(href?.[1] ?? href?.[2] ?? '')?.[1];
+    if (page === undefined) continue;
+    const pageNumber = Number(page);
+    if (pageNumber < 2) continue; // 0/1 = página atual; nunca há pager para elas
+    pages.add(pageNumber);
+  }
+  return [...pages].sort((a, b) => a - b);
 }
 
 // ---------------------------------------------------------------------------

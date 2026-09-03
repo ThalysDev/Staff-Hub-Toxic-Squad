@@ -64,7 +64,7 @@ export class WorldDataService {
   world(): string {
     const { state, world } = this.twSession.getStatus();
     if (state !== 'logged-in' || world === null) {
-      throw new Error('Nenhuma sessão ativa no jogo — faça login (ou importe o sid) antes de continuar.');
+      throw new Error('Nenhuma sessão ativa no jogo — faça login no jogo ou importe a sessão na tela Sessão.');
     }
     return world;
   }

@@ -403,7 +403,9 @@ h2 {
   content: '';
   flex: 1;
   height: 1px;
-  background: linear-gradient(90deg, var(--divider), transparent);
+  /* Filete visível até quase o fim — o fade só nos últimos 15% (antes o
+     gradiente apagava cedo e o título parecia "cortado" a 2/3 da tela). */
+  background: linear-gradient(90deg, var(--divider) 0%, var(--divider) 85%, transparent 100%);
 }
 
 /* =====================================================================
@@ -1376,7 +1378,9 @@ h2 {
    ===================================================================== */
 .module-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  /* 380px: em 1900px dá exatamente 4 por fileira — os 8 módulos fecham 4+4
+     CHEIO (300px ainda deixava 5+3 com 2 buracos; auto-fill se adapta abaixo). */
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
   gap: var(--sp-4);
 }
 
@@ -1664,6 +1668,9 @@ h2 {
   margin: var(--sp-3) 0 0;
   font-size: var(--fs-small);
   color: var(--text-muted);
+  /* Medida de leitura confortável — em 1900px o parágrafo não vira uma linha
+     gigante de ponta a ponta. */
+  max-width: 80ch;
 }
 
 .row {
@@ -1884,9 +1891,22 @@ kbd {
    ===================================================================== */
 .sg2-memory-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: var(--sp-4);
   flex-wrap: wrap;
+}
+
+/* Mini-form "Coleta automática"/"Próxima": controles na mesma base — labels
+   em cima, valor com a MESMA caixa do select (baseline única). */
+.sg2-memory-bar .select {
+  width: auto;
+  min-width: 210px;
+}
+
+.sg2-memory-bar .sg2-next-autocollect .sg2-memory-date {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
 }
 
 .sg2-memory-date {
@@ -2649,12 +2669,22 @@ kbd {
   margin-top: var(--sp-2);
 }
 
-/* Barra de filtros vivos: grid elástico de campos compactos. */
+/* Barra de filtros vivos: LINHAS COESAS — controles simples alinhados na
+   mesma base (linha 1), eixos em 4 colunas compactas (linha 2), unidades na
+   fileira (linha 3). Sem auto-fit: campos de altura diferente não escadinham. */
 .sg2-sum-filters {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: minmax(180px, 1.3fr) minmax(230px, 1fr) minmax(150px, 0.8fr) auto;
   gap: var(--sp-4);
   margin-top: var(--sp-4);
+  align-items: end;
+}
+
+/* Janela estreita: 2×2 sem perder o alinhamento de base. */
+@media (max-width: 1080px) {
+  .sg2-sum-filters {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 /* Botão "Limpar filtros" gruda no pé do grid, sem esticar a célula. */
@@ -2679,12 +2709,17 @@ kbd {
   color: var(--text-muted);
 }
 
-/* Bloco de eixos X/Y: 4 inputs numéricos em 2×2, ocupando a linha toda. */
+/* Bloco de eixos X/Y: rótulo na linha de cima, 4 inputs compactos IGUAIS. */
 .sg2-sum-filters .sg2-sum-label:has(> input[type='number']) {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--sp-2);
+}
+
+.sg2-sum-filters .sg2-sum-label:has(> input[type='number']) > span {
+  grid-column: 1 / -1;
+  margin-bottom: var(--sp-1);
 }
 
 /* "Mínimo por unidade": fileira de rótulos compactos (ícone + nome +
