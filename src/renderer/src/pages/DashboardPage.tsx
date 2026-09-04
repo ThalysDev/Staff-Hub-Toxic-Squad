@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { ArrowRight, Camera, CheckCircle2, Copy, DownloadCloud, Info, LogIn, Map, RefreshCw, User } from 'lucide-react';
-import type { OpArchiveEntry, UpdateManifest } from '@shared/ipc-types';
+import type { OpArchiveEntry, UpdateProgress } from '@shared/ipc-types';
 import type { ScorecardOptions, ScorecardRow } from '@shared/war-room';
 import Callout from '../components/Callout';
 import StatBlock from '../components/StatBlock';
 import { usePreferences } from '../hooks/usePreferences';
 import { useSessionStatus } from '../hooks/useSessionStatus';
 import { useToast } from '../hooks/useToast';
+import { useUpdateStatus } from '../hooks/useUpdateStatus';
 import { MODULES, type ModuleId, type PageId } from '../modules';
 import { BRAND_LOGO_WIDE } from '../assets';
 
@@ -29,126 +30,62 @@ interface DashboardPageProps {
 }
 
 // ---------------------------------------------------------------------------
-// Card de atualização — checagem silenciosa no mount; falha nunca derruba a página.
+// Card de atualização — consome useUpdateStatus como fonte única (checagem no
+// boot + a cada 6h, progresso e falhas do updater). É a superfície detalhada e
+// calma por design: o anúncio alto cabe ao banner global. Falha nunca derruba.
 // ---------------------------------------------------------------------------
-
-/** Etapas locais do preparo: espelham os eventos de updater + o resultado da Promise. */
-type UpdateStage = 'idle' | 'download' | 'verify' | 'extract' | 'ready' | 'error';
-
-interface ConfirmedUpdate {
-  /** Versão em execução quando a checagem encontrou novidade. */
-  currentVersion: string;
-  manifest: UpdateManifest;
-}
 
 function formatMb(bytes: number): string {
   return (bytes / 1048576).toFixed(1);
 }
 
-function UpdateCard() {
-  const [update, setUpdate] = useState<ConfirmedUpdate | null>(null);
-  const [dismissed, setDismissed] = useState(false);
-  const [stage, setStage] = useState<UpdateStage>('idle');
-  const [errorDetail, setErrorDetail] = useState('');
-  const [bytes, setBytes] = useState({ received: 0, total: 0 });
+function UpdateCard({ currentVersion }: { currentVersion: string | null }) {
+  const { state, download, restart, snooze, snoozedVersion } = useUpdateStatus();
   const [restarting, setRestarting] = useState(false);
+  const [errorDismissed, setErrorDismissed] = useState("");
+  // O hook não carrega a versão na fase de preparo — guarda a última vista
+  // (oferta ou pronta) para manter os títulos "Preparando versão X".
+  const [knownVersion, setKnownVersion] = useState('');
 
-  // Checagem silenciosa (fail-soft): sem atualização disponível OU com erro do
-  // canal → nada renderiza. Erros de rede ficam fora da tela de propósito.
-  // O resultado também carrega o ESTADO VIVO do atualizador (download em curso
-  // / versão já preparada) — o Início desmonta ao navegar, então o card precisa
-  // renascer no estágio certo em vez de oferecer "Atualizar" de novo.
   useEffect(() => {
-    let cancelled = false;
-    void window.staffhub.updater
-      .check()
-      .then((result) => {
-        if (cancelled || result.error !== undefined) return;
-        if (!result.updateAvailable || result.manifest === undefined) return;
-        setUpdate({ currentVersion: result.currentVersion, manifest: result.manifest });
-        if (result.preparedVersion === result.manifest.version) {
-          setStage('ready');
-        } else if (result.downloadInProgress === true) {
-          const live = result.lastProgress;
-          if (live?.phase === 'download') {
-            setBytes({ received: live.receivedBytes, total: live.totalBytes });
-            setStage('download');
-          } else if (live?.phase === 'verify' || live?.phase === 'extract') {
-            setStage(live.phase);
-          } else {
-            setStage('download');
-          }
-        }
-      })
-      .catch(() => {
-        // Canal inessível: silencioso por design.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (state.phase === 'available') setKnownVersion(state.latestVersion);
+    else if (state.phase === 'ready') setKnownVersion(state.version);
+    // Saiu do 'ready' (falha de reinício virou estado 'error'): destrava o botão.
+    if (state.phase !== 'ready') setRestarting(false);
+  }, [state]);
 
-  // Progresso do preparo — cleanup garantido no unmount.
-  useEffect(() => {
-    return window.staffhub.events.onUpdaterProgress((progress) => {
-      switch (progress.phase) {
-        case 'download':
-          setStage('download');
-          setBytes({ received: progress.receivedBytes, total: progress.totalBytes });
-          break;
-        case 'verify':
-        case 'extract':
-        case 'ready':
-          setStage(progress.phase);
-          break;
-        case 'error':
-          setErrorDetail(progress.detail);
-          setStage('error');
-          break;
-      }
-    });
-  }, []);
-
-  async function handlePrepare(): Promise<void> {
-    setErrorDetail('');
-    setBytes({ received: 0, total: 0 });
-    // Otimista: botão some na hora — clique duplo/remount não re-dispara.
-    setStage('download');
-    try {
-      const outcome = await window.staffhub.updater.downloadAndPrepare();
-      if (!outcome.ok) {
-        // "Já está em andamento" é INFORMAÇÃO (download continua), não falha.
-        if (outcome.detail.includes('já está em andamento')) {
-          setStage((current) => (current === 'ready' ? current : 'download'));
-          return;
-        }
-        setErrorDetail(outcome.detail || 'Não foi possível preparar a atualização.');
-        setStage((current) => (current === 'ready' ? current : 'error'));
-      }
-    } catch {
-      setErrorDetail('Não foi possível preparar a atualização. Tente novamente.');
-      setStage((current) => (current === 'ready' ? current : 'error'));
-    }
+  function handleDownload(): void {
+    // download() nunca lança e o próprio hook entra em 'downloading' na hora —
+    // o clique duplo morre na troca de fase, sem estado local extra.
+    void download();
   }
 
   async function handleRestart(): Promise<void> {
     setRestarting(true);
     try {
-      await window.staffhub.updater.restartToUpdate();
+      await restart();
       // Sucesso aqui = o app está saindo para trocar de versão.
     } catch {
+      // Falha vira estado 'error' do hook; aqui só destrava o botão.
       setRestarting(false);
-      setErrorDetail('O hub não conseguiu reiniciar sozinho. Feche-o manualmente e abra de novo para concluir.');
-      setStage('error');
     }
   }
 
-  if (update === null || dismissed) return null;
+  // Sem novidade: nada renderiza — o card só aparece quando há o que fazer.
+  if (state.phase === 'idle') return null;
 
-  const { manifest } = update;
+  // Oferta adiada pelo "Mais tarde" (o hook lembra da versão adiada).
+  if (state.phase === 'available' && state.latestVersion === snoozedVersion) {
+    return null;
+  }
+
+  // Preparo de verdade (hook) — o clique otimista é do próprio hook, que entra
+  // em 'downloading' de imediato; o card só espelha o estado.
+  const progress: UpdateProgress | null = state.phase === 'downloading' ? state.progress : null;
 
   // ---- Falha: callout vermelho + repetir ou adiar -------------------------
-  if (stage === 'error') {
+  if (state.phase === 'error') {
+    if (errorDismissed === state.detail) return null; // keyed por detalhe: erro NOVO reaparece (P3 revisão 1)
     return (
       <Callout
         variant="danger"
@@ -158,8 +95,12 @@ function UpdateCard() {
             <button
               type="button"
               className="btn"
-              aria-label={`Tentar baixar a versão ${manifest.version} novamente`}
-              onClick={() => void handlePrepare()}
+              aria-label={
+                knownVersion !== ''
+                  ? `Tentar baixar a versão ${knownVersion} novamente`
+                  : 'Tentar baixar a atualização novamente'
+              }
+              onClick={handleDownload}
             >
               Tentar de novo
             </button>
@@ -167,30 +108,30 @@ function UpdateCard() {
               type="button"
               className="btn btn-ghost"
               aria-label="Fechar aviso de atualização até a próxima visita"
-              onClick={() => setDismissed(true)}
+              onClick={() => setErrorDismissed(state.detail)}
             >
               Mais tarde
             </button>
           </>
         }
       >
-        <p>{errorDetail}</p>
+        <p>{state.detail}</p>
       </Callout>
     );
   }
 
   // ---- Pronto: callout verde de sucesso + reinício explícito --------------
-  if (stage === 'ready') {
+  if (state.phase === 'ready') {
     return (
       <Callout
         variant="info"
         icon={CheckCircle2}
-        title={`Versão ${manifest.version} pronta`}
+        title={`Versão ${state.version} pronta`}
         actions={
           <button
             type="button"
             className="btn btn-danger"
-            aria-label={`Fechar o hub agora e abrir a nova versão ${manifest.version}`}
+            aria-label={`Fechar o hub agora e abrir a nova versão ${state.version}`}
             onClick={() => void handleRestart()}
             disabled={restarting}
           >
@@ -210,26 +151,33 @@ function UpdateCard() {
       >
         <p>
           Download conferido e extraído. O arquivo novo já está preparado — reinicie o hub para trocar
-          para a versão {manifest.version}.
+          para a versão {state.version}.
         </p>
       </Callout>
     );
   }
 
   // ---- Preparando: barra de download / fases conferir + extrair -----------
-  if (stage !== 'idle') {
+  if (progress !== null) {
+    const downloading = progress.phase === 'download' ? progress : null;
     const percent =
-      bytes.total > 0
-        ? Math.min(100, Math.max(0, Math.round((bytes.received / bytes.total) * 100)))
+      downloading !== null && downloading.totalBytes > 0
+        ? Math.min(100, Math.max(0, Math.round((downloading.receivedBytes / downloading.totalBytes) * 100)))
         : 0;
     const label =
-      bytes.total > 0
-        ? `${percent}% · ${formatMb(bytes.received)} / ${formatMb(bytes.total)} MB`
-        : `${formatMb(bytes.received)} MB baixados`;
+      downloading === null
+        ? ''
+        : downloading.totalBytes > 0
+          ? `${percent}% · ${formatMb(downloading.receivedBytes)} / ${formatMb(downloading.totalBytes)} MB`
+          : `${formatMb(downloading.receivedBytes)} MB baixados`;
     return (
-      <Callout variant="info" icon={DownloadCloud} title={`Preparando versão ${manifest.version}`}>
+      <Callout
+        variant="info"
+        icon={DownloadCloud}
+        title={knownVersion !== '' ? `Preparando versão ${knownVersion}` : 'Preparando atualização'}
+      >
         <div aria-live="polite">
-          {stage === 'download' && (
+          {downloading !== null && (
             <div
               className="progress"
               role="progressbar"
@@ -244,12 +192,12 @@ function UpdateCard() {
               <span className="progress-label">{label}</span>
             </div>
           )}
-          {stage === 'verify' && (
+          {progress.phase === 'verify' && (
             <p className="row">
               <span className="btn-spinner" aria-hidden="true" /> Conferindo integridade…
             </p>
           )}
-          {stage === 'extract' && (
+          {progress.phase === 'extract' && (
             <p className="row">
               <span className="btn-spinner" aria-hidden="true" /> Extraindo…
             </p>
@@ -260,18 +208,19 @@ function UpdateCard() {
   }
 
   // ---- Oferta inicial: notas do release + adiar ---------------------------
+  if (state.phase !== 'available') return null;
   return (
     <Callout
       variant="info"
       icon={DownloadCloud}
-      title={`Versão ${manifest.version} disponível`}
+      title={`Versão ${state.latestVersion} disponível`}
       actions={
         <>
           <button
             type="button"
             className="btn"
-            aria-label={`Baixar e preparar a versão ${manifest.version} agora`}
-            onClick={() => void handlePrepare()}
+            aria-label={`Baixar e preparar a versão ${state.latestVersion} agora`}
+            onClick={handleDownload}
           >
             <DownloadCloud size={15} aria-hidden="true" />
             Atualizar agora
@@ -280,16 +229,16 @@ function UpdateCard() {
             type="button"
             className="btn btn-ghost"
             aria-label="Fechar aviso de atualização até a próxima visita"
-            onClick={() => setDismissed(true)}
+            onClick={() => snooze(state.latestVersion)}
           >
             Mais tarde
           </button>
         </>
       }
     >
-      <p style={{ whiteSpace: 'pre-wrap' }}>{manifest.notes}</p>
+      <p style={{ whiteSpace: 'pre-wrap' }}>{state.notes}</p>
       <p className="muted">
-        Versão atual: {update.currentVersion} · Nova versão: {manifest.version}
+        Versão atual: {currentVersion ?? '…'} · Nova versão: {state.latestVersion}
       </p>
     </Callout>
   );
@@ -612,7 +561,7 @@ export default function DashboardPage({ onNavigate }: DashboardPageProps) {
         </Callout>
       )}
 
-      <UpdateCard />
+      <UpdateCard currentVersion={version} />
 
       <div className="stat-row">
         <StatBlock

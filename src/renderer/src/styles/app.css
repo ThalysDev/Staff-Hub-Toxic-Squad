@@ -3817,3 +3817,107 @@ select:not(.select) {
 .audit-filters-note {
   font-size: var(--fs-caption);
 }
+
+/* =====================================================================
+   Banner global de atualização (.update-banner*) — bloco ADITIVO.
+   Faixa montada no App entre a TitleBar e o conteúdo: o .app-shell é
+   flex column, então a faixa EMPURRA as páginas para baixo (nunca
+   sobrepõe). Só tokens (--sp/--fs/--r/cores) = paridade claro+escuro.
+   Tom celebração (verde/acre via --progress/--accent), NUNCA danger;
+   a variante de erro usa âmbar (--warn-*). O pulso do ponto reusa
+   @keyframes pulse — o kill-switch global de prefers-reduced-motion
+   (definido acima) já o desliga. Barra de progresso reutiliza as
+   classes .progress/.progress-track/.progress-fill (track mais slim).
+   ===================================================================== */
+.update-banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-6);
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--border-strong);
+  /* "Impossível de não ver" (pedido do dono; QA visual pediu mais presença
+     no tema claro): faixa accent de 4px na borda esquerda + borda inferior
+     mais grossa garantem o anúncio mesmo com tint suave. */
+  border-left: 4px solid var(--action);
+  border-bottom-width: 2px;
+  box-shadow: var(--elev-1);
+}
+
+.update-banner-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+}
+
+.update-banner-icon {
+  flex: none;
+  color: var(--accent-ink);
+}
+
+.update-banner-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.update-banner-title strong {
+  color: var(--accent-ink);
+}
+
+/* Ponto pulsante do anúncio: chama atenção sem alarme (desliga em
+   movimento reduzido via kill-switch global). */
+.update-banner-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--progress);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.update-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-left: auto;
+}
+
+/* Painel "O que mudou": texto puro pré-formatado com teto e scroll. */
+.update-banner-notes {
+  max-height: 200px;
+  overflow-y: auto;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--divider);
+  color: var(--text);
+  font-size: var(--fs-small);
+  white-space: pre-wrap;
+}
+
+/* Download: barra ocupa a linha ao lado do título; track mais slim que
+   o padrão do app (8px) para caber na faixa sem pesar. */
+.update-banner-progress {
+  flex: 1 1 280px;
+  min-width: 220px;
+}
+
+.update-banner .progress-track {
+  height: 6px;
+}
+
+/* Falha: variante âmbar (aviso, não catástrofe). */
+.update-banner--error {
+  background: var(--warn-bg);
+  border-bottom-color: var(--warn-border);
+  border-left-color: var(--warn-border);
+}
+
+.update-banner--error .update-banner-icon {
+  color: var(--warn-ink);
+}
+
+.update-banner-close {
+  padding: 5px 7px;
+}

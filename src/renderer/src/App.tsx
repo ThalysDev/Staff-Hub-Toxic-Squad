@@ -2,6 +2,8 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react
 import type { ReactElement } from 'react';
 import { Camera, Flame, History, LayoutDashboard, LogIn, Settings2, UserCog, WifiOff } from 'lucide-react';
 import TitleBar from './components/TitleBar';
+import UpdateBanner from './components/UpdateBanner';
+import { useUpdateStatus } from './hooks/useUpdateStatus';
 import Sidebar, { type SidebarGroup, type SidebarItem } from './components/Sidebar';
 import CommandPalette, { type CommandItem } from './components/CommandPalette';
 import ToastViewport from './components/Toast';
@@ -111,6 +113,7 @@ export default function App() {
   const [mountedModules, setMountedModules] = useState<ReadonlySet<ModuleId | WarPageId>>(
     () => (isModulePage(INITIAL_PAGE) ? new Set([INITIAL_PAGE]) : new Set<ModuleId | WarPageId>()),
   );
+  const updates = useUpdateStatus();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [themeChoice, setThemeChoiceState] = useState<ThemeChoice>(currentThemeChoice);
 
@@ -206,13 +209,17 @@ export default function App() {
         group: 'Ações',
         keywords: 'update atualização verificar canal',
         run: () => {
-          void window.staffhub.updater.check();
+          // Pelo STORE (não IPC cru): o resultado reabre o banner mesmo
+          // se a versão estava adiada (check manual limpa o snooze).
+          void updates.check();
           navigate('dashboard');
         },
       },
     ];
     return [...nav, ...acoes];
-  }, [navigate, themeChoice, setTheme, ehAdmin]);
+    // updates em si é instável (carrega state); a AÇÃO é estável (module-level
+    // no hook) — dep pela função evita recomputar a paleta a cada render (F3).
+  }, [navigate, themeChoice, setTheme, ehAdmin, updates.check]);
 
   useKeyboardShortcuts(navigate, () => setPaletteOpen((open) => !open));
 
@@ -243,6 +250,10 @@ export default function App() {
   return (
     <div className="app-shell">
       <TitleBar />
+      {/* Banner global de atualização: primeiro bloco sob a TitleBar — EMPURRA
+          o conteúdo para baixo (shell é flex column), nunca sobrepõe. Só monta
+          neste ramo (sessão válida), igual às páginas. */}
+      <UpdateBanner />
       {auth.estado === 'offline' && auth.offlineAte !== null && (
         <div className="login-offline-banner" role="status">
           <WifiOff size={14} aria-hidden="true" /> Sem contato com o servidor — modo guerra ativo até{' '}

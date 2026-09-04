@@ -179,11 +179,20 @@ function createMainWindow(): void {
   } else {
     // SHS_PAGE=<id> abre direto numa página (deep link ?page=) — usado com
     // SHS_CAPTURE para capturar telas específicas no QA visual.
+    // SHS_QUERY=a=1&b=2 acrescenta parâmetros extras (QA: ?update-banner=demo).
     const page = process.env.SHS_PAGE;
     void mainWindow.loadFile(
       join(__dirname, '../renderer/index.html'),
       page !== undefined && page !== ''
-        ? { query: { page, ...(process.env.SHS_THEME === 'escuro' || process.env.SHS_THEME === 'claro' ? { theme: process.env.SHS_THEME } : {}) } }
+        ? {
+            query: {
+              page,
+              ...(process.env.SHS_THEME === 'escuro' || process.env.SHS_THEME === 'claro' ? { theme: process.env.SHS_THEME } : {}),
+              ...(process.env.SHS_QUERY !== undefined && process.env.SHS_QUERY !== ''
+                ? Object.fromEntries(new URLSearchParams(process.env.SHS_QUERY))
+                : {}),
+            },
+          }
         : undefined,
     );
   }
