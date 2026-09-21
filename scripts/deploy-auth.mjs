@@ -27,6 +27,11 @@ const resetIdx = process.argv.indexOf('--reset-admin');
 const resetNick = resetIdx > -1 ? process.argv[resetIdx + 1] : null;
 
 const NGINX_CONF = `# staffhub-auth — API do Staff Hub (TLS self-signed pinado no app).
+# ⚠ NÃO declarar :80 aqui: o bloco :80 do IP pertence ao
+# staffhub-updates.conf (canal de updates). As locations /staffhub/api/ e
+# /staffhub/scripts/ no :80 são garantidas pelo PATCH_IDEMPOTENTE abaixo
+# (declarar server_name duplicado faz o nginx ignorar este bloco e a API
+# sumir do :80 — incidente 21/09).
 server {
     listen 443 ssl;
     server_name 74.0.5.75;
@@ -40,27 +45,6 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header Host $host;
         proxy_http_version 1.1;
-    }
-}
-
-# Bloco :80 — além do canal estático de updates, expõe /staffhub/api/ em HTTP
-# p/ o USERSCRIPT (Tampermonkey não confia no cert self-signed por IP).
-# Integridade: validate é fail-closed no servidor + ticket HMAC; update de app
-# é assinado Ed25519. MITM aqui = reuso/bloqueio de chave, não código.
-server {
-    listen 80;
-    server_name 74.0.5.75;
-
-    location /staffhub/api/ {
-        proxy_pass http://127.0.0.1:8787/staffhub/api/;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header Host $host;
-        proxy_http_version 1.1;
-    }
-
-    location /staffhub/scripts/ {
-        alias /var/www/staffhub-updates/scripts/;
-        add_header Cache-Control "max-age=300";
     }
 }
 `;
@@ -136,6 +120,38 @@ conn
       console.log('▸ nginx vhost :443 + reload');
       await sftpWrite(sftp, '/etc/nginx/conf.d/staffhub-api.conf', NGINX_CONF);
       await run('nginx -t && systemctl reload nginx');
+
+      // PATCH idempotente do :80 do canal (staffhub-updates.conf pertence ao
+      // canal de updates, não a este deploy): garante /staffhub/scripts/ e
+      // /staffhub/api/ no server do IP — o userscript valida a chave e o
+      // Tampermonkey baixa o .user.js por lá (P0 do incidente 21/09).
+      console.log('▸ nginx :80 do canal (locations do userscript, idempotente)');
+      await run(
+        `python3 - <<'PYEOF'\n` +
+          `import re\n` +
+          `p='/etc/nginx/conf.d/staffhub-updates.conf'\n` +
+          `s=open(p).read()\n` +
+          `inj=(\n` +
+          `"    location /staffhub/scripts/ {\\n"\n` +
+          `"        alias /var/www/staffhub-updates/scripts/;\\n"\n` +
+          `"        add_header Cache-Control \\"max-age=300\\";\\n"\n` +
+          `"    }\\n\\n"\n` +
+          `"    location /staffhub/api/ {\\n"\n` +
+          `"        proxy_pass http://127.0.0.1:8787/staffhub/api/;\\n"\n` +
+          `"        proxy_set_header X-Real-IP \\\\$remote_addr;\\n"\n` +
+          `"        proxy_set_header Host \\\\$host;\\n"\n` +
+          `"        proxy_http_version 1.1;\\n"\n` +
+          `"    }\\n\\n"\n` +
+          `)\n` +
+          `changed=False\n` +
+          `if 'location /staffhub/scripts/' not in s:\n` +
+          `    s=s.replace('    location /staffhub/ {', inj+'    location /staffhub/ {',1); changed=True\n` +
+          `if 'location /staffhub/api/' not in s:\n` +
+          `    s=s.replace('    location /staffhub/ {', inj+'    location /staffhub/ {',1); changed=True\n` +
+          `if changed: open(p,'w').write(s); print('patched')\n` +
+          `else: print('já presente')\n` +
+          `PYEOF`,
+      );
 
       console.log('▸ UFW: liberar 443 se fechado');
       await run(`ufw status | grep -q "443/tcp" || ufw allow 443/tcp`);
