@@ -16,9 +16,10 @@ de cálculo do Staff Hub desktop (`src/shared`, via alias de build — zero cóp
 
 ## Atualização
 
-O script tem `@updateURL`: o Tampermonkey checa novas versões sozinho
-(quando publicado no canal). Também é possível reinstalar por cima com um
-arquivo novo.
+**Manual por enquanto**: o canal público (com `@updateURL` automático) ainda não
+está alimentado — enquanto isso, o líder envia o `.user.js` novo e a staff
+reinstala por cima (as chaves e os dados continuam salvos). Quando o canal
+irmão for alimentado, a atualização passa a ser automática.
 
 ## Módulos
 

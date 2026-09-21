@@ -77,6 +77,12 @@ function renderActivation(onActivate: () => void): void {
 }
 
 function main(): void {
+  // Registro das seções ANTES do gate (P2-1 revisão pré-teste): após a 1ª
+  // ativação o painel já nasce com as 7 abas, sem recarregar a página.
+  registerSection({ id: 'sg7', label: 'Blindagem', matchScreen: 'forum', render: renderSg7 });
+  registerSection({ id: 'oda', label: 'OD de guerra', render: renderOda });
+  registerSection({ id: 'sg6', label: 'Reservas & MPs', render: renderSg6 });
+
   const state: LicenseState = gate();
   if (state.kind === 'ausente') {
     renderActivation(() => {
@@ -86,10 +92,6 @@ function main(): void {
   }
 
   mountShell();
-  // Seções cujo módulo exporta o render (registro centralizado).
-  registerSection({ id: 'sg7', label: 'Blindagem', matchScreen: 'forum', render: renderSg7 });
-  registerSection({ id: 'oda', label: 'OD de guerra', render: renderOda });
-  registerSection({ id: 'sg6', label: 'Reservas & MPs', render: renderSg6 });
   void logout;
   void licenseState;
 }
