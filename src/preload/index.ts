@@ -128,6 +128,7 @@ const api = {
     unitPops: () => invoke('world:unit-pops'),
     unitSpeeds: () => invoke('world:unit-speeds'),
     relations: () => invoke('world:relations'),
+    screenRecipients: (nicks: string[]) => invoke('world:screen-recipients', nicks),
   },
   sg1: {
     analyze: (input: Sg1Input) => invoke('sg1:analyze', input),

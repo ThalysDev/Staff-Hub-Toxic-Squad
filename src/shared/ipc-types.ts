@@ -1,6 +1,7 @@
 // Contrato IPC entre renderer e processo principal do Staff Hub Toxic Squad.
 // Toda evolução da ponte começa aqui — preload e main implementam, renderer consome.
 
+import type { ScreenedRecipient } from './recipient-screen';
 import type {
   DiplomacyRelations,
   Sg1Input,
@@ -487,6 +488,11 @@ export interface StaffHubApi {
     unitSpeeds(): Promise<Record<string, number>>;
     /** Relações diplomáticas da tribo do jogador (página autenticada). */
     relations(): Promise<DiplomacyRelations>;
+    /** Triagem de destinatários de MP contra o mundo + a diplomacia (v0.36.1):
+     *  classifica cada nick (própria tribo/inimigo/aliado/nap/sem-tribo/
+     *  desconhecido) ANTES do envio — caso real: MP para jogador que saiu da
+     *  tribo e virou inimigo, com roster de OP persistida. */
+    screenRecipients(nicks: string[]): Promise<ScreenedRecipient[]>;
   };
   sg1: {
     /** Análise de Aldeias e Distâncias (buckets de tempo de nobre). */

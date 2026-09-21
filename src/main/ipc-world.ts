@@ -151,6 +151,19 @@ export function registerWorldIpc(deps: WorldIpcDeps): void {
     }
   });
 
+  // Triagem de destinatários de MP (v0.36.1 — caso real: MP para inimigo via
+  // roster persistido). Leitura local (sem rede); não ocupa a fila.
+  ipcMain.handle('world:screen-recipients', async (_event, nicks: string[]) => {
+    if (!Array.isArray(nicks) || nicks.some((nick) => typeof nick !== 'string')) {
+      throw new Error('Lista de destinatários inválida.');
+    }
+    try {
+      return await worldData.screenRecipients(nicks.slice(0, 200));
+    } catch (error) {
+      fail('Falha ao triar os destinatários', error);
+    }
+  });
+
   ipcMain.handle('sg1:analyze', async (_event, input: Sg1Input) => {
     try {
       const result = await sg1.analyze(input);

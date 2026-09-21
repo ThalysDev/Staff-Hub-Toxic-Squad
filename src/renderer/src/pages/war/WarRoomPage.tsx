@@ -5,6 +5,7 @@ import { BellRing, TriangleAlert } from 'lucide-react';
 import { Activity, Trophy } from 'lucide-react';
 import type { OpArchiveEntry, OpConferenceSnapshot, OpTotalsSnapshot, Sg5VerifyResult } from '@shared/ipc-types';
 import { renderChargeBody as opCommsCharge } from '@shared/op-comms';
+import { blockedRecipientGroups, RECIPIENT_RELATION_LABEL } from '@shared/recipient-screen';
 import { groupToOriginsText, groupToTargetsText, type GroupEntry } from '@shared/groups-rules';
 import { buildArrivalTimeline, formatCountdown } from '@shared/sg5-arrivals';
 import { formatHms } from '@shared/sg4-timing';
@@ -232,6 +233,25 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
 
   async function sendChargeMps(): Promise<void> {
     if (chargePending === null || charging) return;
+    // TRIAGEM de destinatários (v0.36.1 — caso real da staff: cobrança saiu
+    // para jogador que saiu da tribo e virou INIMIGO, com OP antiga selecionada
+    // no monitor). Fora da própria tribo → confirm bloqueante; cancel default.
+    const screened = await window.staffhub.world.screenRecipients(chargePending.map((debtor) => debtor.playerName));
+    const blocked = blockedRecipientGroups(screened);
+    if (blocked !== null) {
+      const lista = blocked
+        .map((group) => `• ${group.nicks.join(', ')} — ${RECIPIENT_RELATION_LABEL[group.status]}${group.status === 'inimigo' ? ' ⚠' : ''}`)
+        .join('\n');
+      const ok = window.confirm(
+        `ATENÇÃO — devedor(es) FORA da própria tribo:\n\n${lista}\n\n` +
+          'Isso quase sempre significa OP antiga selecionada (roster desatualizado).\n\n' +
+          'Enviar mesmo assim?',
+      );
+      if (!ok) {
+        push('info', 'Cobrança cancelada — revise os devedores (ou selecione a OP correta).');
+        return;
+      }
+    }
     setCharging(true);
     try {
       // UMA chamada em lote (era 1 sendMps por devedor = 1 dialog nativo por

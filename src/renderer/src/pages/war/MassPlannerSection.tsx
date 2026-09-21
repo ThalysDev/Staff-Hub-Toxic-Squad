@@ -18,6 +18,7 @@ import {
 } from '@shared/mass-planner-engine';
 import { formatColavel, formatRussianPlanner, formatTwMassPlanner, unitLabel } from '@shared/mass-planner-formats';
 import { buildOpComms, opCommsInputs } from '@shared/op-comms';
+import { blockedRecipientGroups, RECIPIENT_RELATION_LABEL } from '@shared/recipient-screen';
 import { renderTemplate, type PlayerComms } from '@shared/comms-package';
 import {
   MASS_BUILDINGS,
@@ -880,6 +881,26 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   }
 
   async function sendOpMps(): Promise<void> {    if (mpPending === null || sendingMps) return;
+    // TRIAGEM de destinatários (v0.36.1 — caso real da staff: MP saiu para
+    // jogador que saiu da tribo e virou INIMIGO, com roster de OP persistida).
+    // Qualquer destinatário fora da própria tribo → confirm bloqueante com a
+    // lista; cancelar é o default.
+    const screened = await window.staffhub.world.screenRecipients(mpPending.map((player) => player.playerName));
+    const blocked = blockedRecipientGroups(screened);
+    if (blocked !== null) {
+      const lista = blocked
+        .map((group) => `• ${group.nicks.join(', ')} — ${RECIPIENT_RELATION_LABEL[group.status]}${group.status === 'inimigo' ? ' ⚠' : ''}`)
+        .join('\n');
+      const ok = window.confirm(
+        `ATENÇÃO — destinatário(s) FORA da própria tribo:\n\n${lista}\n\n` +
+          'Isso quase sempre significa roster velho (jogador saiu da tribo) ou origens erradas.\n\n' +
+          'Enviar mesmo assim?',
+      );
+      if (!ok) {
+        setCommsError('Envio cancelado — revise os destinatários na distribuição.');
+        return;
+      }
+    }
     setSendingMps(true);
     setCommsError('');
     try {

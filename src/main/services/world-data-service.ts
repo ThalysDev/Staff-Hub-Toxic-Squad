@@ -9,6 +9,7 @@ import { detectPageSentinels } from '../tw/request-queue';
 import { erroSessao, erroSentinela } from '@shared/error-catalog';
 import { JsonStore } from '../stores/json-store';
 import type { DiplomacyRelations, WorldAlly, WorldDataStatus, WorldPlayer, WorldVillage } from '@shared/types';
+import { buildNickIndex, screenRecipients } from '@shared/recipient-screen';
 import type { Journal } from '../journal';
 import { parseMapAllyTxt, parseMapPlayerTxt, parseMapVillageTxt } from '@shared/parsers/world-parsers';
 import { parseContracts } from '@shared/parsers/ally-parsers';
@@ -321,6 +322,21 @@ export class WorldDataService {
       throw new Error(`Dados do mundo em cache são de ${data.world} — a sessão atual é ${currentWorld}. Atualize os dados do mundo.`);
     }
     return data.allies;
+  }
+
+  /** Triagem de destinatários de MP contra o mundo + a diplomacia da tribo
+   *  (v0.36.1 — caso real: MP saiu para jogador que saiu da tribo e virou
+   *  inimigo; o roster vinha de OP persistida). Falha se o cache não existe. */
+  async screenRecipients(nicks: readonly string[]) {
+    const data = await this.requireCache();
+    const currentWorld = this.world();
+    if (data.world && data.world !== currentWorld) {
+      throw new Error(
+        `Dados do mundo em cache são de ${data.world} — a sessão atual é ${currentWorld}. Atualize os dados do mundo.`,
+      );
+    }
+    const relations = await this.relations().catch(() => null);
+    return screenRecipients(nicks, buildNickIndex(data.players), relations);
   }
 
   private async requireCache(): Promise<WorldDataCache> {
