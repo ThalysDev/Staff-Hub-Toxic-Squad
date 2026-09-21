@@ -14,7 +14,8 @@
 import { gamePost, pacedGet } from '../core/net';
 import { gameContext } from '../core/shell';
 import { gm, worldKey } from '../core/storage';
-import { card, empty, table } from '../core/ui';
+import { card, cardTitle, empty, iconButton, spinner, table } from '../core/ui';
+import { icon, type IconName } from '../core/icons';
 import {
   decodeHtmlEntities,
   parseEditForm,
@@ -166,15 +167,28 @@ function el(tag: string, className?: string, text?: string): HTMLElement {
   return node;
 }
 
-function elButton(label: string, className: string, onClick: () => Promise<void> | void): HTMLButtonElement {
-  const btn = document.createElement('button');
+function elButton(
+  label: string,
+  iconName: IconName,
+  opts: { variant?: 'primary' | 'ghost' | 'danger'; tip?: string },
+  onClick: () => Promise<void> | void,
+): HTMLButtonElement {
+  const btn = iconButton(label, iconName, opts);
   btn.type = 'button';
-  btn.className = className;
-  btn.textContent = label;
   btn.addEventListener('click', () => {
     void onClick();
   });
   return btn;
+}
+
+/** Visual de carga do botão (spinner + verbo no lugar do ícone/rótulo). */
+function buttonBusy(btn: HTMLButtonElement, text: string): void {
+  btn.replaceChildren(spinner(), document.createTextNode(text));
+}
+
+/** Restaurar o repouso (ícone + rótulo originais) após a operação. */
+function buttonRest(btn: HTMLButtonElement, iconName: IconName, label: string): void {
+  btn.replaceChildren(icon(iconName), document.createTextNode(label));
 }
 
 function elPre(text: string): HTMLPreElement {
@@ -193,7 +207,7 @@ export function renderSg7(container: HTMLElement): void {
   container.innerHTML = '';
 
   // Cartão "Conferência": leitura da página + prévias + botões de mutação.
-  const conferCard = card('Conferência');
+  const conferCard = card(cardTitle('eye', 'Conferência'));
   container.appendChild(conferCard);
 
   const ctx = detectThreadContext();
@@ -217,7 +231,7 @@ export function renderSg7(container: HTMLElement): void {
 
   const controls = el('div', 'shs-row');
   const status = el('span', 'shs-muted');
-  const conferBtn = elButton('Conferenciar tópico', 'shs-btn', () => runConference());
+  const conferBtn = elButton('Conferenciar tópico', 'refresh', { tip: 'Relê o tópico e atualiza a conferência' }, () => runConference());
   controls.appendChild(conferBtn);
   controls.appendChild(status);
   conferCard.appendChild(controls);
@@ -226,7 +240,7 @@ export function renderSg7(container: HTMLElement): void {
   conferCard.appendChild(resultBox);
 
   // Cartão "Débito": acumulado por jogador do tópico + Zerar débito.
-  const ledgerCard = card('Débito de blind');
+  const ledgerCard = card(cardTitle('list', 'Débito de blind'));
   container.appendChild(ledgerCard);
   const ledgerBox = el('div');
   ledgerCard.appendChild(ledgerBox);
@@ -260,6 +274,7 @@ export function renderSg7(container: HTMLElement): void {
 
   async function runConference(): Promise<void> {
     setBusy(true);
+    buttonBusy(conferBtn, 'Conferindo…');
     status.textContent = 'Conferindo posts…';
     try {
       snapshot = await conferThread(forumId);
@@ -269,6 +284,7 @@ export function renderSg7(container: HTMLElement): void {
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : String(error);
     } finally {
+      buttonRest(conferBtn, 'refresh', 'Conferenciar tópico');
       setBusy(false);
     }
   }
@@ -293,6 +309,7 @@ export function renderSg7(container: HTMLElement): void {
       ) {
         return;
       }
+      if (adjustBtn !== null) buttonBusy(adjustBtn, 'Atualizando…');
       setMutationStatus('Atualizando a tabela do 1º post…');
       // Action EXATA que o jogo espera: reabre o formulário e reusa os params
       // da action (village/thread_id/edit_post_id/post_id/page/forum_id) —
@@ -327,6 +344,8 @@ export function renderSg7(container: HTMLElement): void {
     } catch (error) {
       setMutationStatus(`Falha no ajuste (nada reenviado): ${error instanceof Error ? error.message : String(error)}`, false);
     } finally {
+      // Rótulo estático do botão de ajuste — seguro restaurar em qualquer caminho.
+      if (adjustBtn !== null) buttonRest(adjustBtn, 'check', 'Atualizar tabela do 1º post');
       setBusy(false);
     }
   }
@@ -353,6 +372,7 @@ export function renderSg7(container: HTMLElement): void {
       ) {
         return;
       }
+      if (deleteBtn !== null) buttonBusy(deleteBtn, `Removendo ${total}…`);
       setMutationStatus(`Removendo ${total} comentário(s)…`);
       const targets = [...current.recognizedPostIds];
       const failures: string[] = [];
@@ -398,6 +418,11 @@ export function renderSg7(container: HTMLElement): void {
           : `Removidos ${deleted} de ${total} comentário(s) processado(s).`;
       setMutationStatus(detail, failures.length === 0 && remaining.length === 0);
     } finally {
+      // O rótulo é dinâmico (contagem): reflete o estado pós-operação do
+      // snapshot corrente — o mesmo valor com que o renderResult o recriou.
+      if (deleteBtn !== null) {
+        buttonRest(deleteBtn, 'trash', `Remover comentários processados (${current.recognizedPostIds.length})`);
+      }
       setBusy(false);
     }
   }
@@ -449,12 +474,13 @@ export function renderSg7(container: HTMLElement): void {
     }
 
     const mutations = el('div', 'shs-row');
-    adjustBtn = elButton('Atualizar tabela do 1º post', 'shs-btn', () => runAdjust(current));
+    adjustBtn = elButton('Atualizar tabela do 1º post', 'check', {}, () => runAdjust(current));
     adjustBtn.disabled = !current.changed;
     mutations.appendChild(adjustBtn);
     deleteBtn = elButton(
       `Remover comentários processados (${current.recognizedPostIds.length})`,
-      'shs-btn',
+      'trash',
+      { variant: 'danger', tip: 'Exclusão real — pede confirmação dupla' },
       () => runDelete(current),
     );
     deleteBtn.disabled = current.recognizedPostIds.length === 0;
@@ -475,7 +501,7 @@ export function renderSg7(container: HTMLElement): void {
           `Rodada da conferência: ${current.round.length} jogador(es) · pediu ${INT_FMT.format(totalRequested)} · enviou ${INT_FMT.format(totalSent)}.`,
         ),
       );
-      mergeRoundBtn = elButton('Somar esta rodada ao débito', 'shs-btn', () => {
+      mergeRoundBtn = elButton('Somar esta rodada ao débito', 'plus', {}, () => {
         mergeRound(current);
       });
       pending.appendChild(mergeRoundBtn);
@@ -507,7 +533,7 @@ export function renderSg7(container: HTMLElement): void {
     headRow.appendChild(el('strong', undefined, 'Débito de blind do tópico'));
     if (entries.length > 0) {
       headRow.appendChild(
-        elButton('Zerar débito', 'shs-btn shs-btn-ghost', () => {
+        elButton('Zerar débito', 'trash', { variant: 'danger' }, () => {
           if (!window.confirm(`Zerar o débito de blind dos ${entries.length} jogador(es) deste tópico? Esta ação não pode ser desfeita.`)) return;
           gm.set(ledgerKey, []);
           renderLedger();

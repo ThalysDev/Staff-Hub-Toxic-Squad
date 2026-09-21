@@ -9,6 +9,8 @@ import type { ConferenceCommand, ConferenceDiff, ConferenceSnapshot } from '@sha
 import { EMPTY_SG5_VIEW_FILTER, filterSg5Result, type Sg5ViewFilter } from '@shared/sg5-view-filter';
 import type { VillageThreat } from '@shared/incoming-risk';
 import { formatHms } from '@shared/sg4-timing';
+import { icon } from '../core/icons';
+import { card, cardTitle, iconButton, pill, spinner, withTip } from '../core/ui';
 
 /** Uma conferência obtida de uma página info_village (não persistida). */
 export interface ConferenceRound {
@@ -78,6 +80,14 @@ function riskClass(level: VillageThreat['level']): string {
   if (level === 'resistente') return 'shs-ok';
   if (level === 'sem-dados') return 'shs-muted';
   return '';
+}
+
+/** Variante da pill de risco (mesma semântica de cores do design system). */
+function pillVariant(level: VillageThreat['level']): 'ok' | 'error' | 'warn' | 'muted' {
+  if (level === 'vai-cair') return 'error';
+  if (level === 'resistente') return 'ok';
+  if (level === 'sem-dados') return 'muted';
+  return 'warn';
 }
 
 /**
@@ -166,12 +176,14 @@ function appendCommandTable(
 /** Monta a seção no container (Shadow DOM do shell) e devolve os controles. */
 export function mountConferenceUi(container: HTMLElement, callbacks: ConferenceCallbacks): ConferenceUi {
   const controls = el('div', 'shs-row');
-  const conferirBtn = el('button', 'shs-btn', 'Conferir agora');
+  const conferirBtn = iconButton('Conferir agora', 'refresh', { tip: 'Busca os comandos de novo' });
   conferirBtn.type = 'button';
   conferirBtn.addEventListener('click', () => callbacks.onConferir());
   const searchInput = el('input', 'shs-input');
   searchInput.type = 'search';
   searchInput.placeholder = 'Filtrar por jogador, aldeia ou x|y…';
+  // <input> não pinta ::after: tooltip via title nativo (P3 da revisão).
+  searchInput.title = 'Filtra a tabela por jogador, aldeia ou x|y';
   searchInput.disabled = true;
   searchInput.addEventListener('input', () => redrawTable());
   controls.append(conferirBtn, searchInput);
@@ -184,14 +196,20 @@ export function mountConferenceUi(container: HTMLElement, callbacks: ConferenceC
   const tableBox = el('div');
 
   const saveRow = el('div', 'shs-row');
-  const salvarBtn = el('button', 'shs-btn shs-btn-ghost', 'Salvar rodada');
+  const salvarBtn = iconButton('Salvar rodada', 'download', {
+    variant: 'ghost',
+    tip: 'Guarda a conferência atual (máx. 2 rodadas)',
+  });
   salvarBtn.type = 'button';
   salvarBtn.addEventListener('click', () => callbacks.onSalvar());
   saveRow.appendChild(salvarBtn);
 
   const savedBox = el('div');
 
-  container.append(controls, messageRow, summaryBox, tableBox, saveRow, savedBox);
+  container.append(
+    card(cardTitle('eye', 'Conferência atual'), controls, messageRow, summaryBox, tableBox),
+    card(cardTitle('list', 'Comparação de rodadas'), saveRow, savedBox),
+  );
 
   let current: ConferenceRound | null = null;
 
@@ -254,7 +272,10 @@ export function mountConferenceUi(container: HTMLElement, callbacks: ConferenceC
     setBusy(busy: boolean): void {
       conferirBtn.disabled = busy;
       salvarBtn.disabled = busy;
-      conferirBtn.textContent = busy ? 'Conferindo…' : 'Conferir agora';
+      conferirBtn.replaceChildren(
+        busy ? spinner() : icon('refresh'),
+        document.createTextNode(busy ? 'Conferindo…' : 'Conferir agora'),
+      );
     },
     setMessage(text: string, kind: MessageKind): void {
       messageEl.textContent = text;
@@ -272,9 +293,16 @@ export function mountConferenceUi(container: HTMLElement, callbacks: ConferenceC
           `${round.coord !== null ? `Alvo ${round.coord}` : 'Alvo (coordenada não identificada)'} · ${round.rows.length} comando(s) · conferido às ${formatHms(new Date(round.fetchedAt))}`,
         ),
       );
-      const risk = el('p', riskClass(round.threat.level), `Risco do alvo: ${riskLabel(round.threat.level)}`);
-      risk.title = round.threat.detail;
-      summaryBox.appendChild(risk);
+      const riskLine = el('p', 'shs-muted', 'Risco do alvo: ');
+      const riskPill = pill(riskLabel(round.threat.level), pillVariant(round.threat.level));
+      withTip(
+        riskPill,
+        round.threat.level === 'sem-dados'
+          ? 'Sem dados de defesa — não afirma resistência.'
+          : round.threat.detail,
+      );
+      riskLine.appendChild(riskPill);
+      summaryBox.appendChild(riskLine);
       redrawTable();
     },
     showSaved(state: SavedRoundsState): void {

@@ -223,6 +223,7 @@ function render(container: HTMLElement): void {
 registerSection({
   id: 'sg5',
   label: 'Conferência',
+  icon: 'eye',
   matchScreen: 'info_village',
   render,
 });

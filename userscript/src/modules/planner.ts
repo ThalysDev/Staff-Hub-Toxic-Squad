@@ -16,7 +16,8 @@
 //      texto para copiar: NENHUM POST de jogo parte daqui (mutações são do SG_6).
 
 import { gameContext, registerSection } from '../core/shell';
-import { card, el, empty, notification, pill, table } from '../core/ui';
+import { card, cardTitle, el, empty, iconButton, notification, pill, spinner, table } from '../core/ui';
+import { icon, type IconName } from '../core/icons';
 import { gm, worldKey } from '../core/storage';
 import { pacedGet } from '../core/net';
 import {
@@ -405,10 +406,16 @@ function field(labelText: string, control: HTMLElement): HTMLDivElement {
   return el('div', { className: 'shs-field' }, el('span', { className: 'shs-field-label' }, labelText), control);
 }
 
-/** Botão type=button com variante do design system. */
-function button(label: string, variant: 'primary' | 'ghost', onClick: () => void, sm = false): HTMLButtonElement {
-  const variantClass = variant === 'ghost' ? ' shs-btn-ghost' : '';
-  const element = el('button', { className: `shs-btn${variantClass}${sm ? ' shs-btn-sm' : ''}` }, label);
+/** Botão type=button com ícone + variante do design system (core/ui). */
+function button(
+  label: string,
+  variant: 'primary' | 'ghost' | 'danger',
+  iconName: IconName,
+  onClick: () => void,
+  sm = false,
+  tip?: string | undefined,
+): HTMLButtonElement {
+  const element = iconButton(label, iconName, tip === undefined ? { variant, small: sm } : { variant, tip, small: sm });
   element.type = 'button';
   element.addEventListener('click', onClick);
   return element;
@@ -460,7 +467,7 @@ function renderPlanner(container: HTMLElement): void {
 
   // ---- controles (referências diretas — sem ids, sem querySelector) ----
   const worldEl = el('span', { className: 'shs-muted' }, 'Dados do mundo: carregando…');
-  const worldBtn = button('Atualizar dados do mundo', 'ghost', () => {
+  const worldBtn = button('Atualizar dados do mundo', 'ghost', 'refresh', () => {
     void refreshWorld();
   });
   const statusEl = el('div', { className: 'shs-muted' });
@@ -499,9 +506,16 @@ function renderPlanner(container: HTMLElement): void {
   opTitleInput.placeholder = 'ex.: OP Cerco Noturno';
   const mpTemplateArea = el('textarea', { className: 'shs-input' });
   mpTemplateArea.rows = 8;
-  const mpBtn = button('Gerar MPs (texto)', 'primary', () => {
-    generateMps();
-  });
+  const mpBtn = button(
+    'Gerar MPs (texto)',
+    'primary',
+    'zap',
+    () => {
+      generateMps();
+    },
+    false,
+    'Monta o texto das MPs para copiar — nada é enviado daqui',
+  );
   const mpOutputArea = el('textarea', { className: 'shs-input' });
   mpOutputArea.rows = 12;
   mpOutputArea.readOnly = true;
@@ -514,13 +528,13 @@ function renderPlanner(container: HTMLElement): void {
   timingHoraInput.type = 'time';
   timingHoraInput.value = '22:00';
   const timingDiaSelect = el('select', undefined, option('hoje', 'Hoje'), option('amanha', 'Amanhã'));
-  const timingBtn = button('Calcular horários de envio', 'primary', () => {
+  const timingBtn = button('Calcular horários de envio', 'primary', 'clock', () => {
     computeTiming();
   });
   const timingInfo = el('p', { className: 'shs-muted' });
   const timingResult = el('div');
 
-  const addBtn = button('Adicionar grupo à operação', 'ghost', () => {
+  const addBtn = button('Adicionar grupo à operação', 'ghost', 'plus', () => {
     syncFormFromDom();
     const built = buildGroupFromForm(draft.form);
     const error = firstGroupError(built.group, planContextOf(worldData), built.quotaErrors);
@@ -544,7 +558,7 @@ function renderPlanner(container: HTMLElement): void {
   );
   const groupsEl = el('div');
   const progressEl = el('div');
-  const gerarBtn = button('Gerar operação', 'primary', () => {
+  const gerarBtn = button('Gerar operação', 'primary', 'zap', () => {
     void generate();
   });
   const resultEl = el('div');
@@ -562,7 +576,7 @@ function renderPlanner(container: HTMLElement): void {
     el('div', { className: 'shs-row' }, worldEl, worldBtn),
     statusEl,
     card(
-      'Grupos',
+      cardTitle('sword', 'Grupos'),
       field('Nome do modelo de tropa', nomeInput),
       field('Origens ("x|y", uma por linha ou separadas por espaço)', origensArea),
       field('Alvos ("x|y", uma por linha ou separadas por espaço)', alvosArea),
@@ -583,9 +597,9 @@ function renderPlanner(container: HTMLElement): void {
         addBtn,
       ),
     ),
-    card('Grupos adicionados', formHint, groupsEl, progressEl, el('div', { className: 'shs-row' }, gerarBtn)),
+    card(cardTitle('list', 'Grupos adicionados'), formHint, groupsEl, progressEl, el('div', { className: 'shs-row' }, gerarBtn)),
     card(
-      'Resultado',
+      cardTitle('chart', 'Resultado'),
       resultEl,
       el('hr', { className: 'shs-divider' }),
       field('Título da OP', opTitleInput),
@@ -594,7 +608,7 @@ function renderPlanner(container: HTMLElement): void {
       mpOutputArea,
     ),
     card(
-      'Kit de tempo de envio',
+      cardTitle('clock', 'Kit de tempo de envio'),
       el(
         'p',
         { className: 'shs-muted' },
@@ -718,7 +732,8 @@ function renderPlanner(container: HTMLElement): void {
       const summary = pill(summaryText);
       const remove = button(
         'Remover',
-        'ghost',
+        'danger',
+        'trash',
         () => {
           draft.groups.splice(index, 1);
           persist();
@@ -760,9 +775,10 @@ function renderPlanner(container: HTMLElement): void {
       }
     }
     gerarBtn.disabled = true;
-    // Aviso "Gerando…" como notificação do design system; precisa estar
-    // PINTADO antes do congelamento: yield SÓ de pintura abaixo (a engine é
-    // síncrona, sem worker na página do jogo).
+    gerarBtn.replaceChildren(spinner(), document.createTextNode('Gerando…'));
+    // Aviso "Gerando…" como notificação do design system (+ spinner no botão);
+    // precisa estar PINTADO antes do congelamento: yield SÓ de pintura abaixo
+    // (a engine é síncrona, sem worker na página do jogo).
     progressEl.innerHTML = '';
     progressEl.appendChild(
       notification('error', 'Gerando… não feche a página (o cálculo é síncrono e congela a aba por alguns segundos).'),
@@ -780,6 +796,7 @@ function renderPlanner(container: HTMLElement): void {
       setStatus(error instanceof Error ? error.message : String(error), 'danger');
     } finally {
       gerarBtn.disabled = false;
+      gerarBtn.replaceChildren(icon('zap'), document.createTextNode('Gerar operação'));
       progressEl.innerHTML = '';
     }
   }
@@ -837,33 +854,61 @@ function renderPlanner(container: HTMLElement): void {
   function exportRow(commands: readonly MassPlanCommand[]): HTMLElement {
     const row = el('div', { className: 'shs-row' });
     row.appendChild(
-      button('Copiar Russian Planner', 'primary', () => {
-        void copyText(
-          formatRussianPlanner(commands, world),
-          'BBCode Russian Planner copiado — cole no caderno da conta premium.',
-        );
-      }),
+      button(
+        'Copiar Russian Planner',
+        'primary',
+        'copy',
+        () => {
+          void copyText(
+            formatRussianPlanner(commands, world),
+            'BBCode Russian Planner copiado — cole no caderno da conta premium.',
+          );
+        },
+        false,
+        'Copia o BBCode do formato Russian Planner',
+      ),
     );
     row.appendChild(
-      button('Copiar TW Mass Planner', 'primary', () => {
-        void copyText(
-          formatTwMassPlanner(commands, world),
-          'BBCode TW Mass Planner copiado — cole no caderno da conta premium.',
-        );
-      }),
+      button(
+        'Copiar TW Mass Planner',
+        'primary',
+        'copy',
+        () => {
+          void copyText(
+            formatTwMassPlanner(commands, world),
+            'BBCode TW Mass Planner copiado — cole no caderno da conta premium.',
+          );
+        },
+        false,
+        'Copia o BBCode do formato TW Mass Planner',
+      ),
     );
     row.appendChild(
-      button('Copiar lista de reservas', 'ghost', () => {
-        void copyText(
-          reservationList(opCommsInputs(commands).distribution),
-          'Alvos únicos da OP copiados — cole na Reserva em Massa do SG_6.',
-        );
-      }),
+      button(
+        'Copiar lista de reservas',
+        'ghost',
+        'copy',
+        () => {
+          void copyText(
+            reservationList(opCommsInputs(commands).distribution),
+            'Alvos únicos da OP copiados — cole na Reserva em Massa do SG_6.',
+          );
+        },
+        false,
+        'Alvos únicos para a Reserva em Massa do SG_6',
+      ),
     );
     row.appendChild(
-      button('Baixar OP (JSON)', 'ghost', () => {
-        downloadOp();
-      }),
+      button(
+        'Baixar OP (JSON)',
+        'ghost',
+        'download',
+        () => {
+          downloadOp();
+        },
+        false,
+        'Baixa o arquivo JSON portátil da OP',
+      ),
     );
     return row;
   }
@@ -1086,5 +1131,6 @@ function renderPlanner(container: HTMLElement): void {
 registerSection({
   id: 'planner',
   label: 'Planner de OP',
+  icon: 'target',
   render: renderPlanner,
 });

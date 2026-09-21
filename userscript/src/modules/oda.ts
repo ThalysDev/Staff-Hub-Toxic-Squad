@@ -33,7 +33,8 @@ import {
 import { gameContext } from '../core/shell';
 import { enqueue } from '../core/net';
 import { gm, worldKey } from '../core/storage';
-import { card, el, empty, pill, table } from '../core/ui';
+import { card, cardTitle, el, empty, iconButton, pill, spinner, table } from '../core/ui';
+import { icon } from '../core/icons';
 
 /** Tipos de dump de kills (att = ODA ofensivo, def = ODD defensivo). */
 const KINDS = {
@@ -241,7 +242,7 @@ function renderHistoryTable(host: HTMLElement, store: OdaOddPersisted): void {
 export function renderOda(container: HTMLElement): void {
   container.innerHTML = '';
 
-  const section = card('OD de guerra');
+  const section = card(cardTitle('chart', 'OD de guerra'));
   container.appendChild(section);
 
   section.appendChild(
@@ -259,9 +260,7 @@ export function renderOda(container: HTMLElement): void {
   input.inputMode = 'numeric';
   input.placeholder = 'ID da tribo (ex.: 1234)';
   input.style.maxWidth = '180px';
-  const button = document.createElement('button');
-  button.className = 'shs-btn';
-  button.textContent = 'Atualizar';
+  const button = iconButton('Atualizar', 'download', { tip: 'Baixa os dumps do jogo — 1× por hora' });
   const status = document.createElement('span');
   controls.append(input, button, status);
   section.appendChild(controls);
@@ -304,6 +303,7 @@ export function renderOda(container: HTMLElement): void {
     // Delta contra outra tribo seria curva errada: trocou o ID, recomeça.
     const active = store === null || store.tribeId !== tribeId ? emptyStore(tribeId) : store;
     button.disabled = true;
+    button.replaceChildren(spinner(), document.createTextNode('Baixando…'));
     void (async () => {
       try {
         const nowIso = new Date().toISOString();
@@ -325,6 +325,7 @@ export function renderOda(container: HTMLElement): void {
         gm.set(storageKey, active);
         setStatus(error instanceof Error ? error.message : String(error), true);
       } finally {
+        button.replaceChildren(icon('download'), document.createTextNode('Atualizar'));
         button.disabled = false;
       }
     })();

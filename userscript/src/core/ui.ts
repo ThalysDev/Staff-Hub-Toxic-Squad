@@ -1,6 +1,8 @@
 // Helpers de UI do userscript: construção de elementos sem innerHTML com
 // dados dinâmicos (doutrina anti-XSS — game data entra por textContent).
-// Complementa o design system .shs-* do shell.
+// Complementa o design system .shs-* do shell e o catálogo de ícones.
+
+import { icon, type IconName } from './icons';
 
 type Child = string | Node;
 
@@ -24,10 +26,17 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-/** Cartão padrão com título ◆ (gramática visual do hub). */
-export function card(title: string, ...children: Child[]): HTMLDivElement {
-  const titleEl = el('h3', { className: 'shs-card-title' }, title);
+/** Cartão padrão com título ◆ (gramática visual do hub). Aceita string OU um
+ *  título pronto (use cardTitle() para título com ícone). */
+export function card(title: string | HTMLElement, ...children: Child[]): HTMLDivElement {
+  const titleEl =
+    typeof title === 'string' ? el('h3', { className: 'shs-card-title' }, title) : title;
   return el('div', { className: 'shs-card' }, titleEl, ...children);
+}
+
+/** Título de cartão com ícone (o ícone herda o latão do tema; sem ◆). */
+export function cardTitle(name: IconName, text: string): HTMLHeadingElement {
+  return el('h3', { className: 'shs-card-title shs-card-title--icon' }, icon(name), document.createTextNode(text));
 }
 
 /** Tabela com thead + linhas (dados via textContent; 1ª coluna pode ter HTML? NÃO — tudo texto). */
@@ -78,4 +87,32 @@ export function notification(kind: 'ok' | 'error', text: string): HTMLDivElement
   const div = el('div', { className: `shs-notification shs-notification--${kind}` });
   div.textContent = text;
   return div;
+}
+
+/** Anexa tooltip (hover/focus) a qualquer elemento: CSS puro via data-tip. */
+export function withTip<T extends HTMLElement>(node: T, tip: string): T {
+  node.setAttribute('data-tip', tip);
+  return node;
+}
+
+/** Botão com ícone + rótulo (+ tooltip opcional). Variant: primary (default),
+ *  ghost, danger. */
+export function iconButton(
+  label: string,
+  iconName: IconName,
+  opts?: { variant?: 'primary' | 'ghost' | 'danger'; tip?: string; small?: boolean },
+): HTMLButtonElement {
+  const variant = opts?.variant ?? 'primary';
+  const classes = ['shs-btn'];
+  if (variant !== 'primary') classes.push(`shs-btn-${variant}`);
+  if (opts?.small === true) classes.push('shs-btn-sm');
+  const btn = el('button', { className: classes.join(' ') }, icon(iconName), document.createTextNode(label));
+  if (opts?.tip !== undefined) withTip(btn, opts.tip);
+  return btn;
+}
+
+/** Spinner de carregamento (uso: substituir o ícone do botão em ação longa). */
+export function spinner(): HTMLSpanElement {
+  const span = el('span', { className: 'shs-spinner' });
+  return span;
 }

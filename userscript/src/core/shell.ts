@@ -1,12 +1,17 @@
 // Shell de UI: mini-botão flutuante + painel em Shadow DOM (isolamento total
-// do CSS do jogo) com abas registradas por módulo. PT-BR.
+// do CSS do jogo) com abas registradas por módulo, ícones, tooltips, painel
+// maximizável e selo de licença no rodapé. PT-BR.
 
 import { licenseState } from './license';
 import { gameContextFrom, pageWindow } from './page';
+import { gm } from './storage';
+import { icon, type IconName } from './icons';
 
 export interface SectionDef {
   id: string;
   label: string;
+  /** Ícone da aba (catálogo core/icons.ts). */
+  icon?: IconName;
   /** Só ativa nesta screen do jogo (undefined = todas). */
   matchScreen?: string;
   render: (container: HTMLElement) => void;
@@ -31,7 +36,7 @@ export function gameContext(): { player: string; world: string; villageId: strin
 
 function styles(): string {
   return `
-    /* ===== Staff Hub In-Game — tema pergaminho Tribal Wars (v1.1) =====
+    /* ===== Staff Hub In-Game — tema pergaminho Tribal Wars (v1.2) =====
        Tokens de design: pergaminho quente, madeira/tinta escura, latão e o
        verde de ação do hub. Tudo em Shadow DOM — zero conflito com o jogo. */
     :host {
@@ -45,6 +50,7 @@ function styles(): string {
       --shs-border: #c9bb9c;
       --shs-border-strong: #8a7a58;
       --shs-brass: #a8862f;
+      --shs-brass-bright: #c9a13b;
       --shs-brass-soft: #e8d9ac;
       --shs-action: #4a7c3f;
       --shs-action-hover: #3c6633;
@@ -61,6 +67,9 @@ function styles(): string {
       font-family: var(--shs-font);
       font-size: 12px;
       color: var(--shs-ink);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition: none !important; animation: none !important; }
     }
 
     /* ---- FAB (botão escudo flutuante) ---- */
@@ -80,17 +89,38 @@ function styles(): string {
       background: var(--shs-bg); color: var(--shs-ink);
       border: 1px solid var(--shs-border-strong); border-radius: var(--shs-radius);
       box-shadow: var(--shs-shadow);
-      font-family: var(--shs-font); font-size: 12px; line-height: 1.45; }
-    .shs-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+      font-family: var(--shs-font); font-size: 12px; line-height: 1.45;
+      transition: width .18s ease, max-height .18s ease, left .18s ease,
+        bottom .18s ease, transform .18s ease; }
+    /* Maximizado (botão ⤢ do cabeçalho; preferência persistida). */
+    .shs-panel--max { width: min(96vw, 1280px); max-height: min(92vh, 940px);
+      left: 50%; transform: translateX(-50%); bottom: 3vh; }
+    /* Minimizado: recolhe para a barra de título (só o head fica visível;
+       o ⤢ de maximizar some — não faz sentido com o corpo escondido). */
+    .shs-panel--min > :not(.shs-head) { display: none !important; }
+    .shs-panel--min .shs-headbtn[data-max] { display: none; }
+
+    .shs-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px;
       background: linear-gradient(180deg, #332d21, #26221a); color: #e8dcc0;
       border-bottom: 2px solid var(--shs-brass); border-radius: var(--shs-radius) var(--shs-radius) 0 0; }
+    .shs-brand-badge { width: 28px; height: 28px; flex-shrink: 0; border-radius: 7px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: linear-gradient(180deg, #4a4230, #2e2a20);
+      border: 1px solid var(--shs-brass); color: var(--shs-brass-bright);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.08); }
+    .shs-head-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
     .shs-head strong { font-family: var(--shs-font-display); font-size: 14px;
-      letter-spacing: .4px; }
+      letter-spacing: .4px; line-height: 1.2; }
+    .shs-head-sub { display: inline-flex; align-items: center; gap: 5px;
+      font-size: 10.5px; color: #b3a58b; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
     .shs-head .shs-muted { color: #b3a58b; }
     .shs-headbtn { margin-left: 4px; background: none; border: 1px solid transparent;
-      border-radius: 4px; color: #b3a58b; cursor: pointer; font-size: 13px;
-      padding: 1px 6px; line-height: 1.2; }
-    .shs-headbtn:hover { color: #e8dcc0; border-color: #55492f; }
+      border-radius: 5px; color: #b3a58b; cursor: pointer; font-size: 13px;
+      padding: 3px 6px; line-height: 1.2; position: relative;
+      display: inline-flex; align-items: center; }
+    .shs-headbtn:hover { color: #e8dcc0; border-color: #55492f;
+      background: rgba(255,255,255,.05); }
     .shs-headbtn:focus-visible { outline: 2px solid var(--shs-brass); }
     .shs-head-spacer { margin-left: auto; }
 
@@ -99,10 +129,23 @@ function styles(): string {
       color: var(--shs-warn); border-bottom: 1px solid var(--shs-border);
       font-size: 11px; }
 
+    /* ---- Rodapé: selo de licença + versão ---- */
+    .shs-foot { display: flex; align-items: center; gap: 8px; padding: 6px 12px;
+      background: var(--shs-bg-inset); border-top: 1px solid var(--shs-border);
+      border-radius: 0 0 var(--shs-radius) var(--shs-radius);
+      font-size: 11px; flex-wrap: wrap; }
+    .shs-selo { display: inline-flex; align-items: center; gap: 6px;
+      font-weight: 600; min-width: 0; }
+    .shs-selo--ok { color: var(--shs-action); }
+    .shs-selo--warn { color: var(--shs-warn); }
+    .shs-foot-ver { margin-left: auto; color: var(--shs-muted);
+      font-size: 10.5px; white-space: nowrap; }
+
     /* ---- Abas ---- */
     .shs-tabs { display: flex; flex-wrap: wrap; gap: 3px; padding: 8px 8px 0;
       background: var(--shs-bg-inset); border-bottom: 1px solid var(--shs-border-strong); }
-    .shs-tab { padding: 5px 11px; border: 1px solid var(--shs-border);
+    .shs-tab { display: inline-flex; align-items: center; gap: 5px;
+      padding: 5px 11px; border: 1px solid var(--shs-border);
       border-bottom: none; border-radius: 6px 6px 0 0; background: var(--shs-bg-inset);
       color: var(--shs-muted); cursor: pointer; font-family: var(--shs-font);
       font-size: 11.5px; font-weight: 600; }
@@ -110,11 +153,12 @@ function styles(): string {
     .shs-tab[data-active='true'] { background: var(--shs-bg-card); color: var(--shs-ink-strong);
       border-color: var(--shs-border-strong); border-bottom: 2px solid var(--shs-bg-card);
       margin-bottom: -1px; }
+    .shs-tab[data-active='true'] .shs-ic { color: var(--shs-brass); }
     .shs-tab:focus-visible { outline: 2px solid var(--shs-brass); outline-offset: -2px; }
 
     /* ---- Corpo ---- */
     .shs-body { overflow: auto; padding: 12px; background: var(--shs-bg);
-      border-radius: 0 0 var(--shs-radius) var(--shs-radius);
+      background-image: repeating-linear-gradient(0deg, rgba(138,122,88,.045) 0 1px, transparent 1px 4px);
       overscroll-behavior: contain; }
     .shs-body::-webkit-scrollbar { width: 10px; height: 10px; }
     .shs-body::-webkit-scrollbar-thumb { background: #b7a98d; border-radius: 6px;
@@ -140,6 +184,8 @@ function styles(): string {
       font-family: var(--shs-font-display); font-size: 13.5px; font-weight: 700;
       color: var(--shs-ink-strong); }
     .shs-card-title::before { content: '◆'; color: var(--shs-brass); font-size: 11px; }
+    .shs-card-title--icon::before { content: none; }
+    .shs-card-title--icon .shs-ic { color: var(--shs-brass); }
 
     /* ---- Campos ---- */
     .shs-field { display: flex; flex-direction: column; gap: 3px; min-width: 0;
@@ -158,7 +204,8 @@ function styles(): string {
     .shs-input::placeholder, .shs-body textarea::placeholder { color: #9a8c6e; }
 
     /* ---- Botões ---- */
-    .shs-btn { padding: 5px 12px; border: 1px solid #3c6633; border-radius: 6px;
+    .shs-btn { display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 12px; border: 1px solid #3c6633; border-radius: 6px;
       background: var(--shs-action); color: #fff; cursor: pointer;
       font-family: var(--shs-font); font-size: 12px; font-weight: 600; }
     .shs-btn:hover:not([disabled]) { background: var(--shs-action-hover); }
@@ -171,6 +218,46 @@ function styles(): string {
       border-color: var(--shs-danger); }
     .shs-btn-danger:hover:not([disabled]) { background: var(--shs-danger-bg); }
     .shs-btn-sm { padding: 3px 8px; font-size: 11px; }
+    .shs-ic { flex-shrink: 0; }
+
+    /* ---- Tooltips (CSS puro: hover/focus via data-tip) ---- */
+    [data-tip] { position: relative; }
+    [data-tip]:hover::after, [data-tip]:focus-visible::after {
+      content: attr(data-tip); position: absolute; bottom: calc(100% + 7px);
+      left: 50%; transform: translateX(-50%); z-index: 2147483600;
+      background: var(--shs-bg-head); color: #e8dcc0; border: 1px solid #55492f;
+      padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 400;
+      font-family: var(--shs-font); line-height: 1.35;
+      white-space: normal; max-width: min(260px, 90vw); text-align: center;
+      pointer-events: none; box-shadow: 0 3px 10px rgba(20,14,4,.35); }
+    [data-tip]:hover::before, [data-tip]:focus-visible::before {
+      content: ''; position: absolute; bottom: calc(100% + 2px); left: 50%;
+      transform: translateX(-50%); z-index: 2147483600;
+      border: 5px solid transparent; border-top-color: var(--shs-bg-head);
+      pointer-events: none; }
+
+    /* ---- Spinner (currentColor: visível em botão primário E ghost/danger) ---- */
+    .shs-spinner { width: 13px; height: 13px; display: inline-block;
+      border: 2px solid color-mix(in srgb, currentColor 35%, transparent);
+      border-top-color: currentColor;
+      border-radius: 50%; animation: shs-spin .7s linear infinite; }
+    @keyframes shs-spin { to { transform: rotate(360deg); } }
+
+    /* ---- Ativação (tela de licença) ---- */
+    .shs-activate { left: 50%; transform: translateX(-50%); bottom: auto;
+      top: max(9vh, 48px); width: min(440px, calc(100vw - 28px)); max-height: none; }
+    .shs-activate .shs-brand-badge { width: 40px; height: 40px; border-radius: 10px; }
+    .shs-activate .shs-brand { display: flex; align-items: center; gap: 12px;
+      padding: 14px 16px; }
+    .shs-activate .shs-brand-txt { display: flex; flex-direction: column; gap: 2px; }
+    .shs-activate .shs-brand-txt strong { font-family: var(--shs-font-display);
+      font-size: 17px; letter-spacing: .4px; color: #f0e6cf; }
+    .shs-activate .shs-brand-txt span { font-size: 11px; color: #b3a58b; }
+    .shs-input--key { font-family: ui-monospace, Consolas, 'Courier New', monospace;
+      letter-spacing: 2px; text-transform: uppercase; font-size: 13px !important; }
+    .shs-activate-foot { display: flex; align-items: flex-start; gap: 7px;
+      margin: 10px 0 0; color: var(--shs-muted); font-size: 11px; line-height: 1.4; }
+    .shs-activate-foot .shs-ic { color: var(--shs-brass); margin-top: 1px; }
 
     /* ---- Linhas / textos ---- */
     .shs-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
@@ -234,61 +321,112 @@ export function ensureHost(): ShadowRoot {
 
 export function mountShell(): void {
   const shadow = ensureHost();
-  if (shadow.querySelector('.shs-panel') !== null) {
-    // Já montado: só garante visível.
-    (shadow.querySelector('.shs-panel') as HTMLElement).style.display = 'flex';
+  const painelExistente = shadow.querySelector('.shs-panel');
+  if (painelExistente !== null) {
+    // Já montado: só garante visível (sincronizar o estado — senão o 1º
+    // clique no FAB seria no-op).
+    (painelExistente as HTMLElement).style.display = 'flex';
+    panelOpen = true;
     return;
   }
+
+  const ctx = gameContext();
 
   const fab = document.createElement('button');
   fab.className = 'shs-fab';
   fab.title = 'Staff Hub In-Game';
-  fab.textContent = 'SH';
+  fab.setAttribute('aria-label', 'Abrir Staff Hub In-Game');
+  fab.appendChild(icon('shield', 22));
   fab.addEventListener('click', () => {
     panelOpen = !panelOpen;
     panel.style.display = panelOpen ? 'flex' : 'none';
-    if (panelOpen) renderTabs();
+    if (panelOpen) {
+      // Reabrir pelo FAB volta do estado minimizado (mesmo contrato do fechar).
+      defineMin(false);
+      renderTabs();
+    }
   });
   shadow.appendChild(fab);
 
   const panel = document.createElement('div');
   panel.className = 'shs-panel';
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-label', 'Staff Hub In-Game');
   panel.style.display = 'flex';
   // Nasce aberto: sincronizar o estado, senão o 1º clique no FAB é no-op.
   panelOpen = true;
+  // Preferência de tamanho persistida (maximizado entre sessões).
+  const maximizarPref = gm.get<boolean>('shs-in-game:panel-max', false);
+  if (maximizarPref) panel.classList.add('shs-panel--max');
   shadow.appendChild(panel);
 
   const head = document.createElement('div');
   head.className = 'shs-head';
+  const badge = document.createElement('span');
+  badge.className = 'shs-brand-badge';
+  badge.appendChild(icon('shield', 17));
+  const headTxt = document.createElement('span');
+  headTxt.className = 'shs-head-txt';
   const strong = document.createElement('strong');
   strong.textContent = 'Staff Hub In-Game';
-  const who = document.createElement('span');
-  who.className = 'shs-muted';
-  const ctx = gameContext();
-  who.textContent = `${ctx.player} · ${ctx.world}`;
-  head.append(strong, who);
+  const sub = document.createElement('span');
+  sub.className = 'shs-head-sub';
+  sub.appendChild(icon('user', 11));
+  sub.appendChild(document.createTextNode(`${ctx.player}`));
+  sub.appendChild(icon('globe', 11));
+  sub.appendChild(document.createTextNode(`${ctx.world}`));
+  headTxt.append(strong, sub);
+  head.append(badge, headTxt);
   const spacer = document.createElement('span');
   spacer.className = 'shs-head-spacer';
   head.appendChild(spacer);
 
-  // Minimizar: recolhe para a barra de título (diferente de fechar).
+  // Maximizar/restaurar (⤢): painel largo persistido em GM storage.
+  const maximize = document.createElement('button');
+  maximize.className = 'shs-headbtn';
+  maximize.type = 'button';
+  maximize.setAttribute('data-max', 'true');
+  const defineMax = (max: boolean): void => {
+    panel.classList.toggle('shs-panel--max', max);
+    maximize.replaceChildren(icon(max ? 'compress' : 'maximize', 13));
+    maximize.title = max ? 'Restaurar tamanho' : 'Maximizar painel';
+    maximize.setAttribute('aria-label', maximize.title);
+    gm.set('shs-in-game:panel-max', max);
+  };
+  maximize.addEventListener('click', () => {
+    defineMax(!panel.classList.contains('shs-panel--max'));
+  });
+  defineMax(maximizarPref);
+  head.appendChild(maximize);
+
+  // Minimizar REAL: recolhe para a barra de título (faixa/abas/corpo/rodapé
+  // escondidos); o botão vira restaurar. Diferente de fechar (some da tela).
   const minimize = document.createElement('button');
   minimize.className = 'shs-headbtn';
-  minimize.textContent = '—';
-  minimize.title = 'Minimizar painel';
+  minimize.type = 'button';
+  const defineMin = (min: boolean): void => {
+    panel.classList.toggle('shs-panel--min', min);
+    minimize.replaceChildren(icon(min ? 'maximize' : 'minus', 13));
+    minimize.title = min ? 'Restaurar painel' : 'Minimizar painel';
+    minimize.setAttribute('aria-label', minimize.title);
+  };
   minimize.addEventListener('click', () => {
-    panelOpen = false;
-    panel.style.display = 'none';
+    defineMin(!panel.classList.contains('shs-panel--min'));
   });
+  defineMin(false);
   head.appendChild(minimize);
 
   const close = document.createElement('button');
   close.className = 'shs-headbtn';
-  close.textContent = '×';
+  close.type = 'button';
+  close.appendChild(icon('x', 13));
   close.title = 'Fechar painel';
+  close.setAttribute('aria-label', 'Fechar painel');
   close.addEventListener('click', () => {
     panelOpen = false;
     panel.style.display = 'none';
+    // Reabrir pelo FAB volta do estado minimizado para o painel completo.
+    defineMin(false);
   });
   head.appendChild(close);
   panel.appendChild(head);
@@ -315,6 +453,34 @@ export function mountShell(): void {
   body.dataset.section = '';
   panel.appendChild(body);
 
+  // Rodapé-selo: estado da licença (com validade) + versão do script.
+  const foot = document.createElement('div');
+  foot.className = 'shs-foot';
+  const selo = document.createElement('span');
+  selo.className = `shs-selo ${license.kind === 'graca' ? 'shs-selo--warn' : 'shs-selo--ok'}`;
+  selo.appendChild(icon(license.kind === 'graca' ? 'clock' : 'key', 12));
+  if (license.kind === 'valida') {
+    selo.appendChild(document.createTextNode(`Licença de ${license.accountName}`));
+    const validade = document.createElement('span');
+    validade.className = 'shs-pill shs-pill--ok';
+    validade.setAttribute('data-tip', 'Validade da sua chave — emita a próxima com o líder.');
+    validade.textContent =
+      license.licenseExpiresAt !== null
+        ? `válida até ${new Date(license.licenseExpiresAt).toLocaleDateString('pt-BR')}`
+        : 'ativa';
+    selo.appendChild(validade);
+  } else if (license.kind === 'graca') {
+    selo.appendChild(document.createTextNode('Modo offline — licença temporariamente inacessível'));
+  } else {
+    selo.className = 'shs-selo shs-selo--warn';
+    selo.appendChild(document.createTextNode('Licença inativa'));
+  }
+  const versao = document.createElement('span');
+  versao.className = 'shs-foot-ver';
+  versao.textContent = `v${__SHS_VERSION__}`;
+  foot.append(selo, versao);
+  panel.appendChild(foot);
+
   // Última screen do jogo renderizada (null = nenhuma ainda): o re-render
   // automático da aba ativa só acontece quando a screen MUDA — mutações de DOM
   // sem navegação não descartam o estado do usuário.
@@ -327,7 +493,9 @@ export function mountShell(): void {
     for (const section of available) {
       const tab = document.createElement('button');
       tab.className = 'shs-tab';
-      tab.textContent = section.label;
+      tab.type = 'button';
+      if (section.icon !== undefined) tab.appendChild(icon(section.icon, 12));
+      tab.appendChild(document.createTextNode(section.label));
       tab.role = 'tab';
       const selected = String(body.dataset.section === section.id);
       tab.dataset.active = selected;

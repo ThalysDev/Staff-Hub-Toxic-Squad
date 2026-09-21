@@ -38,7 +38,8 @@
 import { CaptchaDetectedError, SessionRequiredError, gamePost } from '../core/net';
 import { gameContext } from '../core/shell';
 import { gm, worldKey } from '../core/storage';
-import { card, empty, pill, table } from '../core/ui';
+import { card, cardTitle, empty, iconButton, pill, spinner, table } from '../core/ui';
+import { icon } from '../core/icons';
 import { formatCoord, parseCoordList } from '@shared/coords';
 import { previewMps } from '@shared/mp-preview';
 
@@ -194,7 +195,7 @@ function resumo(outcomes: ItemOutcome[]): string {
 // ---------------------------------------------------------------------------
 
 function setupReservas(container: HTMLElement, onJournalChange?: () => void): void {
-  const reservasCard = card('Reservar coordenadas');
+  const reservasCard = card(cardTitle('lock', 'Reservar coordenadas'));
   reservasCard.appendChild(
     el('div', 'shs-muted', 'Coordenadas "123|456" separadas por espaço/vírgula/linha. POST real no planejador da tribo (screen=ally → new_reservation); "já reservada" é tolerado.'),
   );
@@ -203,8 +204,8 @@ function setupReservas(container: HTMLElement, onJournalChange?: () => void): vo
   textarea.rows = 4;
   textarea.placeholder = '123|456 456|789 …';
 
-  const btn = el('button', 'shs-btn', 'Reservar');
-  const btnCancel = el('button', 'shs-btn shs-btn-ghost', 'Cancelar');
+  const btn = iconButton('Reservar', 'lock', {});
+  const btnCancel = iconButton('Cancelar', 'x', { variant: 'ghost' });
   btnCancel.type = 'button';
   btn.type = 'button';
   btnCancel.disabled = true;
@@ -257,6 +258,7 @@ function setupReservas(container: HTMLElement, onJournalChange?: () => void): vo
     };
     btnCancel.addEventListener('click', onCancel);
     btn.disabled = true;
+    btn.replaceChildren(spinner(), document.createTextNode('Reservando…'));
     btnCancel.disabled = false;
 
     const outcomes: ItemOutcome[] = [];
@@ -312,6 +314,7 @@ function setupReservas(container: HTMLElement, onJournalChange?: () => void): vo
     } finally {
       btnCancel.removeEventListener('click', onCancel);
       btnCancel.disabled = true;
+      btn.replaceChildren(icon('lock'), document.createTextNode('Reservar'));
       btn.disabled = false;
       progress.textContent = `Reservas concluídas — ${resumo(outcomes)}.`;
       journalInfo.textContent = `Journal local: ${journalCount(world)} evento(s) — teto ${JOURNAL_CAP}.`;
@@ -325,7 +328,7 @@ function setupReservas(container: HTMLElement, onJournalChange?: () => void): vo
 // ---------------------------------------------------------------------------
 
 function setupMps(container: HTMLElement, onJournalChange?: () => void): void {
-  const mpsCard = card('MPs em cadeia');
+  const mpsCard = card(cardTitle('send', 'MPs em cadeia'));
   mpsCard.appendChild(
     el('div', 'shs-muted', 'Uma MP REAL por jogador (screen=mail → send). Corpo com placeholders #jogador#, #alvos# e/ou #horarios#. Destinatários: uma linha "nick;123|456 456|789[;HH:MM:SS,HH:MM:SS]" por jogador (nick EXATO — a MP é case-sensitive).'),
   );
@@ -341,9 +344,9 @@ function setupMps(container: HTMLElement, onJournalChange?: () => void): void {
   recipients.rows = 5;
   recipients.placeholder = 'Nick;123|456 456|789;21:30:00,21:45:00';
 
-  const btn = el('button', 'shs-btn', 'Enviar MPs');
+  const btn = iconButton('Enviar MPs', 'send', {});
   btn.type = 'button';
-  const btnCancel = el('button', 'shs-btn shs-btn-ghost', 'Cancelar');
+  const btnCancel = iconButton('Cancelar', 'x', { variant: 'ghost' });
   btnCancel.type = 'button';
   btnCancel.disabled = true;
 
@@ -408,6 +411,7 @@ function setupMps(container: HTMLElement, onJournalChange?: () => void): void {
     };
     btnCancel.addEventListener('click', onCancel);
     btn.disabled = true;
+    btn.replaceChildren(spinner(), document.createTextNode('Enviando…'));
     btnCancel.disabled = false;
 
     const outcomes: ItemOutcome[] = [];
@@ -458,6 +462,7 @@ function setupMps(container: HTMLElement, onJournalChange?: () => void): void {
     } finally {
       btnCancel.removeEventListener('click', onCancel);
       btnCancel.disabled = true;
+      btn.replaceChildren(icon('send'), document.createTextNode('Enviar MPs'));
       btn.disabled = false;
       progress.textContent = `MPs concluídas — ${resumo(outcomes)}.`;
       journalInfo.textContent = `Journal local: ${journalCount(world)} evento(s) — teto ${JOURNAL_CAP}.`;
@@ -487,7 +492,7 @@ function createJournalView(): { node: HTMLElement; refresh(): void } {
   const key = worldKey(world, JOURNAL_NAME);
 
   const info = el('span', 'shs-muted');
-  const clearBtn = el('button', 'shs-btn shs-btn-danger', 'Limpar journal');
+  const clearBtn = iconButton('Limpar journal', 'trash', { variant: 'danger', tip: 'Apaga o journal local' });
   clearBtn.type = 'button';
   const list = el('div', 'shs-tablewrap');
 
@@ -521,7 +526,7 @@ function createJournalView(): { node: HTMLElement; refresh(): void } {
   const head = el('div', 'shs-row');
   head.appendChild(clearBtn);
   head.appendChild(info);
-  const journalCard = card('Journal (últimas 500)');
+  const journalCard = card(cardTitle('list', 'Journal (últimas 500)'));
   journalCard.appendChild(head);
   journalCard.appendChild(list);
   render();

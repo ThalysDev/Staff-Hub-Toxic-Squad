@@ -8,6 +8,8 @@
 import { CaptchaDetectedError, SessionRequiredError, pacedGet } from '../core/net';
 import { gameContext, registerSection } from '../core/shell';
 import { gm, worldKey } from '../core/storage';
+import { card, cardTitle, empty, iconButton, spinner } from '../core/ui';
+import { icon, type IconName } from '../core/icons';
 import {
   extractPagedNavPages,
   parseMemberSelector,
@@ -409,27 +411,40 @@ function renderSection(container: HTMLElement): void {
     return;
   }
 
-  // ---- Linha de coleta ----
+  // ---- Cartão de coleta ----
   const collectRow = el('div', 'shs-row');
-  const btnTroops = el('button', 'shs-btn', 'Coletar tropas (membros)');
-  const btnDefense = el('button', 'shs-btn', 'Coletar defesa (membros)');
-  const btnSummary = el('button', 'shs-btn shs-btn-ghost', 'Resumo (1 requisição)');
-  const btnCancel = el('button', 'shs-btn shs-btn-ghost', 'Cancelar');
+  const btnTroops = iconButton('Coletar tropas (membros)', 'sword', {
+    tip: 'Lê as tropas de cada membro — várias requisições',
+  });
+  const btnDefense = iconButton('Coletar defesa (membros)', 'shieldCheck', {
+    tip: 'Lê a defesa de cada membro — várias requisições',
+  });
+  const btnSummary = iconButton('Resumo (1 requisição)', 'list', {
+    variant: 'ghost',
+    tip: 'Uma linha por jogador em 1 requisição, sem aldeias',
+  });
+  const btnCancel = iconButton('Cancelar', 'x', {
+    variant: 'ghost',
+    tip: 'Interrompe entre membros e mantém o parcial',
+  });
   btnCancel.disabled = true;
   const progress = el('span', 'shs-muted');
   collectRow.append(btnTroops, btnDefense, btnSummary, btnCancel, progress);
-  container.appendChild(collectRow);
-  container.appendChild(
-    el(
-      'p',
-      'shs-muted',
-      'Coleta por membro: 1 requisição por membro (pacing anti-ban) + páginas extras. O resumo substitui a última coleta de tropas (uma posição por tipo). O cancelamento interrompe a coleta entre membros e mantém o parcial já coletado.',
-    ),
-  );
-
   const message = el('div', 'shs-muted');
   const statusLine = el('div', 'shs-muted');
-  container.append(message, statusLine);
+  container.appendChild(
+    card(
+      cardTitle('download', 'Coleta'),
+      collectRow,
+      el(
+        'p',
+        'shs-muted',
+        'Coleta por membro: 1 requisição por membro (pacing anti-ban) + páginas extras. O resumo substitui a última coleta de tropas (uma posição por tipo). O cancelamento interrompe a coleta entre membros e mantém o parcial já coletado.',
+      ),
+      message,
+      statusLine,
+    ),
+  );
 
   // ---- Abas internas ----
   const tabDefs = [
@@ -504,21 +519,26 @@ function renderSection(container: HTMLElement): void {
   function renderResumo(root: HTMLElement): void {
     const loaded = loadTroopsSnapshot(world);
     if (loaded === null) {
-      root.appendChild(el('p', 'shs-muted', 'Colete as tropas para ver o resumo.'));
+      root.appendChild(empty('Colete as tropas para ver o resumo.'));
       return;
     }
     const snapshot: TroopSnapshot = loaded;
+    const section = card(cardTitle('chart', 'Resumo geral'));
+    root.appendChild(section);
     const filters = el('div', 'shs-row');
     const nameInput = el('input', 'shs-input');
     nameInput.placeholder = 'Filtrar por jogador (contém)';
-    const copyBtn = el('button', 'shs-btn shs-btn-ghost', 'Copiar resumo (TSV)');
+    const copyBtn = iconButton('Copiar resumo (TSV)', 'copy', {
+      variant: 'ghost',
+      tip: 'Cola direto em Excel/Sheets',
+    });
     copyBtn.disabled = true;
     filters.append(nameInput, copyBtn);
-    root.appendChild(filters);
+    section.appendChild(filters);
 
     const meta = el('div');
     const tableWrap = el('div');
-    root.append(meta, tableWrap);
+    section.append(meta, tableWrap);
     let tsv = '';
 
     function draw(): void {
@@ -602,7 +622,7 @@ function renderSection(container: HTMLElement): void {
       tableWrap.appendChild(table);
 
       if (summary.byPlayer.length === 0) {
-        tableWrap.appendChild(el('p', 'shs-muted', 'Nenhuma linha corresponde ao filtro.'));
+        tableWrap.appendChild(empty('Nenhuma linha corresponde ao filtro.'));
       } else {
         tsv = formatSummaryPlayerTsv(summary.byPlayer);
         copyBtn.disabled = false;
@@ -619,18 +639,20 @@ function renderSection(container: HTMLElement): void {
   // -------------------------------------------------------------------------
 
   function renderFullSemi(root: HTMLElement): void {
+    const section = card(cardTitle('target', 'Full/Semi'));
+    root.appendChild(section);
     const form = el('div', 'shs-row');
     const fullInput = numInput('Pop FULL', FULL_POP_DEFAULT, '90px');
     const semiInput = numInput('Pop SEMI', SEMI_POP_DEFAULT, '90px');
-    const calcBtn = el('button', 'shs-btn', 'Calcular Full/Semi');
-    const copyBtn = el('button', 'shs-btn shs-btn-ghost', 'Copiar Full/Semi');
+    const calcBtn = iconButton('Calcular Full/Semi', 'zap', {});
+    const copyBtn = iconButton('Copiar Full/Semi', 'copy', { variant: 'ghost' });
     copyBtn.disabled = true;
     form.append(fullInput, semiInput, calcBtn, copyBtn);
-    root.appendChild(form);
+    section.appendChild(form);
 
     const meta = el('div');
     const out = el('div');
-    root.append(meta, out);
+    section.append(meta, out);
     let rowsText = '';
 
     calcBtn.addEventListener('click', () => {
@@ -720,11 +742,13 @@ function renderSection(container: HTMLElement): void {
     const defense = loadDefenseStore(world).defenseVillages;
     if (defense === null || defense.entries.length === 0) {
       root.appendChild(
-        el('p', 'shs-muted', 'Sem defesa por aldeia — use "Coletar defesa (membros)" para consultar o blind.'),
+        empty('Sem defesa por aldeia — use "Coletar defesa (membros)" para consultar o blind.'),
       );
       return;
     }
 
+    const section = card(cardTitle('shieldCheck', 'Defesa — blind por aldeia'));
+    root.appendChild(section);
     const form = el('div', 'shs-row');
     const desiredInputs: Partial<Record<UnitId, HTMLInputElement>> = {};
     for (const unit of BLIND_UNITS) {
@@ -741,15 +765,18 @@ function renderSection(container: HTMLElement): void {
     modeSelect.append(optParadas, optTransito);
     const coordsInput = el('input', 'shs-input');
     coordsInput.placeholder = 'Coordenadas "x|y" (vazio = todas as aldeias)';
-    const runBtn = el('button', 'shs-btn', 'Verificar blind');
-    const copyBtn = el('button', 'shs-btn shs-btn-ghost', 'Copiar blind (BBCode)');
+    const runBtn = iconButton('Verificar blind', 'check', {});
+    const copyBtn = iconButton('Copiar blind (BBCode)', 'copy', {
+      variant: 'ghost',
+      tip: 'Tabela pronta para o fórum da tribo',
+    });
     copyBtn.disabled = true;
     form.append(modeSelect, coordsInput, runBtn, copyBtn);
-    root.appendChild(form);
+    section.appendChild(form);
 
     const meta = el('div');
     const out = el('div');
-    root.append(meta, out);
+    section.append(meta, out);
     let bbcode = '';
 
     runBtn.addEventListener('click', () => {
@@ -827,11 +854,13 @@ function renderSection(container: HTMLElement): void {
     const latest = ordered[0];
     if (latest === undefined) {
       root.appendChild(
-        el('p', 'shs-muted', 'Sem histórico — cada coleta de tropas (membros) arquiva uma versão agregada por jogador (cap 20).'),
+        empty('Sem histórico — cada coleta de tropas (membros) arquiva uma versão agregada por jogador (cap 20).'),
       );
       return;
     }
-    root.appendChild(
+    const section = card(cardTitle('list', 'Histórico de versões'));
+    root.appendChild(section);
+    section.appendChild(
       el(
         'p',
         'shs-muted',
@@ -841,20 +870,20 @@ function renderSection(container: HTMLElement): void {
 
     const previous = ordered[1];
     if (previous === undefined) {
-      root.appendChild(el('p', 'shs-muted', 'Apenas 1 versão arquivada — colete de novo para comparar.'));
+      section.appendChild(el('p', 'shs-muted', 'Apenas 1 versão arquivada — colete de novo para comparar.'));
       return;
     }
 
     const diff = diffTroopsVersions(previous, latest);
     const signals = auditSignals(diff);
 
-    const copyBtn = el('button', 'shs-btn shs-btn-ghost', 'Copiar diff (TSV)');
-    root.appendChild(copyBtn);
+    const copyBtn = iconButton('Copiar diff (TSV)', 'copy', { variant: 'ghost' });
+    section.appendChild(copyBtn);
     copyBtn.addEventListener('click', () => {
       copyText(formatAuditDiffTsv(diff), 'Diff copiado (TSV).');
     });
 
-    root.appendChild(el('strong', undefined, `Comparando ${fmtIso(previous.collectedAt)} → ${fmtIso(latest.collectedAt)}`));
+    section.appendChild(el('strong', undefined, `Comparando ${fmtIso(previous.collectedAt)} → ${fmtIso(latest.collectedAt)}`));
     const table = el('table');
     const headRow = el('tr');
     for (const label of ['Jogador', 'Δ Pop Off', 'Δ Pop Def', 'Δ Aldeias', 'Novo']) {
@@ -874,12 +903,12 @@ function renderSection(container: HTMLElement): void {
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
-    root.appendChild(table);
+    section.appendChild(table);
 
     // Sinais de auditoria entre as duas versões.
-    root.appendChild(el('strong', undefined, 'Sinais de auditoria'));
+    section.appendChild(el('strong', undefined, 'Sinais de auditoria'));
     if (signals.length === 0) {
-      root.appendChild(el('p', 'shs-muted', 'Nenhum sinal no período.'));
+      section.appendChild(el('p', 'shs-muted', 'Nenhum sinal no período.'));
     } else {
       const signalTable = el('table');
       const signalHead = el('tr');
@@ -900,14 +929,14 @@ function renderSection(container: HTMLElement): void {
         signalBody.appendChild(tr);
       }
       signalTable.appendChild(signalBody);
-      root.appendChild(signalTable);
+      section.appendChild(signalTable);
     }
 
     // Estagnação/declínio na JANELA CHEIA (todas as versões arquivadas).
     const stagnant = detectStagnation(ordered);
-    root.appendChild(el('strong', undefined, 'Estagnação/declínio (janela cheia)'));
+    section.appendChild(el('strong', undefined, 'Estagnação/declínio (janela cheia)'));
     if (stagnant.length === 0) {
-      root.appendChild(el('p', 'shs-muted', 'Nenhum jogador estagnado ou em declínio.'));
+      section.appendChild(el('p', 'shs-muted', 'Nenhum jogador estagnado ou em declínio.'));
     } else {
       const stagTable = el('table');
       const stagHead = el('tr');
@@ -928,7 +957,7 @@ function renderSection(container: HTMLElement): void {
         stagBody.appendChild(tr);
       }
       stagTable.appendChild(stagBody);
-      root.appendChild(stagTable);
+      section.appendChild(stagTable);
     }
   }
 
@@ -937,10 +966,14 @@ function renderSection(container: HTMLElement): void {
   // -------------------------------------------------------------------------
 
   async function runMemberCollect(kind: TroopKind): Promise<void> {
+    const trigger = kind === 'troops' ? btnTroops : btnDefense;
+    const idleIcon: IconName = kind === 'troops' ? 'sword' : 'shieldCheck';
+    const idleLabel = kind === 'troops' ? 'Coletar tropas (membros)' : 'Coletar defesa (membros)';
     setBusy(true);
     cancelRequested = false;
     btnCancel.disabled = false;
     setMsg('', 'muted');
+    trigger.replaceChildren(spinner(), document.createTextNode('Coletando…'));
     progress.textContent = 'Lendo membros da tribo…';
     let lastDone = 0;
     let lastTotal = 0;
@@ -980,6 +1013,7 @@ function renderSection(container: HTMLElement): void {
       progress.textContent = '';
       setMsg(errorMessage(error), 'err');
     } finally {
+      trigger.replaceChildren(icon(idleIcon), document.createTextNode(idleLabel));
       btnCancel.disabled = true;
       cancelRequested = false;
       setBusy(false);
@@ -989,6 +1023,7 @@ function renderSection(container: HTMLElement): void {
   async function runSummaryCollect(): Promise<void> {
     setBusy(true);
     setMsg('', 'muted');
+    btnSummary.replaceChildren(spinner(), document.createTextNode('Coletando…'));
     progress.textContent = 'Coletando resumo…';
     try {
       const snapshot = await collectSummary('troops');
@@ -1004,6 +1039,7 @@ function renderSection(container: HTMLElement): void {
       progress.textContent = '';
       setMsg(errorMessage(error), 'err');
     } finally {
+      btnSummary.replaceChildren(icon('list'), document.createTextNode('Resumo (1 requisição)'));
       setBusy(false);
     }
   }
@@ -1025,5 +1061,6 @@ function renderSection(container: HTMLElement): void {
 registerSection({
   id: 'sg23',
   label: 'Tropas & Defesa',
+  icon: 'sword',
   render: renderSection,
 });

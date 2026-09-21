@@ -27,9 +27,10 @@
 
 import { previewMps } from '@shared/mp-preview';
 import { gm } from '../core/storage';
+import { icon } from '../core/icons';
 import { licenseState } from '../core/license';
 import { gameContext, registerSection } from '../core/shell';
-import { card, el, empty, pill } from '../core/ui';
+import { card, cardTitle, el, empty, iconButton, pill } from '../core/ui';
 
 /** Uma MP gerada, pronta para pré-preencher o formulário do jogo. */
 interface MpMessage {
@@ -219,9 +220,7 @@ function renderQueueList(container: HTMLElement, status: HTMLElement): void {
   label.textContent = queue.length === 1 ? '1 mensagem na fila' : `${queue.length} mensagens na fila`;
   head.appendChild(label);
   if (queue.length > 0) {
-    const skip = document.createElement('button');
-    skip.className = 'shs-btn shs-btn-ghost shs-btn-sm';
-    skip.textContent = 'Pular esta';
+    const skip = iconButton('Pular esta', 'trash', { variant: 'danger', small: true, tip: 'Remover da fila' });
     skip.addEventListener('click', () => {
       const current = loadQueue();
       const [dropped] = current;
@@ -230,9 +229,11 @@ function renderQueueList(container: HTMLElement, status: HTMLElement): void {
       status.textContent = dropped === undefined ? '' : `Mensagem de "${dropped.nick}" pulada.`;
       renderQueueList(container, status);
     });
-    const cancel = document.createElement('button');
-    cancel.className = 'shs-btn shs-btn-ghost shs-btn-sm';
-    cancel.textContent = 'Cancelar fila';
+    const cancel = iconButton('Cancelar fila', 'x', {
+      variant: 'danger',
+      small: true,
+      tip: 'Descartar todas as mensagens',
+    });
     cancel.addEventListener('click', () => {
       if (window.confirm('Cancelar a fila inteira? Todas as mensagens geradas serão descartadas.')) {
         saveQueue([]);
@@ -259,22 +260,19 @@ function renderQueueList(container: HTMLElement, status: HTMLElement): void {
     row.className = 'shs-row';
     row.appendChild(el('span', { className: 'shs-muted', text: `${index + 1}.` }));
     row.appendChild(pill(message.nick));
-    const open = document.createElement('button');
-    open.className = 'shs-btn shs-btn-sm';
-    open.textContent = 'Abrir';
-    open.title = 'Abre a tela de nova mensagem do jogo com esta MP pré-preenchida — revise e clique Enviar.';
+    const open = iconButton('Abrir', 'arrowRight', {
+      small: true,
+      tip: 'Abre a MP no jogo para revisar e enviar',
+    });
     open.addEventListener('click', () => openMessage(index));
     row.appendChild(open);
-    const copy = document.createElement('button');
-    copy.className = 'shs-btn shs-btn-ghost shs-btn-sm';
-    copy.textContent = 'Copiar';
-    copy.title = 'Copia assunto e corpo (fallback manual do pré-preenchimento).';
+    const copy = iconButton('Copiar', 'copy', { variant: 'ghost', small: true, tip: 'Copiar o texto da mensagem' });
     copy.addEventListener('click', () => {
       copyMessage(message)
         .then(() => {
-          copy.textContent = 'Copiado!';
+          copy.replaceChildren(icon('check'), document.createTextNode('Copiado!'));
           setTimeout(() => {
-            copy.textContent = 'Copiar';
+            copy.replaceChildren(icon('copy'), document.createTextNode('Copiar'));
           }, 1200);
         })
         .catch((error: unknown) => {
@@ -307,7 +305,7 @@ function renderMailSection(container: HTMLElement): void {
   container.appendChild(intro);
 
   // Cartão do gerador: modo + entradas + botão Gerar.
-  const formCard = card('Gerador de MPs');
+  const formCard = card(cardTitle('send', 'Gerador de MPs'));
   container.appendChild(formCard);
 
   const modeRow = document.createElement('div');
@@ -362,9 +360,7 @@ function renderMailSection(container: HTMLElement): void {
 
   const actions = document.createElement('div');
   actions.className = 'shs-row';
-  const generate = document.createElement('button');
-  generate.className = 'shs-btn';
-  generate.textContent = 'Gerar mensagens';
+  const generate = iconButton('Gerar mensagens', 'plus', { tip: 'Gera as mensagens e encaixa na fila' });
   const status = document.createElement('span');
   status.className = 'shs-muted';
   actions.appendChild(generate);
@@ -395,7 +391,7 @@ function renderMailSection(container: HTMLElement): void {
   });
 
   // Cartão da fila: cabeçalho (contagem + ações + status) e linhas por mensagem.
-  const queueCard = card('Fila de MPs');
+  const queueCard = card(cardTitle('list', 'Fila de MPs'));
   container.appendChild(queueCard);
   const queueBox = document.createElement('div');
   queueCard.appendChild(queueBox);
@@ -403,6 +399,6 @@ function renderMailSection(container: HTMLElement): void {
 }
 
 // Autorregistro (importado por main.ts): seção global + fill pós-navegação.
-registerSection({ id: 'mp', label: 'MPs (pré-preencher)', render: renderMailSection });
+registerSection({ id: 'mp', label: 'MPs (pré-preencher)', icon: 'mail', render: renderMailSection });
 // O fill pré-licença era brecha (P3 da revisão): só preenche com licença válida/graça.
 if (licenseState().kind !== 'ausente') fillPendingOnMailNew();
