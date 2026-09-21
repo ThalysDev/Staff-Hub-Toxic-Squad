@@ -1,11 +1,13 @@
 // AdminPage (v0.30) — gestão de contas do sistema: aprovar pendentes,
 // banir/reabilitar, resetar senha e auditoria. Só aparece para role admin
 // (a API também nega no servidor — a UI não é a barreira).
+// v0.37: chaves in-game (licença do userscript) — emissão (chave em claro
+// mostrada UMA vez), listagem por prefixo e revogação.
 // Efeito de carga com guard de ERRO + retry manual (lição do 0.29.1).
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { JSX } from 'react';
+import type { FormEvent, JSX } from 'react';
 import { ClipboardCopy, KeyRound, RefreshCw, ShieldOff, ShieldCheck, Undo2, UserCheck } from 'lucide-react';
-import type { AdminUserRow, AuthAdminAudit } from '@shared/ipc-types';
+import type { AdminKeyRow, AdminUserRow, AuthAdminAudit } from '@shared/ipc-types';
 import Callout from '../components/Callout';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/PageHeader';
@@ -17,23 +19,32 @@ export default function AdminPage(): JSX.Element {
   const { push } = useToast();
   const [users, setUsers] = useState<AdminUserRow[] | null>(null);
   const [audit, setAudit] = useState<AuthAdminAudit[] | null>(null);
+  const [keys, setKeys] = useState<AdminKeyRow[] | null>(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState<Aba>('pendentes');
   const [carregando, setCarregando] = useState(false);
   const [trabalhando, setTrabalhando] = useState<string | null>(null);
   const [senhaTemp, setSenhaTemp] = useState<{ nick: string; senha: string } | null>(null);
+  // Chaves in-game: formulário de emissão + chave em claro (exibida UMA vez).
+  const [formConta, setFormConta] = useState('');
+  const [formDias, setFormDias] = useState('30');
+  const [formTier, setFormTier] = useState<'staff' | 'lider'>('staff');
+  const [emitindo, setEmitindo] = useState(false);
+  const [chaveEmitida, setChaveEmitida] = useState<{ chave: string; owner: string } | null>(null);
   const carregouUmaVez = useRef(false);
 
   async function carregar(silencioso = false): Promise<void> {
     setCarregando(true);
     if (!silencioso) setErro('');
     try {
-      const [lista, auditoria] = await Promise.all([
+      const [lista, auditoria, chaves] = await Promise.all([
         window.staffhub.auth.adminUsers(),
         window.staffhub.auth.adminAudit(),
+        window.staffhub.auth.adminKeys.listar(),
       ]);
       setUsers(lista.users);
       setAudit(auditoria.eventos);
+      setKeys(chaves.keys);
     } catch (err) {
       const mensagem = err instanceof Error ? err.message : String(err);
       setErro(mensagem);
@@ -109,6 +120,79 @@ export default function AdminPage(): JSX.Element {
       push('error', 'Não foi possível copiar — permissão de área de transferência negada.');
     }
   }
+
+  // ---- chaves in-game ----
+
+  async function emitirChave(evento: FormEvent): Promise<void> {
+    evento.preventDefault();
+    const conta = formConta.trim();
+    const dias = Number(formDias);
+    if (conta === '') {
+      push('error', 'Informe a conta do Tribal Wars dona da chave.');
+      return;
+    }
+    if (!Number.isInteger(dias) || dias < 1 || dias > 3650) {
+      push('error', 'Dias deve ser um número entre 1 e 3650.');
+      return;
+    }
+    setEmitindo(true);
+    try {
+      const resultado = await window.staffhub.auth.adminKeys.emitir(conta, dias, formTier);
+      if (!resultado.ok) {
+        push('error', resultado.erro);
+        return;
+      }
+      setChaveEmitida({ chave: resultado.key, owner: conta });
+      setFormConta('');
+      push('ok', `Chave emitida para "${conta}" — copie agora: não será exibida de novo.`);
+      await carregar(true);
+    } catch (err) {
+      push('error', err instanceof Error ? err.message : String(err));
+    } finally {
+      setEmitindo(false);
+    }
+  }
+
+  async function copiarChave(): Promise<void> {
+    if (chaveEmitida === null) return;
+    try {
+      await navigator.clipboard.writeText(chaveEmitida.chave);
+      push('ok', 'Chave copiada.');
+    } catch {
+      push('error', 'Não foi possível copiar — permissão de área de transferência negada.');
+    }
+  }
+
+  async function revogarChave(chave: AdminKeyRow): Promise<void> {
+    if (
+      !window.confirm(
+        `Revogar a chave ${chave.keyPrefix}… de "${chave.ownerNick}"? O userscript dela para de validar na hora.`,
+      )
+    ) {
+      return;
+    }
+    setTrabalhando(`chave:${chave.id}`);
+    try {
+      const resultado = await window.staffhub.auth.adminKeys.revogar(chave.id);
+      if (!resultado.ok) {
+        push('error', resultado.erro ?? 'Ação falhou.');
+        return;
+      }
+      push('ok', `Chave ${chave.keyPrefix}… revogada.`);
+      await carregar(true);
+    } finally {
+      setTrabalhando(null);
+    }
+  }
+
+  const statusChave = (chave: AdminKeyRow): JSX.Element => {
+    if (chave.revoked === 1) return <span className="pill pill--error">Revogada</span>;
+    if (chave.expiresAt !== null && chave.expiresAt <= Date.now()) {
+      return <span className="pill pill--warn">Expirada</span>;
+    }
+    if (chave.boundPlayer === null) return <span className="pill pill--muted">Não ativada</span>;
+    return <span className="pill pill--ok">Ativa</span>;
+  };
 
   const abaBotao = (chave: Aba, rotulo: string, total: number): JSX.Element => (
     <button
@@ -247,6 +331,139 @@ export default function AdminPage(): JSX.Element {
                           </button>
                         )}
                       </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="card">
+        <div className="card-header">
+          <h2 className="card-title">Chaves In-Game</h2>
+          <span className="spacer" />
+          {keys !== null && <span className="pill pill--muted">{keys.length}</span>}
+        </div>
+
+        <p className="muted" style={{ marginTop: 0 }}>
+          Licença do userscript in-game: a chave vincula à conta do TW na 1ª ativação e a
+          validação é sempre no servidor (revogação vale na hora).
+        </p>
+
+        <form className="row" style={{ gap: 12 }} onSubmit={(e) => void emitirChave(e)}>
+          <div className="field" style={{ minWidth: 200 }}>
+            <label className="field-label" htmlFor="chave-conta">
+              Conta do TW
+            </label>
+            <input
+              id="chave-conta"
+              className="input"
+              value={formConta}
+              placeholder="nick do jogador"
+              onChange={(event) => setFormConta(event.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="chave-dias">
+              Dias
+            </label>
+            <input
+              id="chave-dias"
+              className="input"
+              type="number"
+              min={1}
+              max={3650}
+              value={formDias}
+              style={{ maxWidth: 110 }}
+              onChange={(event) => setFormDias(event.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="chave-tier">
+              Tier
+            </label>
+            <select
+              id="chave-tier"
+              className="select"
+              value={formTier}
+              onChange={(event) => setFormTier(event.target.value as 'staff' | 'lider')}
+            >
+              <option value="staff">Staff</option>
+              <option value="lider">Líder</option>
+            </select>
+          </div>
+          <button type="submit" className="btn" style={{ alignSelf: 'flex-end' }} disabled={emitindo || carregando}>
+            <KeyRound size={14} aria-hidden="true" />
+            {emitindo ? 'Emitindo…' : 'Emitir chave'}
+          </button>
+        </form>
+
+        {chaveEmitida !== null && (
+          <Callout variant="warn" icon={KeyRound} title={`Chave de ${chaveEmitida.owner}`}>
+            <p>
+              <code className="login-senha-temp">{chaveEmitida.chave}</code>{' '}
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copiarChave()}>
+                <ClipboardCopy size={14} aria-hidden="true" /> Copiar
+              </button>
+            </p>
+            <p className="field-hint">
+              Mostra SÓ agora — não existe como ver de novo. Repasse ao jogador por MP.
+            </p>
+          </Callout>
+        )}
+
+        {keys === null && erro === '' ? (
+          <p className="muted" style={{ padding: 16 }}>
+            Carregando chaves…
+          </p>
+        ) : (keys?.length ?? 0) === 0 ? (
+          <EmptyState
+            compact
+            icon={KeyRound}
+            title="Nenhuma chave emitida"
+            hint="Emita a primeira licença do userscript in-game no formulário acima."
+          />
+        ) : (
+          <div className="table-wrap" style={{ maxHeight: 320, overflow: 'auto' }}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th scope="col">Chave</th>
+                  <th scope="col">Conta</th>
+                  <th scope="col">Vinculada a</th>
+                  <th scope="col">Expira</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(keys ?? []).map((chave) => (
+                  <tr key={chave.id}>
+                    <td className="cell-nowrap">
+                      <code>{chave.keyPrefix}…</code>
+                    </td>
+                    <td className="cell-nowrap">
+                      <strong>{chave.ownerNick}</strong>
+                    </td>
+                    <td className="cell-nowrap">{chave.boundPlayer ?? '—'}</td>
+                    <td className="cell-nowrap">
+                      {chave.expiresAt === null ? 'Sem prazo' : new Date(chave.expiresAt).toLocaleDateString('pt-BR')}
+                    </td>
+                    <td className="cell-nowrap">{statusChave(chave)}</td>
+                    <td className="cell-nowrap">
+                      {chave.revoked === 0 && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-ghost--danger btn-sm"
+                          disabled={trabalhando !== null}
+                          onClick={() => void revogarChave(chave)}
+                        >
+                          <ShieldOff size={14} aria-hidden="true" />
+                          {trabalhando === `chave:${chave.id}` ? 'Revogando…' : 'Revogar'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

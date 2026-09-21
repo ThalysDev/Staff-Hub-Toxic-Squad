@@ -1,5 +1,6 @@
 // staffhub-auth — configuração. Segredos vivem em auth.env (0600, gerado no
-// deploy); NUNCA no código. Valores: JWT_SECRET (obrigatório), PORT (8787),
+// deploy); NUNCA no código. Valores: JWT_SECRET (obrigatório), KEY_SECRET
+// (opcional — tickets de license key; cai p/ JWT_SECRET), PORT (8787),
 // DB_PATH, ACCESS_TTL_MIN (15), REFRESH_TTL_DIAS (30).
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +26,11 @@ export const config = {
   port: Number(process.env.AUTH_PORT ?? env.get('PORT') ?? 8787),
   dbPath: process.env.AUTH_DB_PATH ?? env.get('DB_PATH') ?? join(HERE, 'auth.db'),
   jwtSecret: env.get('JWT_SECRET') ?? '',
+  // Segredo dos TICKETS de license key in-game (HMAC sobre "player|expiresAt").
+  // OPCIONAL: sem KEY_SECRET no auth.env cai para JWT_SECRET (mesmo cofre 0600,
+  // mesmo nível de sigilo). Separável depois sem invalidar sessões — só muda a
+  // assinatura dos tickets novos.
+  keySecret: env.get('KEY_SECRET') ?? env.get('JWT_SECRET') ?? '',
   accessTtlMin: Number(env.get('ACCESS_TTL_MIN') ?? 15),
   refreshTtlDias: Number(env.get('REFRESH_TTL_DIAS') ?? 30),
   // Rate-limit de login: máx de falhas por IP e por nick numa janela deslizante.

@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  AdminKeyEmissao,
+  AdminKeyRow,
   AppSettings,
   AuthAdminAudit,
   AuthLoginResultado,
@@ -53,6 +55,12 @@ const api = {
     adminResetarSenha: (id: string) =>
       invoke<{ ok: boolean; senhaTemporaria?: string; erro?: string }>('auth:admin-resetar-senha', id),
     adminAudit: () => invoke<{ eventos: AuthAdminAudit[] }>('auth:admin-audit'),
+    adminKeys: {
+      listar: () => invoke<{ keys: AdminKeyRow[] }>('auth:keys-listar'),
+      emitir: (ownerNick: string, dias: number, tier: 'staff' | 'lider') =>
+        invoke<AdminKeyEmissao>('auth:keys-emitir', ownerNick, dias, tier),
+      revogar: (id: string) => invoke<{ ok: boolean; erro?: string }>('auth:keys-revogar', id),
+    },
   },
   session: {
     openLogin: () => invoke('session:open-login'),

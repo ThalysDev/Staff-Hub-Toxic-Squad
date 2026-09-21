@@ -17,6 +17,8 @@ import { STAFFHUB_CA_PEM } from '../auth-ca';
 import { JsonStore } from '../stores/json-store';
 import type { Journal } from '../journal';
 import type {
+  AdminKeyEmissao,
+  AdminKeyRow,
   AdminUserRow,
   AuthAdminAudit,
   AuthLoginResultado,
@@ -316,6 +318,37 @@ export class AuthService {
     if ('erroRede' in resposta) throw new Error(resposta.erroRede);
     if (resposta.status !== 200) throw new Error(String(resposta.dados?.erro ?? 'Falha ao ler auditoria.'));
     return { eventos: resposta.dados.eventos ?? [] };
+  }
+
+  // ---- admin: chaves in-game (license keys do userscript) ----
+  // Mesmo padrão do bloco acima: Bearer + CA pinada, erros PT-BR da API.
+  // A chave em claro só existe na RESPOSTA da emissão — nunca em listagem.
+
+  async adminKeysListar(): Promise<{ keys: AdminKeyRow[] }> {
+    const resposta = await this.chamarGet('/staffhub/api/admin/keys');
+    if ('erroRede' in resposta) throw new Error(resposta.erroRede);
+    if (resposta.status !== 200) throw new Error(String(resposta.dados?.erro ?? 'Falha ao listar chaves.'));
+    return { keys: resposta.dados.keys ?? [] };
+  }
+
+  async adminKeysEmitir(ownerNick: string, dias: number, tier: 'staff' | 'lider'): Promise<AdminKeyEmissao> {
+    const resposta = await this.chamarAdmin('/staffhub/api/admin/keys', { ownerNick, dias, tier });
+    if ('erroRede' in resposta) return { ok: false, erro: resposta.erroRede };
+    if (resposta.status !== 201) return { ok: false, erro: String(resposta.dados?.erro ?? 'Falha ao emitir chave.') };
+    return {
+      ok: true,
+      id: String(resposta.dados.id ?? ''),
+      key: String(resposta.dados.key ?? ''),
+      prefix: String(resposta.dados.prefix ?? ''),
+      expiresAt: Number(resposta.dados.expiresAt ?? 0),
+    };
+  }
+
+  async adminKeysRevogar(id: string): Promise<{ ok: boolean; erro?: string }> {
+    const resposta = await this.chamarAdmin(`/staffhub/api/admin/keys/${encodeURIComponent(id)}/revogar`, {});
+    if ('erroRede' in resposta) return { ok: false, erro: resposta.erroRede };
+    if (resposta.status !== 200) return { ok: false, erro: String(resposta.dados?.erro ?? 'Ação falhou.') };
+    return { ok: true };
   }
 
   // ---- internos ----

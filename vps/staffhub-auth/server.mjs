@@ -15,6 +15,7 @@ import {
   verificarSenha,
 } from './auth.mjs';
 import { podeTentar, registrarFalha } from './ratelimit.mjs';
+import { decidirValidacao, hashChave, novaChave, ticketDe } from './keys.mjs';
 
 const VERSAO = '1.0.0';
 const PREFIXO = '/staffhub/api';
@@ -271,6 +272,93 @@ rota('POST', `${PREFIXO}/admin/users/:id/:acao`, async (req, res, corpo, params)
   if (params.acao === 'banir') q.revogarTodosDoUser.run(alvo.id);
   audit(admin.nick, `admin-${params.acao}`, `alvo=${alvo.nick}`);
   json(res, 200, { ok: true });
+});
+
+// ---- chaves in-game (license keys do userscript; regras em keys.mjs) ----
+// ATENÇÃO: hoje o userscript valida em http://74.0.5.75/... (sem TLS) — um
+// intermediário na rede pode LER a chave em claro e TROCAR a resposta (MITM).
+// O ticket HMAC autentica o emissor, não dá confidencialidade; migrar p/ https
+// quando o certificado da VPS cobrir o host nu.
+const TIERS = new Set(['staff', 'lider']);
+const DIAS_MAX = 3650;
+
+rota('POST', `${PREFIXO}/admin/keys`, async (req, res, corpo) => {
+  const admin = exigirAdmin(req, res);
+  if (admin === null) return;
+  const ownerNick = String(corpo.ownerNick ?? '').trim();
+  const dias = Number(corpo.dias ?? 0);
+  const tier = String(corpo.tier ?? 'staff');
+  if (!NICK_RE.test(ownerNick)) return erro(res, 400, 'Conta do Tribal Wars inválida — use 2 a 40 caracteres.');
+  if (!Number.isInteger(dias) || dias < 1 || dias > DIAS_MAX) {
+    return erro(res, 400, `Dias deve ser um número entre 1 e ${DIAS_MAX}.`);
+  }
+  if (!TIERS.has(tier)) return erro(res, 400, 'Tier inválida — use "staff" ou "lider".');
+  const chave = novaChave();
+  const id = randomUUID();
+  const expiresAt = Date.now() + dias * 24 * 60 * 60_000;
+  q.chaveInserir.run(id, chave.hash, chave.prefixo, ownerNick, tier, expiresAt, admin.nick, nowIso());
+  // Auditoria SEM a chave em claro — só o prefixo (ela existe uma única vez, na resposta).
+  audit(admin.nick, 'keys-emitir', `prefixo=${chave.prefixo}… owner=${ownerNick} tier=${tier} dias=${dias}`);
+  json(res, 201, { id, key: chave.chave, prefix: chave.prefixo, ownerNick, expiresAt });
+});
+
+rota('GET', `${PREFIXO}/admin/keys`, async (req, res) => {
+  if (exigirAdmin(req, res) === null) return;
+  json(res, 200, { keys: q.chaveListar.all() });
+});
+
+rota('POST', `${PREFIXO}/admin/keys/:id/revogar`, async (req, res, _corpo, params) => {
+  const admin = exigirAdmin(req, res);
+  if (admin === null) return;
+  const registro = q.chavePorId.get(params.id);
+  if (registro === undefined) return erro(res, 404, 'Chave não encontrada.');
+  if (registro.revoked === 1) return erro(res, 409, 'Chave já está revogada.');
+  q.chaveRevogar.run(registro.id);
+  audit(admin.nick, 'keys-revogar', `prefixo=${registro.key_prefix}… owner=${registro.owner_nick}`);
+  json(res, 200, { ok: true });
+});
+
+// ---- validação de chave (PÚBLICA — o userscript in-game consome) ----
+// Fail-closed + rate-limit em DOIS baldes reutilizando o ratelimit do login:
+// '__keyvalidate__' (visão por IP; balde global como o '__register__' — teto
+// ajustável por LOGIN_MAX_FALHAS_NICK) e um balde POR CHAVE derivado do hash
+// da string (a chave crua nunca é gravada na tabela de tentativas). Martelada
+// numa chave não queima as outras.
+rota('POST', `${PREFIXO}/key/validate`, async (req, res, corpo) => {
+  const ip = ipDe(req);
+  const chaveTexto = String(corpo.key ?? '').trim();
+  const player = String(corpo.player ?? '').trim();
+  if (chaveTexto === '' || !NICK_RE.test(player)) return erro(res, 400, 'Requisição inválida.');
+  const baldeChave = `__key_${hashChave(chaveTexto).slice(0, 24)}`;
+  if (!podeTentar(ip, '__keyvalidate__').ok || !podeTentar(ip, baldeChave).ok) {
+    return erro(res, 429, 'Muitas tentativas — aguarde alguns minutos.', 'rate');
+  }
+  const registro = q.chavePorHash.get(hashChave(chaveTexto));
+  const decisao = decidirValidacao(registro, player);
+  if (!decisao.ok) {
+    registrarFalha(ip, '__keyvalidate__');
+    registrarFalha(ip, baldeChave);
+    // Audit só quando a chave EXISTE (inexistente = brute force — não alimenta audit).
+    if (decisao.motivo !== 'inexistente') {
+      audit(player, 'key-validate', `prefixo=${registro?.key_prefix}… motivo=${decisao.motivo} ip=${ip}`);
+    }
+    if (decisao.motivo === 'inexistente') return erro(res, 403, 'Chave inválida.');
+    if (decisao.motivo === 'revogada') return erro(res, 403, 'Chave revogada — fale com o administrador.');
+    if (decisao.motivo === 'expirada') return erro(res, 403, 'Chave expirada — fale com o administrador.');
+    return erro(res, 403, 'Chave já vinculada a outro jogador.');
+  }
+  // 1ª ativação vincula ao player (get → decidir → gravar sem await no meio:
+  // single-thread, sem janela de corrida). Revalidação do MESMO player segue ok.
+  if (decisao.vinculou) q.chaveVincular.run(player, registro.id);
+  q.chaveTouch.run(nowIso(), ip, registro.id);
+  audit(player, 'key-validate', `prefixo=${registro.key_prefix}… ip=${ip}`);
+  json(res, 200, {
+    ok: true,
+    player,
+    expiresAt: registro.expires_at,
+    tier: registro.tier,
+    ticket: ticketDe(player, registro.expires_at, config.keySecret),
+  });
 });
 
 // ---- despacho ----

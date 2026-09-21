@@ -22,4 +22,11 @@ export function registerAuthIpc(deps: AuthIpcDeps): void {
   );
   ipcMain.handle('auth:admin-resetar-senha', (_e, id: string) => auth.adminResetarSenha(id));
   ipcMain.handle('auth:admin-audit', () => auth.adminAudit());
+  // Chaves in-game: mesmos canais auth:* — gated pelo ROLE no servidor
+  // (exigirAdmin), fora de CANAIS_PROTEGIDOS como o resto do auth.
+  ipcMain.handle('auth:keys-listar', () => auth.adminKeysListar());
+  ipcMain.handle('auth:keys-emitir', (_e, ownerNick: string, dias: number, tier: 'staff' | 'lider') =>
+    auth.adminKeysEmitir(ownerNick, dias, tier),
+  );
+  ipcMain.handle('auth:keys-revogar', (_e, id: string) => auth.adminKeysRevogar(id));
 }

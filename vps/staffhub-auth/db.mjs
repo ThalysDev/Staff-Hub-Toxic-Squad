@@ -42,6 +42,21 @@ CREATE TABLE IF NOT EXISTS audit (
   evento TEXT NOT NULL,
   detalhe TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS license_keys (
+  id TEXT PRIMARY KEY,
+  key_hash TEXT NOT NULL UNIQUE,
+  key_prefix TEXT NOT NULL,
+  owner_nick TEXT NOT NULL COLLATE NOCASE,
+  bound_player TEXT,
+  tier TEXT NOT NULL DEFAULT 'staff' CHECK (tier IN ('staff','lider')),
+  expires_at INTEGER,
+  revoked INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL,
+  criado_em TEXT NOT NULL,
+  last_used_at TEXT,
+  last_ip TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_keys_owner ON license_keys(owner_nick);
 `);
 
 const nowIso = () => new Date().toISOString();
@@ -81,6 +96,24 @@ export const q = {
 
   audit: db.prepare('INSERT INTO audit (ts, ator, evento, detalhe) VALUES (?,?,?,?)'),
   listarAudit: db.prepare('SELECT ts, ator, evento, detalhe FROM audit ORDER BY id DESC LIMIT 200'),
+
+  // Chaves in-game: a chave em claro NUNCA é gravada — só o hash (keys.mjs).
+  // A listagem NUNCA devolve key_hash e já sai com alias camelCase (contrato
+  // do Electron/AdminKeyRow — mesmo padrão de coluna do listarUsers seria
+  // snake_case e já deixou o Admin lendo campo errado).
+  chaveInserir: db.prepare(
+    'INSERT INTO license_keys (id, key_hash, key_prefix, owner_nick, tier, expires_at, created_by, criado_em) VALUES (?,?,?,?,?,?,?,?)',
+  ),
+  chaveListar: db.prepare(
+    `SELECT id, key_prefix AS keyPrefix, owner_nick AS ownerNick, bound_player AS boundPlayer,
+            tier, expires_at AS expiresAt, revoked, criado_em AS criadoEm, last_used_at AS lastUsedAt
+     FROM license_keys ORDER BY criado_em DESC`,
+  ),
+  chavePorId: db.prepare('SELECT * FROM license_keys WHERE id = ?'),
+  chavePorHash: db.prepare('SELECT * FROM license_keys WHERE key_hash = ?'),
+  chaveRevogar: db.prepare('UPDATE license_keys SET revoked = 1 WHERE id = ?'),
+  chaveTouch: db.prepare('UPDATE license_keys SET last_used_at = ?, last_ip = ? WHERE id = ?'),
+  chaveVincular: db.prepare('UPDATE license_keys SET bound_player = ? WHERE id = ?'),
 };
 
 export const audit = (ator, evento, detalhe = '') => {

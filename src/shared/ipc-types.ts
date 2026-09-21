@@ -358,6 +358,28 @@ export type AuthLoginResultado =
   | { ok: true; user: AuthUser }
   | { ok: false; erro: string; code?: 'pending' | 'banned' | 'rate' | 'rede' | 'sessao' };
 
+/** Linha da lista de CHAVES IN-GAME (nunca contém key_hash nem a chave em claro). */
+export interface AdminKeyRow {
+  id: string;
+  /** Prefixo exibível (SHS-XXXX) — a chave inteira nunca volta ao app. */
+  keyPrefix: string;
+  /** Conta do Tribal Wars dona da chave (o userscript valida com ela). */
+  ownerNick: string;
+  /** Jogador TW vinculado na 1ª ativação (null = ainda não ativada). */
+  boundPlayer: string | null;
+  tier: 'staff' | 'lider';
+  /** Expiração (epoch ms); a validade é conferida no servidor (fail-closed). */
+  expiresAt: number | null;
+  revoked: 0 | 1;
+  criadoEm: string;
+  lastUsedAt: string | null;
+}
+
+/** Emissão de chave: a chave em claro vem UMA ÚNICA vez (depois só o prefixo). */
+export type AdminKeyEmissao =
+  | { ok: true; id: string; key: string; prefix: string; expiresAt: number }
+  | { ok: false; erro: string };
+
 export interface StaffHubApi {
   auth: {
     /** Estado atual da sessão do SISTEMA (eventos via onAuthChanged). */
@@ -377,6 +399,15 @@ export interface StaffHubApi {
     adminUsersAcao(id: string, acao: 'aprovar' | 'banir' | 'reabilitar'): Promise<{ ok: boolean; erro?: string }>;
     adminResetarSenha(id: string): Promise<{ ok: boolean; senhaTemporaria?: string; erro?: string }>;
     adminAudit(): Promise<{ eventos: AuthAdminAudit[] }>;
+    // ---- Chaves in-game (license keys do userscript; role admin no servidor) ----
+    adminKeys: {
+      /** Lista SEM hash e SEM chave em claro (só prefixo). */
+      listar(): Promise<{ keys: AdminKeyRow[] }>;
+      /** Emite nova chave — `key` (em claro) vem UMA ÚNICA vez nesta resposta. */
+      emitir(ownerNick: string, dias: number, tier: 'staff' | 'lider'): Promise<AdminKeyEmissao>;
+      /** Revoga a chave (a validação no servidor é fail-closed). */
+      revogar(id: string): Promise<{ ok: boolean; erro?: string }>;
+    };
   };
   session: {
     openLogin(): Promise<void>;
