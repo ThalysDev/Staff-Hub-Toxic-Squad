@@ -38,6 +38,7 @@
 import { CaptchaDetectedError, SessionRequiredError, gamePost } from '../core/net';
 import { gameContext } from '../core/shell';
 import { gm, worldKey } from '../core/storage';
+import { card, empty, pill, table } from '../core/ui';
 import { formatCoord, parseCoordList } from '@shared/coords';
 import { previewMps } from '@shared/mp-preview';
 
@@ -154,27 +155,27 @@ function parseMpEntries(text: string): MpEntry[] {
   return entries;
 }
 
-/** Tabela de resultados por item (recriada a cada atualização). */
-function renderOutcomes(table: HTMLTableElement, outcomes: ItemOutcome[]): void {
-  table.innerHTML = '';
-  table.style.display = outcomes.length === 0 ? 'none' : '';
+/**
+ * Tabela de resultados por item (recriada a cada atualização) sobre o helper
+ * table() do design system; a coluna Resultado recebe a pílula colorida
+ * (OK/ERRO) por cima do texto plano — mesma informação, mesma ordem.
+ */
+function renderOutcomes(wrap: HTMLElement, outcomes: ItemOutcome[]): void {
+  wrap.replaceChildren();
   if (outcomes.length === 0) return;
-  const thead = el('thead');
-  const headRow = el('tr');
-  for (const label of ['Item', 'Resultado', 'Detalhe']) headRow.appendChild(el('th', undefined, label));
-  thead.appendChild(headRow);
-  const tbody = el('tbody');
-  for (const outcome of outcomes) {
-    const tr = el('tr');
-    tr.appendChild(el('td', undefined, outcome.nick));
-    const tdPill = el('td');
-    tdPill.appendChild(el('span', outcome.ok ? 'shs-pill shs-pill--ok' : 'shs-pill shs-pill--error', outcome.ok ? 'OK' : 'ERRO'));
-    tr.appendChild(tdPill);
-    tr.appendChild(el('td', undefined, outcome.detail));
-    tbody.appendChild(tr);
-  }
-  table.appendChild(thead);
-  table.appendChild(tbody);
+  const outcomesTable = table(
+    ['Item', 'Resultado', 'Detalhe'],
+    outcomes.map((outcome) => [outcome.nick, outcome.ok ? 'OK' : 'ERRO', outcome.detail]),
+  );
+  const body = outcomesTable.tBodies[0];
+  outcomes.forEach((outcome, index) => {
+    const cell = body?.rows[index]?.cells[1];
+    if (cell !== undefined) {
+      cell.textContent = '';
+      cell.appendChild(pill(outcome.ok ? 'OK' : 'ERRO', outcome.ok ? 'ok' : 'error'));
+    }
+  });
+  wrap.appendChild(outcomesTable);
 }
 
 function resumo(outcomes: ItemOutcome[]): string {
@@ -192,9 +193,9 @@ function resumo(outcomes: ItemOutcome[]): string {
 // Sub-formulário A: Reservar coordenadas (screen=ally action=new_reservation)
 // ---------------------------------------------------------------------------
 
-function setupReservas(container: HTMLElement): void {
-  container.appendChild(el('strong', undefined, 'Reservar coordenadas'));
-  container.appendChild(
+function setupReservas(container: HTMLElement, onJournalChange?: () => void): void {
+  const reservasCard = card('Reservar coordenadas');
+  reservasCard.appendChild(
     el('div', 'shs-muted', 'Coordenadas "123|456" separadas por espaço/vírgula/linha. POST real no planejador da tribo (screen=ally → new_reservation); "já reservada" é tolerado.'),
   );
 
@@ -211,8 +212,7 @@ function setupReservas(container: HTMLElement): void {
   const progress = el('span', 'shs-muted');
   const status = el('div', 'shs-danger');
   const journalInfo = el('span', 'shs-muted');
-  const table = el('table');
-  table.style.display = 'none';
+  const outcomesWrap = el('div', 'shs-tablewrap');
 
   const row1 = el('div', 'shs-row');
   row1.appendChild(textarea);
@@ -220,11 +220,12 @@ function setupReservas(container: HTMLElement): void {
   row2.appendChild(btn);
   row2.appendChild(btnCancel);
   row2.appendChild(progress);
-  container.appendChild(row1);
-  container.appendChild(row2);
-  container.appendChild(status);
-  container.appendChild(journalInfo);
-  container.appendChild(table);
+  reservasCard.appendChild(row1);
+  reservasCard.appendChild(row2);
+  reservasCard.appendChild(status);
+  reservasCard.appendChild(journalInfo);
+  reservasCard.appendChild(outcomesWrap);
+  container.appendChild(reservasCard);
 
   btn.addEventListener('click', () => {
     void runReserva();
@@ -232,7 +233,7 @@ function setupReservas(container: HTMLElement): void {
 
   async function runReserva(): Promise<void> {
     status.textContent = '';
-    renderOutcomes(table, []);
+    renderOutcomes(outcomesWrap, []);
 
     let coords: string[];
     try {
@@ -268,7 +269,7 @@ function setupReservas(container: HTMLElement): void {
             outcomes.push({ nick: restante, ok: false, detail: CANCELADO });
             appendJournal(world, { ts: new Date().toISOString(), kind: 'cancel', nick: restante, ok: false, detail: CANCELADO });
           }
-          renderOutcomes(table, outcomes);
+          renderOutcomes(outcomesWrap, outcomes);
           break;
         }
         progress.textContent = `Reservando ${index + 1}/${coords.length} — ${coord}`;
@@ -300,11 +301,11 @@ function setupReservas(container: HTMLElement): void {
         }
         outcomes.push(outcome);
         appendJournal(world, { ts: new Date().toISOString(), kind: 'reserva', nick: coord, ok: outcome.ok, detail: outcome.detail });
-        renderOutcomes(table, outcomes);
+        renderOutcomes(outcomesWrap, outcomes);
         if (halted) {
           // Nunca tentados: explícitos na tabela, SEM entrada no journal.
           for (const restante of coords.slice(index + 1)) outcomes.push({ nick: restante, ok: false, detail: NAO_TENTADA });
-          renderOutcomes(table, outcomes);
+          renderOutcomes(outcomesWrap, outcomes);
           break;
         }
       }
@@ -314,6 +315,7 @@ function setupReservas(container: HTMLElement): void {
       btn.disabled = false;
       progress.textContent = `Reservas concluídas — ${resumo(outcomes)}.`;
       journalInfo.textContent = `Journal local: ${journalCount(world)} evento(s) — teto ${JOURNAL_CAP}.`;
+      onJournalChange?.();
     }
   }
 }
@@ -322,9 +324,9 @@ function setupReservas(container: HTMLElement): void {
 // Sub-formulário B: MPs em cadeia (screen=mail action=send)
 // ---------------------------------------------------------------------------
 
-function setupMps(container: HTMLElement): void {
-  container.appendChild(el('strong', undefined, 'MPs em cadeia'));
-  container.appendChild(
+function setupMps(container: HTMLElement, onJournalChange?: () => void): void {
+  const mpsCard = card('MPs em cadeia');
+  mpsCard.appendChild(
     el('div', 'shs-muted', 'Uma MP REAL por jogador (screen=mail → send). Corpo com placeholders #jogador#, #alvos# e/ou #horarios#. Destinatários: uma linha "nick;123|456 456|789[;HH:MM:SS,HH:MM:SS]" por jogador (nick EXATO — a MP é case-sensitive).'),
   );
 
@@ -348,20 +350,20 @@ function setupMps(container: HTMLElement): void {
   const progress = el('span', 'shs-muted');
   const status = el('div', 'shs-danger');
   const journalInfo = el('span', 'shs-muted');
-  const table = el('table');
-  table.style.display = 'none';
+  const outcomesWrap = el('div', 'shs-tablewrap');
 
-  container.appendChild(subject);
-  container.appendChild(body);
-  container.appendChild(recipients);
+  mpsCard.appendChild(subject);
+  mpsCard.appendChild(body);
+  mpsCard.appendChild(recipients);
   const row = el('div', 'shs-row');
   row.appendChild(btn);
   row.appendChild(btnCancel);
   row.appendChild(progress);
-  container.appendChild(row);
-  container.appendChild(status);
-  container.appendChild(journalInfo);
-  container.appendChild(table);
+  mpsCard.appendChild(row);
+  mpsCard.appendChild(status);
+  mpsCard.appendChild(journalInfo);
+  mpsCard.appendChild(outcomesWrap);
+  container.appendChild(mpsCard);
 
   btn.addEventListener('click', () => {
     void runMps();
@@ -369,7 +371,7 @@ function setupMps(container: HTMLElement): void {
 
   async function runMps(): Promise<void> {
     status.textContent = '';
-    renderOutcomes(table, []);
+    renderOutcomes(outcomesWrap, []);
 
     // Validações fail-closed do sendMps, na MESMA ordem, ANTES de qualquer
     // confirmação/envio. previewMps (@shared, engine única com a prévia do app)
@@ -417,7 +419,7 @@ function setupMps(container: HTMLElement): void {
             outcomes.push({ nick: restante.playerName, ok: false, detail: CANCELADO });
             appendJournal(world, { ts: new Date().toISOString(), kind: 'cancel', nick: restante.playerName, ok: false, detail: CANCELADO });
           }
-          renderOutcomes(table, outcomes);
+          renderOutcomes(outcomesWrap, outcomes);
           break;
         }
         progress.textContent = `Enviando MP ${index + 1}/${bodies.length} — ${entry.playerName}`;
@@ -444,12 +446,12 @@ function setupMps(container: HTMLElement): void {
         }
         outcomes.push(outcome);
         appendJournal(world, { ts: new Date().toISOString(), kind: 'mp', nick: entry.playerName, ok: outcome.ok, detail: outcome.detail });
-        renderOutcomes(table, outcomes);
+        renderOutcomes(outcomesWrap, outcomes);
         if (halted) {
           for (const restante of bodies.slice(index + 1)) {
             outcomes.push({ nick: restante.playerName, ok: false, detail: NAO_TENTADA });
           }
-          renderOutcomes(table, outcomes);
+          renderOutcomes(outcomesWrap, outcomes);
           break;
         }
       }
@@ -459,8 +461,71 @@ function setupMps(container: HTMLElement): void {
       btn.disabled = false;
       progress.textContent = `MPs concluídas — ${resumo(outcomes)}.`;
       journalInfo.textContent = `Journal local: ${journalCount(world)} evento(s) — teto ${JOURNAL_CAP}.`;
+      onJournalChange?.();
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Journal local (teto 500) — visão compacta + limpeza com confirmação
+// ---------------------------------------------------------------------------
+
+/** Rótulos curtos do kind para a tabela compacta. */
+function kindLabel(kind: JournalEntry['kind']): string {
+  if (kind === 'mp') return 'MP';
+  if (kind === 'reserva') return 'Reserva';
+  return 'Cancel.';
+}
+
+/**
+ * Cartão do journal: tabela compacta das entradas (mais recentes por último,
+ * ordem de gravação) + botão "Limpar journal" (ghost-danger, com confirmação).
+ * O refresh é ligado aos finally das cadeias para a tabela acompanhar a run.
+ */
+function createJournalView(): { node: HTMLElement; refresh(): void } {
+  const world = gameContext().world;
+  const key = worldKey(world, JOURNAL_NAME);
+
+  const info = el('span', 'shs-muted');
+  const clearBtn = el('button', 'shs-btn shs-btn-danger', 'Limpar journal');
+  clearBtn.type = 'button';
+  const list = el('div', 'shs-tablewrap');
+
+  function render(): void {
+    const journal = gm.get<JournalEntry[]>(key, []);
+    info.textContent = `${journal.length} evento(s) — teto ${JOURNAL_CAP}.`;
+    clearBtn.disabled = journal.length === 0;
+    list.replaceChildren();
+    if (journal.length === 0) {
+      list.appendChild(empty('Journal vazio — nenhum evento registrado ainda.'));
+      return;
+    }
+    const rows = journal.map((entry) => [
+      new Date(entry.ts).toLocaleString('pt-BR'),
+      kindLabel(entry.kind),
+      entry.nick,
+      entry.ok ? 'OK' : 'ERRO',
+      entry.detail,
+    ]);
+    list.appendChild(table(['Quando', 'Tipo', 'Destino', 'Resultado', 'Detalhe'], rows));
+  }
+
+  clearBtn.addEventListener('click', () => {
+    const journal = gm.get<JournalEntry[]>(key, []);
+    if (journal.length === 0) return;
+    if (!window.confirm(`Apagar o journal local (${journal.length} evento(s))? Esta ação não pode ser desfeita.`)) return;
+    gm.set(key, []);
+    render();
+  });
+
+  const head = el('div', 'shs-row');
+  head.appendChild(clearBtn);
+  head.appendChild(info);
+  const journalCard = card('Journal (últimas 500)');
+  journalCard.appendChild(head);
+  journalCard.appendChild(list);
+  render();
+  return { node: journalCard, refresh: render };
 }
 
 /**
@@ -478,11 +543,13 @@ export function renderSg6(container: HTMLElement): void {
   container.appendChild(header);
   // Guarda 5 — aviso PERMANENTE de triagem: o script NÃO bloqueia destinatários
   // fora da tribo (a triagem world:screen-recipients é exclusiva do Electron).
-  container.appendChild(el('div', 'shs-danger', 'Confira: destinatários fora da tribo NÃO são bloqueados no script'));
+  // Mesmo texto de antes, agora no warnbox do design system.
+  container.appendChild(el('div', 'shs-warnbox', 'Confira: destinatários fora da tribo NÃO são bloqueados no script'));
 
-  setupReservas(container);
-  container.appendChild(el('hr'));
-  setupMps(container);
+  const journalView = createJournalView();
+  setupReservas(container, journalView.refresh);
+  setupMps(container, journalView.refresh);
+  container.appendChild(journalView.node);
 }
 
 // registro: coordinator → registerSection({ id:'sg6', label:'Reservas & MPs', render: renderSg6 })

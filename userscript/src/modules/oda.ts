@@ -33,6 +33,7 @@ import {
 import { gameContext } from '../core/shell';
 import { enqueue } from '../core/net';
 import { gm, worldKey } from '../core/storage';
+import { card, el, empty, pill, table } from '../core/ui';
 
 /** Tipos de dump de kills (att = ODA ofensivo, def = ODD defensivo). */
 const KINDS = {
@@ -206,35 +207,15 @@ function renderHistoryTable(host: HTMLElement, store: OdaOddPersisted): void {
   const latestAtt = store.att.snapshots.length > 0 ? (store.att.snapshots[store.att.snapshots.length - 1] ?? null) : null;
   const latestDef = store.def.snapshots.length > 0 ? (store.def.snapshots[store.def.snapshots.length - 1] ?? null) : null;
 
-  const table = document.createElement('table');
-  const thead = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  for (const label of ['Data', 'ODA (Δ)', 'ODD (Δ)']) {
-    const th = document.createElement('th');
-    th.textContent = label;
-    headRow.appendChild(th);
-  }
-  thead.appendChild(headRow);
-  table.appendChild(thead);
+  const dataRows = rows.map((row) => [
+    formatDate(row.date),
+    row.att === null ? '—' : `${fmtKills(row.att.kills)} (${deltaText(row.att.delta)})`,
+    row.def === null ? '—' : `${fmtKills(row.def.kills)} (${deltaText(row.def.delta)})`,
+  ]);
+  const history = table(['Data', 'ODA (Δ)', 'ODD (Δ)'], dataRows);
 
-  const tbody = document.createElement('tbody');
-  for (const row of rows) {
-    const tr = document.createElement('tr');
-    const cells = [
-      formatDate(row.date),
-      row.att === null ? '—' : `${fmtKills(row.att.kills)} (${deltaText(row.att.delta)})`,
-      row.def === null ? '—' : `${fmtKills(row.def.kills)} (${deltaText(row.def.delta)})`,
-    ];
-    for (const text of cells) {
-      const td = document.createElement('td');
-      td.textContent = text;
-      tr.appendChild(td);
-    }
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody);
-
-  // Totais atuais = última leitura arquivada de cada tipo.
+  // Totais atuais = última leitura arquivada de cada tipo (tfoot fora do
+  // helper table(), que só cobre thead+tbody).
   const tfoot = document.createElement('tfoot');
   const footRow = document.createElement('tr');
   const footCells = [
@@ -248,8 +229,9 @@ function renderHistoryTable(host: HTMLElement, store: OdaOddPersisted): void {
     footRow.appendChild(td);
   }
   tfoot.appendChild(footRow);
-  table.appendChild(tfoot);
-  host.appendChild(table);
+  history.appendChild(tfoot);
+
+  host.appendChild(el('div', { className: 'shs-tablewrap' }, history));
 }
 
 /**
@@ -259,15 +241,15 @@ function renderHistoryTable(host: HTMLElement, store: OdaOddPersisted): void {
 export function renderOda(container: HTMLElement): void {
   container.innerHTML = '';
 
-  const title = document.createElement('strong');
-  title.textContent = 'OD de guerra (ODA/ODD)';
-  container.appendChild(title);
+  const section = card('OD de guerra');
+  container.appendChild(section);
 
-  const hint = document.createElement('p');
-  hint.className = 'shs-muted';
-  hint.textContent =
-    'Kills acumulados da tribo nos dumps oficiais do mundo (máx. 1 download por hora por arquivo).';
-  container.appendChild(hint);
+  section.appendChild(
+    el('p', {
+      className: 'shs-muted',
+      text: 'Kills acumulados da tribo nos dumps oficiais do mundo (máx. 1 download por hora por arquivo).',
+    }),
+  );
 
   const controls = document.createElement('div');
   controls.className = 'shs-row';
@@ -281,37 +263,32 @@ export function renderOda(container: HTMLElement): void {
   button.className = 'shs-btn';
   button.textContent = 'Atualizar';
   const status = document.createElement('span');
-  status.className = 'shs-muted';
   controls.append(input, button, status);
-  container.appendChild(controls);
+  section.appendChild(controls);
 
   const tableHost = document.createElement('div');
-  container.appendChild(tableHost);
+  section.appendChild(tableHost);
 
   const storageKey = worldKey(gameContext().world, 'oda-odd');
 
+  // Status/cache como pill do design system (erro em vermelho, resto neutro).
   function setStatus(text: string, error: boolean): void {
-    status.textContent = text;
-    status.className = error ? 'shs-danger' : 'shs-muted';
+    status.replaceChildren(pill(text, error ? 'error' : 'muted'));
   }
 
   function draw(store: OdaOddPersisted | null): void {
     tableHost.innerHTML = '';
     if (store === null || (store.att.snapshots.length === 0 && store.def.snapshots.length === 0)) {
-      const empty = document.createElement('p');
-      empty.className = 'shs-muted';
-      empty.textContent = 'Sem histórico ainda — informe o ID da tribo e clique em Atualizar.';
-      tableHost.appendChild(empty);
+      tableHost.appendChild(empty('Nenhuma leitura ainda — informe o ID da tribo e clique Atualizar.'));
       return;
     }
     try {
       renderHistoryTable(tableHost, store);
     } catch (error) {
       // Histórico corrompido no storage: fail-closed com a mensagem da engine.
-      const message = document.createElement('p');
-      message.className = 'shs-danger';
-      message.textContent = error instanceof Error ? error.message : String(error);
-      tableHost.appendChild(message);
+      tableHost.appendChild(
+        el('p', { className: 'shs-danger', text: error instanceof Error ? error.message : String(error) }),
+      );
     }
   }
 

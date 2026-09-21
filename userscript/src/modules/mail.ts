@@ -29,6 +29,7 @@ import { previewMps } from '@shared/mp-preview';
 import { gm } from '../core/storage';
 import { licenseState } from '../core/license';
 import { gameContext, registerSection } from '../core/shell';
+import { card, el, empty, pill } from '../core/ui';
 
 /** Uma MP gerada, pronta para pré-preencher o formulário do jogo. */
 interface MpMessage {
@@ -210,6 +211,8 @@ function fillPendingOnMailNew(): void {
 function renderQueueList(container: HTMLElement, status: HTMLElement): void {
   container.innerHTML = '';
   const queue = loadQueue();
+  // Cabeçalho do cartão da fila: contagem + ações + linha de status (o status
+  // mora AQUI, dentro do cartão — não flutuando fora dele).
   const head = document.createElement('div');
   head.className = 'shs-row';
   const label = document.createElement('strong');
@@ -217,7 +220,7 @@ function renderQueueList(container: HTMLElement, status: HTMLElement): void {
   head.appendChild(label);
   if (queue.length > 0) {
     const skip = document.createElement('button');
-    skip.className = 'shs-btn shs-btn-ghost';
+    skip.className = 'shs-btn shs-btn-ghost shs-btn-sm';
     skip.textContent = 'Pular esta';
     skip.addEventListener('click', () => {
       const current = loadQueue();
@@ -228,7 +231,7 @@ function renderQueueList(container: HTMLElement, status: HTMLElement): void {
       renderQueueList(container, status);
     });
     const cancel = document.createElement('button');
-    cancel.className = 'shs-btn shs-btn-ghost';
+    cancel.className = 'shs-btn shs-btn-ghost shs-btn-sm';
     cancel.textContent = 'Cancelar fila';
     cancel.addEventListener('click', () => {
       if (window.confirm('Cancelar a fila inteira? Todas as mensagens geradas serão descartadas.')) {
@@ -241,31 +244,29 @@ function renderQueueList(container: HTMLElement, status: HTMLElement): void {
     head.appendChild(skip);
     head.appendChild(cancel);
   }
+  head.appendChild(status);
   container.appendChild(head);
 
   if (queue.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'shs-muted';
-    empty.textContent = 'Nenhuma mensagem na fila — gere acima. Nada é enviado: você revisa e clica Enviar no jogo.';
-    container.appendChild(empty);
+    container.appendChild(
+      empty('Nenhuma mensagem na fila — gere acima. Nada é enviado: você revisa e clica Enviar no jogo.'),
+    );
     return;
   }
 
   for (const [index, message] of queue.entries()) {
     const row = document.createElement('div');
     row.className = 'shs-row';
-    const nick = document.createElement('span');
-    nick.className = 'shs-pill';
-    nick.textContent = message.nick;
-    row.appendChild(nick);
+    row.appendChild(el('span', { className: 'shs-muted', text: `${index + 1}.` }));
+    row.appendChild(pill(message.nick));
     const open = document.createElement('button');
-    open.className = 'shs-btn';
+    open.className = 'shs-btn shs-btn-sm';
     open.textContent = 'Abrir';
     open.title = 'Abre a tela de nova mensagem do jogo com esta MP pré-preenchida — revise e clique Enviar.';
     open.addEventListener('click', () => openMessage(index));
     row.appendChild(open);
     const copy = document.createElement('button');
-    copy.className = 'shs-btn shs-btn-ghost';
+    copy.className = 'shs-btn shs-btn-ghost shs-btn-sm';
     copy.textContent = 'Copiar';
     copy.title = 'Copia assunto e corpo (fallback manual do pré-preenchimento).';
     copy.addEventListener('click', () => {
@@ -305,6 +306,10 @@ function renderMailSection(container: HTMLElement): void {
     'Gere por linhas prontas do SG_6 ou pelo pacote da OP.';
   container.appendChild(intro);
 
+  // Cartão do gerador: modo + entradas + botão Gerar.
+  const formCard = card('Gerador de MPs');
+  container.appendChild(formCard);
+
   const modeRow = document.createElement('div');
   modeRow.className = 'shs-row';
   const modeLabel = document.createElement('span');
@@ -318,7 +323,7 @@ function renderMailSection(container: HTMLElement): void {
   modeSelect.style.width = 'auto';
   modeRow.appendChild(modeLabel);
   modeRow.appendChild(modeSelect);
-  container.appendChild(modeRow);
+  formCard.appendChild(modeRow);
 
   // Modo A — linhas prontas do SG_6.
   const chainBox = document.createElement('div');
@@ -327,7 +332,7 @@ function renderMailSection(container: HTMLElement): void {
   chainArea.rows = 6;
   chainArea.placeholder = 'fulano;Assunto da MP;Corpo da mensagem, pode ter ; e quebras…\nbeltrano;Assunto;Outro corpo';
   chainBox.appendChild(chainArea);
-  container.appendChild(chainBox);
+  formCard.appendChild(chainBox);
 
   // Modo B — pacote da OP (assunto + template + distribuição).
   const packBox = document.createElement('div');
@@ -347,7 +352,7 @@ function renderMailSection(container: HTMLElement): void {
   packBox.appendChild(subjectInput);
   packBox.appendChild(templateArea);
   packBox.appendChild(distributionArea);
-  container.appendChild(packBox);
+  formCard.appendChild(packBox);
 
   modeSelect.addEventListener('change', () => {
     const chain = modeSelect.value === 'chain';
@@ -363,8 +368,7 @@ function renderMailSection(container: HTMLElement): void {
   const status = document.createElement('span');
   status.className = 'shs-muted';
   actions.appendChild(generate);
-  actions.appendChild(status);
-  container.appendChild(actions);
+  formCard.appendChild(actions);
 
   generate.addEventListener('click', () => {
     status.className = 'shs-muted';
@@ -387,12 +391,14 @@ function renderMailSection(container: HTMLElement): void {
     saveQueue(messages);
     status.className = 'shs-ok';
     status.textContent = `${messages.length} mensagem(ns) gerada(s).`;
-    renderQueueList(container, status);
+    renderQueueList(queueBox, status);
   });
 
+  // Cartão da fila: cabeçalho (contagem + ações + status) e linhas por mensagem.
+  const queueCard = card('Fila de MPs');
+  container.appendChild(queueCard);
   const queueBox = document.createElement('div');
-  queueBox.className = 'shs-row';
-  container.appendChild(queueBox);
+  queueCard.appendChild(queueBox);
   renderQueueList(queueBox, status);
 }
 

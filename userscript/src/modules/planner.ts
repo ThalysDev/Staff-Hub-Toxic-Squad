@@ -16,6 +16,7 @@
 //      texto para copiar: NENHUM POST de jogo parte daqui (mutações são do SG_6).
 
 import { gameContext, registerSection } from '../core/shell';
+import { card, el, empty, notification, pill, table } from '../core/ui';
 import { gm, worldKey } from '../core/storage';
 import { pacedGet } from '../core/net';
 import {
@@ -393,6 +394,64 @@ function aggregateByPlayer(commands: readonly MassPlanCommand[]): PlayerAgg[] {
 }
 
 // ---------------------------------------------------------------------------
+// Ajudantes de UI local (design system do shell, via core/ui)
+// ---------------------------------------------------------------------------
+
+/** Campo do design system: .shs-field com rótulo .shs-field-label. O texto do
+ *  rótulo entra como child string — o attrs.text do el() do core NÃO é aplicado
+ *  hoje (assinatura declara, implementação ignora); nunca dependa dele aqui. */
+function field(labelText: string, control: HTMLElement): HTMLDivElement {
+  return el('div', { className: 'shs-field' }, el('span', { className: 'shs-field-label' }, labelText), control);
+}
+
+/** Botão type=button com variante do design system. */
+function button(label: string, variant: 'primary' | 'ghost', onClick: () => void, sm = false): HTMLButtonElement {
+  const variantClass = variant === 'ghost' ? ' shs-btn-ghost' : '';
+  const element = el('button', { className: `shs-btn${variantClass}${sm ? ' shs-btn-sm' : ''}` }, label);
+  element.type = 'button';
+  element.addEventListener('click', onClick);
+  return element;
+}
+
+/** Grade de campos compactos (inline style: o CSS vive no shell, um arquivo só). */
+function fieldGrid(...fields: readonly HTMLElement[]): HTMLDivElement {
+  const grid = el('div');
+  grid.style.display = 'grid';
+  grid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(180px, 1fr))';
+  grid.style.columnGap = '12px';
+  for (const child of fields) grid.appendChild(child);
+  return grid;
+}
+
+/** Input numérico de passo inteiro com mínimo. */
+function numberInput(min: string): HTMLInputElement {
+  const input = el('input', { className: 'shs-input' });
+  input.type = 'number';
+  input.min = min;
+  input.step = '1';
+  return input;
+}
+
+/** Option de select com value. */
+function option(value: string, label: string): HTMLOptionElement {
+  const element = el('option', undefined, label);
+  element.value = value;
+  return element;
+}
+
+/** Tabela de dados via ui.table(). O el() do core aceita attrs.text na
+ *  assinatura mas ainda não o aplica — os th/td sairiam vazios; os textos são
+ *  preenchidos aqui pela ordem (no-op inofensivo quando o core for corrigido). */
+function dataTable(headers: readonly string[], rows: readonly (readonly string[])[]): HTMLTableElement {
+  const element = table(headers, rows);
+  const texts = [...headers, ...rows.flat()];
+  element.querySelectorAll('th, td').forEach((cell, index) => {
+    cell.textContent = texts[index] ?? '';
+  });
+  return element;
+}
+
+// ---------------------------------------------------------------------------
 // Seção
 // ---------------------------------------------------------------------------
 
@@ -410,107 +469,160 @@ function renderPlanner(container: HTMLElement): void {
   let worldData: WorldData | null = worldCache;
   let lastResult: MassPlanResult | null = null;
 
-  const box = document.createElement('div');
-  box.innerHTML = `
-    <strong>Planner de OP</strong>
-    <p class="shs-muted">Mesma engine da Sala de Guerra (Staff Hub): gera a operação e exporta nos
-    formatos do tool (Russian Planner / TW Mass Planner). Nenhum comando parte daqui.</p>
-    <div class="shs-row">
-      <span id="shs-pl-world" class="shs-muted">Dados do mundo: carregando…</span>
-      <button class="shs-btn shs-btn-ghost" id="shs-pl-world-btn" type="button">Atualizar dados do mundo</button>
-    </div>
+  // ---- controles (referências diretas — sem ids, sem querySelector) ----
+  const worldEl = el('span', { className: 'shs-muted' }, 'Dados do mundo: carregando…');
+  const worldBtn = button('Atualizar dados do mundo', 'ghost', () => {
+    void refreshWorld();
+  });
+  const statusEl = el('div', { className: 'shs-muted' });
 
-    <div style="border:1px solid #b7a98d;border-radius:6px;padding:8px;margin:8px 0">
-      <strong>Grupo</strong>
-      <div class="shs-row">
-        <input class="shs-input" id="shs-pl-nome" placeholder="Nome do modelo de tropa (ex.: nuke, fake, limpeza)" />
-      </div>
-      <label class="shs-muted" for="shs-pl-origens">Origens ("x|y", uma por linha ou separadas por espaço)</label>
-      <textarea class="shs-input" id="shs-pl-origens" rows="4"></textarea>
-      <div class="shs-row">
-        <span>Comandos por origem (um valor, aplica a todas)
-          <input class="shs-input" id="shs-pl-por-origem" type="number" min="1" step="1" style="width:70px" /></span>
-        <span>Comandos por alvo (um valor, aplica a todos)
-          <input class="shs-input" id="shs-pl-por-alvo" type="number" min="1" step="1" style="width:70px" /></span>
-      </div>
-      <label class="shs-muted" for="shs-pl-alvos">Alvos ("x|y", uma por linha ou separadas por espaço)</label>
-      <textarea class="shs-input" id="shs-pl-alvos" rows="4"></textarea>
-      <div class="shs-row">
-        <span>Unidade mais lenta <select id="shs-pl-unidade"></select></span>
-        <span>Modo
-          <select id="shs-pl-modo">
-            <option value="otimizado">Otimizado</option>
-            <option value="por-jogador">Distribuído por jogador</option>
-            <option value="mais-perto">Mais perto</option>
-            <option value="mais-longe">Mais longe</option>
-          </select></span>
-      </div>
-      <div class="shs-row">
-        <span>Distância mín <input class="shs-input" id="shs-pl-dist-min" type="number" min="0" step="1" style="width:80px" /></span>
-        <span>Distância máx <input class="shs-input" id="shs-pl-dist-max" type="number" min="1" step="1" style="width:80px" /></span>
-      </div>
-      <div class="shs-row">
-        <span>Chegar fixa em <input id="shs-pl-chegada" type="datetime-local" /></span>
-        <span>Proteção BN
-          <select id="shs-pl-bn">
-            <option value="desativado">Desativada</option>
-            <option value="reagendar">Reagendar p/ depois da janela</option>
-          </select></span>
-        <label><input id="shs-pl-evitar-ms" type="checkbox" /> Evitar ms no mesmo jogador</label>
-      </div>
-      <div class="shs-row">
-        <button class="shs-btn shs-btn-ghost" id="shs-pl-add" type="button">Adicionar grupo à operação</button>
-        <button class="shs-btn" id="shs-pl-gerar" type="button">Gerar operação</button>
-      </div>
-      <p class="shs-muted" id="shs-pl-form-hint"></p>
-      <div id="shs-pl-grupos"></div>
-    </div>
+  const nomeInput = el('input', { className: 'shs-input' });
+  nomeInput.placeholder = 'ex.: nuke, fake, limpeza';
+  const origensArea = el('textarea', { className: 'shs-input' });
+  origensArea.rows = 4;
+  const alvosArea = el('textarea', { className: 'shs-input' });
+  alvosArea.rows = 4;
+  const porOrigemInput = numberInput('1');
+  const porAlvoInput = numberInput('1');
+  const unidadeSelect = el('select');
+  const modoSelect = el(
+    'select',
+    undefined,
+    option('otimizado', 'Otimizado'),
+    option('por-jogador', 'Distribuído por jogador'),
+    option('mais-perto', 'Mais perto'),
+    option('mais-longe', 'Mais longe'),
+  );
+  const distMinInput = numberInput('0');
+  const distMaxInput = numberInput('1');
+  const chegadaInput = el('input', { className: 'shs-input' });
+  chegadaInput.type = 'datetime-local';
+  const bnSelect = el(
+    'select',
+    undefined,
+    option('desativado', 'Desativada'),
+    option('reagendar', 'Reagendar p/ depois da janela'),
+  );
+  const evitarMsInput = el('input');
+  evitarMsInput.type = 'checkbox';
 
-    <div id="shs-pl-status" class="shs-muted"></div>
-    <div id="shs-pl-resultado"></div>
+  const opTitleInput = el('input', { className: 'shs-input' });
+  opTitleInput.placeholder = 'ex.: OP Cerco Noturno';
+  const mpTemplateArea = el('textarea', { className: 'shs-input' });
+  mpTemplateArea.rows = 8;
+  const mpBtn = button('Gerar MPs (texto)', 'primary', () => {
+    generateMps();
+  });
+  const mpOutputArea = el('textarea', { className: 'shs-input' });
+  mpOutputArea.rows = 12;
+  mpOutputArea.readOnly = true;
+  mpOutputArea.placeholder =
+    'As MPs personalizadas aparecem aqui para copiar — nada é enviado daqui (envio real é papel do módulo SG_6).';
 
-    <div style="border:1px solid #b7a98d;border-radius:6px;padding:8px;margin:8px 0">
-      <strong>Kit de tempo de envio</strong>
-      <p class="shs-muted">Agenda "Chegada → Envio" dos comandos da operação gerada
-      (bônus noturno aplicado pela engine — igual à agenda da Sala de Guerra).</p>
-      <div class="shs-row">
-        <span>Vila de origem
-          <input class="shs-input" id="shs-pl-timing-vila" placeholder="x|y (vazio = todos os comandos)" style="width:200px" /></span>
-        <span>Chegada desejada <input id="shs-pl-timing-hora" type="time" value="22:00" /></span>
-        <span>Dia
-          <select id="shs-pl-timing-dia">
-            <option value="hoje">Hoje</option>
-            <option value="amanha">Amanhã</option>
-          </select></span>
-        <button class="shs-btn" id="shs-pl-timing-btn" type="button">Calcular horários de envio</button>
-      </div>
-      <p class="shs-muted" id="shs-pl-timing-info"></p>
-      <div id="shs-pl-timing-result"></div>
-    </div>
+  const timingVilaInput = el('input', { className: 'shs-input' });
+  timingVilaInput.placeholder = 'x|y (vazio = todos os comandos)';
+  const timingHoraInput = el('input', { className: 'shs-input' });
+  timingHoraInput.type = 'time';
+  timingHoraInput.value = '22:00';
+  const timingDiaSelect = el('select', undefined, option('hoje', 'Hoje'), option('amanha', 'Amanhã'));
+  const timingBtn = button('Calcular horários de envio', 'primary', () => {
+    computeTiming();
+  });
+  const timingInfo = el('p', { className: 'shs-muted' });
+  const timingResult = el('div');
 
-    <div style="border:1px solid #b7a98d;border-radius:6px;padding:8px;margin:8px 0">
-      <strong>Comunicação da OP — material de MPs</strong>
-      <div class="shs-row">
-        <span>Título da OP
-          <input class="shs-input" id="shs-pl-op-title" placeholder="ex.: OP Cerco Noturno" style="width:220px" /></span>
-      </div>
-      <label class="shs-muted" for="shs-pl-mp-template">Template da MP (placeholders: #jogador#, #alvos#, #horarios#)</label>
-      <textarea class="shs-input" id="shs-pl-mp-template" rows="8"></textarea>
-      <div class="shs-row">
-        <button class="shs-btn" id="shs-pl-mp-btn" type="button">Gerar MPs (texto)</button>
-      </div>
-      <textarea class="shs-input" id="shs-pl-mp-output" rows="12" readonly
-        placeholder="As MPs personalizadas aparecem aqui para copiar — nada é enviado daqui (envio real é papel do módulo SG_6)."></textarea>
-    </div>`;
+  const addBtn = button('Adicionar grupo à operação', 'ghost', () => {
+    syncFormFromDom();
+    const built = buildGroupFromForm(draft.form);
+    const error = firstGroupError(built.group, planContextOf(worldData), built.quotaErrors);
+    if (error !== null) {
+      setStatus(`Grupo inválido: ${error}`, 'danger');
+      return;
+    }
+    draft.groups.push(built.group);
+    persist();
+    renderGroups();
+    setStatus(
+      `Grupo "${built.group.nome}" adicionado — origens: ${built.originsSummary}; alvos: ${built.targetsSummary}.`,
+      'ok',
+    );
+  });
+  const formHint = el(
+    'p',
+    { className: 'shs-muted' },
+    'Gerar usa os grupos adicionados abaixo; com a lista vazia, o formulário atual entra como grupo único. ' +
+      `Teto da engine: ${MASS_MAX_PAIRS.toLocaleString('pt-BR')} pares (origens × alvos) por grupo.`,
+  );
+  const groupsEl = el('div');
+  const progressEl = el('div');
+  const gerarBtn = button('Gerar operação', 'primary', () => {
+    void generate();
+  });
+  const resultEl = el('div');
+
+  // ---- montagem: cartões do design system (Grupos → Grupos adicionados →
+  // Resultado com o material de MPs → Kit de tempo de envio) ----
+  const box = el('div');
+  box.append(
+    el('strong', undefined, 'Planner de OP'),
+    el(
+      'p',
+      { className: 'shs-muted' },
+      'Mesma engine da Sala de Guerra (Staff Hub): gera a operação e exporta nos formatos do tool (Russian Planner / TW Mass Planner). Nenhum comando parte daqui.',
+    ),
+    el('div', { className: 'shs-row' }, worldEl, worldBtn),
+    statusEl,
+    card(
+      'Grupos',
+      field('Nome do modelo de tropa', nomeInput),
+      field('Origens ("x|y", uma por linha ou separadas por espaço)', origensArea),
+      field('Alvos ("x|y", uma por linha ou separadas por espaço)', alvosArea),
+      fieldGrid(
+        field('Comandos por origem (um valor, aplica a todas)', porOrigemInput),
+        field('Comandos por alvo (um valor, aplica a todos)', porAlvoInput),
+        field('Unidade mais lenta', unidadeSelect),
+        field('Modo', modoSelect),
+        field('Distância mín', distMinInput),
+        field('Distância máx', distMaxInput),
+        field('Chegada fixa em', chegadaInput),
+        field('Proteção BN', bnSelect),
+      ),
+      el(
+        'div',
+        { className: 'shs-row' },
+        el('label', undefined, evitarMsInput, ' Evitar ms no mesmo jogador'),
+        addBtn,
+      ),
+    ),
+    card('Grupos adicionados', formHint, groupsEl, progressEl, el('div', { className: 'shs-row' }, gerarBtn)),
+    card(
+      'Resultado',
+      resultEl,
+      el('hr', { className: 'shs-divider' }),
+      field('Título da OP', opTitleInput),
+      field('Template da MP (placeholders: #jogador#, #alvos#, #horarios#)', mpTemplateArea),
+      el('div', { className: 'shs-row' }, mpBtn),
+      mpOutputArea,
+    ),
+    card(
+      'Kit de tempo de envio',
+      el(
+        'p',
+        { className: 'shs-muted' },
+        'Agenda "Chegada → Envio" dos comandos da operação gerada (bônus noturno aplicado pela engine — igual à agenda da Sala de Guerra).',
+      ),
+      fieldGrid(
+        field('Vila de origem', timingVilaInput),
+        field('Chegada desejada', timingHoraInput),
+        field('Dia', timingDiaSelect),
+      ),
+      el('div', { className: 'shs-row' }, timingBtn),
+      timingInfo,
+      timingResult,
+    ),
+  );
   container.appendChild(box);
 
-  const q = <T extends HTMLElement>(selector: string): T => {
-    const element = box.querySelector<T>(selector);
-    if (element === null) throw new Error(`Elemento do painel ausente: ${selector}`);
-    return element;
-  };
-
-  const statusEl = q<HTMLDivElement>('#shs-pl-status');
   function setStatus(message: string, tone: 'muted' | 'ok' | 'danger' = 'muted'): void {
     statusEl.textContent = message;
     statusEl.className = tone === 'ok' ? 'shs-ok' : tone === 'danger' ? 'shs-danger' : 'shs-muted';
@@ -522,49 +634,43 @@ function renderPlanner(container: HTMLElement): void {
 
   function syncFormFromDom(): void {
     draft.form = {
-      nome: q<HTMLInputElement>('#shs-pl-nome').value,
-      origens: q<HTMLTextAreaElement>('#shs-pl-origens').value,
-      alvos: q<HTMLTextAreaElement>('#shs-pl-alvos').value,
-      porOrigem: q<HTMLInputElement>('#shs-pl-por-origem').value,
-      porAlvo: q<HTMLInputElement>('#shs-pl-por-alvo').value,
-      unidade: q<HTMLSelectElement>('#shs-pl-unidade').value as UnitId,
-      modo: q<HTMLSelectElement>('#shs-pl-modo').value as MassAssignMode,
-      distMin: q<HTMLInputElement>('#shs-pl-dist-min').value,
-      distMax: q<HTMLInputElement>('#shs-pl-dist-max').value,
-      chegada: q<HTMLInputElement>('#shs-pl-chegada').value,
-      bn: q<HTMLSelectElement>('#shs-pl-bn').value as MassNightBonusMode,
-      evitarMs: q<HTMLInputElement>('#shs-pl-evitar-ms').checked,
+      nome: nomeInput.value,
+      origens: origensArea.value,
+      alvos: alvosArea.value,
+      porOrigem: porOrigemInput.value,
+      porAlvo: porAlvoInput.value,
+      unidade: unidadeSelect.value as UnitId,
+      modo: modoSelect.value as MassAssignMode,
+      distMin: distMinInput.value,
+      distMax: distMaxInput.value,
+      chegada: chegadaInput.value,
+      bn: bnSelect.value as MassNightBonusMode,
+      evitarMs: evitarMsInput.checked,
     };
-    draft.opTitle = q<HTMLInputElement>('#shs-pl-op-title').value;
-    draft.mpTemplate = q<HTMLTextAreaElement>('#shs-pl-mp-template').value;
+    draft.opTitle = opTitleInput.value;
+    draft.mpTemplate = mpTemplateArea.value;
     persist();
   }
 
   // ---- valores persistidos nos controles (nada de HTML interpolado) ----
-  const unitSelect = q<HTMLSelectElement>('#shs-pl-unidade');
   for (const id of Object.keys(UNITS) as UnitId[]) {
-    const option = document.createElement('option');
-    option.value = id;
-    option.textContent = UNITS[id].name;
-    if (id === draft.form.unidade) option.selected = true;
-    unitSelect.appendChild(option);
+    const unitOption = option(id, UNITS[id].name);
+    if (id === draft.form.unidade) unitOption.selected = true;
+    unidadeSelect.appendChild(unitOption);
   }
-  q<HTMLInputElement>('#shs-pl-nome').value = draft.form.nome;
-  q<HTMLTextAreaElement>('#shs-pl-origens').value = draft.form.origens;
-  q<HTMLTextAreaElement>('#shs-pl-alvos').value = draft.form.alvos;
-  q<HTMLInputElement>('#shs-pl-por-origem').value = draft.form.porOrigem;
-  q<HTMLInputElement>('#shs-pl-por-alvo').value = draft.form.porAlvo;
-  q<HTMLInputElement>('#shs-pl-dist-min').value = draft.form.distMin;
-  q<HTMLInputElement>('#shs-pl-dist-max').value = draft.form.distMax;
-  q<HTMLInputElement>('#shs-pl-chegada').value = draft.form.chegada;
-  q<HTMLSelectElement>('#shs-pl-bn').value = draft.form.bn;
-  q<HTMLInputElement>('#shs-pl-evitar-ms').checked = draft.form.evitarMs;
-  q<HTMLSelectElement>('#shs-pl-modo').value = draft.form.modo;
-  q<HTMLInputElement>('#shs-pl-op-title').value = draft.opTitle;
-  q<HTMLTextAreaElement>('#shs-pl-mp-template').value = draft.mpTemplate;
-  q<HTMLParagraphElement>('#shs-pl-form-hint').textContent =
-    'Gerar usa os grupos adicionados abaixo; com a lista vazia, o formulário atual entra como grupo único. ' +
-    `Teto da engine: ${MASS_MAX_PAIRS.toLocaleString('pt-BR')} pares (origens × alvos) por grupo.`;
+  nomeInput.value = draft.form.nome;
+  origensArea.value = draft.form.origens;
+  alvosArea.value = draft.form.alvos;
+  porOrigemInput.value = draft.form.porOrigem;
+  porAlvoInput.value = draft.form.porAlvo;
+  distMinInput.value = draft.form.distMin;
+  distMaxInput.value = draft.form.distMax;
+  chegadaInput.value = draft.form.chegada;
+  bnSelect.value = draft.form.bn;
+  evitarMsInput.checked = draft.form.evitarMs;
+  modoSelect.value = draft.form.modo;
+  opTitleInput.value = draft.opTitle;
+  mpTemplateArea.value = draft.mpTemplate;
 
   for (const input of box.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
     'input, textarea, select',
@@ -573,7 +679,6 @@ function renderPlanner(container: HTMLElement): void {
   }
 
   // ---- dados do mundo ----
-  const worldEl = q<HTMLSpanElement>('#shs-pl-world');
   function renderWorldStatus(): void {
     if (worldData === null) {
       worldEl.textContent = 'Dados do mundo: não carregados.';
@@ -604,68 +709,44 @@ function renderPlanner(container: HTMLElement): void {
     }
   }
 
-  q<HTMLButtonElement>('#shs-pl-world-btn').addEventListener('click', () => {
-    void refreshWorld();
-  });
   void refreshWorld();
 
   // ---- lista de grupos do rascunho ----
-  const groupsEl = q<HTMLDivElement>('#shs-pl-grupos');
   function renderGroups(): void {
     groupsEl.innerHTML = '';
     if (draft.groups.length === 0) {
-      const empty = document.createElement('p');
-      empty.className = 'shs-muted';
-      empty.textContent = 'Nenhum grupo adicionado — ao gerar, o formulário acima entra como grupo único.';
-      groupsEl.appendChild(empty);
+      groupsEl.appendChild(empty('Nenhum grupo adicionado — ao gerar, o formulário acima entra como grupo único.'));
       return;
     }
     draft.groups.forEach((group, index) => {
-      const row = document.createElement('div');
-      row.className = 'shs-row';
-      const pill = document.createElement('span');
-      pill.className = 'shs-pill';
+      const row = el('div', { className: 'shs-row' });
       const originCommands = group.originQuotas.reduce((sum, value) => sum + value, 0);
       const targetCommands = group.targetQuotas.reduce((sum, value) => sum + value, 0);
-      pill.textContent =
+      const summaryText =
         `${group.nome}: ${group.origins.length} origens (${originCommands} comandos) × ` +
         `${group.targets.length} alvos (${targetCommands}) · ${UNITS[group.slowestUnit].name} · ` +
         `${MODE_LABELS[group.assignMode]}`;
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'shs-btn shs-btn-ghost';
-      remove.textContent = 'remover';
-      remove.addEventListener('click', () => {
-        draft.groups.splice(index, 1);
-        persist();
-        renderGroups();
-      });
-      row.appendChild(pill);
-      row.appendChild(remove);
+      // core el() ignora attrs.text hoje: o pill() sairia vazio e o texto é
+      // reforçado aqui (no-op inofensivo quando o core for corrigido).
+      const summary = pill(summaryText);
+      summary.textContent = summaryText;
+      const remove = button(
+        'Remover',
+        'ghost',
+        () => {
+          draft.groups.splice(index, 1);
+          persist();
+          renderGroups();
+        },
+        true,
+      );
+      row.append(summary, remove);
       groupsEl.appendChild(row);
     });
   }
   renderGroups();
 
-  q<HTMLButtonElement>('#shs-pl-add').addEventListener('click', () => {
-    syncFormFromDom();
-    const built = buildGroupFromForm(draft.form);
-    const error = firstGroupError(built.group, planContextOf(worldData), built.quotaErrors);
-    if (error !== null) {
-      setStatus(`Grupo inválido: ${error}`, 'danger');
-      return;
-    }
-    draft.groups.push(built.group);
-    persist();
-    renderGroups();
-    setStatus(
-      `Grupo "${built.group.nome}" adicionado — origens: ${built.originsSummary}; alvos: ${built.targetsSummary}.`,
-      'ok',
-    );
-  });
-
   // ---- geração da operação ----
-  const gerarBtn = q<HTMLButtonElement>('#shs-pl-gerar');
   async function generate(): Promise<void> {
     syncFormFromDom();
     if (worldData === null) {
@@ -693,9 +774,13 @@ function renderPlanner(container: HTMLElement): void {
       }
     }
     gerarBtn.disabled = true;
-    setStatus('Gerando… não feche a página (o cálculo é síncrono e congela a aba por alguns segundos).', 'danger');
-    // Yield SÓ de pintura: a engine é síncrona (sem worker na página do jogo) —
-    // este await deixa o navegador desenhar o aviso antes do congelamento.
+    // Aviso "Gerando…" como notificação do design system; precisa estar
+    // PINTADO antes do congelamento: yield SÓ de pintura abaixo (a engine é
+    // síncrona, sem worker na página do jogo).
+    progressEl.innerHTML = '';
+    progressEl.appendChild(
+      notification('error', 'Gerando… não feche a página (o cálculo é síncrono e congela a aba por alguns segundos).'),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
     const started = Date.now();
     try {
@@ -709,15 +794,11 @@ function renderPlanner(container: HTMLElement): void {
       setStatus(error instanceof Error ? error.message : String(error), 'danger');
     } finally {
       gerarBtn.disabled = false;
+      progressEl.innerHTML = '';
     }
   }
-  gerarBtn.addEventListener('click', () => {
-    void generate();
-  });
 
   // ---- resultado + exportações ----
-  const resultEl = q<HTMLDivElement>('#shs-pl-resultado');
-
   async function copyText(text: string, okMessage: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);
@@ -745,7 +826,7 @@ function renderPlanner(container: HTMLElement): void {
     const json = serializeOpExport({
       version: USERSCRIPT_VERSION,
       world,
-      opTitle: q<HTMLInputElement>('#shs-pl-op-title').value.trim() || 'OP',
+      opTitle: opTitleInput.value.trim() || 'OP',
       targets: [...new Set(commands.map((command) => command.target))],
       distribution: commands.map((command) => ({
         playerName: executorNick(command),
@@ -768,35 +849,36 @@ function renderPlanner(container: HTMLElement): void {
   }
 
   function exportRow(commands: readonly MassPlanCommand[]): HTMLElement {
-    const row = document.createElement('div');
-    row.className = 'shs-row';
-    const button = (label: string, ghost: boolean, onClick: () => void): void => {
-      const element = document.createElement('button');
-      element.type = 'button';
-      element.className = ghost ? 'shs-btn shs-btn-ghost' : 'shs-btn';
-      element.textContent = label;
-      element.addEventListener('click', onClick);
-      row.appendChild(element);
-    };
-    button('Copiar Russian Planner', false, () => {
-      void copyText(
-        formatRussianPlanner(commands, world),
-        'BBCode Russian Planner copiado — cole no caderno da conta premium.',
-      );
-    });
-    button('Copiar TW Mass Planner', false, () => {
-      void copyText(
-        formatTwMassPlanner(commands, world),
-        'BBCode TW Mass Planner copiado — cole no caderno da conta premium.',
-      );
-    });
-    button('Copiar lista de reservas', true, () => {
-      void copyText(
-        reservationList(opCommsInputs(commands).distribution),
-        'Alvos únicos da OP copiados — cole na Reserva em Massa do SG_6.',
-      );
-    });
-    button('Baixar OP (JSON)', true, downloadOp);
+    const row = el('div', { className: 'shs-row' });
+    row.appendChild(
+      button('Copiar Russian Planner', 'primary', () => {
+        void copyText(
+          formatRussianPlanner(commands, world),
+          'BBCode Russian Planner copiado — cole no caderno da conta premium.',
+        );
+      }),
+    );
+    row.appendChild(
+      button('Copiar TW Mass Planner', 'primary', () => {
+        void copyText(
+          formatTwMassPlanner(commands, world),
+          'BBCode TW Mass Planner copiado — cole no caderno da conta premium.',
+        );
+      }),
+    );
+    row.appendChild(
+      button('Copiar lista de reservas', 'ghost', () => {
+        void copyText(
+          reservationList(opCommsInputs(commands).distribution),
+          'Alvos únicos da OP copiados — cole na Reserva em Massa do SG_6.',
+        );
+      }),
+    );
+    row.appendChild(
+      button('Baixar OP (JSON)', 'ghost', () => {
+        downloadOp();
+      }),
+    );
     return row;
   }
 
@@ -805,98 +887,69 @@ function renderPlanner(container: HTMLElement): void {
     if (lastResult === null) return;
     const commands = lastResult.commands;
 
-    const card = document.createElement('div');
-    card.style.cssText = 'border:1px solid #b7a98d;border-radius:6px;padding:8px;margin:8px 0';
-    const head = document.createElement('strong');
-    head.textContent = `Resultado — ${commands.length} comando(s)`;
-    card.appendChild(head);
-
     const first = commands[0];
     const last = commands[commands.length - 1];
     if (first !== undefined && last !== undefined && commands.length > 0) {
-      const span = document.createElement('p');
-      span.className = 'shs-muted';
-      span.textContent = `1ª chegada ${formatFullClock(first.arrivalMs)} · última chegada ${formatFullClock(last.arrivalMs)}.`;
-      card.appendChild(span);
+      resultEl.appendChild(
+        el(
+          'p',
+          { className: 'shs-muted' },
+          `${commands.length} comando(s) — 1ª chegada ${formatFullClock(first.arrivalMs)} · última chegada ${formatFullClock(last.arrivalMs)}.`,
+        ),
+      );
     }
 
     if (lastResult.warnings.length > 0) {
-      const title = document.createElement('p');
-      title.className = 'shs-danger';
-      title.textContent = `Avisos (${lastResult.warnings.length}):`;
-      card.appendChild(title);
-      const list = document.createElement('ul');
-      for (const warning of lastResult.warnings) {
-        const item = document.createElement('li');
-        item.textContent = warning;
-        list.appendChild(item);
-      }
-      card.appendChild(list);
+      resultEl.appendChild(el('p', { className: 'shs-danger' }, `Avisos (${lastResult.warnings.length}):`));
+      const list = el('ul');
+      for (const warning of lastResult.warnings) list.appendChild(el('li', undefined, warning));
+      resultEl.appendChild(list);
     }
 
     if (lastResult.discards.length > 0) {
-      const title = document.createElement('p');
-      title.className = 'shs-muted';
-      title.textContent = 'Pares descartados (nunca em silêncio):';
-      card.appendChild(title);
-      const table = document.createElement('table');
-      const theadRow = table.insertRow();
-      for (const label of ['Motivo', 'Pares']) {
-        const cell = document.createElement('th');
-        cell.textContent = label;
-        theadRow.appendChild(cell);
-      }
-      for (const entry of lastResult.discards) {
-        const row = table.insertRow();
-        const reason = row.insertCell();
-        reason.textContent = entry.reason;
-        const count = row.insertCell();
-        count.textContent = String(entry.count);
-      }
-      card.appendChild(table);
+      resultEl.appendChild(el('p', { className: 'shs-muted' }, 'Pares descartados (nunca em silêncio):'));
+      resultEl.appendChild(
+        el(
+          'div',
+          { className: 'shs-tablewrap' },
+          dataTable(
+            ['Motivo', 'Pares'],
+            lastResult.discards.map((entry) => [entry.reason, String(entry.count)]),
+          ),
+        ),
+      );
     }
 
     if (commands.length === 0) {
-      const empty = document.createElement('p');
-      empty.className = 'shs-danger';
-      empty.textContent = 'Nenhum comando sobrou dos filtros — veja os descartes e avisos acima.';
-      card.appendChild(empty);
-      resultEl.appendChild(card);
+      resultEl.appendChild(
+        el('p', { className: 'shs-danger' }, 'Nenhum comando sobrou dos filtros — veja os descartes e avisos acima.'),
+      );
       return;
     }
 
-    const playersTitle = document.createElement('p');
-    playersTitle.innerHTML = '<strong>Por executor</strong>';
-    card.appendChild(playersTitle);
-    const table = document.createElement('table');
-    const headRow = table.insertRow();
-    for (const label of ['Executor', 'Comandos', '1º envio', 'Último envio']) {
-      const cell = document.createElement('th');
-      cell.textContent = label;
-      headRow.appendChild(cell);
-    }
-    for (const player of aggregateByPlayer(commands)) {
-      const row = table.insertRow();
-      const nick = row.insertCell();
-      nick.textContent = player.nick;
-      const count = row.insertCell();
-      count.textContent = String(player.count);
-      const firstSend = row.insertCell();
-      firstSend.textContent = formatFullClock(player.firstSendMs);
-      const lastSend = row.insertCell();
-      lastSend.textContent = formatFullClock(player.lastSendMs);
-    }
-    card.appendChild(table);
-    card.appendChild(exportRow(commands));
-    resultEl.appendChild(card);
+    resultEl.appendChild(el('p', { className: 'shs-strong' }, 'Por executor'));
+    resultEl.appendChild(
+      el(
+        'div',
+        { className: 'shs-tablewrap' },
+        dataTable(
+          ['Executor', 'Comandos', '1º envio', 'Último envio'],
+          aggregateByPlayer(commands).map((player) => [
+            player.nick,
+            String(player.count),
+            formatFullClock(player.firstSendMs),
+            formatFullClock(player.lastSendMs),
+          ]),
+        ),
+      ),
+    );
+    resultEl.appendChild(exportRow(commands));
   }
 
   // ---- kit de tempo de envio (espelho da agenda da Sg4Page) ----
   function computeTiming(): void {
-    const infoEl = q<HTMLParagraphElement>('#shs-pl-timing-info');
-    const resultBox = q<HTMLDivElement>('#shs-pl-timing-result');
-    resultBox.innerHTML = '';
-    infoEl.textContent = '';
+    timingResult.innerHTML = '';
+    timingInfo.textContent = '';
     if (lastResult === null || lastResult.commands.length === 0) {
       setStatus('Gere a operação antes de calcular os horários de envio.', 'danger');
       return;
@@ -905,7 +958,7 @@ function renderPlanner(container: HTMLElement): void {
       setStatus('Dados do mundo ainda não carregados — clique em "Atualizar dados do mundo".', 'danger');
       return;
     }
-    const villageText = q<HTMLInputElement>('#shs-pl-timing-vila').value.trim();
+    const villageText = timingVilaInput.value.trim();
     let village: Coord | null = null;
     if (villageText !== '') {
       village = parseCoord(villageText);
@@ -914,7 +967,7 @@ function renderPlanner(container: HTMLElement): void {
         return;
       }
     }
-    const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(q<HTMLInputElement>('#shs-pl-timing-hora').value.trim());
+    const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(timingHoraInput.value.trim());
     if (timeMatch === null) {
       setStatus('Chegada desejada inválida — use HH:MM (ex.: 22:00).', 'danger');
       return;
@@ -925,7 +978,7 @@ function renderPlanner(container: HTMLElement): void {
       setStatus('Chegada desejada inválida — use hora 0–23 e minuto 0–59.', 'danger');
       return;
     }
-    const day = q<HTMLSelectElement>('#shs-pl-timing-dia').value;
+    const day = timingDiaSelect.value;
     try {
       const commands =
         village === null
@@ -986,33 +1039,27 @@ function renderPlanner(container: HTMLElement): void {
       }).slice();
       rows.sort((a, b) => a.sendAt.getTime() - b.sendAt.getTime());
 
-      infoEl.textContent = cfg.nightBonusActive
+      timingInfo.textContent = cfg.nightBonusActive
         ? `Bônus noturno ${cfg.nightStartHour}h→${cfg.nightEndHour}h (fator ${cfg.defFactor}) aplicado no tempo de viagem.`
         : 'Mundo sem bônus noturno — viagem clássica (campos × min/campo).';
 
-      const table = document.createElement('table');
-      const headRow = table.insertRow();
-      for (const label of ['Alvo', 'Origem', 'Campos', 'Chegada', 'Enviar às']) {
-        const cell = document.createElement('th');
-        cell.textContent = label;
-        headRow.appendChild(cell);
-      }
       const arrivalDay = arrival.toDateString();
-      for (const row of rows) {
-        const fields = fieldsByPair.get(`${row.originCoord}|${row.targetCoord}`) ?? 0;
-        const tableRow = table.insertRow();
-        const target = tableRow.insertCell();
-        target.textContent = row.targetCoord;
-        const origin = tableRow.insertCell();
-        origin.textContent = row.originCoord;
-        const fieldsCell = tableRow.insertCell();
-        fieldsCell.textContent = String(fields);
-        const arrivalCell = tableRow.insertCell();
-        arrivalCell.textContent = formatHms(arrival);
-        const send = tableRow.insertCell();
-        send.textContent = formatSendWithDay(row.sendAt, arrivalDay);
-      }
-      resultBox.appendChild(table);
+      timingResult.appendChild(
+        el(
+          'div',
+          { className: 'shs-tablewrap' },
+          dataTable(
+            ['Alvo', 'Origem', 'Campos', 'Chegada', 'Enviar às'],
+            rows.map((row) => [
+              row.targetCoord,
+              row.originCoord,
+              String(fieldsByPair.get(`${row.originCoord}|${row.targetCoord}`) ?? 0),
+              formatHms(arrival),
+              formatSendWithDay(row.sendAt, arrivalDay),
+            ]),
+          ),
+        ),
+      );
 
       const past = rows.filter((row) => row.sendAt.getTime() < Date.now()).length;
       setStatus(
@@ -1025,9 +1072,6 @@ function renderPlanner(container: HTMLElement): void {
       setStatus(error instanceof Error ? error.message : String(error), 'danger');
     }
   }
-  q<HTMLButtonElement>('#shs-pl-timing-btn').addEventListener('click', () => {
-    computeTiming();
-  });
 
   // ---- material de MPs (só TEXTO — envio real é papel do SG_6) ----
   function generateMps(): void {
@@ -1036,24 +1080,20 @@ function renderPlanner(container: HTMLElement): void {
       setStatus('Gere a operação antes de montar as MPs.', 'danger');
       return;
     }
-    const template = q<HTMLTextAreaElement>('#shs-pl-mp-template').value;
-    const title = q<HTMLInputElement>('#shs-pl-op-title').value.trim() || 'OP';
-    const output = q<HTMLTextAreaElement>('#shs-pl-mp-output');
+    const template = mpTemplateArea.value;
+    const title = opTitleInput.value.trim() || 'OP';
     try {
       const players = buildOpComms(lastResult.commands, title, template);
       const blocks = players.map(
         (player) => `=== MP para ${player.playerName} ===\n${renderTemplate(template, player)}`,
       );
-      output.value = blocks.join('\n\n');
+      mpOutputArea.value = blocks.join('\n\n');
       setStatus(`${players.length} MP(s) gerada(s) — copie o texto acima. O envio fica no módulo SG_6.`, 'ok');
     } catch (error) {
-      output.value = '';
+      mpOutputArea.value = '';
       setStatus(error instanceof Error ? error.message : String(error), 'danger');
     }
   }
-  q<HTMLButtonElement>('#shs-pl-mp-btn').addEventListener('click', () => {
-    generateMps();
-  });
 }
 
 // Visível em TODAS as telas (matchScreen undefined) — registro no shell.

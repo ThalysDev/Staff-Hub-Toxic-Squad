@@ -14,6 +14,7 @@
 import { gamePost, pacedGet } from '../core/net';
 import { gameContext } from '../core/shell';
 import { gm, worldKey } from '../core/storage';
+import { card, empty, table } from '../core/ui';
 import {
   decodeHtmlEntities,
   parseEditForm,
@@ -176,23 +177,6 @@ function elButton(label: string, className: string, onClick: () => Promise<void>
   return btn;
 }
 
-function elTable(headers: string[], rows: string[][]): HTMLTableElement {
-  const table = document.createElement('table');
-  const thead = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  for (const header of headers) headRow.appendChild(el('th', undefined, header));
-  thead.appendChild(headRow);
-  table.appendChild(thead);
-  const tbody = document.createElement('tbody');
-  for (const cells of rows) {
-    const tr = document.createElement('tr');
-    for (const cell of cells) tr.appendChild(el('td', undefined, cell));
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody);
-  return table;
-}
-
 function elPre(text: string): HTMLPreElement {
   const pre = document.createElement('pre');
   pre.textContent = text;
@@ -208,14 +192,14 @@ function elPre(text: string): HTMLPreElement {
 export function renderSg7(container: HTMLElement): void {
   container.innerHTML = '';
 
-  const head = el('div', 'shs-row');
-  head.appendChild(el('strong', undefined, 'Blindagem (SG_7)'));
-  container.appendChild(head);
+  // Cartão "Conferência": leitura da página + prévias + botões de mutação.
+  const conferCard = card('Conferência');
+  container.appendChild(conferCard);
 
   const ctx = detectThreadContext();
   if (ctx === null) {
-    container.appendChild(
-      el('p', 'shs-muted', 'Abra um tópico do fórum de blindagem (screen=forum&screenmode=view_thread) para conferir.'),
+    conferCard.appendChild(
+      empty('Abra um tópico do fórum de blindagem (screen=forum&screenmode=view_thread) para conferir.'),
     );
     return;
   }
@@ -227,22 +211,25 @@ export function renderSg7(container: HTMLElement): void {
   const ledgerKey = worldKey(world, `blind:${threadId}`); // débito acumulado do tópico
   const lastKey = worldKey(world, `blind-last:${threadId}`); // última conferência
 
-  const sub = el('div', 'shs-row');
-  sub.appendChild(el('span', 'shs-muted', `Tópico #${threadId} · fórum ${forumId} — a conferência lê os posts da página aberta (paginação do jogo).`));
-  container.appendChild(sub);
+  conferCard.appendChild(
+    el('div', 'shs-muted', `Tópico #${threadId} · fórum ${forumId} — a conferência lê os posts da página aberta (paginação do jogo).`),
+  );
 
   const controls = el('div', 'shs-row');
   const status = el('span', 'shs-muted');
   const conferBtn = elButton('Conferenciar tópico', 'shs-btn', () => runConference());
   controls.appendChild(conferBtn);
   controls.appendChild(status);
-  container.appendChild(controls);
+  conferCard.appendChild(controls);
 
   const resultBox = el('div');
-  container.appendChild(resultBox);
+  conferCard.appendChild(resultBox);
 
+  // Cartão "Débito": acumulado por jogador do tópico + Zerar débito.
+  const ledgerCard = card('Débito de blind');
+  container.appendChild(ledgerCard);
   const ledgerBox = el('div');
-  container.appendChild(ledgerBox);
+  ledgerCard.appendChild(ledgerBox);
 
   /** Snapshot corrente (hidratado do GM storage na abertura da aba). */
   let snapshot: ConferenceSnapshot | null = gm.get<ConferenceSnapshot | null>(lastKey, null);
@@ -396,30 +383,36 @@ export function renderSg7(container: HTMLElement): void {
     if (snapshot === null) return;
     const current = snapshot;
 
-    const summary = el('div', 'shs-row');
-    summary.appendChild(el('span', 'shs-ok', `${current.sums.length} pedidos processados`));
-    summary.appendChild(el('span', 'shs-muted', `${current.recognizedPostIds.length} post(s) com comentários reconhecidos.`));
-    resultBox.appendChild(summary);
+    if (current.sums.length === 0) {
+      // Nada reconhecido na página: estado vazio explícito; as mutações seguem
+      // disponíveis (desabilitadas) para nova conferência após rolar a página.
+      resultBox.appendChild(empty('Nenhum pedido reconhecido nesta página.'));
+    } else {
+      const summary = el('div', 'shs-row');
+      summary.appendChild(el('span', 'shs-ok', `${current.sums.length} pedidos processados`));
+      summary.appendChild(el('span', 'shs-muted', `${current.recognizedPostIds.length} post(s) com comentários reconhecidos.`));
+      resultBox.appendChild(summary);
 
-    resultBox.appendChild(el('div', 'shs-row', 'Pedidos reconhecidos somados (formato dos comentários)'));
-    resultBox.appendChild(elPre(current.recognized === '' ? 'Nenhum comentário no formato reconhecido.' : current.recognized));
+      resultBox.appendChild(el('div', 'shs-row', 'Pedidos reconhecidos somados (formato dos comentários)'));
+      resultBox.appendChild(elPre(current.recognized === '' ? 'Nenhum comentário no formato reconhecido.' : current.recognized));
 
-    // Tabela da blindagem: o que os comentários pediram, por pedido.
-    resultBox.appendChild(el('div', 'shs-row', 'Blindagem pedida (dos comentários)'));
-    const tableRows = new Map(parseBlindTable(current.firstPostMessage).map((row) => [row.pedido, row]));
-    const rows = current.sums.map((sum) => [
-      tableRows.get(sum.pedido)?.villageLabel ?? `Pedido ${sum.pedido}`,
-      INT_FMT.format(sum.values[0] ?? 0),
-      INT_FMT.format(sum.values[1] ?? 0),
-      INT_FMT.format(sum.values[2] ?? 0),
-      INT_FMT.format(sum.values[3] ?? 0), // 4º campo do formato estendido da tribo
-    ]);
-    resultBox.appendChild(
-      elTable(['Aldeia', 'Lanceiros', 'Espadachins', 'Arqueiros', 'Arqueiros cav'], rows),
-    );
+      // Tabela da blindagem: o que os comentários pediram, por pedido.
+      resultBox.appendChild(el('div', 'shs-row', 'Blindagem pedida (dos comentários)'));
+      const tableRows = new Map(parseBlindTable(current.firstPostMessage).map((row) => [row.pedido, row]));
+      const rows = current.sums.map((sum) => [
+        tableRows.get(sum.pedido)?.villageLabel ?? `Pedido ${sum.pedido}`,
+        INT_FMT.format(sum.values[0] ?? 0),
+        INT_FMT.format(sum.values[1] ?? 0),
+        INT_FMT.format(sum.values[2] ?? 0),
+        INT_FMT.format(sum.values[3] ?? 0), // 4º campo do formato estendido da tribo
+      ]);
+      const tableWrap = el('div', 'shs-tablewrap');
+      tableWrap.appendChild(table(['Aldeia', 'Lanceiros', 'Espadachins', 'Arqueiros', 'Arqueiros cav'], rows));
+      resultBox.appendChild(tableWrap);
 
-    resultBox.appendChild(el('div', 'shs-row', 'Tabela atualizada (prévia do BBCode)'));
-    resultBox.appendChild(elPre(current.updatedMessage));
+      resultBox.appendChild(el('div', 'shs-row', 'Tabela atualizada (prévia do BBCode)'));
+      resultBox.appendChild(elPre(current.updatedMessage));
+    }
 
     const mutations = el('div', 'shs-row');
     const adjustBtn = elButton('Atualizar tabela do 1º post', 'shs-btn', () => runAdjust(current));
@@ -484,7 +477,7 @@ export function renderSg7(container: HTMLElement): void {
     }
     ledgerBox.appendChild(headRow);
     if (entries.length === 0) {
-      ledgerBox.appendChild(el('p', 'shs-muted', 'Nenhuma rodada somada ainda — conferencie o tópico e some a rodada.'));
+      ledgerBox.appendChild(empty('Nenhuma rodada somada ainda — conferencie o tópico e some a rodada.'));
       return;
     }
     const rows = entries.map((entry) => {
@@ -497,7 +490,9 @@ export function renderSg7(container: HTMLElement): void {
             : `${INT_FMT.format(balance)} (em dia)`;
       return [entry.playerName, INT_FMT.format(entry.requested), INT_FMT.format(entry.sent), saldo];
     });
-    ledgerBox.appendChild(elTable(['Jogador', 'Pediu', 'Enviou', 'Saldo'], rows));
+    const ledgerWrap = el('div', 'shs-tablewrap');
+    ledgerWrap.appendChild(table(['Jogador', 'Pediu', 'Enviou', 'Saldo'], rows));
+    ledgerBox.appendChild(ledgerWrap);
   }
 
   if (snapshot !== null) {
