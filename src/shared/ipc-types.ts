@@ -19,8 +19,10 @@ import type { MpTemplateEntry, MpTemplateSaveInput } from './mp-templates-rules'
 import type { TroopsHistoryVersion } from './snapshot-history';
 import type { WorldHistoryVersion } from './world-history';
 import type { BlindDebtEntry } from './blind-debt';
+import type { TribeKillsSnapshot } from './oda-odd';
 
 export type { GroupEntry, GroupSaveInput };
+export type { TribeKillsSnapshot };
 
 export interface Sg5VerifyEntry {
   playerName: string;
@@ -141,6 +143,18 @@ export interface UpdateManifest {
   url: string;
   sha256: string;
   releasedAt: string;
+  /** Assinatura Ed25519 (base64) da string canônica — exigida desde 0.36.0. */
+  sig: string;
+}
+
+/** Entrada do inventário de versões do canal (versions.json) — para rollback. */
+export interface UpdateVersionEntry {
+  version: string;
+  url: string;
+  sha256: string;
+  /** Assinatura Ed25519 (base64) — canônico com notes vazio; exigida no rollback. */
+  sig: string;
+  releasedAt: string;
 }
 
 export interface UpdateCheckResult {
@@ -241,6 +255,67 @@ export interface OpSaveInput {
 export type SidLoginResult =
   | { ok: true; status: SessionStatus }
   | { ok: false; error: string };
+
+// ---------------------------------------------------------------------------
+// Digesto do Quartel (resumo diário via webhook externo)
+// ---------------------------------------------------------------------------
+
+/** Configuração do digesto diário (módulo 'digest' no userData/stores). */
+export interface DigestConfig {
+  /** URL do webhook (formato Discord: POST {content}); vazia = não configurado. */
+  webhookUrl: string;
+  /** Envio automático diário ligado (1x/dia, só depois das 08:00 locais). */
+  enabled: boolean;
+}
+
+/** Configuração + estado do último envio automático/manual bem-sucedido. */
+export interface DigestStatus {
+  config: DigestConfig;
+  /** Dia local ('YYYY-MM-DD') do último envio OK; null = nunca enviado. */
+  lastSentDate: string | null;
+}
+
+export interface DigestSendResult {
+  ok: boolean;
+  /** Mensagem PT-BR pronta para toast (erro de rede/HTTP inclusivo). */
+  detail: string;
+}
+
+// ---------------------------------------------------------------------------
+// Painel de Guerra ODA/ODD (dumps oficiais kill_att/def_tribe.txt.gz)
+// ---------------------------------------------------------------------------
+
+/** Arquivo de kills do mundo: 'att' = ofensivo (ODA), 'def' = defensivo (ODD). */
+export type OdaOddKind = 'att' | 'def';
+
+/** Estado local do painel (store 'oda-odd') — lido SEM rede (oda:status). */
+export interface OdaOddStatus {
+  /** Mundo dos dados (null = nunca atualizado). Histórico nunca mistura mundos. */
+  world: string | null;
+  /** Tribo monitorada (null = nenhuma atualização ainda). */
+  allyTribeId: number | null;
+  /** Snapshots por tipo EM ORDEM CRONOLÓGICA (mais recente no FIM), cap 60 por tipo. */
+  history: Record<OdaOddKind, TribeKillsSnapshot[]>;
+  /** ISO do último DOWNLOAD de cada arquivo ('' = nunca baixado) — base da guarda de 1h da API. */
+  lastFetch: Record<OdaOddKind, string>;
+}
+
+/** Resultado por arquivo do refresh: de onde veio o número e o delta da guerra. */
+export interface OdaOddKindOutcome {
+  kind: OdaOddKind;
+  /** 'fetched' = baixado agora; 'cache' = reusado (guarda de 1 download/hora/arquivo). */
+  source: 'cache' | 'fetched';
+  /** Total cumulativo de kills lido para a tribo. */
+  kills: number;
+  /** Delta vs a leitura anterior; null na primeira leitura. */
+  delta: number | null;
+}
+
+export interface OdaOddRefreshResult {
+  tribeId: number;
+  /** Um item por arquivo processado (att e/ou def — o que falhou fica de fora). */
+  outcomes: OdaOddKindOutcome[];
+}
 
 // ---------------------------------------------------------------------------
 // Autenticação do SISTEMA (staffhub-auth na VPS) — v0.30
@@ -361,6 +436,12 @@ export interface StaffHubApi {
     /** Zera o débito (confirmação na UI). */
     clear(): Promise<void>;
   };
+  oda: {
+    /** Estado local do painel de OD (sem rede; nunca mistura mundos). */
+    status(): Promise<OdaOddStatus>;
+    /** Baixa/reusa os dumps de kills da tribo (1 download/hora/arquivo — excedente volta como 'cache'). */
+    refresh(tribeId: number): Promise<OdaOddRefreshResult>;
+  };
   queue: {
     /** Cancela a operação de coleta em andamento na RequestQueue. */
     cancel(): Promise<void>;
@@ -373,10 +454,11 @@ export interface StaffHubApi {
     downloadAndPrepare(): Promise<{ ok: boolean; detail: string }>;
     /** Sai do app executando a troca de pasta e relança a nova versão. */
     restartToUpdate(): Promise<void>;
-    /** Lista versões anteriores disponíveis no canal (para rollback). */
-    listAvailableVersions(): Promise<{ versions: { version: string; url: string }[] }>;
-    /** Baixa e prepara uma VERSÃO ESPECÍFICA (rollback). Mesmo pipeline do downloadAndPrepare. */
-    prepareVersion(version: string, url: string, sha256: string): Promise<{ ok: boolean; detail: string }>;
+    /** Inventário de versões anteriores do canal (versions.json) para rollback — fail-soft: erro → lista vazia. */
+    listAvailableVersions(): Promise<{ versions: UpdateVersionEntry[] }>;
+    /** Baixa e prepara uma VERSÃO ESPECÍFICA (rollback). Mesmo pipeline do downloadAndPrepare;
+     *  exige sha256 64-hex E a assinatura `sig` da entrada (sem assinatura válida não há rollback). */
+    prepareVersion(version: string, url: string, sha256: string, sig: string): Promise<{ ok: boolean; detail: string }>;
   };
   dev: {
     /** Baixa uma URL do jogo com a sessão atual e salva como fixture em userData/fixtures. */
@@ -505,6 +587,15 @@ export interface StaffHubApi {
     exportOp(id: string): Promise<{ ok: boolean; path?: string; detail: string }>;
     /** Importa OP de arquivo .json (diálogo nativo de abrir) — revalidação fail-closed. */
     importOp(): Promise<{ ok: boolean; detail: string }>;
+  };
+  digest: {
+    /** Configuração atual + último dia enviado (a URL volta ao renderer — só o
+     *  próprio dono a configura nesta máquina). */
+    get(): Promise<DigestStatus>;
+    /** Salva webhookUrl + enabled (recusa ativar sem URL http(s) válida). */
+    set(config: DigestConfig): Promise<DigestStatus>;
+    /** Monta o resumo AGORA e faz POST no webhook (timeout 10s; erro PT-BR em `detail`). */
+    send(): Promise<DigestSendResult>;
   };
   window: {
     /** Titlebar personalizada (frame:false). */

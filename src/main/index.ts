@@ -26,9 +26,13 @@ import { registerGroupsIpc } from './ipc-groups';
 import { registerPreferencesIpc } from './ipc-preferences';
 import { registerPlannerDraftIpc } from './ipc-planner-draft';
 import { registerAuthIpc } from './ipc-auth';
+import { registerSessionIpc } from './ipc-session';
+import { registerSystemIpc } from './ipc-system';
 import { AuthService } from './services/auth-service';
 import { registerTemplatesIpc } from './ipc-templates';
 import { registerHistoryIpc } from './ipc-history';
+import { registerOdaIpc } from './ipc-oda';
+import { registerDigestIpc } from './ipc-digest';
 import { UpdaterService } from './updater-service';
 import { registerSg5Ipc } from './ipc-sg5';
 import { scheduleTMinusAlerts, validateAlertMinutes, parseScheduleLine } from './tminus';
@@ -46,7 +50,7 @@ if (E2E_USERDATA !== undefined && E2E_USERDATA !== '') {
 const twSession = new TwSessionManager();
 const journal = new Journal();
 const settingsStore = new JsonStore<AppSettings>('settings', DEFAULT_SETTINGS);
-const worldData = new WorldDataService(twSession, journal);
+const worldData = new WorldDataService(twSession, journal, () => queue?.isCancelled() ?? false);
 const sg1Service = new Sg1Service(worldData);
 
 let mainWindow: BrowserWindow | null = null;
@@ -168,7 +172,13 @@ function createMainWindow(): void {
   mainWindow.on('maximize', emitMaxState);
   mainWindow.on('unmaximize', emitMaxState);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    // Allowlist: só http(s) vai ao navegador do usuário — file:, smb:, ms-: e
+    // outros protocolos do Windows são bloqueados e deixam rastro no journal.
+    if (/^https?:\/\//i.test(url)) {
+      void shell.openExternal(url);
+    } else {
+      void journal.append('system', 'open-external-blocked', url, false);
+    }
     return { action: 'deny' };
   });
   mainWindow.on('closed', () => {
@@ -304,41 +314,13 @@ function send(channel: string, payload: unknown): void {
 function registerIpc(): void {
   ipcMain.handle('app:get-version', () => app.getVersion());
 
-  ipcMain.handle('session:open-login', () => {
-    if (mainWindow) twSession.openLogin(mainWindow);
-  });
-  ipcMain.handle('session:logout', () => twSession.logout());
-  ipcMain.handle('session:status', () => twSession.getStatus());
-  ipcMain.handle('session:login-sid', async (_event, world: string, sid: string) => {
-    const result = await twSession.loginWithSid(world, sid);
-    if (result.ok) {
-      await journal.append('session', 'login-sid', `mundo=${result.status.world ?? '?'} jogador=${result.status.player ?? '?'}`, false);
-    } else {
-      await journal.append('session', 'login-sid-falhou', result.error, false);
-    }
-    return result;
-  });
-
-  ipcMain.handle('settings:get', async () => {
-    const raw = await settingsStore.load();
-    const safe = sanitizeSettings(raw);
-    return safe;
-  });
-  ipcMain.handle('settings:update', async (_event, patch: Record<string, unknown>) => {
-    const current = await settingsStore.load();
-    const next = sanitizeSettings({ ...current, ...patch });
-    await settingsStore.save(next);
-    queue?.updateSettings({
-      minIntervalMs: next.requestMinIntervalMs,
-      jitterMs: next.requestJitterMs,
-      ceiling: next.requestCeiling,
-    });
-    await journal.append('system', 'settings-update', JSON.stringify(next), false);
-    return next;
-  });
-
-  ipcMain.handle('journal:list', (_event, limit: number) => journal.list(limit));
-  ipcMain.handle('journal:clear', () => journal.clear());
+  // Registrars de sessão e sistema: mesmos handlers, mesmos canais — só saíram
+  // do index (ipc-session.ts / ipc-system.ts). Chamados AQUI, dentro do
+  // registerIpc() que roda DEPOIS do wrapper do gate, para herdar a mesma
+  // posição relativa (session:open-login / session:login-sid / journal:clear
+  // são gated; registrá-los antes do wrapper os deixaria ungated).
+  registerSessionIpc({ twSession, journal, getMainWindow: () => mainWindow });
+  registerSystemIpc({ settings: settingsStore, journal, queue, sanitize: sanitizeSettings });
 
   ipcMain.handle('dev:capture-fixture', async (_event, name: string, url: string) => {
     try {
@@ -385,13 +367,9 @@ function registerIpc(): void {
       if (tminusCleanup !== null) tminusCleanup();
       const marks = marksMinutes !== undefined && marksMinutes.length > 0 ? validateAlertMinutes(marksMinutes) : undefined;
       const lines = scheduleText.split(/\r?\n/).filter((l) => l.trim() !== '' && !l.trim().startsWith('#'));
-      tminusCleanup = scheduleTMinusAlerts(
-        scheduleText,
-        (message) => {
-          send('tminus:alert', message);
-        },
-        marks,
-      );
+      // Canal 'tminus:alert' ao renderer removido (morto: ausente do preload e
+      // do renderer) — a notificação NATIVA do scheduler já cobre o UX.
+      tminusCleanup = scheduleTMinusAlerts(scheduleText, undefined, marks);
       // Contagem REAL: só marca futura de envio futuro conta (mesmos cortes do
       // scheduler — marca/Envio no passado não gera notificação).
       const effectiveMarks = marks ?? [15, 5, 1];
@@ -421,8 +399,8 @@ function registerIpc(): void {
   ipcMain.handle('updater:check', async () => updater.check());
   ipcMain.handle('updater:download-prepare', async () => updater.downloadAndPrepare());
   ipcMain.handle('updater:list-versions', async () => updater.listAvailableVersions());
-  ipcMain.handle('updater:prepare-version', async (_event, version: string, url: string, sha256: string) =>
-    updater.prepareVersion(version, url, sha256));
+  ipcMain.handle('updater:prepare-version', async (_event, version: string, url: string, sha256: string, sig: string) =>
+    updater.prepareVersion(version, url, sha256, sig));
   ipcMain.handle('updater:restart', async () => {
     await updater.restartToUpdate();
   });
@@ -447,13 +425,13 @@ function wireEvents(initialQueueSettings: { minIntervalMs: number; jitterMs: num
     initialQueueSettings,
     {
       onStarted: (info) => {
-        void journal.append('read', 'queue-started', `${info.label} (${info.total} requisições)`, true);
+        void journal.append('read', 'queue-started', `${info.label} (${info.total} requisições)`, false);
       },
       onFinished: (info) => {
-        void journal.append('read', 'queue-finished', `${info.label} concluída (${info.total} requisições)`, true);
+        void journal.append('read', 'queue-finished', `${info.label} concluída (${info.total} requisições)`, false);
       },
       onFailed: (info) => {
-        void journal.append('read', 'queue-failed', `${info.label}: ${info.error.kind} — ${info.error.message}`, true);
+        void journal.append('read', 'queue-failed', `${info.label}: ${info.error.kind} — ${info.error.message}`, false);
       },
       // Sentinela de login/captcha num corpo: espelha a queda no TwSessionManager
       // NA HORA — a UI para de mostrar "Ativa" e o agendador de coleta automática
@@ -475,9 +453,9 @@ app.whenReady().then(async () => {
   const persistedSettings = sanitizeSettings(await settingsStore.load());
   void twSession.restoreFromPartition();
   // registerIpc() fica PARA DEPOIS do gate central (abaixo): ele registra
-  // session:open-login / session:login-sid / tminus:schedule /
+  // session:open-login / session:login-sid / journal:clear / tminus:schedule /
   // dev:capture-fixture, que estão em CANAIS_PROTEGIDOS — chamá-lo antes do
-  // wrapper deixaria os 4 canais UNGATED (P1 da revisão 2 da v0.35).
+  // wrapper deixaria os 5 canais UNGATED (P1 da revisão 2 da v0.35).
   wireEvents({
     minIntervalMs: persistedSettings.requestMinIntervalMs,
     jitterMs: persistedSettings.requestJitterMs,
@@ -492,15 +470,20 @@ app.whenReady().then(async () => {
   });
 
   // GATE CENTRAL (defesa em profundidade): canais de PRODUTO exigem sessão
-  // válida do sistema (logado/offline-72h). Updater/journal/prefs/settings
-  // ficam LIVRES (diagnóstico e atualização continuam funcionando).
+  // válida do sistema (logado/offline-72h). Updater/journal:list/prefs/settings
+  // ficam LIVRES (diagnóstico e atualização continuam funcionando — updater de
+  // propósito: banido precisa conseguir atualizar); journal:clear entra no gate
+  // (a trilha de auditoria é obrigatória — apagá-la exige auth do sistema).
   const CANAIS_PROTEGIDOS = [
     'world:refresh', 'world:relations', 'world:villages', 'world:players', 'world:tribes',
     'world:noble-minutes', 'world:night-bonus', 'world:morale-info', 'world:unit-pops', 'world:unit-speeds',
+    'worldhistory:list',
     'sg1:analyze',
     'troops:collect-members', 'troops:collect-summary',
     'sg3:', 'sg5:', 'sg6:', 'sg7:',
     'oparchive:', 'opshare:', 'plannerDraft:',
+    'journal:clear',
+    'oda:refresh', 'digest:send',
     'tminus:schedule',
     'session:open-login', 'session:login-sid',
     'dev:capture-fixture',
@@ -524,25 +507,45 @@ app.whenReady().then(async () => {
   registerSupportersIpc(new SupportersService(twSession, queue as RequestQueue, journal, worldData, settingsStore));
   const sg5Service = new Sg5Service(twSession, queue as RequestQueue, journal, worldData, settingsStore);
   registerSg5Ipc({ sg5: sg5Service, journal });
-  const sg6Service = new Sg6Service(twSession, journal, settingsStore, queue as RequestQueue);
+  // Sentinela detectada DIRETO na mutação (POST fora da fila) espelha a queda
+  // de sessão no TwSessionManager — a UI para de mostrar "Ativa" na hora.
+  const sg6Service = new Sg6Service(twSession, journal, settingsStore, queue as RequestQueue, { onSessionLost: (kind) => twSession.markSessionLost(kind) });
   registerSg6Ipc({ sg6: sg6Service, journal });
-  registerSg7Ipc(new Sg7Service(twSession, journal, queue as RequestQueue, settingsStore));
+  registerSg7Ipc(new Sg7Service(twSession, journal, queue as RequestQueue, settingsStore, { onSessionLost: (kind) => twSession.markSessionLost(kind) }));
   registerOpIpc({ journal, opArchive: new OpArchiveService(journal), world: () => twSession.getStatus().world ?? 'desconhecido' });
   registerGroupsIpc({ journal, groups: new GroupsService(journal) });
   registerPreferencesIpc({ journal });
   registerPlannerDraftIpc({ journal });
   registerTemplatesIpc({ journal });
   registerHistoryIpc({ journal });
-
-  // Restaura a sessão persistida (safeStorage) antes da janela: a UI já nasce
-  // no estado certo (logado/offline/deslogado).
-  await authService.boot();
+  registerOdaIpc({ worldData, queue: queue as RequestQueue });
+  registerDigestIpc({ journal, twSession, exigirSessao: () => authService.exigeSessao() });
 
   // E2E do auth (scripts/e2e-auth.mjs): SHS_AUTH_E2E=<arquivo> SHS_AUTH_NICK
   // SHS_AUTH_SENHA — faz login real contra a VPS e despeja o resultado (com
   // admin, inclui adminUsers — regressão do GET da revisão 0.30.1).
+  // Diagnóstico roda SEM janela (nada aqui depende de UI).
   const authE2ePath = process.env.SHS_AUTH_E2E;
-  if (authE2ePath !== undefined && authE2ePath !== '') {
+  const emE2eAuth = authE2ePath !== undefined && authE2ePath !== '';
+
+  // PERF (auditoria): janela ANTES do boot de auth — num VPS lento o boot pode
+  // travar 12s no timeout de rede e o app ficava CEGO; o renderer já pinta o
+  // splash "Verificando sessão…" e o resultado chega pelo push auth:changed
+  // (onChange → send(), que é no-op sem janela — ver função send). Seguro
+  // porque: (a) TODOS os handlers de IPC já foram registrados acima, então a
+  // primeira pintura não encontra canal ausente; (b) boot() não depende da
+  // janela — só lê/valida a sessão persistida e emite estado.
+  if (!emE2eAuth) createMainWindow();
+  app.on('activate', () => {
+    if (!emE2eAuth && BrowserWindow.getAllWindows().length === 0) createMainWindow();
+  });
+
+  // Restaura a sessão persistida (safeStorage): a UI já está visível no splash
+  // e assume o estado certo (logado/offline/deslogado) quando o auth:changed
+  // do fim do boot chegar.
+  await authService.boot();
+
+  if (emE2eAuth) {
     const resultado = await authService.login(process.env.SHS_AUTH_NICK ?? '', process.env.SHS_AUTH_SENHA ?? '');
     let admin: unknown = null;
     if (resultado.ok && resultado.user.role === 'admin') {
@@ -559,10 +562,6 @@ app.whenReady().then(async () => {
     return;
   }
 
-  createMainWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
-  });
   void runUpdaterE2eHook();
 });
 
@@ -575,6 +574,19 @@ process.on('uncaughtException', (error) => {
     // best-effort
   }
   app.exit(1);
+});
+
+// Rejeição de promise sem tratamento: registra no journal + console mas NÃO
+// encerra (diferente do uncaughtException acima, que é fail-closed de
+// propósito) — uma promise perdida não invalida o pacing/sentinela em operação.
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  console.error('[unhandledRejection]', message);
+  try {
+    void journal.append('system', 'unhandled-rejection', message, false);
+  } catch {
+    // best-effort
+  }
 });
 
 app.on('window-all-closed', () => {

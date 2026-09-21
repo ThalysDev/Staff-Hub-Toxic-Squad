@@ -3,6 +3,7 @@
 // leitura; falhas sempre voltam como erro legível.
 
 import { ipcMain } from 'electron';
+import { erroFilaOcupada } from '@shared/error-catalog';
 import type { Journal } from './journal';
 import type { TwSessionManager } from './tw/session';
 import type { RequestQueue } from './tw/request-queue';
@@ -30,7 +31,7 @@ export function registerWorldIpc(deps: WorldIpcDeps): void {
 
   ipcMain.handle('world:refresh', async () => {
     if (queue.isRunning) {
-      fail('Falha ao atualizar os dados do mundo', new Error('Uma operação está em andamento — aguarde terminar (ou cancele) antes de atualizar os dados do mundo.'));
+      fail('Falha ao atualizar os dados do mundo', new Error(erroFilaOcupada('atualizar os dados do mundo')));
     }
     // Ocupação real (C4): os dumps rodam fora da fila, mas marcam a fila
     // ocupada para que nenhuma coleta/mutação comece em paralelo.
@@ -134,7 +135,7 @@ export function registerWorldIpc(deps: WorldIpcDeps): void {
 
   ipcMain.handle('world:relations', async () => {
     if (queue.isRunning) {
-      fail('Falha ao ler as relações diplomáticas', new Error('Uma operação está em andamento — aguarde terminar antes de ler a diplomacia.'));
+      fail('Falha ao ler as relações diplomáticas', new Error(erroFilaOcupada('ler a diplomacia')));
     }
     // Ocupação (C4): a página de contratos é um GET direto fora da fila —
     // não pode correr junto com coleta/mutação (pacing somado = risco).

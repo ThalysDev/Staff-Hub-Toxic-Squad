@@ -42,6 +42,9 @@ pnpm typecheck && pnpm test && pnpm build
 - Erro de parser = fail-closed com mensagem clara. Nunca retornar dado errado silencioso.
 - Strings de UI PT-BR com os rótulos ORIGINAIS da ferramenta transcrita (ver
   `docs/MODULOS-SG.md`).
+- **Gate central de IPC**: canal novo de produto precisa do prefixo em `CANAIS_PROTEGIDOS`
+  (`src/main/index.ts`) — e o `registerIpc()` só pode rodar DEPOIS do wrapper do gate
+  (registrá-lo antes deixou 5 canais ungated na v0.35).
 
 ## Mundo/canário
 - Desenvolvimento contra **BR142** (conta de líder/fundador do dono).
@@ -49,8 +52,32 @@ pnpm typecheck && pnpm test && pnpm build
   interno (deletável), MP para si mesmo.
 - Fixtures HTML reais obrigatórias antes de escrever parser de qualquer tela nova
   (usar a página de capturas do app ou salvar via sessão).
+- Evidência de OP real (capturas, zips de prova, cookies) vive em `tests/diag/` e **NUNCA
+  vai ao git** (ver `.gitignore`).
 
-## Fases (ordem acordada com o dono)
-Fase 0 bootstrap → Fase 0.5 capturas BR142 → SG_1 → SG_2 → SG_3 → SG_4 → SG_5 → SG_6 → SG_7.
-Versionamento: +0.1.0 por frente entregue (package.json + bundleInfo juntos).
-Sub-agentes: paralelo só em arquivos novos; integração serial; revisão antes de fechar fase.
+## Empacotamento
+- O `@electron/packager` JÁ entrega `resources/app.asar` por padrão. **NUNCA reempacotar
+  o asar manualmente**: sobrescreve o asar bom por um VAZIO e mata o app (incidente real
+  pego no E2E do atualizador). Detalhes em `docs/MODULOS-SG.md`, seção
+  "Sistema — Login e proteção de acesso".
+
+## Versionamento (política praticada)
+- **patch (X.Y.Z+1)** = fix pontual, hotfix ou frente pequena — ex.: 0.32.1/0.32.2/0.32.3
+  (revisão dupla + hotfix da OP de mundo inteiro), 0.35.1 (hint do SG_2), 0.35.2 (banner).
+- **minor (X.Y+1.0)** = conjunto grande de frentes ou feature nova — ex.: 0.34.0 (SG_2 em
+  abas), 0.33.0 (mega atualização da Sala de Guerra), 0.36.0 (hardening do atualizador +
+  ondas 0.36).
+- O bump acontece no corte, via `scripts/release.mjs <versão> "<notas>"` — ele roda os
+  gates, bumpa o `package.json`, empacota e publica no canal. Notas de release têm teto
+  (`MAX_NOTES_LENGTH` = 600 em `src/shared/updater-core.ts`).
+
+## Release (regras aprendidas na prática — OBRIGATÓRIAS)
+1. **REVISÃO DUPLA completa antes de toda release.** Duas revisões independentes (código +
+   produto/UX) com achados corrigidos ANTES do corte — não vale "revisar depois" (toda
+   revisão pós-release desta casa virou patch de emergência: 0.32.1, 0.33.1, 0.35.0-ondas).
+2. **Bug-class de prefixo/case de canal exige auditoria holística da lista
+   `CANAIS_PROTEGIDOS`.** Achou um canal com prefixo errado, case errado ou faltando no
+   gate? NÃO corrige só aquele: audita a lista INTEIRA canal por canal (o mesmo bug quase
+   sempre está replicado — na v0.35 eram 5 canais ungated, não 1).
+3. Sub-agentes: paralelo só em arquivos novos; integração serial; revisão antes de fechar
+   fase.

@@ -1,14 +1,31 @@
 // Mecânica do bônus noturno do Tribal Wars: durante a janela configurada no
-// get_config (bloco <night>), as tropas viajam com METADE da velocidade — na
-// prática, cada minuto de percurso dentro da janela custa 2x. Regra pura e
-// determinística: nada de Date.now(), o tempo entra sempre como parâmetro.
+// get_config (bloco <night>), as tropas viajam mais devagar pelo fator
+// <def_factor> do mundo (2 = clássico: meia velocidade, cada minuto de
+// percurso na janela custa 2x). Regra pura e determinística: nada de
+// Date.now(), o tempo entra sempre como parâmetro.
 import type { WorldConfig } from './world-config';
 
-/** Recorte do WorldConfig que a lógica de bônus noturno precisa conhecer. */
+/** Fator noturno clássico quando o caller não informa cfg.defFactor
+ * (mesmo default do parse do get_config: mundos sem <def_factor>). */
+const DEFAULT_DEF_FACTOR = 2;
+
+/** Recorte do WorldConfig que a lógica de bônus noturno precisa conhecer.
+ * defFactor é opcional para compatibilidade com callers que só têm a janela
+ * (ex. IPC world:night-bonus): ausente = fator clássico 2. */
 export type NightBonusCfg = Pick<
   WorldConfig,
   'nightBonusActive' | 'nightStartHour' | 'nightEndHour'
->;
+> & { defFactor?: number };
+
+/** Fator do mundo validado (finite > 0) — config inválida lança, nunca
+ * distorce o cálculo em silêncio. */
+function defFactorOf(cfg: NightBonusCfg): number {
+  const factor = cfg.defFactor ?? DEFAULT_DEF_FACTOR;
+  if (!Number.isFinite(factor) || factor <= 0) {
+    throw new Error(`Fator do bônus noturno inválido (${String(factor)}) — def_factor deve ser um número maior que zero.`);
+  }
+  return factor;
+}
 
 const MS_PER_MINUTE = 60_000;
 // Sobrado de arredondamento em ponto flutuante (< 1µs) já conta como chegada.
@@ -74,8 +91,8 @@ function nextToggleIn(atMs: number, cfg: NightBonusCfg): number {
  * é tratada como grandeza contínua, não por campos discretos — simulação por
  * segmentos avança de borda em borda da janela:
  * - "remainingDayMs" = distância que falta medida em ms de viagem diurna;
- * - num trecho noturno cada ms de relógio rende metade do progresso, logo um
- *   trecho que custaria N ms diurnos consome 2N ms de relógio.
+ * - num trecho noturno cada ms de relógio rende 1/defFactor do progresso, logo
+ *   um trecho que custaria N ms diurnos consome N × defFactor ms de relógio.
  * Sem bônus ativo → distanceFields * minutesPerField * 60_000 puro.
  */
 export function travelTimeMs(input: TravelTimeInput): number {
@@ -90,6 +107,7 @@ export function travelTimeMs(input: TravelTimeInput): number {
   if (!Number.isFinite(departureMs)) {
     throw new Error('Momento de partida inválido: informe uma Date ou timestamp válido.');
   }
+  const defFactor = defFactorOf(cfg);
 
   const classicMs = distanceFields * minutesPerField * MS_PER_MINUTE;
   if (!cfg.nightBonusActive) return classicMs;
@@ -110,14 +128,14 @@ export function travelTimeMs(input: TravelTimeInput): number {
     const isNight = isNightBonusHour(fractionalHour, cfg);
     const untilToggleMs = nextToggleIn(cursorMs, cfg);
     // Quanto custaria terminar a viagem inteira permanecendo neste regime.
-    const toFinishHereMs = isNight ? remainingDayMs * 2 : remainingDayMs;
+    const toFinishHereMs = isNight ? remainingDayMs * defFactor : remainingDayMs;
     if (toFinishHereMs <= untilToggleMs) {
       elapsedMs += toFinishHereMs;
       break;
     }
     // Régime muda antes da chegada: consome a borda e continua no próximo regime.
     elapsedMs += untilToggleMs;
-    remainingDayMs -= isNight ? untilToggleMs / 2 : untilToggleMs;
+    remainingDayMs -= isNight ? untilToggleMs / defFactor : untilToggleMs;
     cursorMs += untilToggleMs;
   }
   return elapsedMs;
@@ -160,9 +178,10 @@ export function solveDepartureForArrival(input: DepartureSolveInput): DepartureS
   if (!cfg.nightBonusActive) {
     return { departureAt: arrivalMs - classicMs, travelMs: classicMs };
   }
-  // Pior viagem = o percurso inteiro dentro da janela (2× clássico). 1h de
-  // folga cobre ruído de arredondamento nas bordas do bracket.
-  const maxTravelMs = 2 * classicMs + 3_600_000;
+  const defFactor = defFactorOf(cfg);
+  // Pior viagem = o percurso inteiro dentro da janela (defFactor× clássico). 1h
+  // de folga cobre ruído de arredondamento nas bordas do bracket.
+  const maxTravelMs = defFactor * classicMs + 3_600_000;
   let lo = arrivalMs - maxTravelMs; // f(lo) < 0: nem viajando no pior ritmo chega
   let hi = arrivalMs; // f(hi) = 0: viagem nula chega na própria chegada
   const f = (departureMs: number): number => departureMs + travelTimeMs({ distanceFields, minutesPerField, departureAt: departureMs, cfg }) - arrivalMs;

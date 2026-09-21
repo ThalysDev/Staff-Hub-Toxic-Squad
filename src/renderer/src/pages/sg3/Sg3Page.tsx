@@ -8,12 +8,14 @@ import { DEFAULT_THREAT_THRESHOLDS, rankVillagesByThreat, threatSummary, type Vi
 import { TW_UNIT_ICONS } from '../../assets';
 import { UNITS, defensivePopulation, type UnitCounts, type UnitId } from '@shared/units';
 import type { TroopSnapshot } from '@shared/sg2-engine';
+import { useGameCollection } from '../../hooks/useGameCollection';
 import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
 import EmptyState from '../../components/EmptyState';
 import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
 import { MODULES } from '../../modules';
+import { getWorldVillages } from '../../world-cache';
 
 type CountMode = 'paradas' | 'paradas-e-transito';
 
@@ -81,12 +83,13 @@ export default function Sg3Page() {
   const moduleInfo = MODULES.find((module) => module.id === 'sg3');
   const { prefs, savePrefs, resetPrefs } = usePreferences('sg3', SG3_DEFAULTS);
 
-  useEffect(() => {
-    const unsubscribe = window.staffhub.events.onQueueProgress(setProgress);
-    return unsubscribe;
-  }, []);
+  // Encanamento da coleta (busy/progresso/toast) por operação longa; os
+  // resultados e erros inline continuam estados da página. A consulta de
+  // blindagem (runBlind) segue com busy próprio fora do hook.
+  const collectRun = useGameCollection();
+  const supportersRun = useGameCollection();
+  const scanRun = useGameCollection();
   const [defenseAt, setDefenseAt] = useState<string | null>(null);
-  const [collecting, setCollecting] = useState(false);
   const [coordsText, setCoordsText] = useState(SG3_DEFAULTS.coordsText);
   // Parser normalizado do campo "Coordenadas do front" — contador e ignorados.
   const [coordsMeta, setCoordsMeta] = useState<NormalizedCoords>(() => normalizeCoordText(SG3_DEFAULTS.coordsText));
@@ -111,17 +114,14 @@ export default function Sg3Page() {
   const [bbcode, setBbcode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [supportersBusy, setSupportersBusy] = useState(false);
   const [supportersResult, setSupportersResult] = useState<SupportersResult | null>(null);
   const [supportersError, setSupportersError] = useState('');
   // ---- P0-5 — Ataques recebidos (triagem "esta aldeia vai cair") ----
-  const [scanBusy, setScanBusy] = useState(false);
   const [scanError, setScanError] = useState('');
   const [threats, setThreats] = useState<VillageThreat[] | null>(null);
   // Thresholds da triagem, editáveis no painel (texto; derivados no uso).
   const [threatMinResistText, setThreatMinResistText] = useState(SG3_DEFAULTS.threatMinResist);
   const [threatNobleDangerText, setThreatNobleDangerText] = useState(SG3_DEFAULTS.threatNobleDanger);
-const [progress, setProgress] = useState<{ label: string; done: number; total: number } | null>(null);
 
   // Preferências do módulo: os formulários sobrevivem a F5/reinício (resultados,
   // apoiadores, triagem e estados de ocupação continuam voláteis).
@@ -201,21 +201,18 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
   }, []);
 
   async function collectDefense(): Promise<void> {
-    setCollecting(true);
     setError('');
     try {
-      await window.staffhub.troops.collectMembers('defense');
-      const status = await window.staffhub.troops.status();
-      setDefenseAt(status.defenseAt);
-      defenseRef.current = null; // coleta nova substitui o snapshot em memória
-      defenseLoadedRef.current = false;
-      push('ok', 'Defesa coletada por aldeia — dados em memória.');
+      await collectRun.run(async () => {
+        await window.staffhub.troops.collectMembers('defense');
+        const status = await window.staffhub.troops.status();
+        setDefenseAt(status.defenseAt);
+        defenseRef.current = null; // coleta nova substitui o snapshot em memória
+        defenseLoadedRef.current = false;
+      }, { doneLabel: 'Defesa coletada por aldeia — dados em memória.' });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      push('error', message);
-    } finally {
-      setCollecting(false);
+      // Toast do erro já vem do hook; aqui só o erro inline (compartilhado com a consulta).
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -246,7 +243,7 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
     if (worldPointsStateRef.current === 'ok') return true;
     if (worldPointsStateRef.current === 'failed') return false;
     try {
-      const villages = await window.staffhub.world.villages();
+      const villages = await getWorldVillages();
       worldPointsRef.current = new Map(villages.map((village) => [`${village.x}|${village.y}`, village.points]));
       worldPointsStateRef.current = 'ok';
       return true;
@@ -373,58 +370,53 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
       setScanError('Perigo de nobre (população) deve ser um inteiro maior ou igual a 0.');
       return;
     }
-    setScanBusy(true);
     setScanError('');
     setThreats(null);
     try {
-      const [scan, defense] = await Promise.all([
-        window.staffhub.sg5.scanOwnVillages(),
-        window.staffhub.troops.get('defense').catch(() => null),
-      ]);
-      // Peso DEFENSIVO presente por coordenada (mesma métrica do blind:
-      // spear/sword/archer + heavy×4 — população bruta esconderia stacks
-      // ofensivos atrás de um veredito "resistente" otimista).
-      const popByCoord = new Map<string, number>();
-      if (defense !== null) {
-        for (const entry of defense.entries) {
-          if (entry.coord.x < 0) continue; // linha de resumo (sem aldeia específica)
-          const key = `${entry.coord.x}|${entry.coord.y}`;
-          popByCoord.set(key, (popByCoord.get(key) ?? 0) + defensivePopulation(entry.units));
+      const ranked = await scanRun.run(async () => {
+        const [scan, defense] = await Promise.all([
+          window.staffhub.sg5.scanOwnVillages(),
+          window.staffhub.troops.get('defense').catch(() => null),
+        ]);
+        // Peso DEFENSIVO presente por coordenada (mesma métrica do blind:
+        // spear/sword/archer + heavy×4 — população bruta esconderia stacks
+        // ofensivos atrás de um veredito "resistente" otimista).
+        const popByCoord = new Map<string, number>();
+        if (defense !== null) {
+          for (const entry of defense.entries) {
+            if (entry.coord.x < 0) continue; // linha de resumo (sem aldeia específica)
+            const key = `${entry.coord.x}|${entry.coord.y}`;
+            popByCoord.set(key, (popByCoord.get(key) ?? 0) + defensivePopulation(entry.units));
+          }
         }
-      }
-      const inputs: VillageThreatInput[] = scan.villages.map((village) => {
-        const defensePop = popByCoord.get(village.coord);
-        return { coord: village.coord, commands: village.commands, ...(defensePop !== undefined ? { defensePop } : {}) };
-      });
-      const ranked = rankVillagesByThreat(inputs, { minResistPop, nobleDangerPop });
-      setThreats(ranked);
-      push('ok', threatSummary(ranked));
+        const inputs: VillageThreatInput[] = scan.villages.map((village) => {
+          const defensePop = popByCoord.get(village.coord);
+          return { coord: village.coord, commands: village.commands, ...(defensePop !== undefined ? { defensePop } : {}) };
+        });
+        // Ranking de ameaças fica na página — o hook é só o encanamento.
+        return rankVillagesByThreat(inputs, { minResistPop, nobleDangerPop });
+      }, { doneLabel: (res) => threatSummary(res) });
+      if (ranked !== null) setThreats(ranked);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setScanError(message);
-      push('error', message);
-    } finally {
-      setScanBusy(false);
+      // Toast do erro já vem do hook; aqui só o erro inline da triagem.
+      setScanError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function runSupporters(): Promise<void> {
-    setSupportersBusy(true);
     setSupportersError('');
     try {
-      // Campo próprio dos apoiadores tem prioridade; vazio = herda o front.
-      const source = supportersCoordsText.trim() === '' ? coordsText : supportersCoordsText;
-      const parsed = normalizeCoordText(source);
-      if (parsed.count === 0) throw new Error('Nenhuma coordenada reconhecida — cole as aldeias no campo do front ou no dos apoiadores.');
-      const result = await window.staffhub.sg3.supporters(parsed.coords);
-      setSupportersResult(result);
-      push('ok', `Apoiadores: ${result.villages.length} aldeia(s) consultadas.`);
+      const result = await supportersRun.run(async () => {
+        // Campo próprio dos apoiadores tem prioridade; vazio = herda o front.
+        const source = supportersCoordsText.trim() === '' ? coordsText : supportersCoordsText;
+        const parsed = normalizeCoordText(source);
+        if (parsed.count === 0) throw new Error('Nenhuma coordenada reconhecida — cole as aldeias no campo do front ou no dos apoiadores.');
+        return window.staffhub.sg3.supporters(parsed.coords);
+      }, { doneLabel: (res) => `Apoiadores: ${res.villages.length} aldeia(s) consultadas.` });
+      if (result !== null) setSupportersResult(result);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setSupportersError(message);
-      push('error', message);
-    } finally {
-      setSupportersBusy(false);
+      // Toast do erro já vem do hook; aqui só o erro inline dos apoiadores.
+      setSupportersError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -457,6 +449,10 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
     setText(parsed.display);
     setMeta(parsed);
   }
+
+  // Barra de progresso compartilhada entre coleta e apoiadores (cada hook
+  // assina o progresso da fila enquanto está busy; prioridade à coleta).
+  const collectOrSupportersProgress = collectRun.busy ? collectRun.progress : supportersRun.progress;
 
   const formatted = defenseAt === null ? '—' : new Date(defenseAt).toLocaleString('pt-BR');
 
@@ -501,11 +497,15 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
               <p className="muted">
                 Data da última atualização: <strong>{formatted}</strong>
               </p>
-              <button type="button" className="btn" onClick={() => void collectDefense()} disabled={collecting}>
-                {collecting ? <><span className="btn-spinner" aria-hidden="true" /> Coletando…</> : 'Coletar defesa'}
+              <button type="button" className="btn" onClick={() => void collectDefense()} disabled={collectRun.busy}>
+                {collectRun.busy ? <><span className="btn-spinner" aria-hidden="true" /> Coletando…</> : 'Coletar defesa'}
               </button>
-              {(collecting || supportersBusy) && progress !== null && (
-                <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
+              {(collectRun.busy || supportersRun.busy) && collectOrSupportersProgress !== null && (
+                <ProgressBar
+                  done={collectOrSupportersProgress.done}
+                  total={collectOrSupportersProgress.total}
+                  label={collectOrSupportersProgress.label}
+                />
               )}
             </div>
             <p className="hint-note muted">
@@ -673,10 +673,10 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Jogador</th>
-                      <th>Aldeia</th>
-                      <th>{results.metric === 'pontos' ? 'Tam. (pontos)' : 'Tam. (população)'}</th>
-                      <th>Falta</th>
+                      <th scope="col">Jogador</th>
+                      <th scope="col">Aldeia</th>
+                      <th scope="col">{results.metric === 'pontos' ? 'Tam. (pontos)' : 'Tam. (população)'}</th>
+                      <th scope="col">Falta</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -735,9 +735,9 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
             </label>
             {supportersError !== '' && <p className="error" role="alert">{supportersError}</p>}
             <div className="row">
-              <button type="button" className="btn btn-ghost" onClick={() => void runSupporters()} disabled={supportersBusy}>
+              <button type="button" className="btn btn-ghost" onClick={() => void runSupporters()} disabled={supportersRun.busy}>
                 <Users size={16} aria-hidden="true" />
-                {supportersBusy ? <><span className="btn-spinner" aria-hidden="true" /> Consultando…</> : 'Exibir apoiadores'}
+                {supportersRun.busy ? <><span className="btn-spinner" aria-hidden="true" /> Consultando…</> : 'Exibir apoiadores'}
               </button>
             </div>
             {supportersResult !== null && (
@@ -745,9 +745,9 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Aldeia</th>
-                      <th>Apoiadores</th>
-                      <th>Total</th>
+                      <th scope="col">Aldeia</th>
+                      <th scope="col">Apoiadores</th>
+                      <th scope="col">Total</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -818,13 +818,17 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
               </label>
             </div>
             <div className="row">
-              <button type="button" className="btn" disabled={scanBusy} onClick={() => void runScanIncoming()}>
+              <button type="button" className="btn" disabled={scanRun.busy} onClick={() => void runScanIncoming()}>
                 <Radar size={16} aria-hidden="true" />
-                {scanBusy ? <><span className="btn-spinner" aria-hidden="true" /> Varrendo…</> : 'Varrer ataques recebidos'}
+                {scanRun.busy ? <><span className="btn-spinner" aria-hidden="true" /> Varrendo…</> : 'Varrer ataques recebidos'}
               </button>
-              {scanBusy && progress !== null && (
+              {scanRun.busy && scanRun.progress !== null && (
                 <>
-                  <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
+                  <ProgressBar
+                    done={scanRun.progress.done}
+                    total={scanRun.progress.total}
+                    label={scanRun.progress.label}
+                  />
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
@@ -848,11 +852,11 @@ const [progress, setProgress] = useState<{ label: string; done: number; total: n
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Aldeia</th>
-                        <th>Triagem</th>
-                        <th className="cell-num">Ataques</th>
-                        <th className="cell-num">Com nobre</th>
-                        <th>Detalhe</th>
+                        <th scope="col">Aldeia</th>
+                        <th scope="col">Triagem</th>
+                        <th scope="col" className="cell-num">Ataques</th>
+                        <th scope="col" className="cell-num">Com nobre</th>
+                        <th scope="col">Detalhe</th>
                       </tr>
                     </thead>
                     <tbody>

@@ -111,9 +111,11 @@ function indexSnapshot(snapshot: ConferenceSnapshot, label: 'anterior' | 'atual'
   return { commandsById, countsByCoord };
 }
 
-/** Ordem exibida: coordenada ascendente, depois commandId — estável em ambas as rodadas. */
-function byCoordThenCommandId(a: { coord: string }, b: { coord: string }): number {
-  return a.coord.localeCompare(b.coord, 'pt-BR');
+/** Ordem exibida: coordenada ascendente, depois commandId (comparação de
+ * string — determinística em ambas as rodadas, independente da ordem de
+ * inserção no snapshot). */
+function byCoordThenCommandId(a: { coord: string; commandId: number }, b: { coord: string; commandId: number }): number {
+  return a.coord.localeCompare(b.coord, 'pt-BR') || String(a.commandId).localeCompare(String(b.commandId), 'pt-BR');
 }
 
 /**

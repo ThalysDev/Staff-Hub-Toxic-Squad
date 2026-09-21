@@ -35,13 +35,19 @@ function UpdateBannerDemo() {
 
 function DownloadingState({ progress }: { progress: UpdateProgress }) {
   if (progress.phase !== 'download') {
+    // Frases por fase IGUAIS às do card do Dashboard (fonte única de vocabulário):
+    // verify = "Conferindo integridade…", extract = "Extraindo…".
+    const title =
+      progress.phase === 'verify'
+        ? 'Conferindo integridade…'
+        : progress.phase === 'extract'
+          ? 'Extraindo…'
+          : 'Preparando a atualização…';
     return (
       <div className="update-banner" role="status">
         <div className="update-banner-row">
           <span className="btn-spinner" aria-hidden="true" />
-          <p className="update-banner-title">
-            {progress.phase === 'verify' ? 'Conferindo integridade…' : 'Preparando a atualização…'}
-          </p>
+          <p className="update-banner-title">{title}</p>
         </div>
       </div>
     );
@@ -75,11 +81,15 @@ function DownloadingState({ progress }: { progress: UpdateProgress }) {
 }
 
 function UpdateBannerLive() {
-  const { state, snoozedVersion, check, download, restart, snooze } = useUpdateStatus();
+  const { state, snoozedVersion, download, retryFromError, restart, snooze } = useUpdateStatus();
   const [notesOpen, setNotesOpen] = useState(false);
   // Erro dispensado some até vir erro NOVO (detail diferente) — sem useEffect.
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
+  // "Mais tarde" do estado PRONTO é descarte LOCAL DE SESSÃO (componente): a
+  // versão pronta nunca é escondida de verdade — o card do Dashboard também a
+  // exibe sempre. Uma versão nova reabre a faixa sozinha (chave é a versão).
+  const [readyDismissed, setReadyDismissed] = useState<string | null>(null);
 
   const handleRestart = (): void => {
     setRestarting(true);
@@ -87,10 +97,10 @@ function UpdateBannerLive() {
   };
 
   if (state.phase === 'idle') return null;
-  // Snooze é POR VERSÃO: a mesma versão fica oculta; versão nova na store
-  // reabre o banner na hora (nada de "sumiu para sempre").
+  // Snooze é POR VERSÃO (e por usuário do sistema, no hook): a mesma oferta
+  // fica oculta; versão nova na store reabre o banner na hora.
   if (state.phase === 'available' && state.latestVersion === snoozedVersion) return null;
-  if (state.phase === 'ready' && state.version === snoozedVersion) return null;
+  if (state.phase === 'ready' && state.version === readyDismissed) return null;
   if (state.phase === 'error' && state.detail === dismissedError) return null;
 
   // ---- Falha: faixa âmbar + tentar de novo + dispensar (só local) ---------
@@ -101,7 +111,9 @@ function UpdateBannerLive() {
           <AlertTriangle size={18} className="update-banner-icon" aria-hidden="true" />
           <p className="update-banner-title">Falha ao atualizar: {state.detail}</p>
           <div className="update-banner-actions">
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => void check()}>
+            {/* MESMA ação do card do Dashboard (retryFromError): re-checa o
+                canal e, havendo atualização, já baixa na sequência. */}
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => void retryFromError()}>
               Tentar de novo
             </button>
             <button
@@ -150,8 +162,8 @@ function UpdateBannerLive() {
             <button
               type="button"
               className="btn btn-ghost btn-sm"
-              aria-label="Ocultar a faixa desta versão — uma versão nova reaparece"
-              onClick={() => snooze(state.version)}
+              aria-label="Ocultar a faixa até reiniciar o hub"
+              onClick={() => setReadyDismissed(state.version)}
             >
               Mais tarde
             </button>

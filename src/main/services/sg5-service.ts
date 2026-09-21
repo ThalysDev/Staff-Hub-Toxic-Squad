@@ -7,6 +7,7 @@ import type { Journal } from '../journal';
 import type { AppSettings } from '@shared/ipc-types';
 import { DEFAULT_SETTINGS } from '@shared/ipc-types';
 import { JsonStore } from '../stores/json-store';
+import { erroSessao } from '@shared/error-catalog';
 
 export interface VerifyEntry {
   playerName: string;
@@ -48,7 +49,7 @@ export class Sg5Service {
   private world(): string {
     const { state, world } = this.twSession.getStatus();
     if (state !== 'logged-in' || world === null) {
-      throw new Error('Nenhuma sessão ativa no jogo — faça login antes de verificar comandos.');
+      throw new Error(erroSessao());
     }
     return world;
   }
@@ -124,7 +125,7 @@ export class Sg5Service {
         if (!expectedPlayers.has(command.playerName)) unknown.push(command);
       }
     }
-    await this.journal.append('read', 'sg5-verify', `${allCoords.length} aldeias — ${villages.reduce((sum, v) => sum + v.commands.length, 0)} comandos`, true);
+    await this.journal.append('read', 'sg5-verify', `${allCoords.length} aldeias — ${villages.reduce((sum, v) => sum + v.commands.length, 0)} comandos`, false);
     return { generatedAt: new Date().toISOString(), villages, unknown };
   }
 
@@ -136,7 +137,7 @@ export class Sg5Service {
     const byCoord = await this.fetchVillagePages(coords, `Totalizando comandos (${coords.length} aldeias)`);
     const all: IncomingCommandRow[] = [];
     for (const verification of byCoord.values()) all.push(...verification.commands);
-    await this.journal.append('read', 'sg5-totals', `${coords.length} aldeias — ${all.length} comandos`, true);
+    await this.journal.append('read', 'sg5-totals', `${coords.length} aldeias — ${all.length} comandos`, false);
     return { generatedAt: new Date().toISOString(), totals: totalsByPlayer(all) };
   }
 
@@ -147,7 +148,7 @@ export class Sg5Service {
   async scanOwnVillages(): Promise<VerifyResult & { player: string }> {
     const { state, world, player } = this.twSession.getStatus();
     if (state !== 'logged-in' || world === null || player === null) {
-      throw new Error('Nenhuma sessão ativa no jogo — faça login antes de varrer os ataques recebidos.');
+      throw new Error(erroSessao());
     }
     const [villages, players] = await Promise.all([this.worldData.villages(), this.worldData.players()]);
     const self = players.find((candidate) => candidate.name === player);
@@ -162,7 +163,7 @@ export class Sg5Service {
     }
     const byCoord = await this.fetchVillagePages(ownCoords, `Varrendo ataques recebidos (${ownCoords.length} aldeias próprias)`);
     const attacks = [...byCoord.values()].reduce((sum, verification) => sum + verification.commands.length, 0);
-    await this.journal.append('read', 'sg5-scan-own', `jogador=${player} aldeias=${ownCoords.length} comandos=${attacks}`, true);
+    await this.journal.append('read', 'sg5-scan-own', `jogador=${player} aldeias=${ownCoords.length} comandos=${attacks}`, false);
     return {
       generatedAt: new Date().toISOString(),
       player,

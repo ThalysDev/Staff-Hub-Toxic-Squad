@@ -10,7 +10,6 @@ import type { JSX } from 'react';
 import { BookmarkPlus, ClipboardCopy, Layers, ListPlus, Pencil, RefreshCw, Save, Send, Trash2, TriangleAlert } from 'lucide-react';
 import { coordCountLabel, normalizeCoordText } from '@shared/coord-input';
 import {
-  generateMassPlan,
   MASS_HEAVY_PAIRS,
   MASS_WORLD_PAIRS,
   parseMassCoordGroups,
@@ -27,6 +26,7 @@ import {
   type MassGroupConfig,
   type MassGroupErrors,
   type MassNightBonusMode,
+  type MassPlanContext,
   type MassPlanResult,
 } from '@shared/mass-planner-types';
 import { formatHms } from '@shared/sg4-timing';
@@ -36,15 +36,22 @@ import { UNITS, type UnitId } from '@shared/units';
 import { usePreferences } from '../../hooks/usePreferences';
 import { useSessionStatus } from '../../hooks/useSessionStatus';
 import { useToast } from '../../hooks/useToast';
+import { getWorldVillages } from '../../world-cache';
 import Callout from '../../components/Callout';
 import EmptyState from '../../components/EmptyState';
 import TemplateLibrary from '../../components/TemplateLibrary';
 import OpMapSection from './OpMapSection';
+import type { MassPlannerWorkerRequest, MassPlannerWorkerResponse } from './mass-planner.worker';
 
 /** Ordem de exibição das unidades do mundo (catálogo pt-BR, não a ordem do XML). */
 const UNIT_ORDER: readonly UnitId[] = [
   'spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob',
 ];
+
+/** União VÁLIDA de MassAssignMode (mesmos 4 valores do select e do tipo) — a
+ *  hidratação das prefs valida contra ela; sem 'por-jogador' aqui, o F5 do
+ *  modo "Distribuído por players" caía silenciosamente em 'otimizado'. */
+const ASSIGN_MODES: readonly MassAssignMode[] = ['otimizado', 'por-jogador', 'mais-perto', 'mais-longe'];
 
 /** Rascunho dos grupos mora no store dedicado "planner-draft" (v0.32) — o cap
  *  de 20k das prefs só vale para o formulário. mpGroupsJson ficou para MIGRAÇÃO
@@ -191,7 +198,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
     setTargetsText(typeof prefs.mpTargets === 'string' ? prefs.mpTargets : PLANNER_DEFAULTS.mpTargets);
     setTowersText(typeof prefs.mpTowers === 'string' ? prefs.mpTowers : PLANNER_DEFAULTS.mpTowers);
     if (typeof prefs.mpSlowestUnit === 'string' && prefs.mpSlowestUnit !== '') setSlowestUnit(prefs.mpSlowestUnit as UnitId);
-    if (prefs.mpAssignMode === 'otimizado' || prefs.mpAssignMode === 'mais-perto' || prefs.mpAssignMode === 'mais-longe') {
+    if (ASSIGN_MODES.includes(prefs.mpAssignMode)) {
       setAssignMode(prefs.mpAssignMode);
     }
     setPerOriginText(typeof prefs.mpPerOrigin === 'string' ? prefs.mpPerOrigin : PLANNER_DEFAULTS.mpPerOrigin);
@@ -263,6 +270,9 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   const [editingId, setEditingId] = useState<string | null>(null);
   const draftHydrated = useRef(false);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** WCAG 2.4.3: remover grupo/limpar todos destrói o botão focado — o foco
+   *  volta ao título da seção "Grupos adicionados" em vez de cair no body. */
+  const groupsHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
   // Hidratação (1× quando a aba fica visível com prefs carregadas): store novo
   // primeiro; rascunho antigo das prefs (≤19k) migra para o store na 1ª leitura.
@@ -377,7 +387,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
         window.staffhub.world.nightBonus(),
         window.staffhub.world.moraleInfo(),
         window.staffhub.world.unitSpeeds(),
-        window.staffhub.world.villages(),
+        getWorldVillages(),
         window.staffhub.world.players(),
       ]);
       const playerNameById = new Map<number, string>();
@@ -682,11 +692,14 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
     setGroups((current) => current.filter((entry) => entry.id !== id));
     setPlan(null);
     push('ok', `Grupo "${group.nome}" removido.`);
+    groupsHeadingRef.current?.focus({ preventScroll: true });
   }
 
   // ---- Gerar Operação ----
   const [plan, setPlan] = useState<{ result: MassPlanResult; groupsSnapshot: string; generatedAt: number } | null>(null);
   const [generating, setGenerating] = useState(false);
+  /** Pares avaliados até agora (progresso postado pelo worker a cada ~500k). */
+  const [genProgress, setGenProgress] = useState(0);
   const groupsSnapshot = useMemo(() => JSON.stringify(groups), [groups]);
   const planStale = plan !== null && plan.groupsSnapshot !== groupsSnapshot;
 
@@ -700,24 +713,23 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
       return;
     }
     setGenerating(true);
+    setGenProgress(0);
     try {
-      // A engine roda SÍNCRONA no renderer e, numa OP pesada/mundo inteiro,
-      // ocupa a thread por segundos ou dezenas de segundos: este yield deixa o
-      // botão pintar o "Gerando…" e o spinner, e o toast avisa que está viva.
-      // A engine avisa POR GRUPO (pesada/mundo inteiro); este toast estima o
-      // TRABALHO TOTAL da OP (soma de todos os grupos) — intencionalmente mais
-      // conservador que o limiar por grupo da engine.
+      // A engine roda num WEB WORKER (mass-planner.worker.ts): a thread do
+      // renderer continua viva — relógios contam, toasts aparecem, a navegação
+      // responde. O toast segue avisando o TAMANHO do trabalho (a engine avisa
+      // POR GRUPO; este estima o TOTAL da OP, soma de todos os grupos).
       const pares = groups.reduce((sum, group) => sum + group.origins.length * group.targets.length, 0);
       if (pares > MASS_HEAVY_PAIRS) {
         push(
           'info',
           pares > MASS_WORLD_PAIRS
-            ? 'Gerando operação de mundo inteiro — pode levar dezenas de segundos a alguns minutos, não feche o app…'
+            ? 'Gerando operação de mundo inteiro — pode levar dezenas de segundos a alguns minutos; o app segue utilizável…'
             : 'Gerando operação pesada — pode levar alguns segundos…',
         );
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
-      const result = generateMassPlan(groups, planContext);
+      const result = await runPlannerInWorker(groups, planContext, setGenProgress);
       if (result.commands.length === 0) {
         push('error', 'Nenhum comando sobrou dos filtros — veja os descartes no resultado.');
       } else {
@@ -728,6 +740,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
       push('error', err instanceof Error ? err.message : String(err));
     } finally {
       setGenerating(false);
+      setGenProgress(0);
     }
   }
 
@@ -1412,7 +1425,9 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
       {/* ---- BLOCO 3 — Grupos Adicionados ---- */}
       <section className="card" aria-labelledby="mp-groups-title">
         <div className="card-header">
-          <h2 className="card-title" id="mp-groups-title">Grupos adicionados</h2>
+          <h2 className="card-title" id="mp-groups-title" ref={groupsHeadingRef} tabIndex={-1}>
+            Grupos adicionados
+          </h2>
           <span className="spacer" />
           {groups.length > 0 && (
             <>
@@ -1425,6 +1440,7 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
                   setGroups([]);
                   setEditingId(null);
                   setPlan(null);
+                  groupsHeadingRef.current?.focus({ preventScroll: true });
                 }}
               >
                 <Trash2 size={14} aria-hidden="true" /> Limpar todos
@@ -1466,8 +1482,22 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
                       {' '}· dist {group.minDistance}–{group.maxDistance} campos
                       {group.minMorale > 0 ? ` · moral ≥ ${group.minMorale}%` : ''}
                       {group.towers.length > 0 ? ` · ${group.towers.length} torre(s)` : ''}
-                      {group.nightBonus === 'reagendar' ? ' · protege BN' : ''}
-                      {group.avoidMsConflict ? ' · evita ms' : ''}
+                      {group.nightBonus === 'reagendar' && (
+                        <span
+                          title="protege BN — Bônus noturno: chegadas que cairiam na janela do bônus noturno são reagendadas para depois dela"
+                          data-tip="protege BN — Bônus noturno: chegadas que cairiam na janela do bônus noturno são reagendadas para depois dela"
+                        >
+                          {' '}· protege BN
+                        </span>
+                      )}
+                      {group.avoidMsConflict && (
+                        <span
+                          title="evita ms — milissegundo de chegada: nenhum comando chega no mesmo ms para o mesmo jogador (desloca 1ms em cascata)"
+                          data-tip="evita ms — milissegundo de chegada: nenhum comando chega no mesmo ms para o mesmo jogador (desloca 1ms em cascata)"
+                        >
+                          {' '}· evita ms
+                        </span>
+                      )}
                     </span>
                     {pares > MASS_HEAVY_PAIRS && (
                       <span className="text-warn" title="Cruzamento grande — a geração pode levar alguns segundos.">
@@ -1536,6 +1566,11 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
           {planStale && (
             <p className="error" role="alert">
               Os grupos mudaram depois da última geração — clique em "Gerar Operação" de novo para atualizar os comandos.
+            </p>
+          )}
+          {generating && genProgress > 0 && (
+            <p className="muted" role="status">
+              {genProgress.toLocaleString('pt-BR')} pares avaliados — o app segue utilizável durante a geração.
             </p>
           )}
         </div>
@@ -1901,6 +1936,46 @@ export default function MassPlannerSection({ visible, onOpenMonitor }: MassPlann
   );
 }
 
+/** Roda generateMassPlan num WEB WORKER dedicado (1 worker por geração): a
+ *  thread do renderer nunca bloqueia — numa OP de mundo inteiro a ordenação
+ *  leva de 1 a 4 minutos e a UI precisa continuar respondendo. O worker é
+ *  encerrado na primeira mensagem de fechamento (ok/erro) ou no erro de boot
+ *  do próprio Worker; o postMessage clona os dados (grupos + contexto com
+ *  Maps) de forma estruturada, sem compartilhar estado. */
+function runPlannerInWorker(
+  groups: readonly MassGroupConfig[],
+  context: MassPlanContext,
+  onProgress: (evaluatedPairs: number) => void,
+): Promise<MassPlanResult> {
+  return new Promise<MassPlanResult>((resolve, reject) => {
+    const worker = new Worker(new URL('./mass-planner.worker.ts', import.meta.url), { type: 'module' });
+    const requestId = Date.now();
+    const settle = (done: () => void): void => {
+      worker.terminate();
+      done();
+    };
+    worker.addEventListener(
+      'message',
+      (event: MessageEvent<MassPlannerWorkerResponse>) => {
+        const message = event.data;
+        if (message.requestId !== requestId) return; // resposta de geração antiga: ignora
+        if (message.kind === 'progress') {
+          onProgress(message.evaluatedPairs);
+        } else if (message.kind === 'ok') {
+          settle(() => resolve(message.result));
+        } else {
+          settle(() => reject(new Error(message.message)));
+        }
+      },
+    );
+    worker.addEventListener('error', () => {
+      settle(() => reject(new Error('O motor de planejamento falhou inesperadamente — tente gerar de novo.')));
+    });
+    const request: MassPlannerWorkerRequest = { requestId, groups: [...groups], context };
+    worker.postMessage(request);
+  });
+}
+
 /** Revalida um grupo vindo do rascunho persistido — item lixo é descartado
  *  (grupo inválido simplesmente não volta), nunca vira estado fantasma. */
 function reviveGroupConfig(item: unknown): MassGroupConfig | null {
@@ -1942,10 +2017,9 @@ function reviveGroupConfig(item: unknown): MassGroupConfig | null {
     towers: coordList(raw.towers),
     towerRadius: num(raw.towerRadius, 15),
     slowestUnit: typeof raw.slowestUnit === 'string' ? (raw.slowestUnit as UnitId) : 'ram',
-    assignMode:
-      raw.assignMode === 'mais-perto' || raw.assignMode === 'mais-longe' || raw.assignMode === 'por-jogador'
-        ? raw.assignMode
-        : 'otimizado',
+    assignMode: ASSIGN_MODES.includes(raw.assignMode as MassAssignMode)
+      ? (raw.assignMode as MassAssignMode)
+      : 'otimizado',
     repeatOriginSamePlayer: raw.repeatOriginSamePlayer === true,
     minDistance: num(raw.minDistance, 0),
     maxDistance: num(raw.maxDistance, 2000),

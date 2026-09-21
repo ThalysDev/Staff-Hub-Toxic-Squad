@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Lock, RefreshCw, RotateCcw, Save } from 'lucide-react';
-import type { AppSettings, UpdateCheckResult } from '@shared/ipc-types';
+import { AlertTriangle, CheckCircle2, Lock, RefreshCw, RotateCcw, Save, Send } from 'lucide-react';
+import type { AppSettings, UpdateCheckResult, UpdateVersionEntry } from '@shared/ipc-types';
 import { DEFAULT_SETTINGS } from '@shared/ipc-types';
+import { formatBrDate } from '@shared/digest';
 import Callout from '../components/Callout';
 import PageHeader from '../components/PageHeader';
 import { useToast } from '../hooks/useToast';
@@ -247,7 +248,7 @@ export default function SettingsPage() {
         <PageHeader kicker="Sistema" title="Configurações" />
         <div className="card">
           <div className="card-body">
-            <p className="inline-error">
+            <p className="inline-error" role="alert">
               <AlertTriangle size={16} aria-hidden="true" />
               Não foi possível carregar as configurações. Feche e abra o hub e tente de novo.
             </p>
@@ -499,14 +500,18 @@ export default function SettingsPage() {
           </div>
         </div>
       </section>
+
+      <DigestSection />
     </section>
   );
 }
 
-/** Seção de rollback: lista versões anteriores no canal e permite voltar. */
+/** Seção de rollback: consome o inventário ASSINADO do canal (versions.json) e
+ *  passa sha256 + sig reais ao prepareVersion — o bypass de sha vazio foi
+ *  extinto no hardening 0.36.0. */
 function RollbackSection() {
   const [busy, setBusy] = useState(false);
-  const [versions, setVersions] = useState<{ version: string; url: string }[] | null>(null);
+  const [versions, setVersions] = useState<UpdateVersionEntry[] | null>(null);
   const [error, setError] = useState('');
   const [detail, setDetail] = useState('');
 
@@ -524,12 +529,12 @@ function RollbackSection() {
     }
   }
 
-  async function rollback(version: string, url: string): Promise<void> {
-    if (!window.confirm(`Voltar para a versão ${version}? O hub vai baixar e reiniciar na versão anterior.`)) return;
+  async function rollback(entry: UpdateVersionEntry): Promise<void> {
+    if (!window.confirm(`Voltar para a versão ${entry.version}? O hub vai baixar e reiniciar na versão anterior.`)) return;
     setBusy(true);
     setDetail('');
     try {
-      const result = await window.staffhub.updater.prepareVersion(version, url, '');
+      const result = await window.staffhub.updater.prepareVersion(entry.version, entry.url, entry.sha256, entry.sig);
       if (result.ok) {
         await window.staffhub.updater.restartToUpdate();
       } else {
@@ -555,16 +560,202 @@ function RollbackSection() {
             key={v.version}
             type="button"
             className="btn btn-ghost btn-sm"
-            onClick={() => void rollback(v.version, v.url)}
+            onClick={() => void rollback(v)}
             disabled={busy}
           >
-            Voltar para {v.version}
+            Voltar para {v.version} ({new Date(v.releasedAt).toLocaleDateString('pt-BR')})
           </button>
         ))}
       </div>
-      {versions?.length === 0 && <p className="muted">Nenhuma versão anterior disponível no canal.</p>}
+      {versions?.length === 0 && (
+        <p className="muted">
+          Nenhuma versão anterior publicada no canal (a partir da 0.36.0 o canal publica o inventário).
+        </p>
+      )}
       {error !== '' && <p className="error" role="alert">{error}</p>}
       {detail !== '' && <p className="error" role="alert">{detail}</p>}
     </div>
+  );
+}
+
+/** Seção "◆ Digesto do Quartel": webhook diário (formato Discord, POST
+ *  {content}) — envio automático 1x/dia depois das 08:00 + botão "Enviar
+ *  agora". O resumo SAI da máquina para a URL configurada (ver aviso). */
+function DigestSection() {
+  const { push } = useToast();
+  const [urlDraft, setUrlDraft] = useState('');
+  const [enabled, setEnabled] = useState(false);
+  const [lastSentDate, setLastSentDate] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.staffhub.digest
+      .get()
+      .then((status) => {
+        if (cancelled) return;
+        setUrlDraft(status.config.webhookUrl);
+        setEnabled(status.config.enabled);
+        setLastSentDate(status.lastSentDate);
+      })
+      .catch(() => undefined); // falha de ponte: formulário segue com defaults
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** URL vazia é válida (limpa a configuração); preenchida, precisa ser http(s). */
+  function validateWebhookUrl(value: string): string | undefined {
+    const trimmed = value.trim();
+    if (trimmed === '') return undefined;
+    try {
+      if (new URL(trimmed).protocol !== 'http:' && new URL(trimmed).protocol !== 'https:') {
+        return 'O webhook precisa começar com http:// ou https://.';
+      }
+    } catch {
+      return 'Informe a URL completa do webhook (ex.: https://discord.com/api/webhooks/…).';
+    }
+    return undefined;
+  }
+
+  const urlError = validateWebhookUrl(urlDraft);
+
+  async function handleSave(): Promise<void> {
+    if (urlError !== undefined) {
+      push('error', urlError);
+      return;
+    }
+    if (enabled && urlDraft.trim() === '') {
+      push('error', 'Para ativar o envio automático, informe a URL do webhook.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const status = await window.staffhub.digest.set({ webhookUrl: urlDraft.trim(), enabled });
+      setUrlDraft(status.config.webhookUrl);
+      setEnabled(status.config.enabled);
+      setLastSentDate(status.lastSentDate);
+      push('ok', 'Digesto do Quartel salvo.');
+    } catch (err) {
+      push('error', err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSendNow(): Promise<void> {
+    setSending(true);
+    try {
+      const result = await window.staffhub.digest.send();
+      if (result.ok) {
+        const status = await window.staffhub.digest.get();
+        setLastSentDate(status.lastSentDate);
+        push('ok', result.detail);
+      } else {
+        push('error', result.detail);
+      }
+    } catch (err) {
+      push('error', err instanceof Error ? err.message : String(err));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <section className="page-section">
+      <h2 className="section-title">◆ Digesto do Quartel</h2>
+      <div className="card">
+        <div className="card-body">
+          <form
+            className="col"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleSave();
+            }}
+          >
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(event) => setEnabled(event.target.checked)}
+              />
+              Envio automático diário (1x por dia, depois das 08:00)
+            </label>
+            <div className="field">
+              <label className="field-label" htmlFor="digestWebhookUrl">
+                Webhook (formato Discord)
+              </label>
+              <input
+                id="digestWebhookUrl"
+                className="input"
+                type="url"
+                placeholder="https://discord.com/api/webhooks/…"
+                value={urlDraft}
+                aria-describedby={urlError !== undefined ? 'digestWebhookUrl-error' : 'digestWebhookUrl-hint'}
+                aria-invalid={urlError !== undefined || undefined}
+                onChange={(event) => setUrlDraft(event.target.value)}
+              />
+              {urlError !== undefined ? (
+                <p className="field-error" id="digestWebhookUrl-error" role="alert">
+                  {urlError}
+                </p>
+              ) : (
+                <p className="field-hint" id="digestWebhookUrl-hint">
+                  Endereço do webhook que recebe o resumo (canal do Discord, bot do Telegram via proxy etc.).
+                </p>
+              )}
+            </div>
+            <div className="row">
+              <button type="submit" className="btn" disabled={saving || urlError !== undefined}>
+                {saving ? (
+                  <>
+                    <span className="btn-spinner" aria-hidden="true" />
+                    Salvando…
+                  </>
+                ) : (
+                  <>
+                    <Save size={15} aria-hidden="true" />
+                    Salvar
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                aria-label="Enviar o digesto agora pelo webhook configurado"
+                onClick={() => void handleSendNow()}
+                disabled={sending}
+              >
+                {sending ? (
+                  <>
+                    <span className="btn-spinner" aria-hidden="true" />
+                    Enviando…
+                  </>
+                ) : (
+                  <>
+                    <Send size={15} aria-hidden="true" />
+                    Enviar agora
+                  </>
+                )}
+              </button>
+              {lastSentDate !== null && (
+                <span className="muted">Último envio: {formatBrDate(lastSentDate)}</span>
+              )}
+            </div>
+          </form>
+          <p className="hint-note">
+            O resumo diário traz: data de hoje, sinais da Auditoria de Membros, coletas realizadas hoje,
+            MPs/cobranças enviadas hoje e o lembrete da próxima coleta automática (se agendada na Análise de Tropas).
+          </p>
+          <Callout variant="warn" icon={Lock}>
+            <p>
+              Confidencialidade: o resumo sai da sua máquina para o webhook configurado — use um canal de
+              confiança da staff.
+            </p>
+          </Callout>
+        </div>
+      </div>
+    </section>
   );
 }

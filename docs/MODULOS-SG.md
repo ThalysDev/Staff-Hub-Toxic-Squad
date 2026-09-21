@@ -282,3 +282,74 @@ Tela: tópico de blindagem em `screen=forum&screenmode=view_thread&thread_id=X&p
 - **Atualizador automático** (`updater-service.ts` + `updater-core.ts`): canal VPS
   (nginx + latest.json), SHA-256, troca via script externo, rollback de versão e E2E
   vermelho/verde da cadeia completa (`scripts/e2e-update.mjs`).
+
+---
+
+## Release notes
+
+### v0.35.x
+
+- **v0.35.0 — auditoria UX/UI completa aplicada** (3 ondas + revisão dupla):
+  - **Onda 1 (verdade)**: sessão do jogo expirada PROPAGA (`markSessionLost` + `onSentinel`
+    → push `session:changed`; fim do loop de toasts da coleta automática); journal agrupado
+    por dia (chave local absoluta, "Hoje · data" só no display) com flood de boot removido e
+    repetidos colapsados ×N; filtro de período em dias LOCAIS; 12 tokens CSS quebrados
+    consertados; pluralização e helpers "até 0 comando(s)"; "Cancelar coleta" no SG_2;
+    cobrança de faltas em 1 diálogo com contagem honesta de não-tentadas.
+  - **Onda 2 (um só idioma)**: ~46 callouts migrados para o componente `Callout` (roles
+    status/alert); verbos unificados (Coletar/Recarregar/Remover + sufixo "não pode ser
+    desfeita" em TODOS os destrutivos); vocabulário de sessão (Conectado/Desconectado/Não
+    conectado); confirmação no "Restaurar padrões" (6 módulos); botões de navegação
+    SG_4→SG_6 e arquivar→Guerra; canal de update em "Avançado" nas Configurações.
+  - **Onda 3 (hierarquia)**: 1 botão primário por card em todo o app; diplomacia do SG_1
+    em warn perto da ação; disclosure progressivo no SG_4 (etapas colapsam até os
+    pré-requisitos); dashboard com estado "aguardando sessão".
+- **v0.35.1 — hint no SG_2**: o "Recarregar da memória" ganhou hint visível explicando que
+  SÓ relê os dados já coletados — dados novos exigem uma nova coleta.
+- **v0.35.2 — banner global de atualização** (`UpdateBanner` montado no `App.tsx`): faixa
+  fixa no topo em TODAS as telas com os 4 estados (nova versão disponível · baixando com
+  progresso · pronto com "Reiniciar agora" · falha com "Tentar de novo"); **snooze por
+  versão** ("Agora não"/"Mais tarde" esconde a faixa DESTA versão — versão nova reabre na
+  hora); "O que mudou" expande as notas da release; "Verificar atualizações" segue na
+  paleta Ctrl+K e card no Início. Modo demo para QA: `?update-banner=demo`.
+
+### v0.36.0 (em preparação)
+
+> ⚠ **EM PREPARAÇÃO** — ondas em andamento na árvore; NADA abaixo está em release
+> publicada. Não tratar como comportamento do app instalado até a 0.36.0 sair pelo canal.
+
+- **Hardening do atualizador**:
+  - Manifest (`latest.json`) **ASSINADO com Ed25519** — o canal é HTTP puro por decisão do
+    dono; a integridade vem da ASSINATURA, não do transporte. Chave pública embutida em
+    `src/shared/updater-core.ts` (`UPDATE_PUBKEY_B64`); privada em `dist/vps/update-keys/`
+    (fora do git, gerada por `scripts/generate-update-keys.mjs`). Sem assinatura válida não
+    há atualização, sem exceção;
+  - `scripts/publish-update.mjs` passa a validar o manifest com o MESMO `isValidManifest`
+    do client e o teto de notas `MAX_NOTES_LENGTH` (600) ANTES de subir (notas gigantes
+    viravam manifesto que todo client rejeita — morte silenciosa do update);
+  - **Anti-brick**: reparo automático de troca pela metade (pasta do app ausente + backup
+    `shb-old-*` presente → restaura antes de qualquer fase) + `RECUPERACAO.txt` com o
+    comando manual de uma linha (ver `docs/RUNBOOK-OPS.md`);
+  - **Rollback cross-minor** pelo inventário assinado `versions.json`
+    (`[{version, url, sha256, sig, releasedAt}]`); o bypass antigo "sha vazio = pular
+    verificação" foi EXTINTO (era RCE sem autenticação — canais ficam ungated de propósito);
+  - Pin de host: o zip tem que vir do MESMO host do canal configurado (update e rollback).
+- **Gates de auditoria**: `journal:clear` e canais `worldhistory` entram no gate central
+  (`CANAIS_PROTEGIDOS`) — apagar a trilha de auditoria exige sessão do sistema;
+  `registerIpc()` só roda DEPOIS do wrapper do gate (na v0.35, 5 canais chegaram a ficar
+  ungated por causa da ordem — P1 da revisão 2).
+- **Boot janela-primeiro**: a janela sobe ANTES do boot de auth — VPS lenta (timeout de
+  rede) não deixa o app cego; o renderer pinta o splash e o estado chega pelo push
+  `auth:changed`.
+- **Engines fail-closed** em speed/coord/def_factor: velocidade de unidade, coordenada e
+  fator de defesa desconhecidos ABORTEM com erro claro — nunca inventam valor.
+- **Cancel em mutações**: cancelamento propagando na cadeia (cancelled estrutural, contagem
+  honesta de itens não tentados no halt).
+- **Catálogo de erros**: contrato de erro com título/causa/próxima ação (avanço do U13).
+- **WCAG top**: correções de acessibilidade prioritárias.
+- **Planner em worker**: o cruzamento pesado do Planner em Massa sai do renderer (sem
+  congelar a UI na geração de OPs de mundo inteiro).
+- **Stores por-conta**: dados locais separados por conta do Staff Hub.
+- **ODA/ODD**: novos agregados de dados do mundo.
+- **Alerta de Estagnação**: sinal de mundo/tribo parado.
+- **Digesto webhook**: integração de notificação externa.

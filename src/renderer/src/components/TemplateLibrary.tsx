@@ -61,6 +61,10 @@ export default function TemplateLibrary({
     };
   }, []);
 
+  /** WCAG 2.4.3: ao remover um template (a linha some), o foco vai para o
+   *  controle do cabeçalho da biblioteca em vez de cair no body. */
+  const toggleButtonRef = useRef<HTMLButtonElement | null>(null);
+
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true);
     try {
@@ -143,6 +147,8 @@ export default function TemplateLibrary({
       if (!mountedRef.current) return;
       push('ok', `Template "${entry.name}" removido da biblioteca.`);
       await refresh();
+      // A linha removida carregava o foco — devolve ao cabeçalho da biblioteca.
+      toggleButtonRef.current?.focus({ preventScroll: true });
     } catch (error) {
       if (!mountedRef.current) return;
       const message = errorMessage(error, 'Falha ao remover o template.');
@@ -160,6 +166,7 @@ export default function TemplateLibrary({
           <button
             type="button"
             id="tmpl-toggle"
+            ref={toggleButtonRef}
             className="tmpl-toggle"
             aria-expanded={open}
             aria-controls="tmpl-panel"

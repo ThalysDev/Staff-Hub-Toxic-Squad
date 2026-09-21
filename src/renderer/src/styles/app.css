@@ -96,6 +96,35 @@ h2 {
   padding: var(--sp-6) var(--sp-6) var(--sp-8);
 }
 
+/* =====================================================================
+   Skip-link (WCAG 2.4.1) — fora da tela até receber foco; no Tab sobe
+   para o topo esquerdo, sobre a titlebar/toasts. Alvo: #conteudo-principal.
+   ===================================================================== */
+.skip-link {
+  position: absolute;
+  top: -60px; /* fora da janela (app-shell corta overflow) */
+  left: var(--sp-3);
+  z-index: 1100; /* acima da titlebar e do toast-viewport (1000) */
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  background: var(--bg-card);
+  color: var(--text-strong);
+  font-weight: 600;
+  text-decoration: none;
+  transition: top var(--t-fast);
+}
+
+.skip-link:focus-visible {
+  top: 0;
+}
+
+/* Alvo do skip-link (e foco programático): remove o anel do main — a rolagem
+   já indica o destino — mas mantém o foco funcional (tabIndex={-1}). */
+.content:focus {
+  outline: none;
+}
+
 /* Páginas SG ficam montadas (estado sobrevive à navegação) — as inativas
    são ocultadas por completo, sem renderizar nem ocupar espaço. */
 .sg-page {
@@ -591,7 +620,7 @@ h2 {
 
 .input::placeholder,
 .textarea::placeholder {
-  color: #b7a98d;
+  color: var(--text-placeholder); /* ≥4.5:1 sobre --bg-field nos dois temas (WCAG 1.4.3) */
 }
 
 .input:hover,
@@ -618,6 +647,15 @@ h2 {
   font-size: var(--fs-small);
   font-weight: 600;
   color: var(--text-strong);
+}
+
+/* h2.field-label (Capturas de tela): o h2 ganha semântica de seção, mas o
+   desenho continua o do rótulo — neutraliza Cinzel/uppercase/margem dos h*. */
+h2.field-label {
+  margin: 0;
+  font-family: var(--font-body);
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .field-hint {
@@ -1232,6 +1270,13 @@ h2 {
 .toast-close:hover {
   background: var(--accent-soft);
   color: var(--text-strong);
+}
+
+/* Foco programático do handoff (Toast fecha → próximo toast/viewport). */
+.toast:focus-visible,
+.toast-viewport:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
 }
 
 /* =====================================================================
@@ -1860,6 +1905,13 @@ kbd {
 
 .sg1-map-canvas:active {
   cursor: grabbing;
+}
+
+/* Canvas agora é focável (Tab + setas fazem pan) — indicador de foco visível
+   por dentro, sem vazar do frame arredondado. */
+.sg1-map-canvas:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: -2px;
 }
 
 .sg1-map-hint {

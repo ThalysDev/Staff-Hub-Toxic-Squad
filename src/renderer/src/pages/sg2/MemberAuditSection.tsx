@@ -23,7 +23,10 @@ import {
   DEFAULT_INACTIVE_ABS_OFF_POP,
   DEFAULT_SHARP_DECLINE_OFF_POP,
   DEFAULT_SHARP_DECLINE_VILLAGES,
+  DEFAULT_STAGNATION_OFF_POP_DROP,
+  STAGNATION_LABEL,
   auditSignals,
+  detectStagnation,
   formatAuditDiffTsv,
   formatPlayerTimelineTsv,
   playerTimeline,
@@ -32,6 +35,7 @@ import {
   type AuditSignal,
   type AuditSignalKind,
   type PlayerTimelinePoint,
+  type StagnationSignal,
 } from '@shared/member-audit';
 import { fold } from '@shared/fold';
 import Callout from '../../components/Callout';
@@ -80,6 +84,24 @@ const SITUATION_LABEL: Record<PlayerTimelinePoint['situation'], string> = {
   saiu: 'Saiu',
   ausente: 'Ausente',
 };
+
+/** Pills dos sinais de estagnação: declínio = erro, estagnado = aviso. */
+const STAGNATION_PILL: Record<StagnationSignal['kind'], string> = {
+  'em-declinio': 'pill--error',
+  estagnado: 'pill--warn',
+};
+
+/** Ícones dos sinais de estagnação (mesma família visual dos Sinais de auditoria). */
+const STAGNATION_ICON: Record<StagnationSignal['kind'], LucideIcon> = {
+  'em-declinio': TrendingDown,
+  estagnado: Hourglass,
+};
+
+/** Subtítulo do card de estagnação: expõe o limiar exato (mesma transparência dos Sinais). */
+const STAGNATION_SUBTITLE =
+  `Janela cheia do histórico (todas as versões arquivadas): ` +
+  `queda líquida ≥ ${NUMBER_FMT.format(DEFAULT_STAGNATION_OFF_POP_DROP)} de pop ofensiva = em declínio; ` +
+  `parado no período = estagnado.`;
 
 /** Tooltip do grupo de alertas: expõe os limiares exatos em vez de escondê-los. */
 const SIGNALS_TOOLTIP =
@@ -312,6 +334,26 @@ export default function MemberAuditSection({ refreshKey = 0 }: { refreshKey?: nu
   );
 
   const tribe = useMemo(() => (versions === null ? [] : tribeTimeline(versions)), [versions]);
+
+  /** Estagnação na JANELA CHEIA (todas as versões) — independe do seletor A/B. */
+  const stagnation = useMemo(
+    () => (versions === null || versions.length < 2 ? [] : detectStagnation(versions)),
+    [versions],
+  );
+
+  /** Sinais de estagnação agrupados por kind (um card por tipo, na ordem do motor). */
+  const stagnationGroups = useMemo(() => {
+    const byKind = new Map<StagnationSignal['kind'], StagnationSignal[]>();
+    for (const signal of stagnation) {
+      const items = byKind.get(signal.kind) ?? [];
+      items.push(signal);
+      byKind.set(signal.kind, items);
+    }
+    return (['em-declinio', 'estagnado'] as const).flatMap((kind) => {
+      const items = byKind.get(kind);
+      return items === undefined ? [] : [{ kind, items }];
+    });
+  }, [stagnation]);
 
   async function copyDiffTable(): Promise<void> {
     if (visibleRows.length === 0) {
@@ -582,6 +624,44 @@ export default function MemberAuditSection({ refreshKey = 0 }: { refreshKey?: nu
                     )}
                   </p>
                 </>
+              )}
+            </div>
+          </div>
+
+          {/* ===== Alerta de estagnação (janela cheia — independe do seletor A/B) ===== */}
+          <div className="card">
+            <div className="card-body col" style={{ gap: 16 }}>
+              <h3 className="audit-block-title">
+                <Hourglass size={14} aria-hidden="true" /> Alerta de estagnação
+              </h3>
+              <p className="muted audit-filters-note">{STAGNATION_SUBTITLE}</p>
+              {stagnationGroups.length === 0 ? (
+                <p className="muted">Nenhum sinal de estagnação no histórico arquivado.</p>
+              ) : (
+                <div className="audit-alerts">
+                  {stagnationGroups.map(({ kind, items }) => {
+                    const Icon = STAGNATION_ICON[kind];
+                    return (
+                      <div key={kind} className="audit-alert-card">
+                        <p className="audit-alert-title">
+                          <Icon size={14} aria-hidden="true" /> {STAGNATION_LABEL[kind]}
+                        </p>
+                        <ul className="audit-alert-list">
+                          {items.map((signal) => (
+                            <li key={signal.playerName} className="audit-alert-item">
+                              <strong>{signal.playerName}</strong>
+                              <span className={`pill ${STAGNATION_PILL[kind]}`}>{STAGNATION_LABEL[kind]}</span>
+                              <span className="muted">
+                                Δoff {formatSigned(signal.offPopDelta)} ·{' '}
+                                {NUMBER_FMT.format(signal.versionsPresent)} versões
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>

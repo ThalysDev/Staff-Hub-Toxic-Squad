@@ -21,6 +21,7 @@
 // Fail-closed PT-BR: sem coordenada OU sem nenhuma unidade reconhecida → throw
 // com mensagem clara, nunca dado errado silencioso.
 
+import { fold } from './fold';
 import { formatCoord, parseCoord } from './coords';
 import { UNITS, defensivePopulation, offensivePopulation, type UnitCounts, type UnitId } from './units';
 
@@ -50,14 +51,10 @@ const WALL_BONUS_PCT_PER_LEVEL = 10;
 const WALL_BONUS_PCT_CAP = 50;
 const WALL_BONUS_FROM_LEVEL = 10;
 
-/** minúsculas, sem acentos (NFD), espaços colapsados — para casamento de nomes. */
+/** minúsculas, sem acentos (NFD), espaços colapsados — para casamento de nomes.
+ * fold canônico + colapso de espaço (o texto colado tem espaços irregulares). */
 function normalizeText(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+  return fold(value, { collapseSpaces: true });
 }
 
 function escapeRegExp(value: string): string {

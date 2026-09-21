@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { NOBLE_MINUTES_PER_FIELD_DEFAULT, parseWorldConfigXml } from './world-config';
+import { parseWorldConfigXml } from './world-config';
 
 function fixture(name: string): string {
   return readFileSync(fileURLToPath(new URL(`../../tests/fixtures/br142/${name}`, import.meta.url)), 'utf8');
@@ -37,6 +37,7 @@ describe('parseWorldConfigXml', () => {
       nightBonusActive: false,
       nightStartHour: 0,
       nightEndHour: 0,
+      defFactor: 2, // default clássico: SAMPLE_XML não traz <def_factor>
       hasArchers: true,
       hasPaladin: false,
       hasMilitia: false,
@@ -65,19 +66,22 @@ describe('parseWorldConfigXml', () => {
     expect(parseWorldConfigXml('brc2', xmlClássico).moralActive).toBe(false);
   });
 
-  it('tags ausentes recebem fallback (speed 1, moral ATIVA por padrão)', () => {
-    expect(parseWorldConfigXml('br142', '<config></config>')).toEqual({
-      world: 'br142',
-      speed: 1,
-      unitSpeed: 1,
-      moralActive: true,
-      nightBonusActive: false,
-      nightStartHour: 0,
-      nightEndHour: 0,
-      hasArchers: false,
-      hasPaladin: false,
-      hasMilitia: false,
-    });
+  it('fail-closed: <speed> ausente, vazia, não numérica ou ≤ 0 lança (nunca fallback silencioso)', () => {
+    const semSpeed = 'Configuração do mundo sem <speed> válida';
+    expect(() => parseWorldConfigXml('br142', '<config></config>')).toThrowError(semSpeed);
+    expect(() => parseWorldConfigXml('br142', SAMPLE_XML.replace('<speed>2</speed>', ''))).toThrowError(semSpeed);
+    expect(() => parseWorldConfigXml('br142', SAMPLE_XML.replace('<speed>2</speed>', '<speed>abc</speed>'))).toThrowError(/<speed> inválida/);
+    expect(() => parseWorldConfigXml('br142', SAMPLE_XML.replace('<speed>2</speed>', '<speed>0</speed>'))).toThrowError(/<speed> inválida/);
+    expect(() => parseWorldConfigXml('br142', SAMPLE_XML.replace('<speed>2</speed>', '<speed>-1</speed>'))).toThrowError(/<speed> inválida/);
+  });
+
+  it('fail-closed: <unit_speed> ausente ou inválida lança citando a tag', () => {
+    expect(() => parseWorldConfigXml('br142', '<config><speed>2</speed></config>')).toThrowError(
+      /sem <unit_speed> válida/,
+    );
+    expect(() => parseWorldConfigXml('br142', SAMPLE_XML.replace('<unit_speed>0.75</unit_speed>', '<unit_speed>x</unit_speed>'))).toThrowError(
+      /<unit_speed> inválida/,
+    );
   });
 });
 
@@ -88,6 +92,29 @@ describe('parseWorldConfigXml — bloco aninhado <night>', () => {
     expect(config.nightBonusActive).toBe(true);
     expect(config.nightStartHour).toBe(23);
     expect(config.nightEndHour).toBe(7);
+  });
+
+  it('defFactor vem do <def_factor> DENTRO do bloco <night> (BR142: 2)', () => {
+    expect(parseWorldConfigXml('br142', SAMPLE_XML.replace('<night>0</night>', NIGHT_BLOCK_BR142)).defFactor).toBe(2);
+    const fator3 = SAMPLE_XML.replace('<night>0</night>', NIGHT_BLOCK_BR142.replace('<def_factor>2</def_factor>', '<def_factor>3</def_factor>'));
+    expect(parseWorldConfigXml('br142', fator3).defFactor).toBe(3);
+  });
+
+  it('defFactor: tag ausente → default 2; tag plana (legado) também é lida', () => {
+    expect(parseWorldConfigXml('br142', SAMPLE_XML).defFactor).toBe(2);
+    expect(parseWorldConfigXml('br142', SAMPLE_XML.replace('<night>0</night>', '<night>0</night><def_factor>1.5</def_factor>')).defFactor).toBe(1.5);
+  });
+
+  it('fail-closed: <def_factor> presente mas inválida (não numérica ou ≤ 0) lança', () => {
+    expect(() =>
+      parseWorldConfigXml('br142', SAMPLE_XML.replace('<night>0</night>', NIGHT_BLOCK_BR142.replace('<def_factor>2</def_factor>', '<def_factor>abc</def_factor>'))),
+    ).toThrowError(/<def_factor> inválida/);
+    expect(() =>
+      parseWorldConfigXml('br142', SAMPLE_XML.replace('<night>0</night>', NIGHT_BLOCK_BR142.replace('<def_factor>2</def_factor>', '<def_factor>0</def_factor>'))),
+    ).toThrowError(/<def_factor> inválida/);
+    expect(() => parseWorldConfigXml('br142', SAMPLE_XML.replace('<night>0</night>', '<night>0</night><def_factor>-2</def_factor>'))).toThrowError(
+      /<def_factor> inválida/,
+    );
   });
 
   it('bloco com active=0 mantém as horas parseadas mas desliga o bônus', () => {
@@ -116,16 +143,11 @@ describe('parseWorldConfigXml — bloco aninhado <night>', () => {
 });
 
 describe('parseWorldConfigXml contra o fixture real BR142', () => {
-  it('lê o bloco <night> do get_config capturado: janela 23→7 ativa', () => {
+  it('lê o bloco <night> do get_config capturado: janela 23→7 ativa, defFactor 2', () => {
     const config = parseWorldConfigXml('br142', fixture('world-config-xml.html'));
     expect(config.nightBonusActive).toBe(true);
     expect(config.nightStartHour).toBe(23);
     expect(config.nightEndHour).toBe(7);
-  });
-});
-
-describe('NOBLE_MINUTES_PER_FIELD_DEFAULT', () => {
-  it('é 35 (fallback de mundo clássico)', () => {
-    expect(NOBLE_MINUTES_PER_FIELD_DEFAULT).toBe(35);
+    expect(config.defFactor).toBe(2);
   });
 });

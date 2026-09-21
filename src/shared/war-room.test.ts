@@ -78,6 +78,22 @@ describe('warRoomStatus', () => {
     expect(status.targetsWithoutCommand).toEqual([]);
   });
 
+  it('nick casa por fold (acento/caixa): João cobre JOAO/joão; jogadores distintos não cruzam', () => {
+    const status = warRoomStatus(
+      [{ playerName: 'João', coords: ['10|10', '20|20'] }],
+      [
+        // Duas variantes fold-equivalentes do MESMO dono: o alvo conta UMA vez.
+        { coord: '10|10', commands: [{ playerName: 'JOAO' }, { playerName: 'joão' }] },
+        // 20|20 só tem comando de jogador DISTINTO (mesmo fold não casa).
+        { coord: '20|20', commands: [{ playerName: 'Antônio' }] },
+      ],
+    );
+    expect(status.perPlayer).toEqual([{ playerName: 'João', assigned: 2, sent: 1 }]);
+    expect(status.coveragePct).toBe(50);
+    // 20|20 tem comando (de Antônio) → não é alvo carente.
+    expect(status.targetsWithoutCommand).toEqual([]);
+  });
+
   it('entries vazios → coveragePct 0, nunca NaN', () => {
     expect(warRoomStatus([], [])).toEqual({ coveragePct: 0, perPlayer: [], targetsWithoutCommand: [] });
     const status = warRoomStatus([{ playerName: 'ana', coords: [] }], []);

@@ -204,6 +204,106 @@ export const AUDIT_SIGNAL_LABEL: Record<AuditSignalKind, string> = {
   inactive: 'Inativo no período',
 };
 
+// ===== Alerta de estagnação (janela cheia — não só A→B) =====
+
+/** Queda líquida padrão de pop ofensiva na janela cheia para 'em-declinio' (delta <= -10000). */
+export const DEFAULT_STAGNATION_OFF_POP_DROP = 10000;
+/** Tolerância padrão de variação de pop off na janela cheia para 'estagnado' (|Δ| < 500). */
+export const DEFAULT_STAGNATION_ABS_OFF_POP = 500;
+/** Mínimo padrão de presenças para o sinal significar algo (histórico curto não decide). */
+export const DEFAULT_STAGNATION_MIN_VERSIONS = 4;
+
+/** Rótulos PT-BR (pills da UI) por tipo de sinal de estagnação. */
+export const STAGNATION_LABEL: Record<StagnationSignal['kind'], string> = {
+  'em-declinio': 'Em declínio',
+  estagnado: 'Estagnado',
+};
+
+/** Sinal de estagnação ao longo de TODAS as versões arquivadas (não só A→B):
+ *  janela cheia = primeiro→último ponto em que o jogador esteve presente. */
+export interface StagnationSignal {
+  playerName: string;
+  /** Quantas versões da janela o jogador esteve presente. */
+  versionsPresent: number;
+  offPopFirst: number;
+  offPopLast: number;
+  /** last - first (ambos presentes). */
+  offPopDelta: number;
+  villagesFirst: number;
+  villagesLast: number;
+  /** last - first (ambos presentes). */
+  villagesDelta: number;
+  kind: 'estagnado' | 'em-declinio';
+}
+
+export interface StagnationOptions {
+  /** default 10000 — queda líquida na janela cheia dispara 'em-declinio'. */
+  minOffPopDrop?: number;
+  /** default 4 — menos presenças que isso não tem histórico que signifique algo. */
+  minVersions?: number;
+}
+
+/**
+ * Detecta estagnação/declínio na JANELA CHEIA (todas as versões arquivadas).
+ * REUSE: caminhada por jogador existente (playerTimeline — matching por nome
+ * EXATO); a janela de cada jogador = primeiro→último ponto EM QUE ESTEVE
+ * PRESENTE, então quem entrou no meio usa a própria 1ª presença como baseline
+ * e quem saiu é avaliado até a última presença (ausência vale 0 só na ficha,
+ * nunca aqui). Regras:
+ * - 'em-declinio': queda líquida na janela (offPopDelta <= -minOffPopDrop);
+ * - 'estagnado': |offPopDelta| < 500 E villagesDelta <= 0 na janela;
+ * - exige >= minVersions presenças (padrão 4) e 'em-declinio' tem precedência
+ *   quando ambos os critérios casam.
+ * Ordenação: 'em-declinio' primeiro por offPopDelta asc (pior primeiro);
+ * 'estagnado' por villagesDelta asc, depois nome pt-BR.
+ */
+export function detectStagnation(
+  versions: readonly TroopsHistoryVersion[],
+  opts?: StagnationOptions,
+): StagnationSignal[] {
+  const minOffPopDrop = opts?.minOffPopDrop ?? DEFAULT_STAGNATION_OFF_POP_DROP;
+  const minVersions = opts?.minVersions ?? DEFAULT_STAGNATION_MIN_VERSIONS;
+
+  // União de nomes de TODAS as versões (mesma base da ficha: quem entrou OU
+  // saiu no meio da janela ainda tem janela própria analisável).
+  const names = new Set<string>();
+  for (const version of versions) {
+    for (const player of version.players) names.add(player.playerName);
+  }
+
+  const signals: StagnationSignal[] = [];
+  for (const name of names) {
+    const presentPoints = playerTimeline(versions, name).filter((point) => point.present);
+    const first = presentPoints[0];
+    const last = presentPoints[presentPoints.length - 1];
+    if (presentPoints.length < minVersions || first === undefined || last === undefined) continue;
+    const offPopDelta = last.offPop - first.offPop;
+    const villagesDelta = last.villageCount - first.villageCount;
+    const declining = offPopDelta <= -minOffPopDrop;
+    const stagnant =
+      !declining && Math.abs(offPopDelta) < DEFAULT_STAGNATION_ABS_OFF_POP && villagesDelta <= 0;
+    if (!declining && !stagnant) continue;
+    signals.push({
+      playerName: name,
+      versionsPresent: presentPoints.length,
+      offPopFirst: first.offPop,
+      offPopLast: last.offPop,
+      offPopDelta,
+      villagesFirst: first.villageCount,
+      villagesLast: last.villageCount,
+      villagesDelta,
+      kind: declining ? 'em-declinio' : 'estagnado',
+    });
+  }
+  signals.sort((s1, s2) => {
+    if (s1.kind !== s2.kind) return s1.kind === 'em-declinio' ? -1 : 1;
+    // Dentro do grupo: declínio pior primeiro (Δoff asc); estagnado por Δaldeias asc.
+    const primary = s1.kind === 'em-declinio' ? s1.offPopDelta - s2.offPopDelta : s1.villagesDelta - s2.villagesDelta;
+    return primary || s1.playerName.localeCompare(s2.playerName, 'pt-BR');
+  });
+  return signals;
+}
+
 /** Números INTEIROS sem separador de milhar (planilha-friendly); null vira ''. */
 function formatSignedDelta(delta: number | null): string {
   if (delta === null) return '';

@@ -2,6 +2,14 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
 
+/** Opções do store (ÚNICA opção adicional: gravação compacta). */
+export interface JsonStoreOptions {
+  /** true = JSON sem pretty-print. Stores grandes (dump do mundo: ~100k
+   * aldeias) travam o processo main no stringify indentado — JSON mínimo
+   * corta o custo. Default false (legível) para os stores pequenos. */
+  compact?: boolean;
+}
+
 /**
  * Store JSON versionado com gravação atômica (tmp + rename).
  * Um arquivo por domínio de dados sob userData/stores.
@@ -12,12 +20,15 @@ export class JsonStore<T> {
   private readonly filePath: string;
   private cache: T | null = null;
   private chain: Promise<void> = Promise.resolve();
+  private readonly compact: boolean;
 
   constructor(
     name: string,
     private readonly fallback: T,
+    options: JsonStoreOptions = {},
   ) {
     this.filePath = join(app.getPath('userData'), 'stores', `${name}.json`);
+    this.compact = options.compact === true;
   }
 
   async load(): Promise<T> {
@@ -50,7 +61,7 @@ export class JsonStore<T> {
     const dir = join(this.filePath, '..');
     await fs.mkdir(dir, { recursive: true });
     const tmp = `${this.filePath}.tmp-${crypto.randomUUID()}`;
-    await fs.writeFile(tmp, JSON.stringify(value, null, 2), 'utf-8');
+    await fs.writeFile(tmp, this.compact ? JSON.stringify(value) : JSON.stringify(value, null, 2), 'utf-8');
     await fs.rename(tmp, this.filePath);
   }
 }

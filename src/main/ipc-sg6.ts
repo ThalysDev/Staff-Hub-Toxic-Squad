@@ -40,6 +40,10 @@ export function registerSg6Ipc(deps: Sg6IpcDeps): void {
   ipcMain.handle("sg6:reserve-mass", async (event, coords: string[], confirm: boolean) => {
     try {
       if (confirm) {
+        // Sessão/teto/fila validados ANTES do diálogo nativo (mesma ordem do
+        // chargeBatch no service): nada de perguntar confirmação para depois
+        // falhar alto sem sessão, acima do teto ou com a fila ocupada.
+        await deps.sg6.assertReservePreflight(coords);
         await confirmMutation(
           event,
           "Reserva em massa",
@@ -55,6 +59,8 @@ export function registerSg6Ipc(deps: Sg6IpcDeps): void {
   ipcMain.handle("sg6:send-mps", async (event, input: { subject: string; body: string; entries: MpEntry[] }, confirm: boolean) => {
     try {
       if (confirm) {
+        // Mesma ordem do reserve-mass: pré-voo antes do diálogo nativo.
+        await deps.sg6.assertMpsPreflight(input.entries);
         await confirmMutation(
           event,
           "Envio de MPs",

@@ -44,7 +44,7 @@ import { Journal } from '../../src/main/journal';
 import { JsonStore } from '../../src/main/stores/json-store';
 import { RequestQueue } from '../../src/main/tw/request-queue';
 import { DEFAULT_SETTINGS, type AppSettings } from '@shared/ipc-types';
-import { Sg6Service, type MpEntry } from '../../src/main/mutations/sg6-service';
+import { Sg6Service, type MpEntry, type Sg6ServiceOptions } from '../../src/main/mutations/sg6-service';
 
 const WORLD = 'br142';
 const SID = `0:${'1f'.repeat(32)}`; // formato "0:hex64" aceito por parseSidInput
@@ -67,7 +67,7 @@ interface Harness {
  * faz o login de verdade: loginWithSid → cookies.set (mock) → probe GET
  * overview → looksLikeGamePage. Depois disso getStatus() é logged-in/br142.
  */
-async function buildHarness(options: { settings?: Partial<AppSettings>; login?: boolean; routes?: FetchRoute[] } = {}): Promise<Harness> {
+async function buildHarness(options: { settings?: Partial<AppSettings>; login?: boolean; routes?: FetchRoute[]; serviceOptions?: Sg6ServiceOptions } = {}): Promise<Harness> {
   const journal = new Journal();
   const settingsStore = new JsonStore<AppSettings>('settings', DEFAULT_SETTINGS);
   await settingsStore.save({
@@ -91,7 +91,7 @@ async function buildHarness(options: { settings?: Partial<AppSettings>; login?: 
     const login = await twSession.loginWithSid(WORLD, SID);
     expect(login.ok).toBe(true);
   }
-  return { service: new Sg6Service(twSession, journal, settingsStore, queue), journal, queue };
+  return { service: new Sg6Service(twSession, journal, settingsStore, queue, options.serviceOptions), journal, queue };
 }
 
 /** Acesso tipado ao stub do diálogo nativo instalado na factory do vi.mock. */
@@ -242,6 +242,68 @@ describe('Sg6Service.reserveMass (reservas no Planejador)', () => {
     expect(fetchCallCount('mode=reservations')).toBe(0);
   });
 
+  it('cancel() da fila no MEIO da cadeia: 2º item vê cancelado → halt journalado e restantes "Cancelado pelo usuário"', async () => {
+    const holder: { queue?: RequestQueue } = {};
+    let postCount = 0;
+    const { service, journal, queue } = await buildHarness({
+      routes: [
+        {
+          match: 'action=new_reservation',
+          handler: () => {
+            postCount += 1;
+            holder.queue?.cancel(); // cancela DURANTE o 1º POST
+            return html(POST_OK);
+          },
+        },
+        { match: 'screen=ally&mode=reservations', handler: () => html(fixture('ally-reservations.html')) },
+      ],
+    });
+    holder.queue = queue;
+
+    const outcomes = await service.reserveMass(['500|500', '501|501', '502|502'], true);
+
+    // 1ª reserva saiu; a 2ª é barrada ANTES do POST e a 3ª nem tenta — as duas
+    // viram linha explícita "Cancelado pelo usuário" (o lote NÃO continua).
+    expect(outcomes).toEqual([
+      { coord: '500|500', ok: true, detail: 'Pedido enviado.' },
+      { coord: '501|501', ok: false, detail: 'Cancelado pelo usuário' },
+      { coord: '502|502', ok: false, detail: 'Cancelado pelo usuário' },
+    ]);
+    expect(postCount).toBe(1);
+    const cancel = journal.list(20).find((entry) => entry.action === 'reserve-cancel');
+    expect(cancel?.kind).toBe('mutation');
+    expect(cancel?.detail).toBe('Reserva cancelada pelo usuário antes da coordenada 501|501');
+    expect(queue.isRunning).toBe(false);
+  }, 10_000);
+
+  it('falha ANTES do primeiro item (página sem csrf) journala "reserve-erro" de mutação', async () => {
+    const { service, journal } = await buildHarness({
+      routes: [{ match: 'screen=ally&mode=reservations', handler: () => html('<html><body>sem tokens</body></html>') }],
+    });
+
+    await expect(service.reserveMass(['500|500'], true)).rejects.toThrow('Página do jogo sem csrf/aldeia');
+    const erro = journal.list(20).find((entry) => entry.action === 'reserve-erro');
+    expect(erro?.kind).toBe('mutation');
+    expect(erro?.detail).toContain('Reserva em massa abortada: Página do jogo sem csrf/aldeia');
+  });
+
+  it('sentinela na mutação aciona onSessionLost (espelho da queda de sessão para a UI)', async () => {
+    const onSessionLost = vi.fn();
+    const { service } = await buildHarness({
+      serviceOptions: { onSessionLost },
+      routes: [
+        { match: 'action=new_reservation', handler: () => html('<html><form id="login"><input name="password"></form></html>') },
+        { match: 'screen=ally&mode=reservations', handler: () => html(fixture('ally-reservations.html')) },
+      ],
+    });
+
+    const outcomes = await service.reserveMass(['500|500'], true);
+
+    expect(outcomes[0]).toMatchObject({ ok: false, detail: 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.' });
+    expect(onSessionLost).toHaveBeenCalledTimes(1);
+    expect(onSessionLost).toHaveBeenCalledWith('session-expired');
+  });
+
   it('coordenada inválida aborta antes de qualquer envio', async () => {
     const { service } = await buildHarness({
       routes: [{ match: 'screen=ally&mode=reservations', handler: () => html(fixture('ally-reservations.html')) }],
@@ -363,6 +425,40 @@ describe('Sg6Service.sendMps (MPs personalizadas)', () => {
     const halt = journal.list(20).find((entry) => entry.action === 'mp-halt');
     expect(halt?.detail).toBe('MP interrompida em Spartacus (session-expired)');
   }, 10_000);
+
+  it('cancel() da fila interrompe a cadeia de MPs: halt journalado e restantes "Cancelado pelo usuário"', async () => {
+    const holder: { queue?: RequestQueue } = {};
+    const { service, journal, queue } = await buildHarness({
+      routes: mpRoutes(() => {
+        holder.queue?.cancel(); // cancela durante o 1º POST
+        return html('<html><body><div class="success">Mensagem enviada</div></body></html>');
+      }),
+    });
+    holder.queue = queue;
+
+    const outcomes = await service.sendMps('OP', 'Ataque em #alvos#', [
+      { playerName: 'Reboucas', coords: ['500|500'] },
+      { playerName: 'Spartacus', coords: ['501|501'] },
+    ], true);
+
+    expect(outcomes).toEqual([
+      { playerName: 'Reboucas', ok: true, detail: 'MP enviada.' },
+      { playerName: 'Spartacus', ok: false, detail: 'Cancelado pelo usuário' },
+    ]);
+    const cancel = journal.list(20).find((entry) => entry.action === 'mp-cancel');
+    expect(cancel?.detail).toBe('Envio de MPs cancelado pelo usuário antes de Spartacus');
+  }, 10_000);
+
+  it('falha ANTES do primeiro item (página do correio sem csrf) journala "mp-erro" de mutação', async () => {
+    const { service, journal } = await buildHarness({
+      routes: [{ match: 'screen=mail&mode=new', handler: () => html('<html><body>sem tokens</body></html>') }],
+    });
+
+    await expect(service.sendMps('OP', 'Ataque em #alvos#', [{ playerName: 'X', coords: ['500|500'] }], true)).rejects.toThrow('Página do jogo sem csrf/aldeia');
+    const erro = journal.list(20).find((entry) => entry.action === 'mp-erro');
+    expect(erro?.kind).toBe('mutation');
+    expect(erro?.detail).toContain('Envio de MPs abortado: Página do jogo sem csrf/aldeia');
+  });
 
   it('corpo com #horarios# e entrada sem horários é rejeitado fail-closed antes de qualquer POST', async () => {
     const { service } = await buildHarness({ routes: mpRoutes(() => html('<ok/>')) });
@@ -532,6 +628,45 @@ describe('Sg6Service.chargeBatch (cobrança em lote — Sala de Guerra)', () => 
     expect(queue.isRunning).toBe(false);
   }, 10_000);
 
+  it('cancel() da fila no MEIO do lote: para antes do 2º POST, linhas sintéticas e summary conta as canceladas', async () => {
+    const holder: { queue?: RequestQueue } = {};
+    const { service, journal, queue } = await buildHarness({
+      routes: chargeRoutes(() => {
+        holder.queue?.cancel(); // cancela durante o 1º POST
+        return html(POST_SENT);
+      }),
+    });
+    holder.queue = queue;
+
+    const { results } = await service.chargeBatch([chargeEntry('Reboucas'), chargeEntry('Spartacus'), chargeEntry('Fantasma')]);
+
+    // 1ª MP saiu; a 2ª é barrada ANTES do POST e a 3ª nem tenta — as demais
+    // viram linha sintética cancelled=true e o lote NÃO continua.
+    expect(results).toEqual([
+      { nick: 'Reboucas', ok: true, detail: 'MP enviada.', cancelled: false },
+      { nick: 'Spartacus', ok: false, detail: 'Cancelado pelo usuário', cancelled: true },
+      { nick: 'Fantasma', ok: false, detail: 'Cancelado pelo usuário', cancelled: true },
+    ]);
+    const cancel = journal.list(20).find((entry) => entry.action === 'charge-cancel');
+    expect(cancel?.detail).toBe('Cobrança cancelada pelo usuário antes de Spartacus');
+    // Cancelamento NÃO conta como falha de tentativa no summary do lote.
+    const batch = journal.list(20).find((entry) => entry.action === 'charge-batch');
+    expect(batch?.detail).toBe('cobrança em lote: 3 MPs — 1 enviadas, 0 falhas, 2 canceladas pelo usuário');
+    expect(queue.isRunning).toBe(false);
+  }, 10_000);
+
+  it('falha ANTES do primeiro envio (página do correio fora) journala "charge-batch-erro" e NÃO gera a linha do lote', async () => {
+    const { service, journal } = await buildHarness({
+      routes: [{ match: 'screen=mail&mode=new', handler: () => { throw new Error('correio fora do ar'); } }],
+    });
+
+    await expect(service.chargeBatch([chargeEntry('Reboucas')])).rejects.toThrow('correio fora do ar');
+    expect(journal.list(20).some((entry) => entry.action === 'charge-batch')).toBe(false);
+    const erro = journal.list(20).find((entry) => entry.action === 'charge-batch-erro');
+    expect(erro?.kind).toBe('mutation');
+    expect(erro?.detail).toContain('Cobrança abortada antes do primeiro envio: correio fora do ar');
+  });
+
   it('fila ocupada (coleta em andamento) rejeita ANTES do diálogo nativo e de qualquer POST', async () => {
     const { service, queue } = await buildHarness({
       routes: chargeRoutes(() => html(POST_SENT)),
@@ -566,5 +701,41 @@ describe('Sg6Service.chargeBatch (cobrança em lote — Sala de Guerra)', () => 
     await expect(service.chargeBatch([chargeEntry('Reboucas'), chargeEntry('Spartacus')])).rejects.toThrow('maior que o teto das settings (1)');
     expect(showMessageBoxMock()).not.toHaveBeenCalled();
     expect(fetchCallCount('screen=mail')).toBe(0);
+  });
+});
+
+describe('Sg6Service preflight (sessão/teto validados ANTES do diálogo nativo)', () => {
+  it('sem sessão ativa, assertReservePreflight falha alto — o ipc-sg6 nem abre o diálogo', async () => {
+    const { service } = await buildHarness({
+      login: false,
+      routes: [{ match: 'screen=ally&mode=reservations', handler: () => html(fixture('ally-reservations.html')) }],
+    });
+
+    await expect(service.assertReservePreflight(['500|500'])).rejects.toThrow('Nenhuma sessão ativa no jogo');
+    expect(fetchCallCount('mode=reservations')).toBe(0);
+  });
+
+  it('acima do teto, assertMpsPreflight falha alto com a mensagem de teto', async () => {
+    const { service } = await buildHarness({ settings: { requestCeiling: 1 } });
+
+    await expect(
+      service.assertMpsPreflight([
+        { playerName: 'Reboucas', coords: ['500|500'] },
+        { playerName: 'Spartacus', coords: ['501|501'] },
+      ]),
+    ).rejects.toThrow('maior que o teto das settings (1)');
+  });
+
+  it('fila ocupada rejeita o preflight (single-flight C4) sem nenhum fetch', async () => {
+    const { service, queue } = await buildHarness({
+      routes: [{ match: 'screen=ally&mode=reservations', handler: () => html(fixture('ally-reservations.html')) }],
+    });
+    queue.beginOperation();
+    try {
+      await expect(service.assertReservePreflight(['500|500'])).rejects.toThrow('Uma operação está em andamento');
+      expect(fetchCallCount('mode=reservations')).toBe(0);
+    } finally {
+      queue.endOperation();
+    }
   });
 });

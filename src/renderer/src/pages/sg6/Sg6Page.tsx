@@ -37,6 +37,19 @@ export default function Sg6Page() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  /** WCAG 2.4.3: o painel de confirmação substitui o botão "Reservar" — ao
+   *  confirmar/cancelar, o foco volta para ele (remontado) ou para o título
+   *  da seção, em vez de cair no body. */
+  const reserveButtonRef = useRef<HTMLButtonElement | null>(null);
+  const reserveHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  function focusReserveAnchor(): void {
+    window.setTimeout(() => {
+      const button = reserveButtonRef.current;
+      if (button !== null && button.isConnected) button.focus({ preventScroll: true });
+      else reserveHeadingRef.current?.focus({ preventScroll: true });
+    }, 0);
+  }
+
   // Preferências do módulo: formulários sobrevivem a F5/reinício.
   const prefsHydrated = useRef(false);
 
@@ -167,6 +180,7 @@ export default function Sg6Page() {
     } finally {
       setReservePending(null);
       setBusy(false);
+      focusReserveAnchor();
     }
   }
 
@@ -228,7 +242,7 @@ export default function Sg6Page() {
       </Callout>
 
       <section className="page-section" aria-labelledby="sg6-reserve-title">
-        <h2 className="section-title" id="sg6-reserve-title">
+        <h2 className="section-title" id="sg6-reserve-title" ref={reserveHeadingRef} tabIndex={-1}>
           <Bookmark size={16} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -3 }} />
           Passo 1 · Reserva em Massa (Planejador)
         </h2>
@@ -253,6 +267,7 @@ export default function Sg6Page() {
               <div>
                 <button
                   type="button"
+                  ref={reserveButtonRef}
                   className="btn btn-danger"
                   disabled={busy}
                   onClick={() => {
@@ -280,7 +295,15 @@ export default function Sg6Page() {
                   <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void runReserve(reservePending)}>
                     {busy ? <><span className="btn-spinner" aria-hidden="true" /> Enviando…</> : 'Confirmar reserva em massa'}
                   </button>
-                  <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setReservePending(null)}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={busy}
+                    onClick={() => {
+                      setReservePending(null);
+                      focusReserveAnchor();
+                    }}
+                  >
                     Cancelar
                   </button>
                 </div>
@@ -291,9 +314,9 @@ export default function Sg6Page() {
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Aldeia</th>
-                      <th>Resultado</th>
-                      <th>Detalhe</th>
+                      <th scope="col">Aldeia</th>
+                      <th scope="col">Resultado</th>
+                      <th scope="col">Detalhe</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -472,9 +495,9 @@ export default function Sg6Page() {
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Jogador</th>
-                      <th>Resultado</th>
-                      <th>Detalhe</th>
+                      <th scope="col">Jogador</th>
+                      <th scope="col">Resultado</th>
+                      <th scope="col">Detalhe</th>
                     </tr>
                   </thead>
                   <tbody>

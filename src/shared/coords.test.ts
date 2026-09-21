@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   continentOf,
   formatCoord,
-  formatCoordList,
   inAxesRange,
   parseCoord,
   parseCoordList,
@@ -84,26 +83,10 @@ describe('parseCoordList', () => {
   });
 });
 
-describe('formatCoordList', () => {
-  const coords = [
-    { x: 123, y: 456 },
-    { x: 124, y: 456 },
-  ];
-
+describe('formatCoord', () => {
   it('formata single coord sem pad de zeros', () => {
     expect(formatCoord({ x: 123, y: 5 })).toBe('123|5');
-  });
-
-  it('formata lista com espaço', () => {
-    expect(formatCoordList(coords, 'space')).toBe('123|456 124|456');
-  });
-
-  it('formata lista com quebra de linha', () => {
-    expect(formatCoordList(coords, 'newline')).toBe('123|456\n124|456');
-  });
-
-  it('lista vazia resulta em string vazia', () => {
-    expect(formatCoordList([], 'space')).toBe('');
+    expect(formatCoord({ x: 0, y: 0 })).toBe('0|0');
   });
 });
 

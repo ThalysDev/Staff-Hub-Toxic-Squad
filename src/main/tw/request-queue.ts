@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { erroFilaOcupada, erroSentinela } from '@shared/error-catalog';
 
 export type QueueRequestResult = {
   ok: boolean;
@@ -53,7 +54,7 @@ export interface QueueEventHandlers {
 const SESSION_EXPIRED_MARKERS = ['name="password"', 'id="login"', 'login_button'];
 const CAPTCHA_MARKERS = ['bot_check', 'id="captcha"', 'captcha_img'];
 
-export function detectPageSentinels(html: string): QueueFailureKind | null {
+export function detectPageSentinels(html: string): 'session-expired' | 'captcha-suspected' | null {
   const lower = html.toLowerCase();
   if (SESSION_EXPIRED_MARKERS.some((m) => lower.includes(m))) return 'session-expired';
   if (CAPTCHA_MARKERS.some((m) => lower.includes(m))) return 'captcha-suspected';
@@ -71,6 +72,8 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 export class RequestQueue {
   private operationId: string | null = null;
   private externalOperations = 0;
+  /** Resetado no início de CADA operação real (run() e beginOperation 0→1):
+   * cancel() sem operação em andamento é stale e nunca envenena a próxima. */
   private cancelled = false;
   private executed = 0;
   private lastAt = 0;
@@ -90,6 +93,18 @@ export class RequestQueue {
     this.cancelled = true;
   }
 
+  /**
+   * Flag de cancelamento LEGÍVEL POR OPERAÇÕES EXTERNAS: mutações (sg6/sg7) e
+   * downloads de dumps rodam FORA de run() sob beginOperation e consultam este
+   * método entre itens para parar no primeiro ponto seguro. `cancelled` só
+   * volta a false no INÍCIO de uma operação de verdade (run() ou beginOperation
+   * 0→1) — um cancel() sem operação em andamento é STALE e nunca envenena a
+   * operação seguinte.
+   */
+  isCancelled(): boolean {
+    return this.cancelled;
+  }
+
   get isRunning(): boolean {
     return this.operationId !== null || this.externalOperations > 0;
   }
@@ -99,8 +114,15 @@ export class RequestQueue {
    * dumps rodam FORA da fila (POSTs diretos / gzip), mas marcam a fila ocupada
    * para que NENHUMA coleta (nem outra mutação) comece em paralelo — pacing
    * duplicado/triplicado é risco de ban. begin/end sempre em try/finally.
+   * Começo de operação externa (0→1) descarta um cancelamento STALE (sem
+   * operação rodando) — mesmo reset que run() faz no próprio início; begin
+   * aninhado (que os guards C4 já impedem) NÃO reseta, para não apagar um
+   * cancelamento destinado à operação de fora.
    */
   beginOperation(): void {
+    if (this.operationId === null && this.externalOperations === 0) {
+      this.cancelled = false;
+    }
     this.externalOperations += 1;
   }
 
@@ -111,7 +133,7 @@ export class RequestQueue {
   /** Executa N requisições em sequência com pacing; retorna corpos em ordem. */
   async run(urls: string[], options: QueueOptions): Promise<string[]> {
     if (this.operationId !== null || this.externalOperations > 0) {
-      throw new QueueError('aborted', 'Outra operação está em andamento — aguarde terminar (ou cancele na barra de progresso) antes de iniciar outra.');
+      throw new QueueError('aborted', erroFilaOcupada());
     }
     if (urls.length > options.ceiling) {
       throw new QueueError('ceiling-exceeded', `Operação excede o teto de ${options.ceiling} requisições (${urls.length}).`);
@@ -144,9 +166,7 @@ export class RequestQueue {
               // listener do dono falhou — segue o lançamento normal abaixo
             }
           }
-          throw new QueueError(sentinel, sentinel === 'captcha-suspected'
-            ? 'Captcha detectado — operação pausada. Resolva manualmente na janela de login.'
-            : 'Sessão expirada — operação interrompida. Faça login novamente.');
+          throw new QueueError(sentinel, erroSentinela(sentinel));
         }
         bodies.push(result.body);
       }

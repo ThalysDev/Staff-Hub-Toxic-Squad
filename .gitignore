@@ -14,10 +14,15 @@ tests/diag/cap030/e2e-ud/
 
 # Diagnóstico/canário: cookies e HTML integral do jogo nunca no git
 # (fixtures REAIS recortadas vivem em tests/fixtures/br142)
+# Capturas/evidência de OP real também NUNCA no git
 tests/diag/.probe-ud/
 tests/diag/canary-out/
 tests/diag/probe-out/
+tests/diag/cap030/
+tests/diag/cap-planner/
 tests/diag/cap-v0332/
 tests/diag/cap-v033/
+tests/diag/cap-v034/
 tests/diag/cap-035/
 tests/diag/cap-0352/
+tests/diag/twmp/

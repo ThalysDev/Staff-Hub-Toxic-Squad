@@ -325,7 +325,7 @@ export default function JournalPage() {
       />
 
       {error && (
-        <p className="inline-error">
+        <p className="inline-error" role="alert">
           <AlertTriangle size={16} aria-hidden="true" />
           {error}
         </p>
@@ -449,8 +449,8 @@ export default function JournalPage() {
 
           <div className="card card--flush" style={{ marginTop: 12 }}>
             <div className="card-header">
-              <h3 className="card-title">Entradas</h3>
-              <span className="muted">
+              <h2 className="card-title">Entradas</h2>
+              <span className="muted" aria-live="polite">
                 {visible < total
                   ? `${visible} de ${total} ${total === 1 ? 'entrada' : 'entradas'}`
                   : `${visible} ${visible === 1 ? 'entrada' : 'entradas'}`}
@@ -460,11 +460,11 @@ export default function JournalPage() {
               <table className="table journal-table">
                 <thead>
                   <tr>
-                    <th className="cell-num">Hora</th>
-                    <th>Tipo</th>
-                    <th>Ação</th>
-                    <th>Detalhe</th>
-                    <th title="Simulação = leitura sem alterar o jogo (dry-run)">Simulação?</th>
+                    <th scope="col" className="cell-num">Hora</th>
+                    <th scope="col">Tipo</th>
+                    <th scope="col">Ação</th>
+                    <th scope="col">Detalhe</th>
+                    <th scope="col" title="Simulação = leitura sem alterar o jogo (dry-run)">Simulação?</th>
                   </tr>
                 </thead>
                 {groups.length === 0 ? (

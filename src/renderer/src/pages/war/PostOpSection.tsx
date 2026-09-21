@@ -17,6 +17,7 @@ import Callout from '../../components/Callout';
 import StatBlock from '../../components/StatBlock';
 import { loadRelationsShared } from '../../hooks/useDiplomacyRelations';
 import { useToast } from '../../hooks/useToast';
+import { getWorldVillages, invalidateWorldVillages } from '../../world-cache';
 
 export interface PostOpSectionProps {
   /** OP selecionada na Sala de Guerra (com distribuição anexada). */
@@ -187,6 +188,9 @@ export default function PostOpSection({ op, onArchived }: PostOpSectionProps): J
       if (dumpStale) {
         push('info', 'Baixando dump pós-operação…');
         await window.staffhub.world.refresh();
+        // Dump mudou no main: a cópia de aldeias no renderer está velha —
+        // classificar com ela marcaria conquistado/defendido com mapa antigo.
+        invalidateWorldVillages();
       }
 
       // 2) Diplomacia do momento: sem ownAllyId/inimigas declaradas a
@@ -195,7 +199,7 @@ export default function PostOpSection({ op, onArchived }: PostOpSectionProps): J
 
       // 3) Mundo pós-OP + dicionários de exibição (nome/tag do dono atual).
       const [villages, players, tribes] = await Promise.all([
-        window.staffhub.world.villages(),
+        getWorldVillages(),
         window.staffhub.world.players(),
         window.staffhub.world.tribes(),
       ]);

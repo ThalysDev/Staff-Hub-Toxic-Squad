@@ -10,7 +10,8 @@ import type { Sg1BucketResult } from './types';
 export interface Sg1EngineParams {
   ownVillages: Coord[];
   enemyVillages: Coord[];
-  /** minutos por campo do NOBRE já efetivos (ver effectiveNobleMinutesPerField). */
+  /** minutos por campo do NOBRE já efetivos — o get_unit_info serve o valor
+   * final do mundo (base clássica ÷ (speed × unit_speed), já aplicado). */
   nobleMinutesPerField: number;
 }
 

@@ -149,8 +149,14 @@ export class TwSessionManager {
         partition: TW_PARTITION,
         contextIsolation: true,
         nodeIntegration: false,
+        sandbox: true,
       },
     });
+    // Endurecimento: sem sandbox o renderer da janela carrega conteúdo EXTERNO
+    // (portal do jogo) com mais superfície que o necessário; e pop-ups abertos
+    // pelo jogo não viram janelas cruas dentro do app — links externos são
+    // responsabilidade do navegador real do usuário.
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     this.loginWindow = win;
     win.on('closed', () => {
       this.loginWindow = null;

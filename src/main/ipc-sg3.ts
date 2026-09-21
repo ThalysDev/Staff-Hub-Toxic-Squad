@@ -19,7 +19,7 @@ export function registerSg3Ipc(deps: Sg3IpcDeps): void {
       }
       const results: BlindVillageResult[] = checkBlind({ ...input, defense });
       const bbcode = blindBbcodeTable(results);
-      await deps.journal.append('read', 'sg3-check-blind', `${results.length} aldeia(s) com falta (${input.countMode})`, true);
+      await deps.journal.append('read', 'sg3-check-blind', `${results.length} aldeia(s) com falta (${input.countMode})`, false);
       return { results, bbcode };
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : String(error));

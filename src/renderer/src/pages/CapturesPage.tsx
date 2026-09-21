@@ -180,7 +180,7 @@ export default function CapturesPage() {
       ) : (
         <>
           <div className="row">
-            <span className="field-label">Telas a capturar</span>
+            <h2 className="field-label">Telas a capturar</h2>
             <button type="button" className="btn btn-ghost btn-sm" onClick={toggleAll} disabled={running}>
               {allSelected ? 'Desmarcar todas' : 'Marcar todas'}
             </button>

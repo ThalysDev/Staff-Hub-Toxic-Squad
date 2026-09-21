@@ -3,6 +3,7 @@
 // agregado por jogador a partir das OPs arquivadas. Sem DOM, sem relógio —
 // determinístico por construção.
 import type { OpArchiveEntry, OpPlayerConference } from './ipc-types';
+import { matchesName, nameSet } from './names-filter';
 
 /** Linha válida da distribuição "nick;coord coord" (mesma regex de SG_5/SG_6).
  *  Pares separados por espaço OBRIGATÓRIO — "123|456789|012" é linha inválida,
@@ -39,7 +40,8 @@ export interface WarRoomVillage {
 
 /**
  * Conferência da Sala de Guerra: para cada linha da distribuição, uma coord é
- * "enviada" quando existe ≥1 comando COM O PRÓPRIO NICK do dono na aldeia
+ * "enviada" quando existe ≥1 comando COM O NICK do dono (fold-equal: sem
+ * sensibilidade a acento/caixa — mesma regra de sg2/full-semi) na aldeia
  * daquela coord — comando de outro jogador cobre o alvo dele, nunca a divida
  * do dono. coveragePct = soma(enviadas)/soma(atribuídas) em %, 1 decimal (0 se
  * nada foi atribuído — nunca NaN). Aldeias em `villages` que ninguém atacou
@@ -68,10 +70,13 @@ export function warRoomStatus(
 
   for (const entry of entries) {
     let sent = 0;
+    // Nick casa por fold (acento/caixa-insensível — mesma regra de sg2/full-semi):
+    // "João" na distribuição cobre comando de "JOAO"/"joão" na aldeia.
+    const mine = nameSet([entry.playerName]);
     for (const coord of entry.coords) {
       totalAssigned += 1;
-      const mine = (sendersByCoord.get(coord) ?? []).some((nick) => nick === entry.playerName);
-      if (mine) sent += 1;
+      const sentByMe = (sendersByCoord.get(coord) ?? []).some((nick) => matchesName(mine, nick));
+      if (sentByMe) sent += 1;
       // Sem comando NENHUM na aldeia (ou aldeia nem vigiada) → alvo carente.
       // Comando só de OUTRO jogador entra como sent dele, não aqui.
       if (!accounted.has(coord)) {

@@ -17,14 +17,38 @@ export interface UpdateStatusApi {
   download(): Promise<void>;
   /** restartToUpdate; nunca lança ao chamador. */
   restart(): Promise<void>;
-  /** Oculta o banner DESTA versão (persistido); versão nova reabre na hora. */
+  /** "Tentar de novo" dos painéis de erro (banner E card): re-checa primeiro e,
+   *  se a checagem disser que há atualização, já baixa na sequência (a falha
+   *  podia ser do DOWNLOAD, não do canal — só checar de novo enganaria). */
+  retryFromError(): Promise<void>;
+  /** Oculta o banner DESTA versão (persistido POR USUÁRIO do sistema); versão
+   *  nova reabre na hora. Sem usuário logado, usa a chave legada da máquina. */
   snooze(version: string): void;
   snoozedVersion: string | null;
 }
 
 /** Re-checagem de fundo enquanto houver assinante (banner montado). */
 const RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
-const SNOOZE_KEY = 'shs-update-snooze';
+/** Chave legada (máquina inteira) — segue valendo sem login do sistema. */
+const SNOOZE_KEY_LEGACY = 'shs-update-snooze';
+
+/** Chave do adiamento para o usuário dado: por conta do sistema quando há
+ *  sessão (duas contas na mesma máquina não herdam "Agora não" uma da outra),
+ *  legada quando não há usuário. */
+function snoozeKeyFor(nick: string | null): string {
+  return nick === null ? SNOOZE_KEY_LEGACY : `shs-update-snooze:${nick}`;
+}
+
+/** Nick da sessão do SISTEMA via IPC de auth (mesma fonte do useAuthStatus);
+ *  null = sem sessão/IPC indisponível (fallback da chave legada). */
+async function resolveSnoozeNick(): Promise<string | null> {
+  try {
+    const auth = await window.staffhub.auth.status();
+    return auth.user?.nick ?? null;
+  } catch {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Store SINGLETON (mesmo padrão do useToast): UM listener de progresso e UM
@@ -33,7 +57,9 @@ const SNOOZE_KEY = 'shs-update-snooze';
 // ---------------------------------------------------------------------------
 
 let uiState: UpdateUiState = { phase: 'idle' };
-let snoozedVersion: string | null = loadSnoozedVersion();
+let snoozedVersion: string | null = readSnoozedVersion(null);
+/** Último nick resolvido (cache para o clear do check manual; null = legada). */
+let snoozeNick: string | null = null;
 let snapshot: { state: UpdateUiState; snoozedVersion: string | null } = {
   state: uiState,
   snoozedVersion,
@@ -42,9 +68,9 @@ const listeners = new Set<() => void>();
 let checkTimer: ReturnType<typeof setInterval> | null = null;
 let unsubscribeProgress: (() => void) | null = null;
 
-function loadSnoozedVersion(): string | null {
+function readSnoozedVersion(nick: string | null): string | null {
   try {
-    const stored = window.localStorage.getItem(SNOOZE_KEY);
+    const stored = window.localStorage.getItem(snoozeKeyFor(nick));
     return stored !== null && stored !== '' ? stored : null;
   } catch {
     return null; // localStorage indisponível: snooze vive só nesta sessão
@@ -144,6 +170,19 @@ function stateFromCheck(result: UpdateCheckResult): UpdateUiState {
 }
 
 async function runCheck(manual: boolean): Promise<void> {
+  // Modo guerra (offline 72h): a checagem AUTOMÁTICA pula — o updater fala com
+  // o MESMO servidor que está fora do ar e o resultado seria uma faixa âmbar de
+  // erro empilhada sobre o aviso "modo guerra ativo". Checagem PEDIDA pelo
+  // usuário sempre roda (quem clicou quer saber). Erro já em tela ao cair a
+  // rede fica: limpar esconderia um problema real.
+  if (!manual) {
+    try {
+      const auth = await window.staffhub.auth.status();
+      if (auth.estado === 'offline') return;
+    } catch {
+      // Auth indisponível: segue com o check (comportamento de antes).
+    }
+  }
   try {
     const result = await window.staffhub.updater.check();
     const next = stateFromCheck(result);
@@ -161,7 +200,7 @@ async function runCheck(manual: boolean): Promise<void> {
     if (manual && snoozedVersion !== null) {
       snoozedVersion = null;
       try {
-        window.localStorage.removeItem(SNOOZE_KEY);
+        window.localStorage.removeItem(snoozeKeyFor(snoozeNick));
       } catch {
         // storage ausente: snooze já era só de sessão
       }
@@ -204,13 +243,20 @@ async function runRestart(): Promise<void> {
 
 function snoozeVersion(version: string): void {
   if (version === '') return;
+  // Estado em memória primeiro: a UI esconde na hora. O disco é resolvido
+  // DEPOIS (o nick vem do IPC de auth) — o arquivo grava a chave POR USUÁRIO,
+  // ou a legada quando não há sessão.
   snoozedVersion = version;
-  try {
-    window.localStorage.setItem(SNOOZE_KEY, version);
-  } catch {
-    // Sem storage: o snooze vale só nesta sessão — a store segue correta.
-  }
   commit();
+  void resolveSnoozeNick()
+    .then((nick) => {
+      snoozeNick = nick;
+      try {
+        window.localStorage.setItem(snoozeKeyFor(nick), version);
+      } catch {
+        // Sem storage: o snooze vale só nesta sessão — a store segue correta.
+      }
+    });
 }
 
 function startBackground(): void {
@@ -220,6 +266,17 @@ function startBackground(): void {
   checkTimer = setInterval(() => {
     void runCheck(false);
   }, RECHECK_INTERVAL_MS);
+  // Snooze POR USUÁRIO: com o nick da sessão em mãos, a leitura da chave certa
+  // substitui a da legada (feita no boot do módulo) — a conta B não herda o
+  // "Agora não" da conta A.
+  void resolveSnoozeNick().then((nick) => {
+    snoozeNick = nick;
+    const stored = readSnoozedVersion(nick);
+    if (stored !== snoozedVersion) {
+      snoozedVersion = stored;
+      commit();
+    }
+  });
 }
 
 function stopBackground(): void {
@@ -247,14 +304,29 @@ function getSnapshot(): { state: UpdateUiState; snoozedVersion: string | null } 
 }
 
 /** Ações com identidade ESTÁVEL (module-level): consumidores podem usar
- * `check`/`download`/`restart` em deps de useMemo/useEffect sem re-render
- * churn (F3 da revisão 2). O objeto retornado pelo hook ainda é novo por
- * render (carrega state/snoozedVersion), mas as funções não. */
+ * `check`/`download`/`retryFromError`/`restart` em deps de useMemo/useEffect
+ * sem re-render churn (F3 da revisão 2). O objeto retornado pelo hook ainda é
+ * novo por render (carrega state/snoozedVersion), mas as funções não. */
+
+/**
+ * "Tentar de novo" ÚNICO das duas superfícies de erro (faixa do banner e card
+ * do Dashboard): re-checa o canal PRIMEIRO e, se a checagem disser que há
+ * atualização, baixa na sequência — a falha podia ser do downloadAndPrepare,
+ * não do canal; só re-checar mostraria "disponível" de novo sem progredir.
+ * Estado 'ready'/'downloading' após o check significa: nada a fazer aqui (a
+ * tela já reflete o progresso real).
+ */
+async function runRetryFromError(): Promise<void> {
+  await runCheck(true);
+  if (uiState.phase === 'available') await runDownload();
+}
+
 const STABLE_ACTIONS = {
   // Manual: limpa o adiamento da versão (banner reaparece se ela for a atual).
   check: (): Promise<void> => runCheck(true),
   download: runDownload,
   restart: runRestart,
+  retryFromError: runRetryFromError,
   snooze: snoozeVersion,
 } satisfies Omit<UpdateStatusApi, 'state' | 'snoozedVersion'>;
 

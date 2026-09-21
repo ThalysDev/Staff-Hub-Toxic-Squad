@@ -5,6 +5,7 @@ import type { JsonStore } from '../stores/json-store';
 import type { RequestQueue } from '../tw/request-queue';
 import { DEFAULT_SETTINGS, type AppSettings, type Sg6ChargeEntry, type Sg6ChargeOutcome } from '@shared/ipc-types';
 import { horariosBlock } from '@shared/comms-package';
+import { erroFilaOcupada, erroSessao } from '@shared/error-catalog';
 import { detectPageSentinels } from '../tw/request-queue';
 
 export interface MutationOutcome {
@@ -26,6 +27,13 @@ export interface MpOutcome {
   detail: string;
 }
 
+export interface Sg6ServiceOptions {
+  /** Sentinela detectada DIRETO no corpo da mutação (POSTs fora da fila — o
+   * onSentinel da RequestQueue não vê): espelha a queda no TwSessionManager
+   * para a UI parar de mostrar "Ativa" na hora. Best-effort, default no-op. */
+  onSessionLost?: (kind: 'session-expired' | 'captcha-suspected') => void;
+}
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -43,12 +51,13 @@ export class Sg6Service {
     private readonly settingsStore: JsonStore<AppSettings>,
     /** Single-flight global (C4): mutação não corre junto com coleta da fila. */
     private readonly queue: RequestQueue,
+    private readonly options: Sg6ServiceOptions = {},
   ) {}
 
   /** C4: coleta/mutação em andamento = esta mutação NÃO executa (pacing somado = risco de ban). */
   private assertQueueIdle(): void {
     if (this.queue.isRunning) {
-      throw new Error('Uma operação está em andamento — aguarde terminar (ou cancele a coleta na barra de progresso) antes de executar mutações no jogo.');
+      throw new Error(erroFilaOcupada('executar mutações no jogo'));
     }
   }
 
@@ -65,7 +74,7 @@ export class Sg6Service {
   private world(): string {
     const { state, world } = this.twSession.getStatus();
     if (state !== 'logged-in' || world === null) {
-      throw new Error('Nenhuma sessão ativa no jogo — faça login antes de executar mutações.');
+      throw new Error(erroSessao());
     }
     return world;
   }
@@ -101,17 +110,30 @@ export class Sg6Service {
     return { ok: response.ok, status: response.status, body: await response.text() };
   }
 
+  /**
+   * Pré-voo da reserva em massa: fila livre + sessão ativa + teto validados
+   * ANTES do diálogo nativo (o ipc-sg6 chama este método antes de confirmMutation
+   * — mesma ordem do chargeBatch: nada de perguntar confirmação para depois
+   * falhar alto sem sessão ou acima do teto).
+   */
+  async assertReservePreflight(coords: string[]): Promise<void> {
+    this.assertQueueIdle();
+    this.world();
+    const settings = await this.settings();
+    if (coords.length > settings.requestCeiling) {
+      throw new Error(`Reserva em massa maior que o teto das settings (${settings.requestCeiling}) — ${coords.length} coordenadas.`);
+    }
+  }
+
   /** Reserva em massa no Planejador (1 tentativa por coordenada, tolera "já reservada"). */
   async reserveMass(coords: string[], confirm: boolean): Promise<MutationOutcome[]> {
     if (!confirm) throw new Error('Confirmação dupla necessária — revise o resumo e confirme na tela.');
     if (coords.length === 0) throw new Error('Nenhuma coordenada informada.');
     this.assertQueueIdle();
+    await this.assertReservePreflight(coords);
     this.queue.beginOperation();
     try {
       const settings = await this.settings();
-      if (coords.length > settings.requestCeiling) {
-        throw new Error(`Reserva em massa maior que o teto das settings (${settings.requestCeiling}) — ${coords.length} coordenadas.`);
-      }
       const parsedCoords = coords.map((coord) => ({ coord, parts: this.splitCoord(coord) }));
       const world = this.world();
       const base = `https://${world}.tribalwars.com.br/game.php?screen=ally&mode=reservations`;
@@ -119,7 +141,16 @@ export class Sg6Service {
       const page = await this.twSession.fetchText(base);
       const { csrf, villageId } = this.pageTokens(page);
       const outcomes: MutationOutcome[] = [];
-      for (const { coord, parts } of parsedCoords) {
+      for (const [index, target] of parsedCoords.entries()) {
+        if (this.queue.isCancelled()) {
+          // Cancelamento pela barra de progresso: mesma semântica do halt por
+          // sentinela — para ANTES do POST; as não tentadas ficam explícitas.
+          await this.journal.append('mutation', 'reserve-cancel', `Reserva cancelada pelo usuário antes da coordenada ${target.coord}`, false);
+          for (const remaining of parsedCoords.slice(index)) {
+            outcomes.push({ coord: remaining.coord, ok: false, detail: 'Cancelado pelo usuário' });
+          }
+          break;
+        }
         await sleep(settings.requestMinIntervalMs + Math.random() * settings.requestJitterMs);
         let outcome: MutationOutcome;
         try {
@@ -127,21 +158,22 @@ export class Sg6Service {
             `${base}&village=${villageId}&action=new_reservation&group_id=all&filter=&h=${csrf}`,
             {
               'target_type': 'coord',
-              'x[]': parts.x,
-              'y[]': parts.y,
+              'x[]': target.parts.x,
+              'y[]': target.parts.y,
               'save_reservations': 'Reservar esta aldeia',
             },
           );
           const sentinel = detectPageSentinels(response.body);
           if (sentinel === 'session-expired' || sentinel === 'captcha-suspected') {
-            await this.journal.append('mutation', 'reserve-halt', `Reserva interrompida na coordenada ${coord} (${sentinel})`, false);
-            outcomes.push({ coord, ok: false, detail: sentinel === 'session-expired' ? 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.' : 'CAPTCHA — operação interrompida.' });
+            this.options.onSessionLost?.(sentinel);
+            await this.journal.append('mutation', 'reserve-halt', `Reserva interrompida na coordenada ${target.coord} (${sentinel})`, false);
+            outcomes.push({ coord: target.coord, ok: false, detail: sentinel === 'session-expired' ? 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.' : 'CAPTCHA — operação interrompida.' });
             break;
           }
           const already = /já reserva(?:d[ao]|u)|already reserv/i.test(response.body);
           const error = /class="error"|não existe tal aldeia/i.test(response.body);
           outcome = {
-            coord,
+            coord: target.coord,
             ok: error ? false : response.ok,
             detail: error
               ? 'Recusado pelo jogo (aldeia inexistente ou erro).'
@@ -152,14 +184,33 @@ export class Sg6Service {
                   : `HTTP ${response.status}`,
           };
         } catch (err) {
-          outcome = { coord, ok: false, detail: `Falha de rede: ${err instanceof Error ? err.message : String(err)}` };
+          outcome = { coord: target.coord, ok: false, detail: `Falha de rede: ${err instanceof Error ? err.message : String(err)}` };
         }
-        await this.journal.append('mutation', 'reserve', `reserva ${coord} → ${outcome.detail}`, false);
+        await this.journal.append('mutation', 'reserve', `reserva ${target.coord} → ${outcome.detail}`, false);
         outcomes.push(outcome);
       }
       return outcomes;
+    } catch (error) {
+      // Journal gap: falha ANTES do primeiro item (teto/sessão/página/csrf)
+      // também fica registrada — tentativa de mutação nunca fica sem rastro.
+      await this.journal.append('mutation', 'reserve-erro', `Reserva em massa abortada: ${error instanceof Error ? error.message : String(error)}`, false);
+      throw error;
     } finally {
       this.queue.endOperation();
+    }
+  }
+
+  /**
+   * Pré-voo do envio de MPs: fila livre + sessão ativa + teto validados ANTES
+   * do diálogo nativo (o ipc-sg6 chama antes de confirmMutation — mesma ordem
+   * do chargeBatch).
+   */
+  async assertMpsPreflight(entries: MpEntry[]): Promise<void> {
+    this.assertQueueIdle();
+    this.world();
+    const settings = await this.settings();
+    if (entries.length > settings.requestCeiling) {
+      throw new Error(`Envio maior que o teto das settings (${settings.requestCeiling}) — ${entries.length} MPs.`);
     }
   }
 
@@ -184,65 +235,78 @@ export class Sg6Service {
         }
       }
     }
+    await this.assertMpsPreflight(entries);
     this.queue.beginOperation();
     try {
       const settings = await this.settings();
-    if (entries.length > settings.requestCeiling) {
-      throw new Error(`Envio maior que o teto das settings (${settings.requestCeiling}) — ${entries.length} MPs.`);
-    }
-    const world = this.world();
-    const base = `https://${world}.tribalwars.com.br/game.php?screen=mail&mode=new`;
-    await sleep(settings.requestMinIntervalMs);
-    const page = await this.twSession.fetchText(base);
-    const { csrf, villageId } = this.pageTokens(page);
-    const outcomes: MpOutcome[] = [];
-    for (const entry of entries) {
-      // Placeholders idênticos ao renderTemplate (prévia e envio NUNCA divergem
-      // — lição do reviewer v0.33): #jogador#, #alvos# e #horarios#.
-      let message = bodyTemplate
-        .replaceAll('#jogador#', entry.playerName)
-        .replaceAll('#alvos#', entry.coords.join(' '));
-      if (message.includes('#horarios#') && entry.horarios !== undefined) {
-        message = message.replaceAll('#horarios#', horariosBlock(entry.coords, entry.horarios));
-      }
-      await sleep(settings.requestMinIntervalMs + Math.random() * settings.requestJitterMs);
-      let outcome: MpOutcome;
-      try {
-        const response = await this.postForm(`${base}&village=${villageId}&action=send&h=${csrf}`, {
-          to: entry.playerName,
-          subject,
-          text: message,
-          send: 'Enviar',
-        });
-        const sentinel = detectPageSentinels(response.body);
-        if (sentinel === 'session-expired' || sentinel === 'captcha-suspected') {
-          // Mesma semântica do reserveMass: sentinela INTERROMPE a cadeia —
-          // nunca continuar dando POST em página de login/captcha.
-          await this.journal.append('mutation', 'mp-halt', `MP interrompida em ${entry.playerName} (${sentinel})`, false);
-          outcomes.push({
-            playerName: entry.playerName,
-            ok: false,
-            detail: sentinel === 'session-expired' ? 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.' : 'CAPTCHA — operação interrompida.',
-          });
+      const world = this.world();
+      const base = `https://${world}.tribalwars.com.br/game.php?screen=mail&mode=new`;
+      await sleep(settings.requestMinIntervalMs);
+      const page = await this.twSession.fetchText(base);
+      const { csrf, villageId } = this.pageTokens(page);
+      const outcomes: MpOutcome[] = [];
+      for (const [index, entry] of entries.entries()) {
+        if (this.queue.isCancelled()) {
+          // Cancelamento pela barra de progresso: para ANTES do POST do
+          // destinatário atual; as MPs não enviadas ficam explícitas.
+          await this.journal.append('mutation', 'mp-cancel', `Envio de MPs cancelado pelo usuário antes de ${entry.playerName}`, false);
+          for (const remaining of entries.slice(index)) {
+            outcomes.push({ playerName: remaining.playerName, ok: false, detail: 'Cancelado pelo usuário' });
+          }
           break;
         }
-        const notFound = /não existe|destinatário inválido|unknown recipient/i.test(response.body);
-        outcome = {
-          playerName: entry.playerName,
-          ok: notFound ? false : response.ok,
-          detail: notFound
-            ? 'Nick não encontrado — confira o nome exato no jogo.'
-            : response.ok
-              ? 'MP enviada.'
-              : `HTTP ${response.status}`,
-        };
-      } catch (err) {
-        outcome = { playerName: entry.playerName, ok: false, detail: `Falha de rede: ${err instanceof Error ? err.message : String(err)}` };
+        // Placeholders idênticos ao renderTemplate (prévia e envio NUNCA divergem
+        // — lição do reviewer v0.33): #jogador#, #alvos# e #horarios#.
+        let message = bodyTemplate
+          .replaceAll('#jogador#', entry.playerName)
+          .replaceAll('#alvos#', entry.coords.join(' '));
+        if (message.includes('#horarios#') && entry.horarios !== undefined) {
+          message = message.replaceAll('#horarios#', horariosBlock(entry.coords, entry.horarios));
+        }
+        await sleep(settings.requestMinIntervalMs + Math.random() * settings.requestJitterMs);
+        let outcome: MpOutcome;
+        try {
+          const response = await this.postForm(`${base}&village=${villageId}&action=send&h=${csrf}`, {
+            to: entry.playerName,
+            subject,
+            text: message,
+            send: 'Enviar',
+          });
+          const sentinel = detectPageSentinels(response.body);
+          if (sentinel === 'session-expired' || sentinel === 'captcha-suspected') {
+            // Mesma semântica do reserveMass: sentinela INTERROMPE a cadeia —
+            // nunca continuar dando POST em página de login/captcha.
+            this.options.onSessionLost?.(sentinel);
+            await this.journal.append('mutation', 'mp-halt', `MP interrompida em ${entry.playerName} (${sentinel})`, false);
+            outcomes.push({
+              playerName: entry.playerName,
+              ok: false,
+              detail: sentinel === 'session-expired' ? 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.' : 'CAPTCHA — operação interrompida.',
+            });
+            break;
+          }
+          const notFound = /não existe|destinatário inválido|unknown recipient/i.test(response.body);
+          outcome = {
+            playerName: entry.playerName,
+            ok: notFound ? false : response.ok,
+            detail: notFound
+              ? 'Nick não encontrado — confira o nome exato no jogo.'
+              : response.ok
+                ? 'MP enviada.'
+                : `HTTP ${response.status}`,
+          };
+        } catch (err) {
+          outcome = { playerName: entry.playerName, ok: false, detail: `Falha de rede: ${err instanceof Error ? err.message : String(err)}` };
+        }
+        await this.journal.append('mutation', 'mp-send', `MP ${entry.playerName} (${entry.coords.length} alvos) → ${outcome.detail}`, false);
+        outcomes.push(outcome);
       }
-      await this.journal.append('mutation', 'mp-send', `MP ${entry.playerName} (${entry.coords.length} alvos) → ${outcome.detail}`, false);
-      outcomes.push(outcome);
-    }
       return outcomes;
+    } catch (error) {
+      // Journal gap: falha ANTES do primeiro item (teto/sessão/página/csrf)
+      // também fica registrada — tentativa de mutação nunca fica sem rastro.
+      await this.journal.append('mutation', 'mp-erro', `Envio de MPs abortado: ${error instanceof Error ? error.message : String(error)}`, false);
+      throw error;
     } finally {
       this.queue.endOperation();
     }
@@ -309,66 +373,98 @@ export class Sg6Service {
     // nativo ficava aberto (single-flight C4, fail-closed).
     this.assertQueueIdle();
     this.queue.beginOperation();
+    let pageReady = false;
     try {
       const base = `https://${world}.tribalwars.com.br/game.php?screen=mail&mode=new`;
       await sleep(settings.requestMinIntervalMs);
       const page = await this.twSession.fetchText(base);
       const { csrf, villageId } = this.pageTokens(page);
+      pageReady = true;
       const results: Sg6ChargeOutcome[] = [];
-      for (const entry of entries) {
-        await sleep(settings.requestMinIntervalMs + Math.random() * settings.requestJitterMs);
-        let outcome: Sg6ChargeOutcome;
-        try {
-          const response = await this.postForm(`${base}&village=${villageId}&action=send&h=${csrf}`, {
-            to: entry.nick,
-            subject: entry.subject,
-            text: entry.body,
-            send: 'Enviar',
-          });
-          const sentinel = detectPageSentinels(response.body);
-          if (sentinel === 'session-expired' || sentinel === 'captcha-suspected') {
-            // Mesma semântica do sendMps: sentinela INTERROMPE a cadeia.
-            await this.journal.append('mutation', 'charge-halt', `Cobrança interrompida em ${entry.nick} (${sentinel})`, false);
-            results.push({
-              nick: entry.nick,
-              ok: false,
-              detail: sentinel === 'session-expired' ? 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.' : 'CAPTCHA — operação interrompida.',
-              cancelled: false,
-            });
+      // Contabilidade honesta do lote, reusada no fim normal e no aborto: as
+      // linhas sintéticas de cancelamento NÃO contam como falha de tentativa.
+      const summarize = async (action: string, extra?: string): Promise<void> => {
+        const enviadas = results.filter((outcome) => outcome.ok).length;
+        const canceladas = results.filter((outcome) => outcome.cancelled).length;
+        const falhas = results.length - enviadas - canceladas;
+        // Entradas depois de um halt NEM chegam a virar linha em results (o
+        // lote não pode contar como "enviada/falha" o que nunca foi tentado).
+        const notTried = entries.length - results.length;
+        const partes = [
+          `cobrança em lote: ${entries.length} MPs — ${enviadas} enviadas, ${falhas} falhas`,
+          notTried > 0 ? `${notTried} não tentadas (sessão interrompida)` : null,
+          canceladas > 0 ? `${canceladas} canceladas pelo usuário` : null,
+          extra,
+        ].filter((parte): parte is string => parte !== null && parte !== undefined);
+        await this.journal.append('mutation', action, partes.join(', '), false);
+      };
+      try {
+        for (const [index, entry] of entries.entries()) {
+          if (this.queue.isCancelled()) {
+            // Cancelamento pela barra de progresso: mesma semântica do halt por
+            // sentinela — para ANTES do POST do nick atual; os demais viram
+            // linha sintética "Cancelado pelo usuário" (cancelled=true).
+            await this.journal.append('mutation', 'charge-cancel', `Cobrança cancelada pelo usuário antes de ${entry.nick}`, false);
+            for (const remaining of entries.slice(index)) results.push(cancelledRow(remaining));
             break;
           }
-          const notFound = /não existe|destinatário inválido|unknown recipient/i.test(response.body);
-          outcome = {
-            nick: entry.nick,
-            ok: notFound ? false : response.ok,
-            detail: notFound
-              ? 'Nick não encontrado — confira o nome exato no jogo.'
-              : response.ok
-                ? 'MP enviada.'
-                : `HTTP ${response.status}`,
-            cancelled: false,
-          };
-        } catch (err) {
-          outcome = { nick: entry.nick, ok: false, detail: `Falha de rede: ${err instanceof Error ? err.message : String(err)}`, cancelled: false };
+          await sleep(settings.requestMinIntervalMs + Math.random() * settings.requestJitterMs);
+          let outcome: Sg6ChargeOutcome;
+          try {
+            const response = await this.postForm(`${base}&village=${villageId}&action=send&h=${csrf}`, {
+              to: entry.nick,
+              subject: entry.subject,
+              text: entry.body,
+              send: 'Enviar',
+            });
+            const sentinel = detectPageSentinels(response.body);
+            if (sentinel === 'session-expired' || sentinel === 'captcha-suspected') {
+              // Mesma semântica do sendMps: sentinela INTERROMPE a cadeia.
+              this.options.onSessionLost?.(sentinel);
+              await this.journal.append('mutation', 'charge-halt', `Cobrança interrompida em ${entry.nick} (${sentinel})`, false);
+              results.push({
+                nick: entry.nick,
+                ok: false,
+                detail: sentinel === 'session-expired' ? 'SESSÃO EXPIRADA — operação interrompida. Faça login e recomece.' : 'CAPTCHA — operação interrompida.',
+                cancelled: false,
+              });
+              break;
+            }
+            const notFound = /não existe|destinatário inválido|unknown recipient/i.test(response.body);
+            outcome = {
+              nick: entry.nick,
+              ok: notFound ? false : response.ok,
+              detail: notFound
+                ? 'Nick não encontrado — confira o nome exato no jogo.'
+                : response.ok
+                  ? 'MP enviada.'
+                  : `HTTP ${response.status}`,
+              cancelled: false,
+            };
+          } catch (err) {
+            outcome = { nick: entry.nick, ok: false, detail: `Falha de rede: ${err instanceof Error ? err.message : String(err)}`, cancelled: false };
+          }
+          if (!outcome.ok) {
+            await this.journal.append('mutation', 'charge-fail', `Cobrança ${entry.nick} → ${outcome.detail}`, false);
+          }
+          results.push(outcome);
         }
-        if (!outcome.ok) {
-          await this.journal.append('mutation', 'charge-fail', `Cobrança ${entry.nick} → ${outcome.detail}`, false);
-        }
-        results.push(outcome);
+        await summarize('charge-batch');
+      } catch (error) {
+        // Aborto no MEIO do lote: a linha do lote sai mesmo assim, com o estado
+        // parcial + o motivo — o lote nunca desaparece do journal.
+        await summarize('charge-batch-erro', `abortada: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
       }
-      const enviadas = results.filter((outcome) => outcome.ok).length;
-      const falhas = results.length - enviadas;
-      // Contabilidade honesta do halt: entradas depois do sentinela NEM chegam
-      // a virar linha em results — o lote não pode contar como "enviada/falha"
-      // o que nunca foi tentado.
-      const notTried = entries.length - results.length;
-      await this.journal.append(
-        'mutation',
-        'charge-batch',
-        `cobrança em lote: ${entries.length} MPs — ${enviadas} enviadas, ${falhas} falhas${notTried > 0 ? `, ${notTried} não tentadas (sessão interrompida)` : ''}`,
-        false,
-      );
       return { results };
+    } catch (error) {
+      // Journal gap: falha ANTES do primeiro envio (sessão/página/csrf) também
+      // fica registrada — tentativa de mutação nunca fica sem rastro. (Aborto
+      // no MEIO do lote já foi registrado pelo summarize acima.)
+      if (!pageReady) {
+        await this.journal.append('mutation', 'charge-batch-erro', `Cobrança abortada antes do primeiro envio: ${error instanceof Error ? error.message : String(error)}`, false);
+      }
+      throw error;
     } finally {
       this.queue.endOperation();
     }

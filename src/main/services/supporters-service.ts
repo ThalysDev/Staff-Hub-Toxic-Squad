@@ -6,6 +6,7 @@ import type { TwSessionManager } from '../tw/session';
 import type { Journal } from '../journal';
 import { JsonStore } from '../stores/json-store';
 import { DEFAULT_SETTINGS, type AppSettings } from '@shared/ipc-types';
+import { erroSessao } from '@shared/error-catalog';
 
 import type { SupportersResult, VillageSupportersResult } from '@shared/types';
 
@@ -27,7 +28,7 @@ export class SupportersService {
   private world(): string {
     const { state, world } = this.twSession.getStatus();
     if (state !== 'logged-in' || world === null) {
-      throw new Error('Nenhuma sessão ativa no jogo — faça login antes de consultar apoiadores.');
+      throw new Error(erroSessao());
     }
     return world;
   }
@@ -88,7 +89,7 @@ export class SupportersService {
       'read',
       'sg3-supporters',
       `${coords.length} aldeias — ${result.reduce((sum, v) => sum + v.totalSupports, 0)} suportes compartilhados`,
-      true,
+      false,
     );
     return { generatedAt: new Date().toISOString(), villages: result };
   }

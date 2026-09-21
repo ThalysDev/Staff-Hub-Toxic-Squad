@@ -1,22 +1,41 @@
 # Staff Hub Toxic Squad — Análise Estratégica e Roadmap
 
-> **✅ STATUS 26/08/2026 (v0.26): P0 e P1 100% CONCLUÍDOS.**
+> **✅ STATUS 20/09/2026 (árvore 0.35.2 → 0.36.0 em preparação): P0 e P1 100% CONCLUÍDOS.**
 > - **P0-1..P0-10**: entregues nas Sprints 1–4 (v0.9→v0.13, commits `2d4485a`→`41aab06` + revisão geral).
 > - **P1-11..P1-22**: TODOS entregues (v0.19–v0.25 — ver coluna Status na tabela P1).
 > - **Correções C1–C9**: entregues (Sprint 1 + auditorias v0.19/v0.20).
-> - **UX**: entregues U1/U3/U5/U12/U14 · parciais U4/U7/U8 · pendentes U2/U6/U9/U10/U11/U13/U15.
+> - **UX**: entregues U1/U3/U5/U12/U14/**U15** · parciais U4/U7/U8 · pendentes U2/U6/U9/U10/U11/U13.
 > - **P2-23/24/25: CONCLUÍDOS na v0.26** — coleta auto-agendada (SG_2, intervalos 4/6/12/24h),
 >   parser de espionagem (⚠ teste com relatório SINTÉTICO — validar contra fixture real) e
 >   linha de frente animada (modo "linha do tempo" na Evolução do Mundo, com reprodução).
-> - Suite atual: **710 testes em 50 arquivos, todos verde** (656 na v0.25 + 54 novos na
->   v0.26: espionagem, coleta automática, linha de frente e testes de mutação SG_6/SG_7
->   com sessão mockada) · 34 fixtures reais BR142.
+> - **Ondas v0.27–v0.35** (fora do escopo original, ver nota "0.35–0.36" abaixo e as release
+>   notes em `docs/MODULOS-SG.md`): planner de OP em massa na Sala de Guerra, login do
+>   sistema com gate central, SG_2 em abas com Auditoria de Membros, auditoria UX aplicada,
+>   banner global de atualização.
+> - Suite atual: **951 testes em 62 arquivos, todos verde** (`pnpm test`, medido em
+>   20/09/2026) · **37** fixtures reais BR142.
 > - Extras entregues fora do roadmap: atualizador automático E2E com canal VPS + rollback
 >   (v0.15–v0.22.1), temas claro/escuro, preferências por módulo, paleta Ctrl+K, journal
 >   premium com export, Resumo Geral do SG_2, perfis no tempo, evolução do mundo.
 
 > Síntese de 3 análises independentes: Produto (25 features), Código (15 achados técnicos), UX (15 propostas)
-> Data: 26/08/2026 · Versão atual: 0.26 · 710 testes · 7 módulos funcionais + Sala de Guerra
+> Data: 26/08/2026 · Versão atual: **0.35.2** (árvore em preparação para a 0.36.0) · 951 testes · 7 módulos funcionais + Sala de Guerra com Planner em Massa
+
+### 📦 Nota de entrega 0.35–0.36 (20/09/2026)
+
+- **v0.35.0 — auditoria UX/UI aplicada**: 3 ondas (verdade · um só idioma · hierarquia) +
+  revisão dupla: sessão do jogo expirada propaga de verdade, journal agrupado por dia com
+  repetidos colapsados, ~46 callouts no componente único, verbos unificados, confirmação em
+  todos os destrutivos, 1 primário por card, disclosure progressivo no SG_4.
+- **v0.35.1 — hint do SG_2**: "Recarregar da memória" agora explica que só relê (dados
+  novos = nova coleta).
+- **v0.35.2 — banner global de atualização**: faixa fixa no topo em TODAS as telas
+  (oferta/download/pronto/erro) com snooze por versão e "O que mudou" — impossível de perder.
+- **v0.36.0 (em preparação)**: hardening do atualizador (manifest assinado Ed25519,
+  anti-brick, rollback cross-minor via `versions.json` assinado), gates `journal:clear`/
+  `worldhistory`, boot janela-primeiro, engines fail-closed (speed/coord/def_factor),
+  cancel em mutações, catálogo de erros, WCAG top, planner em worker, stores por-conta,
+  ODA/ODD, Alerta de Estagnação e Digesto webhook. Detalhe em `CONTEXTO-PROJETO.md` §8.
 
 ---
 
@@ -112,8 +131,8 @@ Bugs de código que afetam a confiabilidade AGORA:
 
 ## 🎨 ROADMAP DE UX (15 propostas ordenadas por impacto em guerra)
 
-> Status real em 26/08/2026 (v0.26): ✅ entregues **U1, U3, U5, U12, U14** · ◐ parciais
-> **U4, U7, U8** · ❌ pendentes **U2, U6, U9, U10, U11, U13, U15**.
+> Status real em 20/09/2026 (0.35.2): ✅ entregues **U1, U3, U5, U12, U14, U15** · ◐ parciais
+> **U4, U7, U8** · ❌ pendentes **U2, U6, U9, U10, U11, U13**.
 
 | # | Problema | Solução | Impacto | Esforço | Status |
 |---|----------|---------|---------|---------|--------|
@@ -131,7 +150,7 @@ Bugs de código que afetam a confiabilidade AGORA:
 | U12 | Zero atalhos de teclado; Ctrl+K morto | Ctrl+K abre paleta de navegação; Alt+1..9 para módulos | Médio | M | ✅ v0.19+v0.23 — Ctrl+K abre `CommandPalette`; Alt+1..7 SG, Alt+8 Guerra, Alt+9 Início (`useKeyboardShortcuts`) |
 | U13 | Erros genéricos sem próxima ação | Contrato de erro {título, causa, próxima ação} + toast de erro persistente | Médio | S | ❌ Pendente |
 | U14 | Duas gerações de UI convivendo | Migrar SG_3/5/6/7 para PageHeader + page-section (padrão de SG_1/2/4) | Médio | S | ✅ SG_3/5/6/7 usam `PageHeader` |
-| U15 | Largura fixa desperdiça monitores | Conteúdo até ~1600px + "modo guerra" (densidade compacta) | Médio | S | ❌ Pendente |
+| U15 | Largura fixa desperdiça monitores | Conteúdo até ~1600px + "modo guerra" (densidade compacta) | Médio | S | ✅ v0.33 — tela cheia: `--content-max: none` (conteúdo/tabelas acompanham a janela maximizada) nos 2 temas |
 
 ---
 
@@ -193,7 +212,7 @@ Bugs de código que afetam a confiabilidade AGORA:
 > entregue nas ondas v0.19–v0.25 (fakes inteligentes, diff, pós-OP, overlay e export na
 > v0.19–v0.21; templates, T-minus configurável e scorecard na v0.24; blind por nível,
 > débito, tópicos salvos, perfis no tempo e evolução do mundo na v0.25).
-> Próximo passo real: UX pendentes (U2, U6, U9, U10, U11, U13, U15) e a validação do parser de espionagem contra relatório real (P2-24 ⚠).
+> Próximo passo real: UX pendentes (U2, U6, U9, U10, U11, U13) e a validação do parser de espionagem contra relatório real (P2-24 ⚠). A v0.33 fechou o U15 (tela cheia) e as ondas v0.27–v0.35 seguiram para planner/login/auditoria (nota "0.35–0.36" no topo).
 
 ---
 

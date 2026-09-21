@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { isNightBonusHour, solveDepartureForArrival, travelTimeMs } from './night-bonus';
+import { isNightBonusHour, solveDepartureForArrival, travelTimeMs, type NightBonusCfg } from './night-bonus';
 import { parseWorldConfigXml, type WorldConfig } from './world-config';
 
 // Config derivada do get_config REAL do BR142 (fixture obrigatória):
@@ -128,6 +128,64 @@ describe('travelTimeMs', () => {
     expect(
       travelTimeMs({ distanceFields: 4, minutesPerField: 30, departureAt: new Date('2026-08-26T10:00:00'), cfg: BR142 }),
     ).toBe(2 * 60 * 60_000);
+  });
+
+  it('defFactor parametrizado: fator 3 → viagem 100% na janela custa exatamente 3x o clássico', () => {
+    // Janela [0,23[ mantém a viagem inteira no regime noturno (partida 02:00,
+    // 2h clássicas × 3 = 6h de relógio → chega 08:00, antes de fechar).
+    const janela: NightBonusCfg = { nightBonusActive: true, nightStartHour: 0, nightEndHour: 23, defFactor: 3 };
+    const classic = 4 * 30 * 60_000; // 2h
+    expect(travelTimeMs({ distanceFields: 4, minutesPerField: 30, departureAt: new Date('2026-08-26T02:00:00'), cfg: janela })).toBe(
+      classic * 3,
+    );
+  });
+
+  it('defFactor 2 explícito é byte-compatível com o comportamento antigo (hardcoded 2)', () => {
+    const comFator2: NightBonusCfg = { ...BR142, defFactor: 2 };
+    const partida = new Date('2026-08-26T22:00:00');
+    expect(travelTimeMs({ distanceFields: 11, minutesPerField: 30, departureAt: partida, cfg: comFator2 })).toBe(
+      travelTimeMs({ distanceFields: 11, minutesPerField: 30, departureAt: partida, cfg: BR142 }),
+    );
+    // E o default (sem defFactor) também: mesma viagem do caso (d).
+    expect(travelTimeMs({ distanceFields: 11, minutesPerField: 30, departureAt: partida, cfg: { nightBonusActive: true, nightStartHour: 23, nightEndHour: 7 } })).toBe(
+      9.5 * 60 * 60_000,
+    );
+  });
+
+  it('defFactor ausente (callers legados) → fator clássico 2; fator inválido lança (fail-closed)', () => {
+    const classic = 4 * 30 * 60_000; // 2h
+    const partida = new Date('2026-08-26T02:00:00');
+    const janelaSemFator: NightBonusCfg = { nightBonusActive: true, nightStartHour: 0, nightEndHour: 23 };
+    expect(travelTimeMs({ distanceFields: 4, minutesPerField: 30, departureAt: partida, cfg: janelaSemFator })).toBe(classic * 2);
+    for (const fator of [0, -1, Number.NaN]) {
+      expect(() =>
+        travelTimeMs({ distanceFields: 4, minutesPerField: 30, departureAt: partida, cfg: { ...janelaSemFator, defFactor: fator } }),
+      ).toThrowError(/def_factor deve ser um número maior que zero/);
+    }
+    expect(() =>
+      solveDepartureForArrival({ distanceFields: 4, minutesPerField: 30, arrivalAt: new Date(2026, 7, 26, 8), cfg: { ...janelaSemFator, defFactor: 0 } }),
+    ).toThrowError(/def_factor/);
+  });
+
+  it('solveDepartureForArrival honra o defFactor (partida recua proporcional ao fator)', () => {
+    // Chegada 08:00 com janela [0,23[ e viagem 100% noturna: partida = chegada
+    // − fator × clássico. Fator 3 → 6h antes (02:00); fator 2 → 4h antes (04:00).
+    const chegada = new Date(2026, 7, 26, 8, 0);
+    const fator3 = solveDepartureForArrival({
+      distanceFields: 4,
+      minutesPerField: 30,
+      arrivalAt: chegada,
+      cfg: { nightBonusActive: true, nightStartHour: 0, nightEndHour: 23, defFactor: 3 },
+    });
+    expect(fator3.travelMs).toBe(6 * 60 * 60_000);
+    expect(new Date(fator3.departureAt).getHours()).toBe(2);
+    const fator2 = solveDepartureForArrival({
+      distanceFields: 4,
+      minutesPerField: 30,
+      arrivalAt: chegada,
+      cfg: { nightBonusActive: true, nightStartHour: 0, nightEndHour: 23, defFactor: 2 },
+    });
+    expect(fator2.travelMs).toBe(4 * 60 * 60_000);
   });
 });
 

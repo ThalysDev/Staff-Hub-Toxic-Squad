@@ -1,6 +1,9 @@
-// Núcleo PURO do sistema de atualização do app portable (sem rede, sem fs, sem DOM).
+// Núcleo PURO do sistema de atualização do app portable (sem rede, sem fs, sem
+// DOM; node:crypto entra SÓ para a assinatura Ed25519 do manifesto — o canal é
+// HTTP puro por decisão do dono, então a integridade vem da ASSINATURA).
 // Fluxo real: baixa zip novo → valida manifesto → extrai em userData/updates/<ver>/
 // → gera script .ps1 externo que espera o processo sair, troca as pastas e relança.
+import { createPublicKey, verify as cryptoVerify } from 'node:crypto';
 
 /** Manifesto de atualização publicado pelo canal de releases. */
 export interface UpdateManifest {
@@ -9,19 +12,73 @@ export interface UpdateManifest {
   url: string;
   sha256: string;
   releasedAt: string;
+  /** Assinatura Ed25519 (base64) da string canônica — publish-update.mjs assina. */
+  sig: string;
+}
+
+/**
+ * Chave PÚBLICA Ed25519 (SPKI DER em base64) que assina os manifests do canal.
+ * Gerada por scripts/generate-update-keys.mjs; a privada fica em
+ * dist/vps/update-keys/ (gitignored) com quem publica. Trocar de par de chaves
+ * exige: --force no gerador, atualizar ESTA constante e publicar release nova
+ * (clients antigos só aceitam manifest assinado pela chave que eles embutem).
+ */
+export const UPDATE_PUBKEY_B64 = 'MCowBQYDK2VwAyEAWyABU+pYpnMJlXvVduBckxejjwPl0R5Ex0nB6q/0ouo=';
+
+/** String exata que é assinada/verificada: campos na ordem fixa, notes só pelo COMPRIMENTO. */
+export function manifestCanonicalString(manifesto: Pick<UpdateManifest, 'version' | 'url' | 'sha256' | 'notes'>): string {
+  return `${manifesto.version}\n${manifesto.url}\n${manifesto.sha256}\n${String(manifesto.notes.length)}`;
+}
+
+let chaveCacheada: ReturnType<typeof createPublicKey> | null = null;
+function chavePublica(publicKeyB64: string): ReturnType<typeof createPublicKey> {
+  if (chaveCacheada === null || chaveCacheadaB64 !== publicKeyB64) {
+    chaveCacheada = createPublicKey({ key: Buffer.from(publicKeyB64, 'base64'), format: 'der', type: 'spki' });
+    chaveCacheadaB64 = publicKeyB64;
+  }
+  return chaveCacheada;
+}
+let chaveCacheadaB64 = '';
+
+/**
+ * Verifica a assinatura Ed25519 do manifesto. false para sig ausente/torta/
+ * de outra chave ou para QUALQUER alteração dos campos assinados. Nunca lança.
+ */
+export function verifyManifestSignature(
+  manifest: UpdateManifest,
+  publicKeyB64: string = UPDATE_PUBKEY_B64,
+): boolean {
+  try {
+    const assinatura = Buffer.from(manifest.sig, 'base64');
+    // Assinatura Ed25519 tem exatamente 64 bytes.
+    if (assinatura.length !== 64) return false;
+    return cryptoVerify(
+      null,
+      Buffer.from(manifestCanonicalString(manifest), 'utf8'),
+      chavePublica(publicKeyB64),
+      assinatura,
+    );
+  } catch {
+    return false;
+  }
 }
 
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
 // Host presente e não-vazio antes da primeira barra (localhost é aceito por decisão do dono).
 const URL_RE = /^https?:\/\/[^\s/]+\/\S*$/;
 const SHA256_RE = /^[a-f0-9]{64}$/i;
-const MAX_NOTES_LENGTH = 600;
+/** Teto de notas do canal — exportado para o publish-update.mjs rejeitar ANTES
+ *  de subir um manifesto que TODO client rejeitaria. */
+export const MAX_NOTES_LENGTH = 600;
 
 /**
  * Validação fail-closed TOTAL do manifesto: qualquer campo ausente, mal tipado
- * ou fora do formato → null. Nunca lança.
+ * ou fora do formato → null. O sha256 tem que ser 64-hex NÃO vazio e a
+ * assinatura Ed25519 TEM que conferir com a chave pública embutida (o canal é
+ * HTTP puro — sem assinatura válida não há atualização, sem exceção). Nunca lança.
+ * O 2º parâmetro existe para TESTES (par gerado no teste); produção usa o default.
  */
-export function isValidManifest(value: unknown): UpdateManifest | null {
+export function isValidManifest(value: unknown, publicKeyB64: string = UPDATE_PUBKEY_B64): UpdateManifest | null {
   try {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
     const rec = value as Record<string, unknown>;
@@ -30,14 +87,18 @@ export function isValidManifest(value: unknown): UpdateManifest | null {
     const url = rec['url'];
     const sha256 = rec['sha256'];
     const releasedAt = rec['releasedAt'];
+    const sig = rec['sig'];
 
     if (typeof version !== 'string' || !VERSION_RE.test(version)) return null;
     if (typeof notes !== 'string' || notes.length > MAX_NOTES_LENGTH) return null;
     if (typeof url !== 'string' || !URL_RE.test(url)) return null;
     if (typeof sha256 !== 'string' || !SHA256_RE.test(sha256)) return null;
     if (typeof releasedAt !== 'string' || !Number.isFinite(Date.parse(releasedAt))) return null;
+    if (typeof sig !== 'string' || sig.length === 0) return null;
 
-    return { version, notes, url, sha256, releasedAt };
+    const manifesto: UpdateManifest = { version, notes, url, sha256, releasedAt, sig };
+    if (!verifyManifestSignature(manifesto, publicKeyB64)) return null;
+    return manifesto;
   } catch {
     return null;
   }
@@ -118,7 +179,7 @@ export function buildSwapScript(input: SwapScriptInput): string {
   const backupName = `shb-old-${stamp}`;
   const linhas = [
     '# Staff Hub Toxic Squad — script de troca de versão (PowerShell/Unicode)',
-    '# Fases: 1) esperar o app sair  2) trocar pastas  3) relançar  4) limpeza.',
+    '# Fases: 0) reparo  1) esperar o app sair  2) trocar pastas  3) relançar  4) limpeza (retenção de 7 dias).',
     '# Falha = NÃO toca nas pastas (fail-closed) e tenta reabrir a versão antiga.',
     "$ErrorActionPreference = 'Stop'",
     // here-strings: caminhos literais, sem interpolação, aceitam acentos/espaços
@@ -150,6 +211,16 @@ export function buildSwapScript(input: SwapScriptInput): string {
     'Set-Location -LiteralPath (Split-Path $AppDir -Parent)',
     '[System.Environment]::CurrentDirectory = (Split-Path $AppDir -Parent)',
     ``,
+    // REPARO (brick de meio-troca): se uma execução anterior morreu ENTRE o
+    // Rename e o Move da FASE 2, a pasta do app está AUSENTE e o backup existe.
+    // Restaurar ANTES de qualquer fase — o usuário nunca fica com o app sumido.
+    `$BackupPath = Join-Path (Split-Path $AppDir -Parent) $BackupName`,
+    `if ((-not (Test-Path -LiteralPath $AppDir)) -and (Test-Path -LiteralPath $BackupPath)) {`,
+    `    Log "REPARO: pasta do app ausente — restaurando de $BackupName"`,
+    `    Rename-Item -LiteralPath $BackupPath -NewName (Split-Path $AppDir -Leaf)`,
+    `    Log "REPARO-OK: pasta do app restaurada"`,
+    `}`,
+    ``,
     `Log "INICIO pid=$TargetPid app=$AppDir staged=$StagedDir"`,
     `# FASE 1: aguardar o processo sair (o .exe fica travado enquanto roda).`,
     `$Waited = 0`,
@@ -164,7 +235,6 @@ export function buildSwapScript(input: SwapScriptInput): string {
     `Log "FASE 1-OK: processo saiu apos $Waited s"`,
     ``,
     `# FASE 2: renomear a pasta atual para backup e mover a nova no lugar.`,
-    `$BackupPath = Join-Path (Split-Path $AppDir -Parent) $BackupName`,
     `try {`,
     `    if (Test-Path -LiteralPath $BackupPath) { Remove-Item -LiteralPath $BackupPath -Recurse -Force }`,
     `    Rename-Item -LiteralPath $AppDir -NewName $BackupName`,
@@ -192,8 +262,21 @@ export function buildSwapScript(input: SwapScriptInput): string {
     `    exit 3`,
     `}`,
     ``,
-    `# FASE 4: limpeza best-effort (backup + este script).`,
-    `try { Remove-Item -LiteralPath $BackupPath -Recurse -Force -ErrorAction SilentlyContinue } catch {}`,
+    `# FASE 4: limpeza best-effort com RETENÇÃO: backups shb-old-* com MAIS de`,
+    `# 7 dias são removidos; o backup de hoje FICA 7 dias (rede de segurança caso`,
+    `# o próximo swap morra no meio — o REPARO do próximo script depende dele).`,
+    `try {`,
+    `    $Corte = (Get-Date).AddDays(-7)`,
+    `    Get-ChildItem -LiteralPath (Split-Path $AppDir -Parent) -Filter 'shb-old-*' -Directory -ErrorAction SilentlyContinue |`,
+    `        Where-Object { $_.LastWriteTime -lt $Corte } |`,
+    `        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }`,
+    `} catch {}`,
+    `# RECUPERACAO.txt ao lado do backup: o conserto manual de UMA linha em PT-BR,`,
+    `# para o pior caso (o reparo automático do script não consegue rodar).`,
+    `try {`,
+    `    $Comando = 'Rename-Item -LiteralPath "{0}" -NewName "{1}"' -f $BackupPath, (Split-Path $AppDir -Leaf)`,
+    `    Set-Content -LiteralPath (Join-Path (Split-Path $AppDir -Parent) 'RECUPERACAO.txt') -Value @('Se o Staff Hub nao abrir ou sumir, execute esta linha no PowerShell:', $Comando) -Encoding UTF8`,
+    `} catch {}`,
     `try { Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue } catch {}`,
     `Log "FASE 4-OK: concluido"`,
     `exit 0`,

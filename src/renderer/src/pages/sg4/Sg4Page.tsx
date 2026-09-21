@@ -1,5 +1,5 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { AlertTriangle, Bell, Check, Clock, Copy, Crosshair, Plus, Radar, Send, Share2, Swords } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, Check, Copy, Crosshair, Radar, Share2, Swords } from 'lucide-react';
 import { parseCoord, parseCoordList } from '@shared/coords';
 import {
   centralOpAnalysis,
@@ -15,22 +15,23 @@ import {
   type OriginPlayer,
   type TargetLine,
 } from '@shared/sg4-engine';
-import { computeSendTimes, formatHms, formatSendSchedule, nobleTrain, type SendScheduleRow } from '@shared/sg4-timing';
+import { computeSendTimes, formatSendSchedule, nobleTrain, type SendScheduleRow } from '@shared/sg4-timing';
 import { originsFromSnapshot } from '@shared/origins-from-snapshot';
 import { solveDepartureForArrival, type NightBonusCfg } from '@shared/night-bonus';
-import { buildPlayerComms, planBbcode, renderTemplate, reservationList, sg6EntriesText } from '@shared/comms-package';
+import { buildPlayerComms, planBbcode } from '@shared/comms-package';
 import type { WorldPlayer } from '@shared/types';
 import Callout from '../../components/Callout';
 import Field from '../../components/Field';
 import PageHeader from '../../components/PageHeader';
-import TemplateLibrary from '../../components/TemplateLibrary';
-import WorldMapCanvas from '../sg1/WorldMapCanvas';
 import { useDiplomacyRelations } from '../../hooks/useDiplomacyRelations';
 import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
 import { MODULES } from '../../modules';
+import { getWorldVillages, invalidateWorldVillages } from '../../world-cache';
 import FakesIntelligentSection from './FakesIntelligentSection';
-import MoraleCurve from './MoraleCurve';
+import Sg4AgendaSection from './Sg4AgendaSection';
+import Sg4CommsSection from './Sg4CommsSection';
+import Sg4DistributionSection from './Sg4DistributionSection';
 import SpyReportSection from './SpyReportSection';
 
 const HOUR_LABELS = [
@@ -44,9 +45,11 @@ const HOUR_LABELS = [
   '7–8h',
 ];
 
-const LINE_NAMES = ['PRIMEIRA', 'SEGUNDA', 'TERCEIRA', 'QUARTA', 'QUINTA', 'SEXTA'];
+/** Nomes das linhas de alvos — exportado para a seção da Distribuição
+ *  (Sg4DistributionSection) rotular as caixas de coordenadas. */
+export const LINE_NAMES = ['PRIMEIRA', 'SEGUNDA', 'TERCEIRA', 'QUARTA', 'QUINTA', 'SEXTA'];
 
-interface OriginLine {
+export interface OriginLine {
   fullsFrom: string;
   fullsTo: string;
   /** Faixa opcional de SEMIS do jogador (vazio = 0–200 = todas). */
@@ -147,30 +150,6 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Falha de comunicação com o processo principal.';
 }
 
-function mixChannel(a: number, b: number, u: number): number {
-  return Math.round(a + (b - a) * u);
-}
-
-/** Cor do heatmap por proporção t ∈ [0,1]: verde → amarelo → vermelho. */
-function heatColor(t: number): [number, number, number] {
-  const clamped = Math.min(1, Math.max(0, t));
-  if (clamped < 0.5) {
-    const u = clamped * 2;
-    return [mixChannel(67, 251, u), mixChannel(160, 192, u), mixChannel(71, 45, u)];
-  }
-  const u = (clamped - 0.5) * 2;
-  return [mixChannel(251, 211, u), mixChannel(192, 47, u), mixChannel(45, 47, u)];
-}
-
-function heatStyle(t: number): CSSProperties {
-  const [r, g, b] = heatColor(t);
-  const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-  return {
-    backgroundColor: `rgb(${r}, ${g}, ${b})`,
-    color: luminance > 150 ? '#202020' : '#fdf6e8',
-  };
-}
-
 /** Etapa do fluxo de OP exibida no stepper do topo. */
 interface StepperStep {
   label: string;
@@ -250,8 +229,11 @@ function Sg4Stepper({ steps }: { steps: StepperStep[] }) {
 
 /** Cabeçalho de seção colapsada (progressive disclosure): a dica em 1 linha
  *  reaproveita a redação do callout de gate da própria seção e o botão ghost
- *  libera o conteúdo completo para o usuário avançado adiantar a etapa. */
-function GatedHint({ hint, onReveal }: { hint: string; onReveal: () => void }) {
+ *  libera o conteúdo completo para o usuário avançado adiantar a etapa.
+ *  Exportado: as seções downstream (Distribuição/Agenda/Comunicação) usam o
+ *  MESMO componente — função declarada, o import cíclico entre a página e as
+ *  seções é inerte (só resolve na hora do render). */
+export function GatedHint({ hint, onReveal }: { hint: string; onReveal: () => void }) {
   return (
     <div className="row" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
       <span className="muted">{hint}</span>
@@ -346,13 +328,9 @@ export default function Sg4Page({ onNavigate }: Sg4PageProps = {}) {
   const [planPending, setPlanPending] = useState(false);
   const [planPosting, setPlanPosting] = useState(false);
   const [planResult, setPlanResult] = useState<string | null>(null);
-  // ---- Progressive disclosure (3-J): cada seção downstream tem um "revelar"
-  //  manual — default COLAPSADA enquanto o pré-requisito falta; com o
-  //  pré-requisito satisfeito o flag é ignorado e a seção renderiza como
-  //  sempre. Nada de lógica nova: só apresenta o que já estava lá.
-  const [distRevealed, setDistRevealed] = useState(false);
-  const [agendaRevealed, setAgendaRevealed] = useState(false);
-  const [commsRevealed, setCommsRevealed] = useState(false);
+  // ---- Progressive disclosure (3-J): o flag "revelar" de cada seção
+  //  downstream é estado de UI LOCAL da própria seção (Sg4DistributionSection,
+  //  Sg4AgendaSection, Sg4CommsSection) — a página não lê esse flag.
 
   // ---- Invalidação em cascata (stale): deriva dos snapshots dos inputs.
   //  Banners avisam (não destrutivo) — resultados continuam na tela, mas os
@@ -498,6 +476,8 @@ export default function Sg4Page({ onNavigate }: Sg4PageProps = {}) {
     if (status.villageCount === 0) {
       push('info', 'Baixando dados do mundo…');
       await window.staffhub.world.refresh();
+      // Dump mudou no main: a cópia de aldeias no renderer está velha.
+      invalidateWorldVillages();
     }
   }
 
@@ -541,7 +521,7 @@ export default function Sg4Page({ onNavigate }: Sg4PageProps = {}) {
     try {
       await ensureWorldData();
       const [villages, players, tribes, noble] = await Promise.all([
-        window.staffhub.world.villages(),
+        getWorldVillages(),
         window.staffhub.world.players(),
         window.staffhub.world.tribes(),
         window.staffhub.world.nobleMinutes(),
@@ -710,8 +690,8 @@ export default function Sg4Page({ onNavigate }: Sg4PageProps = {}) {
     void resetPrefs();
   }
 
-  /** Estável entre renders: o DistributionMap refaz o fetch do mapa se o
-   * callback mudar a cada render do pai (toasts/progresso). */
+  /** Estável entre renders: o mapa da Distribuição (na seção correspondente)
+   *  refaz o fetch do mapa se o callback mudar a cada render do pai. */
   const handleMapError = useCallback((message: string): void => {
     push('error', message);
   }, [push]);
@@ -750,18 +730,6 @@ export default function Sg4Page({ onNavigate }: Sg4PageProps = {}) {
       return null; // erro completo só ao distribuir (a Field de origem mostra)
     }
   }, [originsText]);
-
-  /** Coordenadas de origem SEMI segundo a ÚLTIMA DISTRIBUIÇÃO REALIZADA (a
-   *  agenda é calculada sobre ela — marcar pelo texto vivo poderia mentir se
-   *  o usuário editasse as origens depois de distribuir). */
-  const semiOriginCoords = useMemo<Set<string>>(() => {
-    const set = new Set<string>();
-    if (distribution === null) return set;
-    for (const row of distribution.matrix) {
-      if (row.tier === 'semi') set.add(row.origin);
-    }
-    return set;
-  }, [distribution]);
 
   /** Ponte com os fakes inteligentes: coords de origem JÁ USADAS na distribuição
    *  (um par fechado por origem usada) — derivadas dos assignments. */
@@ -810,33 +778,10 @@ export default function Sg4Page({ onNavigate }: Sg4PageProps = {}) {
     }
   }, [distribution, scheduleRows, opTitle, commsTemplate]);
 
-  /** Memoizado: recalcular distributionSummary a cada render é desperdício. */
-  const distributionSummaryText = useMemo(
-    () => (distribution === null ? '' : distributionSummary(distribution)),
-    [distribution],
-  );
-
   const commsDistributionText = useMemo(
     () => (distribution === null ? '' : distributionSummary(distribution)),
     [distribution],
   );
-
-  /** Prévia da MP do 1º jogador — erro NÃO silencioso: devolve {preview,error}
-   *  e a falha de template aparece em callout vermelho na tela. */
-  function commsPreview(): { preview: string | null; error: string } {
-    if (commsPlayers === null || commsPlayers.length === 0) return { preview: null, error: '' };
-    try {
-      return {
-        preview: renderTemplate(commsTemplate, commsPlayers[0] ?? { playerName: '?', coords: [], horarios: [] }),
-        error: '',
-      };
-    } catch (error) {
-      return {
-        preview: null,
-        error: error instanceof Error ? error.message : 'Template da MP inválido — revise #alvos# e #horarios#.',
-      };
-    }
-  }
 
   /**
    * P0-8 (fecho): posta o plano BBCode no fórum — substitui o 1º post do
@@ -1026,20 +971,6 @@ export default function Sg4Page({ onNavigate }: Sg4PageProps = {}) {
     }
   }
 
-  const heatRange = useMemo(() => {
-    if (planning === null) return { min: 0, max: 1 };
-    const hours = planning.matrix.flatMap((row) => row.cells.map((cell) => cell.hours));
-    if (hours.length === 0) return { min: 0, max: 1 };
-    return { min: Math.min(...hours), max: Math.max(...hours) };
-  }, [planning]);
-
-  /** "Distância máxima" em número, para APAGAR células além do limite no
-   *  heatmap (aviso visual — o filtro de verdade vale na distribuição). */
-  const maxFieldsLimit = useMemo<number | null>(() => {
-    const parsed = Number(maxFieldsText);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  }, [maxFieldsText]);
-
   /**
    * P0-1/P0-2/P0-6: agenda de envio = chegada desejada − tempo de viagem
    * (com bônus noturno aplicado por par, quando ativo no mundo) + trem de
@@ -1170,9 +1101,6 @@ export default function Sg4Page({ onNavigate }: Sg4PageProps = {}) {
     }
   }
 
-  // Prévia da MP calculada UMA vez por render — falha vira callout, não some.
-  const mpPreview = commsPreview();
-
   // Estado de cada etapa do fluxo — 1 linha muted sob cada título de seção.
   const stepAlvosStatus =
     splitResult !== null
@@ -1194,19 +1122,6 @@ export default function Sg4Page({ onNavigate }: Sg4PageProps = {}) {
     commsPlayers !== null
       ? `${commsPlayers.length} jogador(es) com MP pronta`
       : 'precisa de distribuição + agenda';
-
-  // ---- Gates do progressive disclosure: as MESMAS condições dos callouts de
-  //  "vazio" que cada seção já computa (distribuição: origem E alvos vazios —
-  //  e sem resultado na tela, que nunca pode sumir). Agenda e comunicação
-  //  abrem com a distribuição, igual aos callouts delas.
-  const distGated =
-    planning === null &&
-    distribution === null &&
-    originsText.trim() === '' &&
-    lines.every((line) => parseCoordList(line.coordsText).length === 0);
-  const distCollapsed = distGated && !distRevealed;
-  const agendaCollapsed = distribution === null && !agendaRevealed;
-  const commsCollapsed = distribution === null && !commsRevealed;
 
   return (
     <section className="page">
@@ -1555,851 +1470,94 @@ export default function Sg4Page({ onNavigate }: Sg4PageProps = {}) {
         <SpyReportSection onUseAsTarget={setCentralCoordText} />
       </section>
 
-      {/* ===== Seção B — Distribuição de Alvos de OP ===== */}
-      <section className="page-section" aria-labelledby="sg4-dist-title">
-        <h2 className="section-title" id="sg4-dist-title">Distribuição de alvos da OP</h2>
-        <p className="muted">{stepDistributionStatus}</p>
-        {distCollapsed ? (
-          <GatedHint
-            hint="Sem origens nem alvos nesta etapa — conclua a etapa anterior (alvos e fakes) para liberar."
-            onReveal={() => setDistRevealed(true)}
-          />
-        ) : (
-          <>
-          {originsText.trim() === '' && (
-            <Callout variant="info">
-              <p>
-                <strong>Sem origens ainda</strong> — cole a saída do contador do SG2 no campo
-                "Origens da tribo" abaixo (ou use o botão "Preencher com o SG2").
-              </p>
-            </Callout>
-          )}
-          {lines.every((line) => parseCoordList(line.coordsText).length === 0) && (
-            <Callout variant="info">
-              <p>
-                <strong>Sem alvos nesta etapa</strong> — cole as coordenadas dos alvos (123|456
-                456|123) na primeira linha de alvos, ou traga os alvos da etapa 1 com o botão "Usar
-                estes alvos na distribuição".
-              </p>
-            </Callout>
-          )}
-          <div className="card">
-            <div className="card-body">
-              <Field
-                id="sg4-origins"
-                label="Origens da tribo (nick;fulls;coords)"
-                hint="Cada coordenada de origem = 1 NT estacionado (1 alvo a receber). Formatos: nick;fulls;coords ou nick;fulls;semis;coords (coords fulls primeiro — saída do contador do SG2)."
-                error={errorsB.origins}
-              >
-                <textarea
-                  id="sg4-origins"
-                  className="textarea sg4-coords"
-                  rows={4}
-                  placeholder={'hasua;50;686|420 686|424\nou com semis: hasua;3;2;686|420 686|424 690|430 691|431'}
-                  value={originsText}
-                  data-tip="Um jogador por linha: nick;fulls;semis;coords (semis opcional; fulls primeiro). Cada coordenada = 1 nobre pronto = 1 alvo. Cole a saída do SG2 ou use o botão."
-                  aria-describedby={errorsB.origins !== undefined ? 'sg4-origins-error' : 'sg4-origins-hint'}
-                  onChange={(event) => setOriginsText(event.target.value)}
-                />
-                <div>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => void fillOriginsFromSnapshot()}
-                    data-tip="Substitui o campo com as aldeias com nobre da última coleta do SG2."
-                  >
-                    <Swords size={14} aria-hidden="true" />
-                    Preencher com o SG2 (aldeias com nobre)
-                  </button>
-                </div>
-              </Field>
-
-              {originsPreview !== null && (
-                <div className="col" style={{ gap: 8, marginBottom: 12 }}>
-                  <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                    <span className="pill pill--muted">{originsPreview.summary.players} jogador(es)</span>
-                    <span className="pill pill--muted">{originsPreview.summary.fulls} full(s)</span>
-                    {originsPreview.summary.semis > 0 && <span className="pill pill--muted">{originsPreview.summary.semis} semi(s)</span>}
-                    <span className="pill pill--muted">{originsPreview.summary.villages} origem(ns)</span>
-                  </div>
-                  <div className="table-wrap">
-                    <table className="table">
-                      <thead>
-                        <tr>
-                          <th scope="col">Jogador</th>
-                          <th scope="col" className="cell-num">Fulls</th>
-                          <th scope="col" className="cell-num">Semis</th>
-                          <th scope="col">Origens (F = full · S = semi)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {originsPreview.players.map((player) => {
-                          const semiSet = new Set((player.semiOrigins ?? []).map((coord) => `${coord.x}|${coord.y}`));
-                          return (
-                            <tr key={player.playerName}>
-                              <td className="cell-nowrap">{player.playerName}</td>
-                              <td className="cell-num"><strong>{player.fulls}</strong></td>
-                              <td className="cell-num">{player.semis ?? 0}</td>
-                              <td className="cell-detail">
-                                {player.origins.map((coord) => {
-                                  const label = `${coord.x}|${coord.y}`;
-                                  return semiSet.has(label)
-                                    ? <span key={label} className="text-warn">S {label} </span>
-                                    : <span key={label}>F {label} </span>;
-                                })}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {lines.map((line, index) => (
-                <div className="sg4-line-grid" key={index}>
-                  {/* Faixas fulls/semis: UM rótulo por par (legível) — os limites
-                      de/até são identificados por aria-label e placeholder. */}
-                  <fieldset className="field" style={{ gridColumn: 'span 2' }}>
-                    <legend className="field-label">Fulls (de–até)</legend>
-                    <div className="row" style={{ flexWrap: 'nowrap' }}>
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        max={200}
-                        placeholder="0"
-                        value={line.fullsFrom}
-                        style={{ flex: 1, minWidth: 0 }}
-                        aria-label={`Fulls mínimas da linha ${index + 1}`}
-                        data-tip="Só entram nesta linha jogadores com essa quantidade de fulls. Vazio = todos."
-                        onChange={(event) => updateLine(index, 'fullsFrom', event.target.value)}
-                      />
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        max={200}
-                        placeholder="200"
-                        value={line.fullsTo}
-                        style={{ flex: 1, minWidth: 0 }}
-                        aria-label={`Fulls máximas da linha ${index + 1}`}
-                        data-tip="Só entram nesta linha jogadores com essa quantidade de fulls. Vazio = todos."
-                        onChange={(event) => updateLine(index, 'fullsTo', event.target.value)}
-                      />
-                    </div>
-                  </fieldset>
-                  <fieldset className="field" style={{ gridColumn: 'span 2' }}>
-                    <legend className="field-label">Semis (de–até)</legend>
-                    <div className="row" style={{ flexWrap: 'nowrap' }}>
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        max={200}
-                        placeholder="0"
-                        value={line.semisFrom}
-                        style={{ flex: 1, minWidth: 0 }}
-                        aria-label={`Semis mínimas da linha ${index + 1}`}
-                        data-tip="Filtro extra pela quantidade de semis (origens em formato legado têm 0 semis)."
-                        onChange={(event) => updateLine(index, 'semisFrom', event.target.value)}
-                      />
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        max={200}
-                        placeholder="200"
-                        value={line.semisTo}
-                        style={{ flex: 1, minWidth: 0 }}
-                        aria-label={`Semis máximas da linha ${index + 1}`}
-                        data-tip="Filtro extra pela quantidade de semis (origens em formato legado têm 0 semis)."
-                        onChange={(event) => updateLine(index, 'semisTo', event.target.value)}
-                      />
-                    </div>
-                  </fieldset>
-                  <label className="field">
-                    <span className="field-label">
-                      Coordenadas de destino ({(LINE_NAMES[index] ?? `${index + 1}ª linha`).toLowerCase()})
-                    </span>
-                    <textarea
-                      className="textarea"
-                      rows={2}
-                      placeholder="123|456 456|123 111|222"
-                      value={line.coordsText}
-                      data-tip="Alvos desta linha, separados por espaço. Só jogadores na faixa de fulls/semis ao lado podem pegá-los."
-                      onChange={(event) => updateLine(index, 'coordsText', event.target.value)}
-                    />
-                    <div>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        disabled={lines.length <= 1}
-                        onClick={() => removeLine(index)}
-                      >
-                        Remover linha
-                      </button>
-                    </div>
-                  </label>
-                </div>
-              ))}
-              <button type="button" className="btn btn-ghost btn-sm" onClick={addLine}>
-                <Plus size={14} aria-hidden="true" />
-                Adicionar linha de alvos
-              </button>
-
-              <div className="sg4-params">
-                <fieldset className="field" data-tip="Cada origem escolhe o alvo elegível mais perto (ou mais longe) primeiro.">
-                  <legend className="field-label">Priorizar</legend>
-                  <div className="sg4-radio-row">
-                    <label className="checkbox-field">
-                      <input
-                        type="radio"
-                        name="sg4-priority"
-                        checked={priority === 'nearest'}
-                        onChange={() => setPriority('nearest')}
-                      />
-                      mais próximas
-                    </label>
-                    <label className="checkbox-field">
-                      <input
-                        type="radio"
-                        name="sg4-priority"
-                        checked={priority === 'farthest'}
-                        onChange={() => setPriority('farthest')}
-                      />
-                      mais distantes
-                    </label>
-                  </div>
-                </fieldset>
-                <label className="field">
-                  <span className="field-label">Moral mínima (%) — 0 desliga</span>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={minMoraleText}
-                    disabled={!moraleActive}
-                    data-tip="Moral mínima do par atacante→alvo. 0 desliga o filtro."
-                    aria-describedby={!moraleActive ? 'sg4-morale-hint' : undefined}
-                    onChange={(event) => setMinMoraleText(event.target.value)}
-                  />
-                  {!moraleActive && (
-                    <p className="field-hint" id="sg4-morale-hint">
-                      Mundo clássico — sem moral por pontos
-                    </p>
-                  )}
-                </label>
-                <label className="field">
-                  <span className="field-label">Distância máxima (campos)</span>
-                  <input
-                    className="input"
-                    type="number"
-                    min={1}
-                    value={maxFieldsText}
-                    data-tip="Distância máxima origem→alvo, em campos. O heatmap mostra todos; o filtro vale na distribuição."
-                    onChange={(event) => setMaxFieldsText(event.target.value)}
-                  />
-                </label>
-              </div>
-
-              {/* Curva da moral com a linha da moral mínima configurada — só
-                  quando o valor é um número válido em 0–100 (senão, curva pura). */}
-              {moraleActive &&
-                (() => {
-                  const mm = Number(minMoraleText);
-                  return (
-                    <MoraleCurve
-                      {...(Number.isFinite(mm) && mm >= 0 && mm <= 100 ? { minMorale: Math.round(mm) } : {})}
-                    />
-                  );
-                })()}
-
-              <div className="sg4-form-actions">
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  disabled={busyB}
-                  onClick={() => void runDistribution(true)}
-                  data-tip="Só calcula a matriz origem×alvo para revisar — nada é fechado."
-                >
-                  <Crosshair size={15} aria-hidden="true" />
-                  {busyB ? 'Calculando…' : 'Simular (ver mapa de calor)'}
-                </button>
-                <button
-                  type="button"
-                  className="btn sg4-btn-green"
-                  disabled={busyB}
-                  onClick={() => void runDistribution(false)}
-                  data-tip="Fecha a distribuição: cada origem fica com 1 alvo e habilita agenda, MPs, mapa e arquivo."
-                >
-                  <Share2 size={15} aria-hidden="true" />
-                  {busyB ? 'Calculando…' : 'Distribuir agora'}
-                </button>
-              </div>
-              {runErrorB !== '' && (
-                <p className="error" role="alert">{runErrorB}</p>
-              )}
-            </div>
-          </div>
-
-          {planning !== null && (
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title">Simulação (origem × alvo)</h3>
-                <span className="spacer" />
-                <span className="pill pill--muted">
-                  {planning.matrix.length} origens · {planning.lineTargets.length} alvos
-                </span>
-              </div>
-              {planning.matrix.length === 0 || planning.lineTargets.length === 0 ? (
-                <div className="card-body">
-                  <p className="muted">Matriz vazia — confira as origens e os alvos informados.</p>
-                </div>
-              ) : (
-                <div className="card-body">
-                  <div className="table-wrap sg4-heat-wrap">
-                    <table className="table sg4-heat">
-                      <thead>
-                        <tr>
-                          <th scope="col">Origem (Jogador)</th>
-                          {planning.lineTargets.map((target, index) => (
-                            <th scope="col" key={`${target.x}|${target.y}-${index}`}>
-                              {target.x}|{target.y}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {planning.matrix.map((row) => (
-                          <tr key={row.origin}>
-                            <th scope="row" className="cell-nowrap sg4-heat-origin">
-                              <span className="muted">{row.origin}</span> {row.player}
-                              {row.tier === 'semi' && <span className="text-warn" title="Origem SEMI (população ofensiva abaixo do limiar de full)"> semi</span>}
-                            </th>
-                        {row.cells.map((cell, index) => {
-                          const span = heatRange.max - heatRange.min;
-                          const t = span === 0 ? 0.5 : (cell.hours - heatRange.min) / span;
-                          const morale = cell.morale;
-                          // Célula além da "Distância máxima": apagada (aviso, não filtro).
-                          const far = maxFieldsLimit !== null && cell.fields > maxFieldsLimit;
-                          const tipParts = [
-                            `${cell.hours.toFixed(1).replace('.', ',')}h de viagem`,
-                            `${cell.fields} campos`,
-                          ];
-                          if (morale !== null) tipParts.push(`moral ${morale}%`);
-                          if (far && maxFieldsLimit !== null) tipParts.push(`fora do limite de ${maxFieldsLimit} campos`);
-                          return (
-                            <td
-                              key={index}
-                              className={far ? 'sg4-heat-cell sg4-heat-cell--far' : 'sg4-heat-cell'}
-                              style={heatStyle(t)}
-                              data-tip={tipParts.join(' · ')}
-                            >
-                              {cell.hours.toFixed(1)}
-                            </td>
-                          );
-                        })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="muted sg4-heat-legend">
-                    Horas de NOBRE da origem até o alvo: verde (mais perto) → amarelo → vermelho (mais longe).
-                    Células apagadas estão além da "Distância máxima" — o filtro vale na distribuição.
-                    Passe o mouse sobre as células para ver horas, campos e moral.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {distribution !== null && (
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title">Distribuição</h3>
-                <span className="spacer" />
-                <span className="pill pill--muted">
-                  {distribution.assignments.length} pares fechados · {distribution.orphanOrigins.length} origens sem
-                  alvo · {distribution.orphanTargets.length} alvos sem atacante
-                </span>
-              </div>
-              {distributionStale && (
-                <div className="card-body" style={{ paddingBottom: 0 }}>
-                  <Callout variant="warn" title="Distribuição possivelmente desatualizada">
-                    <p>Os parâmetros mudaram depois da distribuição — redistribua antes de usar.</p>
-                  </Callout>
-                </div>
-              )}
-              <div className="card-body">
-                <label className="field">
-                  <span className="field-label">Resultado: quem ataca o quê (nick;coords)</span>
-                  <textarea
-                    className="textarea sg4-coords"
-                    rows={6}
-                    readOnly
-                    value={distributionSummaryText}
-                    aria-label="Resultado da distribuição: quem ataca o quê (nick;coords)"
-                  />
-                  <div>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      disabled={distribution.assignments.length === 0}
-                      onClick={() => void copyText(distributionSummary(distribution))}
-                    >
-                      <Copy size={14} aria-hidden="true" />
-                      Copiar distribuição
-                    </button>
-                  </div>
-                </label>
-                {distribution.orphanOrigins.length > 0 && (
-                  <p className="muted">
-                    Origens sem alvo:{' '}
-                    {distribution.orphanOrigins.map((orphan) => `${orphan.playerName} (${orphan.origin})`).join(' · ')}{' '}
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={() =>
-                        void copyText(distribution.orphanOrigins.map((orphan) => orphan.origin).join(' '))
-                      }
-                    >
-                      <Copy size={14} aria-hidden="true" />
-                      Copiar
-                    </button>
-                  </p>
-                )}
-                {distribution.orphanTargets.length > 0 && (
-                  <p className="muted">
-                    Alvos sem atacante: {distribution.orphanTargets.join(' ')}{' '}
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => void copyText(distribution.orphanTargets.join(' '))}
-                    >
-                      <Copy size={14} aria-hidden="true" />
-                      Copiar
-                    </button>
-                  </p>
-                )}
-                {distribution.orphanOrigins.length === 0 && distribution.orphanTargets.length === 0 && (
-                  <p className="ok">Todos os alvos receberam um atacante.</p>
-                )}
-                <div className="sg4-params" style={{ marginTop: 12 }}>
-                  <label className="field">
-                    <span className="field-label">Nome da OP (para o histórico)</span>
-                    <input
-                      className="input"
-                      value={opTitle}
-                      data-tip="Nome com que a OP entra no arquivo de OPs (Sala de Guerra) e no plano do fórum."
-                      onChange={(event) => setOpTitle(event.target.value)}
-                      aria-label="Nome da OP para o histórico"
-                    />
-                  </label>
-                  <div className="field">
-                    <span className="field-label">Arquivo de OPs</span>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      disabled={
-                        archiving || distribution.assignments.length === 0 || distributionStale
-                      }
-                      title={
-                        distributionStale
-                          ? 'Os parâmetros mudaram depois da distribuição — redistribua antes de arquivar.'
-                          : undefined
-                      }
-                      onClick={() => void archiveOp()}
-                    >
-                      {archiving ? <><span className="btn-spinner" aria-hidden="true" /> Arquivando…</> : 'Arquivar OP (Sala de Guerra)'}
-                    </button>
-                    {/* Hand-off pós-arquivo: atalho para acompanhar a OP na Sala
-                        de Guerra — só existe quando o App injeta onNavigate. */}
-                    {onNavigate !== undefined && (
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => onNavigate('guerra')}
-                        data-tip="Abre a Sala de Guerra para acompanhar esta OP arquivada."
-                      >
-                        Abrir Sala de Guerra
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {distribution !== null && distribution.assignments.length > 0 && (
-            <DistributionMap assignments={distribution.assignments} onError={handleMapError} />
-          )}
-          </>
-        )}
-      </section>
+      {/* ===== Seção B — Distribuição de Alvos de OP =====
+           Estado e runDistribution continuam NA PÁGINA (restaurar padrões e o
+           recálculo de uma etapa derrubam resultados das outras) — a seção é
+           apresentação + estado de UI local (o "revelar" do gate). */}
+      <Sg4DistributionSection
+        statusText={stepDistributionStatus}
+        originsText={originsText}
+        onOriginsTextChange={setOriginsText}
+        originsPreview={originsPreview}
+        onFillFromSnapshot={fillOriginsFromSnapshot}
+        lines={lines}
+        onLineChange={updateLine}
+        onRemoveLine={removeLine}
+        onAddLine={addLine}
+        priority={priority}
+        onPriorityChange={setPriority}
+        minMoraleText={minMoraleText}
+        onMinMoraleTextChange={setMinMoraleText}
+        maxFieldsText={maxFieldsText}
+        onMaxFieldsTextChange={setMaxFieldsText}
+        moraleActive={moraleActive}
+        originsError={errorsB.origins}
+        busy={busyB}
+        runError={runErrorB}
+        onRun={runDistribution}
+        planning={planning}
+        distribution={distribution}
+        stale={distributionStale}
+        opTitle={opTitle}
+        onOpTitleChange={setOpTitle}
+        archiving={archiving}
+        onArchive={archiveOp}
+        onCopy={copyText}
+        onMapError={handleMapError}
+        onNavigate={onNavigate}
+      />
 
       {/* ===== Etapa 3 — Agenda de Envio =====
            Seção PERMANENTE no DOM (a âncora do stepper existe mesmo sem
            distribuição): sem distribuição, callout orienta o que fazer antes. */}
-      <section className="page-section" aria-labelledby="sg4-agenda-title">
-        <h2 className="section-title" id="sg4-agenda-title">Agenda de envio (timing da OP)</h2>
-        <p className="muted">{stepAgendaStatus}</p>
-        {agendaCollapsed ? (
-          <GatedHint
-            hint="A agenda abre depois da distribuição — conclua a etapa anterior para liberar."
-            onReveal={() => setAgendaRevealed(true)}
-          />
-        ) : distribution === null ? (
-          <Callout variant="info">
-            <p>
-              <strong>A agenda abre depois da distribuição</strong> — feche quem ataca o quê na
-              etapa 2 e volte aqui para calcular a que horas cada um precisa enviar.
-            </p>
-          </Callout>
-        ) : (
-          <div className="card">
-            <div className="card-header">
-              <h3 className="card-title">Horários de envio</h3>
-              <span className="spacer" />
-              <span className="pill pill--muted">enviar às = chegada desejada − tempo de viagem</span>
-            </div>
-            <div className="card-body">
-              {scheduleStale && (
-                <Callout variant="warn" title="Agenda possivelmente desatualizada">
-                  <p>Horários mudaram — recalcule a agenda.</p>
-                </Callout>
-              )}
-              <div className="sg4-params">
-                <label className="field">
-                  <span className="field-label">OP bate às (HH:MM)</span>
-                  <input
-                    className="input"
-                    type="time"
-                    value={opTimeText}
-                    data-tip="Horário de CHEGADA dos ataques, no dia selecionado."
-                    onChange={(event) => setOpTimeText(event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span className="field-label">Dia da chegada</span>
-                  <select
-                    className="select"
-                    value={opDay}
-                    aria-label="Dia da chegada dos ataques"
-                    data-tip="Dia em que os ataques BATEM — os horários de envio saem para chegar nesse dia (Amanhã = base +1 antes de fixar as horas)."
-                    onChange={(event) => setOpDay(event.target.value as 'hoje' | 'amanha')}
-                  >
-                    <option value="hoje">Hoje</option>
-                    <option value="amanha">Amanhã</option>
-                  </select>
-                </label>
-                <label className="field">
-                  <span className="field-label">Nobres por alvo (trem)</span>
-                  <input
-                    className="input"
-                    type="number"
-                    min={1}
-                    value={noblesText}
-                    data-tip="Quantos nobres cada alvo recebe, em sequência."
-                    onChange={(event) => setNoblesText(event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span className="field-label">Espaçamento entre nobres (s)</span>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    value={spacingText}
-                    data-tip="Segundos entre os nobres do trem no mesmo alvo."
-                    onChange={(event) => setSpacingText(event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span className="field-label">Marcas de alerta (minutos)</span>
-                  <input
-                    className="input"
-                    inputMode="numeric"
-                    placeholder="15 5 1"
-                    value={tminusMarksText}
-                    data-tip="Minutos antes de cada envio para o Windows notificar (ex.: 15 5 1)."
-                    aria-describedby="sg4-tminus-marks-hint"
-                    onChange={(event) => setTminusMarksText(event.target.value)}
-                  />
-                  <p className="field-hint" id="sg4-tminus-marks-hint">
-                    Minutos antes de cada envio para notificar (inteiros 1–1440, sem repetições) — usado pelo botão de alertas T-minus.
-                  </p>
-                </label>
-              </div>
-              <div className="sg4-form-actions">
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => void runSendSchedule()}
-                  data-tip="Enviar às = chegada − tempo de viagem do nobre (com bônus noturno, se houver)."
-                >
-                  <Clock size={15} aria-hidden="true" />
-                  Calcular horários de envio
-                </button>
-              </div>
-              {timingError !== '' && <p className="error" role="alert">{timingError}</p>}
-              {scheduleRows !== null && scheduleRows.length > 0 && (
-                <>
-                  <div className="table-wrap">
-                    <table className="table">
-                      <thead>
-                        <tr>
-                          <th scope="col">Jogador</th>
-                          <th scope="col">Origem</th>
-                          <th scope="col">Alvo</th>
-                          <th scope="col">Enviar às</th>
-                          <th scope="col" className="cell-num">Viagem</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {scheduleRows.map((row, index) => (
-                          <tr key={`${row.nick}-${row.targetCoord}-${index}`}>
-                            <td className="cell-nowrap">{row.nick}</td>
-                            <td>
-                              {row.originCoord}
-                              {semiOriginCoords.has(row.originCoord) && (
-                                <span className="text-warn" title="Origem SEMI"> semi</span>
-                              )}
-                            </td>
-                            <td>{row.targetCoord}</td>
-                            <td className={row.sendAt.getTime() < Date.now() ? 'cell-nowrap text-warn' : 'cell-nowrap'}>
-                              {formatHms(row.sendAt)}
-                            </td>
-                            <td className="cell-num">{row.travelMinutes.toFixed(1)} min</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <label className="field">
-                    <span className="field-label">Nick;alvo;enviar às (formato original)</span>
-                    <textarea
-                      className="textarea sg4-coords"
-                      rows={Math.min(12, scheduleRows.length + 2)}
-                      readOnly
-                      value={formatSendSchedule(scheduleRows)}
-                      aria-label="Nick;alvo;enviar às"
-                    />
-                    <div>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => void copyText(formatSendSchedule(scheduleRows))}
-                      >
-                        <Copy size={14} aria-hidden="true" />
-                        Copiar agenda de envio
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        disabled={distributionStale || scheduleStale}
-                        title={
-                          scheduleStale
-                            ? 'Horários mudaram — recalcule a agenda antes de ativar alertas.'
-                            : distributionStale
-                              ? 'Os parâmetros mudaram depois da distribuição — redistribua antes de ativar alertas.'
-                              : undefined
-                        }
-                        onClick={() => void runTminusAlerts()}
-                      >
-                        <Bell size={14} aria-hidden="true" />
-                        Ativar alertas T-minus
-                      </button>
-                    </div>
-                  </label>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-      </section>
+      <Sg4AgendaSection
+        statusText={stepAgendaStatus}
+        distribution={distribution}
+        distributionStale={distributionStale}
+        stale={scheduleStale}
+        opTimeText={opTimeText}
+        onOpTimeTextChange={setOpTimeText}
+        opDay={opDay}
+        onOpDayChange={setOpDay}
+        noblesText={noblesText}
+        onNoblesTextChange={setNoblesText}
+        spacingText={spacingText}
+        onSpacingTextChange={setSpacingText}
+        tminusMarksText={tminusMarksText}
+        onTminusMarksTextChange={setTminusMarksText}
+        timingError={timingError}
+        scheduleRows={scheduleRows}
+        onCalculate={runSendSchedule}
+        onActivateAlerts={runTminusAlerts}
+        onCopy={copyText}
+      />
 
       {/* ===== Etapa 4 — Pacote de Comunicação =====
            Também PERMANENTE no DOM: sem distribuição, callout orienta. */}
-      <section className="page-section" aria-labelledby="sg4-comms-title">
-        <h2 className="section-title" id="sg4-comms-title">Pacote de comunicação</h2>
-        <p className="muted">{stepCommsStatus}</p>
-        {commsCollapsed ? (
-          <GatedHint
-            hint="MPs e plano aparecem depois da distribuição — conclua a etapa anterior para liberar."
-            onReveal={() => setCommsRevealed(true)}
-          />
-        ) : distribution === null ? (
-          <Callout variant="info">
-            <p>
-              <strong>MPs e plano aparecem depois da distribuição</strong> — cada jogador só tem
-              alvos e horários para receber quando a OP está distribuída e agendada.
-            </p>
-          </Callout>
-        ) : (
-          <div className="card">
-            <div className="card-header">
-              <h3 className="card-title">MPs, plano e reservas</h3>
-              <span className="spacer" />
-              <span className="pill pill--muted">MPs com #horarios# · BBCode do plano · reservas</span>
-            </div>
-            <div className="card-body">
-              <label className="field">
-                <span className="field-label">Template da MP (use #alvos# e #horarios#)</span>
-                <textarea
-                  className="textarea"
-                  rows={5}
-                  value={commsTemplate}
-                  data-tip="Texto base da MP. #alvos# vira os alvos do jogador e #horarios# os horários."
-                  aria-label="Template da MP"
-                  onChange={(event) => setCommsTemplate(event.target.value)}
-                />
-              </label>
-              {/* Biblioteca de templates (só corpo no SG_4): aplica/substitui o
-                  template da MP da OP e salva o atual como novo template. */}
-              <TemplateLibrary
-                variant="sg4"
-                currentSubject=""
-                currentBody={commsTemplate}
-                onApply={(_subject, body) => setCommsTemplate(body)}
-              />
-              {scheduleRows === null || scheduleRows.length === 0 ? (
-                <p className="muted">
-                  Calcule a agenda de envio acima para gerar MPs com #horarios# — BBCode e lista de reservas já funcionam só com a distribuição.
-                </p>
-              ) : commsPlayers === null ? (
-                <p className="error" role="alert">
-                  A agenda foi calculada para outra distribuição — rode a distribuição e a agenda de
-                  novo, na ordem, para as MPs saírem certas.
-                </p>
-              ) : (
-                <>
-                  {mpPreview.error !== '' && (
-                    <Callout variant="danger" title="Prévia da MP falhou">
-                      <p>{mpPreview.error}</p>
-                    </Callout>
-                  )}
-                  {mpPreview.preview !== null && (
-                    <div>
-                      <p className="field-label">Prévia da MP de {commsPlayers[0]?.playerName}:</p>
-                      <pre className="sg7-code">{mpPreview.preview}</pre>
-                    </div>
-                  )}
-                  <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => void copyText(sg6EntriesText(commsPlayers))}
-                    >
-                      <Copy size={14} aria-hidden="true" />
-                      Copiar destinatários (Reservas e MPs)
-                    </button>
-                    {/* Hand-off: leva a lista de destinatários ao módulo certo
-                        (Reservas e MPs) — só existe com onNavigate injetado. */}
-                    {onNavigate !== undefined && (
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => onNavigate('sg6')}
-                        data-tip="Abre o módulo de Reservas e MPs para disparar as MPs desta OP."
-                      >
-                        <Send size={14} aria-hidden="true" />
-                        Ir para Reservas e MPs
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={() =>
-                        void copyText(
-                          planBbcode({
-                            opTitle,
-                            template: commsTemplate,
-                            distribution: commsDistributionText,
-                            sendSchedule: formatSendSchedule(scheduleRows),
-                          }),
-                        )
-                      }
-                    >
-                      <Copy size={14} aria-hidden="true" />
-                      Copiar BBCode do plano (fórum)
-                    </button>
-                  </div>
-                </>
-              )}
-              <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  disabled={commsDistributionText === ''}
-                  onClick={() => void copyText(reservationList(commsDistributionText))}
-                >
-                  <Copy size={14} aria-hidden="true" />
-                  Copiar lista de reservas
-                </button>
-              </div>
-              <div className="sg4-params" style={{ marginTop: 12 }}>
-                <label className="field">
-                  <span className="field-label">URL do tópico do plano (o 1º post será substituído)</span>
-                  <input
-                    className="input"
-                    placeholder="https://br142.tribalwars.com.br/game.php?screen=forum&screenmode=view_thread&forum_id=…&thread_id=…"
-                    value={planThreadUrl}
-                    data-tip="Abra o tópico do plano no fórum do jogo e cole a URL aqui — o POSTAR substitui o 1º post."
-                    aria-label="URL do tópico do plano"
-                    onChange={(event) => setPlanThreadUrl(event.target.value)}
-                  />
-                </label>
-                <div className="field">
-                  <span className="field-label">Postar no fórum — mutação real</span>
-                  {!planPending ? (
-                    <button
-                      type="button"
-                      className="btn btn-danger"
-                      disabled={planPosting || distributionStale || !/thread_id=\d+/.test(planThreadUrl) || scheduleRows === null || scheduleRows.length === 0}
-                      title={
-                        distributionStale
-                          ? 'Os parâmetros mudaram depois da distribuição — redistribua antes de postar.'
-                          : undefined
-                      }
-                      data-tip="Substitui o 1º post do tópico pelo plano. Confirmação dupla."
-                      onClick={() => {
-                        setPlanResult(null);
-                        setPlanPending(true);
-                      }}
-                    >
-                      Postar plano no fórum
-                    </button>
-                  ) : (
-                    <div className="sg6-confirm">
-                      <p>
-                        Substituir o <strong>primeiro post</strong> do tópico pelo plano BBCode desta OP? Mutação única
-                        com verificação — e o Windows ainda pedirá confirmação nativa.
-                      </p>
-                      <div className="row">
-                        <button type="button" className="btn btn-danger" disabled={planPosting} onClick={() => void runPostPlan()}>
-                          {planPosting ? <><span className="btn-spinner" aria-hidden="true" /> Postando…</> : 'Confirmar post do plano'}
-                        </button>
-                        <button type="button" className="btn btn-ghost" disabled={planPosting} onClick={() => setPlanPending(false)}>
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {(scheduleRows === null || scheduleRows.length === 0) && (
-                    <p className="muted">Calcule a agenda de envio antes de postar — o plano do fórum sem horários não serve ao time.</p>
-                  )}
-                </div>
-              </div>
-              {planResult !== null && <p className="muted">{planResult}</p>}
-            </div>
-          </div>
-        )}
-
-      </section>
+      <Sg4CommsSection
+        statusText={stepCommsStatus}
+        distribution={distribution}
+        distributionStale={distributionStale}
+        scheduleRows={scheduleRows}
+        commsPlayers={commsPlayers}
+        commsTemplate={commsTemplate}
+        onCommsTemplateChange={setCommsTemplate}
+        commsDistributionText={commsDistributionText}
+        opTitle={opTitle}
+        planThreadUrl={planThreadUrl}
+        onPlanThreadUrlChange={setPlanThreadUrl}
+        planPending={planPending}
+        planPosting={planPosting}
+        planResult={planResult}
+        onBeginPost={() => {
+          setPlanResult(null);
+          setPlanPending(true);
+        }}
+        onConfirmPost={runPostPlan}
+        onCancelPost={() => setPlanPending(false)}
+        onCopy={copyText}
+        onNavigate={onNavigate}
+      />
 
       {/* Rodapé: "Restaurar padrões" NÃO é passo do fluxo — última linha. */}
       <div className="row sg4-footer-actions">
@@ -2414,50 +1572,5 @@ export default function Sg4Page({ onNavigate }: Sg4PageProps = {}) {
         </button>
       </div>
     </section>
-  );
-}
-
-/** Visualização da Distribuição: origens (verde) × alvos (branco) sobre o mapa. */
-const EMPTY_MARKINGS = new Map<number, import('@shared/types').TribeMarking>();
-
-function DistributionMap({ assignments, onError }: { assignments: { playerName: string; origin: string; target: string }[]; onError: (message: string) => void }) {
-  const [villages, setVillages] = useState<readonly import('@shared/types').WorldVillage[] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void window.staffhub.world
-      .villages()
-      .then((list) => {
-        if (!cancelled) setVillages(list);
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) onError(error instanceof Error ? error.message : String(error));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [onError]);
-
-  if (villages === null) {
-    return <p className="muted">Carregando mapa para a visualização da distribuição…</p>;
-  }
-  const origins = new Set(assignments.map((a) => a.origin));
-  const targets = new Set(assignments.map((a) => a.target));
-  return (
-    <div className="card sg4-mapviz">
-      <div className="card-header">
-        <h3 className="card-title">Visualização da distribuição</h3>
-        <span className="muted">● origens (NTs) · □ alvos</span>
-      </div>
-      <div className="card-body">
-        <WorldMapCanvas
-          villages={villages}
-          markings={EMPTY_MARKINGS}
-          highlights={targets}
-          origins={origins}
-          connections={assignments.map((a) => ({ from: a.origin, to: a.target }))}
-        />
-      </div>
-    </div>
   );
 }

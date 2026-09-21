@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Map as MapIcon, Radar, Swords } from 'lucide-react';
 import { parseCoordList } from '@shared/coords';
-import type { QueueProgress } from '@shared/ipc-types';
 import type {
   DiplomacyRelations,
   Sg1BucketResult,
@@ -17,9 +16,11 @@ import PageHeader from '../../components/PageHeader';
 import PresetManager from '../../components/PresetManager';
 import ProgressBar from '../../components/ProgressBar';
 import { loadRelationsShared, useDiplomacyRelations } from '../../hooks/useDiplomacyRelations';
+import { useGameCollection } from '../../hooks/useGameCollection';
 import { usePreferences } from '../../hooks/usePreferences';
 import { useToast } from '../../hooks/useToast';
 import { MODULES } from '../../modules';
+import { getWorldVillages, invalidateWorldVillages } from '../../world-cache';
 import WorldMapCanvas, { MARKING_OPTIONS } from './WorldMapCanvas';
 
 /**
@@ -154,14 +155,16 @@ export default function Sg1Page() {
     ],
   );
 
-  const [analyzing, setAnalyzing] = useState(false);
+  // Encanamento da coleta (busy/progresso/toast) por operação longa; o
+  // resultado e o erro inline continuam estados da página. Duas instâncias:
+  // análise e mapa do mundo travam cada um só a si (como antes).
+  const analyzeRun = useGameCollection();
   const [result, setResult] = useState<Sg1Result | null>(null);
   const [analyzeError, setAnalyzeError] = useState('');
-  const [progress, setProgress] = useState<QueueProgress | null>(null);
   const [sepByEnter, setSepByEnter] = useState<Record<number, boolean>>({});
 
   // Mapa do mundo.
-  const [worldLoading, setWorldLoading] = useState(false);
+  const worldRun = useGameCollection();
   const [tribes, setTribes] = useState<WorldAlly[]>([]);
   const [villages, setVillages] = useState<WorldVillage[]>([]);
   const [markings, setMarkings] = useState<Map<number, TribeMarking>>(new Map());
@@ -174,12 +177,6 @@ export default function Sg1Page() {
     if (relations === null) return;
     setOwnTag((typed) => (typed.trim() === '' ? relations.ownTag : typed));
   }, [relations]);
-
-  // Progresso das operações do main (download de dumps / coleta da análise).
-  useEffect(() => {
-    const unsubscribe = window.staffhub.events.onQueueProgress(setProgress);
-    return unsubscribe;
-  }, []);
 
   /** Dumps com mais de 6h são atualizados automaticamente (aldeias mudam de dono). */
   async function ensureWorldData(): Promise<void> {
@@ -206,31 +203,31 @@ export default function Sg1Page() {
   }
 
   async function runAnalyze(): Promise<void> {
-    if (analyzing) return;
+    if (analyzeRun.busy) return;
     if (!validateForm()) return;
-    setAnalyzing(true);
     setResult(null);
     setAnalyzeError('');
     try {
-      await ensureWorldData();
-      const input: Sg1Input = {
-        ownTag: ownTag.trim(),
-        enemyTags: parseTags(enemyTagsText),
-        kDesired: parseKList(kDesiredText),
-        enemyCoordsDiscard: parseCoordList(enemyCoordsDiscardText),
-        kEnemyDiscard: parseKList(kEnemyDiscardText),
-        enemyCoordsConsider: parseCoordList(enemyCoordsConsiderText),
-        allyCoordsConsider: parseCoordList(allyCoordsConsiderText),
-      };
-      const analysis = await window.staffhub.sg1.analyze(input);
-      setResult(analysis);
-      push('ok', `Análise concluída: ${analysis.ownVillageCount} aldeias da tribo classificadas.`);
+      const analysis = await analyzeRun.run(async () => {
+        await ensureWorldData();
+        const input: Sg1Input = {
+          ownTag: ownTag.trim(),
+          enemyTags: parseTags(enemyTagsText),
+          kDesired: parseKList(kDesiredText),
+          enemyCoordsDiscard: parseCoordList(enemyCoordsDiscardText),
+          kEnemyDiscard: parseKList(kEnemyDiscardText),
+          enemyCoordsConsider: parseCoordList(enemyCoordsConsiderText),
+          allyCoordsConsider: parseCoordList(allyCoordsConsiderText),
+        };
+        return window.staffhub.sg1.analyze(input);
+      }, {
+        doneLabel: (res) =>
+          `Análise concluída: ${res.ownVillageCount} aldeias da tribo classificadas.`,
+      });
+      if (analysis !== null) setResult(analysis);
     } catch (error) {
-      const message = errorMessage(error);
-      setAnalyzeError(message);
-      push('error', message);
-    } finally {
-      setAnalyzing(false);
+      // Toast do erro já vem do hook; aqui só o callout inline da página.
+      setAnalyzeError(errorMessage(error));
     }
   }
 
@@ -295,42 +292,44 @@ export default function Sg1Page() {
   }
 
   async function loadWorld(): Promise<void> {
-    if (worldLoading) return;
-    setWorldLoading(true);
+    if (worldRun.busy) return;
     setShowMap(false);
     try {
-      await ensureWorldData();
-      const [tribesValue, villagesValue] = await Promise.all([
-        window.staffhub.world.tribes(),
-        window.staffhub.world.villages(),
-      ]);
-      let relationsValue: DiplomacyRelations | null = null;
-      try {
-        // Loader coalescido: reaproveita a carga em andamento (ex.: recarga
-        // automática pós-login) em vez de disputar a fila do main.
-        relationsValue = await loadRelationsShared();
-      } catch {
-        relationsValue = null; // sem sessão: mapa fica todo marrom, sem pré-marcação
-      }
-      setTribes(tribesValue);
-      setVillages(villagesValue);
-      if (relationsValue !== null) setRelations(relationsValue);
+      await worldRun.run(async () => {
+        await ensureWorldData();
+        const [tribesValue, villagesValue] = await Promise.all([
+          window.staffhub.world.tribes(),
+          getWorldVillages(),
+        ]);
+        let relationsValue: DiplomacyRelations | null = null;
+        try {
+          // Loader coalescido: reaproveita a carga em andamento (ex.: recarga
+          // automática pós-login) em vez de disputar a fila do main.
+          relationsValue = await loadRelationsShared();
+        } catch {
+          relationsValue = null; // sem sessão: mapa fica todo marrom, sem pré-marcação
+        }
+        setTribes(tribesValue);
+        setVillages(villagesValue);
+        if (relationsValue !== null) setRelations(relationsValue);
 
-      // Pré-marcação pela diplomacia: inimigas em Vermelho, aliadas em Azul Ally,
-      // tribo própria em Azul, o resto em Marrom.
-      const next = new Map<number, TribeMarking>();
-      for (const ally of tribesValue) next.set(ally.id, 'Marrom');
-      if (relationsValue !== null) {
-        for (const enemy of relationsValue.enemies) next.set(enemy.allyId, 'Vermelho');
-        for (const ally of relationsValue.allies) next.set(ally.allyId, 'Azul Ally');
-        next.set(relationsValue.ownAllyId, 'Azul');
-      }
-      setMarkings(next);
-      push('ok', `Mapa carregado: ${villagesValue.length} aldeias e ${tribesValue.length} tribos.`);
-    } catch (error) {
-      push('error', errorMessage(error));
-    } finally {
-      setWorldLoading(false);
+        // Pré-marcação pela diplomacia: inimigas em Vermelho, aliadas em Azul Ally,
+        // tribo própria em Azul, o resto em Marrom.
+        const next = new Map<number, TribeMarking>();
+        for (const ally of tribesValue) next.set(ally.id, 'Marrom');
+        if (relationsValue !== null) {
+          for (const enemy of relationsValue.enemies) next.set(enemy.allyId, 'Vermelho');
+          for (const ally of relationsValue.allies) next.set(ally.allyId, 'Azul Ally');
+          next.set(relationsValue.ownAllyId, 'Azul');
+        }
+        setMarkings(next);
+        return { tribesValue, villagesValue };
+      }, {
+        doneLabel: (res) =>
+          `Mapa carregado: ${res.villagesValue.length} aldeias e ${res.tribesValue.length} tribos.`,
+      });
+    } catch {
+      // Toast do erro já vem do hook; esta seção não tem erro inline.
     }
   }
 
@@ -541,8 +540,8 @@ export default function Sg1Page() {
               )}
 
               <div className="sg1-span-2 sg1-form-actions">
-                <button type="submit" className="btn" disabled={analyzing}>
-                  {analyzing ? (
+                <button type="submit" className="btn" disabled={analyzeRun.busy}>
+                  {analyzeRun.busy ? (
                     <>
                       <span className="btn-spinner" aria-hidden="true" />
                       Obtendo dados…
@@ -554,8 +553,12 @@ export default function Sg1Page() {
                     </>
                   )}
                 </button>
-                {analyzing && progress !== null && (
-                  <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
+                {analyzeRun.busy && analyzeRun.progress !== null && (
+                  <ProgressBar
+                    done={analyzeRun.progress.done}
+                    total={analyzeRun.progress.total}
+                    label={analyzeRun.progress.label}
+                  />
                 )}
               </div>
             </form>
@@ -629,9 +632,9 @@ export default function Sg1Page() {
                 type="button"
                 className="btn"
                 onClick={() => void loadWorld()}
-                disabled={worldLoading}
+                disabled={worldRun.busy}
               >
-                {worldLoading ? (
+                {worldRun.busy ? (
                   <>
                     <span className="btn-spinner" aria-hidden="true" />
                     Carregando…
@@ -652,6 +655,8 @@ export default function Sg1Page() {
                     push('info', 'Atualizando dados do mundo…');
                     try {
                       await window.staffhub.world.refresh();
+                      // Dump mudou no main: a cópia de aldeias no renderer está velha.
+                      invalidateWorldVillages();
                       push('ok', 'Dados do mundo atualizados.');
                     } catch (err) {
                       push('error', err instanceof Error ? err.message : String(err));
@@ -664,8 +669,12 @@ export default function Sg1Page() {
               >
                 {worldRefreshBusy ? 'Atualizando…' : 'Atualizar dados do mundo'}
               </button>
-              {worldLoading && progress !== null && (
-                <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
+              {worldRun.busy && worldRun.progress !== null && (
+                <ProgressBar
+                  done={worldRun.progress.done}
+                  total={worldRun.progress.total}
+                  label={worldRun.progress.label}
+                />
               )}
             </div>
             {villages.length > 0 && (

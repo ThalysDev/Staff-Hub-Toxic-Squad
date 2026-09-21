@@ -11,16 +11,51 @@
 // - No catch: journal PRIMEIRO, emit depois — o journal é a fonte de verdade
 //   para diagnóstico póstumo.
 import { spawn, execFile } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync, mkdirSync, rmSync, statSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { app, BrowserWindow } from 'electron';
 import type { Journal } from './journal';
 import type { JsonStore } from './stores/json-store';
-import type { AppSettings, UpdateCheckResult, UpdateManifest, UpdateProgress } from '@shared/ipc-types';
-import { buildSwapScript, isNewerVersion, isValidManifest } from '@shared/updater-core';
+import type {
+  AppSettings,
+  UpdateCheckResult,
+  UpdateManifest,
+  UpdateProgress,
+  UpdateVersionEntry,
+} from '@shared/ipc-types';
+import { buildSwapScript, compareVersions, isNewerVersion, isValidManifest, verifyManifestSignature } from '@shared/updater-core';
 
 const EXE_NAME = 'Staff Hub Toxic Squad.exe';
+const SHA256_RE = /^[a-f0-9]{64}$/;
+const VERSION_RE = /^\d+\.\d+\.\d+$/;
+
+/**
+ * Valida UMA entrada do inventário versions.json: fail-closed em qualquer campo
+ * torto + pin de host (o zip tem que vir do MESMO host do canal). O `sig` da
+ * entrada cobre o canônico com notes VAZIO (ver publish-update.mjs).
+ */
+function entradaValida(value: unknown, channelHost: string): UpdateVersionEntry | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const rec = value as Record<string, unknown>;
+    const version = rec['version'];
+    const url = rec['url'];
+    const sha256 = rec['sha256'];
+    const sig = rec['sig'];
+    const releasedAt = rec['releasedAt'];
+    if (typeof version !== 'string' || !VERSION_RE.test(version)) return null;
+    if (typeof url !== 'string' || !/^https?:\/\/\S+$/.test(url)) return null;
+    if (new URL(url).host !== channelHost) return null;
+    if (typeof sha256 !== 'string' || !SHA256_RE.test(sha256)) return null;
+    if (typeof sig !== 'string' || sig.length === 0) return null;
+    if (typeof releasedAt !== 'string' || !Number.isFinite(Date.parse(releasedAt))) return null;
+    return { version, url, sha256, sig, releasedAt };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Extração de zip via tar.exe NATIVO do Windows (10+ inclui bsdtar com
@@ -159,62 +194,89 @@ export class UpdaterService {
   }
 
   /**
-   * Lista versões anteriores disponíveis no canal (para rollback). Faz HEAD
-   * nos últimos 3 patchs abaixo da atual — o canal mantém só as 3 últimas.
+   * Inventário de versões anteriores do canal (versions.json) para rollback.
+   * Fail-soft: canal sem inventário (404 — zips pré-0.36.0), rede fora ou JSON
+   * torto → lista vazia. Cada entrada é validada fail-closed e PINADA ao host
+   * do canal; só entram versões ESTRITAMENTE mais antigas que a instalada.
    */
-  async listAvailableVersions(): Promise<{ versions: { version: string; url: string }[] }> {
+  async listAvailableVersions(): Promise<{ versions: UpdateVersionEntry[] }> {
     const current = app.getVersion();
-    const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(current);
-    if (match === null) {
+    try {
+      const endpoint = await this.endpoint();
+      const versionsUrl = new URL('versions.json', new URL('.', new URL(endpoint))).href;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
+      let body: unknown;
+      try {
+        const response = await fetch(versionsUrl, { signal: controller.signal, cache: 'no-store', redirect: 'error' });
+        if (!response.ok) return { versions: [] };
+        body = await response.json();
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!Array.isArray(body)) return { versions: [] };
+      const channelHost = new URL(versionsUrl).host;
+      const vistas = new Set<string>();
+      const versions: UpdateVersionEntry[] = [];
+      for (const item of body) {
+        const entry = entradaValida(item, channelHost);
+        if (entry === null || vistas.has(entry.version)) continue;
+        vistas.add(entry.version);
+        if (compareVersions(entry.version, current) < 0) versions.push(entry);
+      }
+      versions.sort((a, b) => compareVersions(b.version, a.version));
+      return { versions };
+    } catch {
       return { versions: [] };
     }
-    const base = 'http://74.0.5.75/staffhub';
-    const versions: { version: string; url: string }[] = [];
-    const [, major, minor, patchStr] = match;
-    const patch = Number(patchStr);
-    // Probe os 3 patchs abaixo da atual (só os últimos 3 zips ficam no canal).
-    for (let p = patch - 1; p >= Math.max(0, patch - 3); p -= 1) {
-      const candidate = `${major}.${minor}.${p}`;
-      const url = `${base}/StaffHubToxicSquad-${candidate}.zip`;
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 5_000);
-        const response = await fetch(url, { method: 'HEAD', signal: controller.signal, redirect: 'error' });
-        clearTimeout(timer);
-        if (response.ok) {
-          versions.push({ version: candidate, url });
-        }
-      } catch {
-        // versão não existe no canal — pula
-      }
-    }
-    return { versions };
   }
 
   /**
    * Baixa e prepara uma versão ESPECÍFICA (rollback). Mesmo pipeline do
-   * downloadAndPrepare mas com URL/version/sha256 fornecidos (não do manifest).
+   * downloadAndPrepare mas com URL/version/sha256/sig fornecidos pelo
+   * inventário assinado do canal. Hardening 0.36.0: sha256 tem que ser 64-hex
+   * NÃO vazio (o antigo bypass "sha vazio = pular verificação" era um caminho
+   * de RCE sem autenticação — canais ficam UNGATED de propósito) e a
+   * assinatura Ed25519 da entrada TEM que conferir antes de qualquer download.
    */
-  async prepareVersion(version: string, url: string, sha256: string): Promise<{ ok: boolean; detail: string }> {
+  async prepareVersion(version: string, url: string, sha256: string, sig?: string): Promise<{ ok: boolean; detail: string }> {
     if (this.running) {
       return { ok: false, detail: 'Download já em andamento — aguarde.' };
     }
     if (!app.isPackaged) {
       return { ok: false, detail: 'Rollback disponível apenas na versão instalada.' };
     }
+    if (!VERSION_RE.test(version)) {
+      return { ok: false, detail: `Versão inválida para rollback: ${version} (use o formato X.Y.Z).` };
+    }
     if (!/^https?:\/\/\S+$/.test(url)) {
       return { ok: false, detail: `URL inválida para rollback: ${url}` };
+    }
+    // Mesmo host-pin do check(): o zip do rollback vem do MESMO host do canal
+    // configurado — entrada apontando para outro servidor é recusada.
+    const endpoint = await this.endpoint();
+    if (new URL(url).host !== new URL(endpoint).host) {
+      return { ok: false, detail: 'URL do rollback em host diferente do canal — recusada.' };
+    }
+    if (!SHA256_RE.test(sha256)) {
+      return { ok: false, detail: 'Rollback sem SHA-256 válido — recusado (a entrada precisa vir do inventário assinado do canal).' };
+    }
+    // O sig da entrada cobre o canônico com notes VAZIO (mesma regra do
+    // publish-update.mjs ao publicar versions.json).
+    const manifest: UpdateManifest = {
+      version,
+      notes: '',
+      url,
+      sha256: sha256.toLowerCase(),
+      releasedAt: new Date().toISOString(),
+      sig: sig ?? '',
+    };
+    if (!verifyManifestSignature(manifest)) {
+      return { ok: false, detail: 'Assinatura do rollback inválida ou ausente — recusado. Atualize o app pelo canal e tente de novo.' };
     }
     debugLog(`ROLLBACK: preparar v${version} de ${url}`);
     this.running = true;
     try {
-      const manifest: UpdateManifest = {
-        version,
-        notes: `Rollback para ${version}`,
-        url,
-        sha256,
-        releasedAt: new Date().toISOString(),
-      };
       return await this.doDownloadAndPrepareWithManifest(manifest);
     } finally {
       this.running = false;
@@ -311,20 +373,20 @@ export class UpdaterService {
       }
       this.emit({ phase: 'download', receivedBytes: received, totalBytes: received || totalBytes });
 
-      // 2. Integridade: SHA-256 do arquivo baixado × manifest.
-      // SHA vazio (rollback) = pular verificação — o zip vem do nosso canal.
+      // 2. Integridade: SHA-256 do arquivo baixado × manifest — OBRIGATÓRIO.
+      // O bypass "sha vazio = pular verificação" foi extinto no hardening
+      // 0.36.0 (rollback sem sha era RCE sem autenticação pelo renderer).
       debugLog('ETAPA 5: verificar SHA-256');
       this.emit({ phase: 'verify' });
+      if (!SHA256_RE.test(manifest.sha256)) {
+        throw new Error('manifest sem SHA-256 válido — recusado, nada foi alterado.');
+      }
       const sha256 = hash.digest('hex');
-      if (manifest.sha256 !== '' && sha256 !== manifest.sha256.toLowerCase()) {
+      if (sha256 !== manifest.sha256.toLowerCase()) {
         rmSync(zipPath, { force: true });
         throw new Error('integridade conferida e REPROVADA (SHA-256 divergente) — arquivo descartado, nada foi alterado.');
       }
-      if (manifest.sha256 === '') {
-        debugLog(`ETAPA 5-BYPASS: rollback sem SHA do manifest (calculado: ${sha256.slice(0, 12)}…)`);
-      } else {
-        debugLog('ETAPA 5-OK: sha confere');
-      }
+      debugLog('ETAPA 5-OK: sha confere');
 
       // 3. Extração para staging.
       debugLog('ETAPA 6: extrair zip (tar.exe nativo)');
@@ -399,7 +461,6 @@ export class UpdaterService {
     if (!existsSync(scriptPath)) {
       throw new Error('Script de atualização sumiu da pasta temporária — baixe de novo.');
     }
-    await this.journal.append('system', 'update-apply', `saindo para aplicar a versão ${version}`, false);
     debugLog(`REINICIAR: spawn cmd /c start powershell -File "${scriptPath}" e sair`);
     // CRÍTICO: powershell spawnado como filho detached DIRETO morre quando o
     // app sai (comprovado por harness — spawn-kill: filho não roda NADA, sem
@@ -407,26 +468,43 @@ export class UpdaterService {
     // independente que sobrevive à morte do pai — único caminho que funciona.
     // /min + -WindowStyle Hidden: o console novo não pisca na tela do usuário.
     const updatesDir = join(app.getPath('userData'), 'updates');
-    const child = spawn('cmd.exe', [
-      '/c', 'start', '', '/min', 'powershell.exe',
-      '-NoProfile',
-      '-ExecutionPolicy', 'Bypass',
-      '-WindowStyle', 'Hidden',
-      '-File', scriptPath,
-    ], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-      // cwd FORA da pasta do app: o Windows não renomeia a pasta que é CWD de
-      // um processo — herdar a pasta do app travava o Rename da FASE 2.
-      cwd: updatesDir,
-    });
-    // Falha de spawn sempre deixa rastro (journal + debug) — nunca silêncio.
-    child.on('error', (error) => {
-      const message = `Falha ao iniciar o script de troca: ${error.message}`;
+    let child: ChildProcess;
+    try {
+      child = spawn('cmd.exe', [
+        '/c', 'start', '', '/min', 'powershell.exe',
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-WindowStyle', 'Hidden',
+        '-File', scriptPath,
+      ], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+        // cwd FORA da pasta do app: o Windows não renomeia a pasta que é CWD de
+        // um processo — herdar a pasta do app travava o Rename da FASE 2.
+        cwd: updatesDir,
+      });
+    } catch (error) {
+      const message = `Falha ao iniciar o script de troca: ${error instanceof Error ? error.message : String(error)}`;
       debugLog(`REINICIAR-ERRO: ${message}`);
-      void this.journal.append('system', 'update-error', message, false).catch(() => undefined);
+      await this.journal.append('system', 'update-error', message, false).catch(() => undefined);
+      throw new Error(message);
+    }
+    // Quit-on-spawn-fail: se o spawn falhar, o app NÃO fecha (destruir as
+    // janelas sem a troca marcada deixaria o usuário sem hub). Confirma o
+    // spawn ANTES de sair; falhou → devolve o erro (renderer mostra no estado
+    // de erro) e o app continua aberto para tentar de novo.
+    const spawnOk = await new Promise<boolean>((resolve) => {
+      child.once('spawn', () => resolve(true));
+      child.once('error', () => resolve(false));
     });
+    if (!spawnOk) {
+      const message = 'Falha ao iniciar o script de troca — o hub NÃO foi fechado. Tente de novo.';
+      debugLog(`REINICIAR-ERRO: ${message}`);
+      await this.journal.append('system', 'update-error', message, false).catch(() => undefined);
+      throw new Error(message);
+    }
+    await this.journal.append('system', 'update-apply', `saindo para aplicar a versão ${version}`, false);
     child.unref();
     for (const win of BrowserWindow.getAllWindows()) win.destroy();
     app.quit();

@@ -73,7 +73,7 @@ export const electronMockState = {
   fetch: vi.fn(),
 };
 
-/** Response fake com a superfície que o app usa: ok/status/text(). */
+/** Response fake com a superfície que o app usa: ok/status/text()/arrayBuffer(). */
 class FakeResponse {
   readonly ok: boolean;
   readonly status: number;
@@ -87,6 +87,15 @@ class FakeResponse {
 
   async text(): Promise<string> {
     return this.body;
+  }
+
+  async arrayBuffer(): Promise<ArrayBuffer> {
+    // Bytes crus via latin1: preserva QUALQUER sequência de bytes num corpo
+    // string (gzip de teste: gzipSync(...).toString('latin1') na rota).
+    const bytes = Buffer.from(this.body, 'latin1');
+    const out = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(out).set(bytes);
+    return out;
   }
 }
 

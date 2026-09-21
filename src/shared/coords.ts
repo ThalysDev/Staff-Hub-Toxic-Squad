@@ -42,11 +42,6 @@ export function formatCoord(coord: Coord): string {
   return `${coord.x}|${coord.y}`;
 }
 
-export function formatCoordList(coords: Coord[], separator: 'space' | 'newline'): string {
-  const sep = separator === 'space' ? ' ' : '\n';
-  return coords.map(formatCoord).join(sep);
-}
-
 export function continentOf(coord: Coord): number {
   return Math.floor(coord.y / 100) * 10 + Math.floor(coord.x / 100);
 }

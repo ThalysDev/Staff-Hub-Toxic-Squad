@@ -35,4 +35,10 @@ describe('fold', () => {
   it('apara espaços das bordas ("  João  " → "joao")', () => {
     expect(fold('  João  ')).toBe('joao');
   });
+
+  it('collapseSpaces colapsa sequências de espaço em uma (uso do spy-report)', () => {
+    expect(fold('Lanceiro   ARQUEIRO  a Cavalo', { collapseSpaces: true })).toBe('lanceiro arqueiro a cavalo');
+    // Sem a opção, espaços internos são preservados (comportamento histórico).
+    expect(fold('Lanceiro   ARQUEIRO')).toBe('lanceiro   arqueiro');
+  });
 });

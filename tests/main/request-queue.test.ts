@@ -64,6 +64,28 @@ describe('RequestQueue.run', () => {
     await expect(promise).rejects.toMatchObject({ kind: 'cancelled' });
   });
 
+  it('isCancelled() expõe o flag e beginOperation (0→1) descarta cancelamento STALE', () => {
+    const queue = makeQueue(async (url) => ({ ok: true, status: 200, body: okBody, url }));
+    expect(queue.isCancelled()).toBe(false);
+    queue.cancel();
+    expect(queue.isCancelled()).toBe(true);
+    // cancel() sem operação em andamento é STALE: a operação externa seguinte
+    // começa com o flag limpo (nunca envenena a próxima operação).
+    queue.beginOperation();
+    expect(queue.isCancelled()).toBe(false);
+    // cancel() COM operação externa rodando é visível para ela (isCancelled).
+    queue.cancel();
+    expect(queue.isCancelled()).toBe(true);
+    queue.endOperation();
+    expect(queue.isCancelled()).toBe(true); // flag segue até a próxima operação
+  });
+
+  it('cancel() sem operação não envenena o run() seguinte (reset no início do run)', async () => {
+    const queue = makeQueue(async (url) => ({ ok: true, status: 200, body: okBody, url }));
+    queue.cancel();
+    await expect(queue.run(['a'], { label: 'depois-do-stale', ceiling: 10 })).resolves.toEqual([okBody]);
+  });
+
   it('recusa segunda operação enquanto uma está em andamento (aborted)', async () => {
     const queue = new RequestQueue(
       async (url: string) => {

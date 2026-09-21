@@ -16,6 +16,7 @@ import {
   hasWarFilter,
   type WarViewFilter,
 } from '@shared/war-view-filter';
+import Callout from '../../components/Callout';
 import EmptyState from '../../components/EmptyState';
 import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
@@ -24,6 +25,7 @@ import { useSessionStatus } from '../../hooks/useSessionStatus';
 import { useToast, type ToastVariant } from '../../hooks/useToast';
 import type { PageId } from '../../modules';
 import MassPlannerSection from './MassPlannerSection';
+import OdaOddSection from './OdaOddSection';
 import OpAgendaSection from './OpAgendaSection';
 import OpMapSection from './OpMapSection';
 import OpShareSection from './OpShareSection';
@@ -82,6 +84,11 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
   const [selectedId, setSelectedId] = useState('');
   const [verifyResult, setVerifyResult] = useState<Sg5VerifyResult | null>(null);
   const [error, setError] = useState('');
+  /** Falha do CARREGAMENTO da lista (montagem/retry): enquanto ativa, o painel
+   *  mostra o callout com "Tentar de novo" — nunca o vazio "Nenhuma OP
+   *  arquivada ainda", que mentia sobre o estado real (lista simplesmente
+   *  não chegou). */
+  const [opsError, setOpsError] = useState('');
   const [busy, setBusy] = useState<'verify' | 'attach' | null>(null);
   const [progress, setProgress] = useState<{ label: string; done: number; total: number } | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
@@ -97,13 +104,18 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
     return list;
   }
 
+  /** Carrega a lista do arquivo limpando/marcando o erro DE carregamento. */
+  function refreshOps(): void {
+    setOpsError('');
+    loadOps().catch((err: unknown) => {
+      setOpsError(err instanceof Error ? err.message : String(err));
+    });
+  }
+
   // Estado inicial: lista do arquivo uma vez no mount.
   useEffect(() => {
-    loadOps().catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      push('error', message);
-    });
+    refreshOps();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selected = useMemo(() => ops.find((op) => op.id === selectedId) ?? null, [ops, selectedId]);
@@ -146,12 +158,14 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
     );
   }, [verifyResult]);
 
-  // Countdown ao vivo só enquanto existe agenda de chegadas.
+  // Countdown ao vivo só enquanto existe agenda de chegadas — e SÓ na aba do
+  // monitoramento: a página é keep-mounted com o painel do planner escondido
+  // (`hidden`), e re-render por segundo em painel invisível é trabalho morto.
   useEffect(() => {
-    if (timeline === null || timeline.entries.length === 0) return;
+    if (timeline === null || timeline.entries.length === 0 || salaTab !== 'monitor') return;
     const id = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [timeline]);
+  }, [timeline, salaTab]);
 
   /** Próximas 6 chegadas; as caídas há menos de 1 min aparecem como "atrasado". */
   const upcomingArrivals = useMemo(
@@ -408,7 +422,23 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
           </h2>
         </div>
         <div className="card-body">
-          {ops.length === 0 ? (
+          {opsError !== '' ? (
+            // Falha de carregamento: erro explícito com retry — o vazio
+            // "Nenhuma OP arquivada ainda" NÃO aparece enquanto há erro
+            // (a lista não chegou; dizer "não há nada" seria mentira).
+            <Callout
+              variant="danger"
+              title="Não foi possível carregar as OPs arquivadas"
+              actions={
+                <button type="button" className="btn btn-ghost" onClick={refreshOps}>
+                  <RefreshCw size={15} aria-hidden="true" />
+                  Tentar de novo
+                </button>
+              }
+            >
+              <p>{opsError}</p>
+            </Callout>
+          ) : ops.length === 0 ? (
             <EmptyState
               icon={Crosshair}
               title="Nenhuma OP arquivada ainda"
@@ -730,6 +760,11 @@ export default function WarRoomPage({ onNavigate }: WarRoomPageProps) {
       {/* ---- Evolução do Mundo: diff entre versões arquivadas do mundo (SG_1).
            Sempre visível — a seção trata sozinha os estados sem histórico. ---- */}
       <WorldEvolutionSection />
+
+      {/* ---- Painel de Guerra ODA/ODD: curva de kills ofensivos/defensivos da
+           tribo (dumps oficiais kill_*_tribe) — sempre visível; a seção trata
+           sozinha o estado sem leituras. ---- */}
+      <OdaOddSection />
       </div>
 
     </div>

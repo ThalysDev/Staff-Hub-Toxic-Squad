@@ -35,7 +35,7 @@ import PageHeader from '../../components/PageHeader';
 import PresetManager from '../../components/PresetManager';
 import ProgressBar from '../../components/ProgressBar';
 import StatBlock from '../../components/StatBlock';
-import { usePreferences } from '../../hooks/usePreferences';
+import { usePrefsForm } from '../../hooks/usePrefsForm';
 import { useSessionStatus } from '../../hooks/useSessionStatus';
 import { useToast } from '../../hooks/useToast';
 import { MODULES } from '../../modules';
@@ -138,6 +138,17 @@ function parseAxisValue(text: string): number | null {
   return value;
 }
 
+/** Migração ÚNICA do filtro de jogadores legado (pré-v0.33, lista por ESPAÇO),
+ *  rodada uma única vez pós-hidratação pelo onHydrated do usePrefsForm: no
+ *  formato antigo nick com espaço nunca funcionou, então texto com espaço e
+ *  sem ";" só pode ser lista multi-nick. A flag grava que já migramos — sem
+ *  ela, nick COM espaço salvo no formato novo (;) seria re-quebrado a cada
+ *  boot (P2 da revisão integrada v0.33.1). */
+function migrarFsPlayersHidratado(values: Sg2Prefs, save: (patch: Partial<Sg2Prefs>) => void): void {
+  if (values.fsPlayersMigrated === true) return;
+  save({ fsPlayersText: migrateLegacyNamesText(values.fsPlayersText), fsPlayersMigrated: true });
+}
+
 export default function Sg2Page() {
   const { push } = useToast();
   const moduleInfo = MODULES.find((module) => module.id === 'sg2');
@@ -150,13 +161,10 @@ export default function Sg2Page() {
   // v0.31 — fonte "Disponível na aldeia (agora)": defesa por aldeia (SG_3).
   const [defense, setDefense] = useState<DefenseSnapshot | null>(null);
   const [defenseRefreshing, setDefenseRefreshing] = useState(false);
-  const [fonte, setFonte] = useState<'recrutadas' | 'disponivel-agora'>('recrutadas');
-  const [paradasTransito, setParadasTransito] = useState<'paradas' | 'paradas-e-transito'>('paradas');
   // v0.34 — abas "Análise" (decisão) × "Auditoria de Membros" (histórico/
   // evolução): ambas SEMPRE montadas (troca sem perder estado), aba persistida
   // nas prefs (padrão da Sala de Guerra). refreshKey aviva a auditoria quando
   // uma coleta arquiva versão nova.
-  const [abaAudit, setAbaAudit] = useState<'analise' | 'auditoria'>('analise');
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   // Página keep-mounted: quando escondida (.sg-page[hidden] = display:none),
   // TOASTS DAQUI são invisíveis. Fluxos em 2º plano (auto-coleta) só avisam
@@ -166,29 +174,12 @@ export default function Sg2Page() {
   const [collecting, setCollecting] = useState<'members' | 'summary' | null>(null);
   const [progress, setProgress] = useState<QueueProgress | null>(null);
   const [actionError, setActionError] = useState('');
-  // P2-23 — coleta automática agendada ('0' = desligado).
-  const [autoCollectHours, setAutoCollectHours] = useState<AutoCollectHours>('0');
 
   // Formulário de filtro.
   const [showForm, setShowForm] = useState(false);
-  const [unitInputs, setUnitInputs] = useState<Record<UnitId, string>>(emptyUnitInputs);
-  const [mode, setMode] = useState<'has' | 'lacks'>('has');
-  const [scope, setScope] = useState<'village' | 'player'>('village');
-  const [coordsText, setCoordsText] = useState('');
-  const [kText, setKText] = useState('');
-  const [kMode, setKMode] = useState<'incluir' | 'excluir'>('incluir');
   // ---- Contador Full/Semi (relatório premium) + Grupos ----
-  const [fullPopText, setFullPopText] = useState('18000');
-  const [semiPopText, setSemiPopText] = useState('12000');
-  const [minFullsText, setMinFullsText] = useState('0');
-  const [minSemisText, setMinSemisText] = useState('0');
-  const [fsSort, setFsSort] = useState<FullSemiSortBy>('fulls');
   const [fsUnitMode, setFsUnitMode] = useState<'ofensivas' | 'todas' | 'custom'>('ofensivas');
   const [fsCustomUnits, setFsCustomUnits] = useState<Set<string>>(new Set());
-  const [fsKText, setFsKText] = useState('');
-  const [fsKMode, setFsKMode] = useState<'incluir' | 'excluir'>('incluir');
-  const [fsPlayersText, setFsPlayersText] = useState('');
-  const [fsPlayersMode, setFsPlayersMode] = useState<'incluir' | 'excluir'>('excluir');
   const [report, setReport] = useState<FullSemiReport | null>(null);
   const [fsExpanded, setFsExpanded] = useState<Set<number>>(new Set());
   const [fullSemiBusy, setFullSemiBusy] = useState(false);
@@ -198,6 +189,65 @@ export default function Sg2Page() {
   const [groupBusy, setGroupBusy] = useState(false);
   const unitPopsRef = useRef<{ world: string | null; pops: Record<string, number> } | null>(null);
   const session = useSessionStatus();
+
+  // Preferências do módulo: os formulários sobrevivem a F5/reinício. O hook
+  // declara fallback + normalização por campo, hidrata UMA vez e persiste cada
+  // mudança — debounce e beforeunload ficam no usePreferences, por baixo.
+  const {
+    values: {
+      unitInputs,
+      mode,
+      scope,
+      coordsText,
+      minXText,
+      maxXText,
+      minYText,
+      maxYText,
+      kText,
+      kMode,
+      fullPopText,
+      semiPopText,
+      minFullsText,
+      minSemisText,
+      fsSort,
+      fsKText,
+      fsKMode,
+      fsPlayersText,
+      fsPlayersMode,
+      autoCollectHours,
+      fonte,
+      paradasTransito,
+      abaAudit,
+    },
+    setValue,
+    resetPersisted,
+  } = usePrefsForm<Sg2Prefs>('sg2', {
+    unitInputs: { fallback: emptyUnitInputs(), onLoad: (saved) => ({ ...emptyUnitInputs(), ...saved }) },
+    mode: { fallback: 'has' },
+    scope: { fallback: 'village' },
+    coordsText: { fallback: '' },
+    minXText: { fallback: '' },
+    maxXText: { fallback: '' },
+    minYText: { fallback: '' },
+    maxYText: { fallback: '' },
+    kText: { fallback: '' },
+    kMode: { fallback: 'incluir' },
+    fullPopText: { fallback: '18000' },
+    semiPopText: { fallback: '12000' },
+    minFullsText: { fallback: '0' },
+    minSemisText: { fallback: '0' },
+    fsSort: { fallback: 'fulls' },
+    fsKText: { fallback: '' },
+    fsKMode: { fallback: 'incluir' },
+    fsPlayersText: { fallback: '' },
+    fsPlayersMode: { fallback: 'excluir' },
+    fsPlayersMigrated: { fallback: false },
+    // P2-23 — coleta automática agendada ('0' = desligado); lixo salvo volta a "Desligado".
+    autoCollectHours: { fallback: '0', onLoad: normalizeAutoCollect },
+    fonte: { fallback: 'recrutadas', onLoad: (saved) => (saved === 'disponivel-agora' ? 'disponivel-agora' : 'recrutadas') },
+    paradasTransito: { fallback: 'paradas', onLoad: (saved) => (saved === 'paradas-e-transito' ? 'paradas-e-transito' : 'paradas') },
+    abaAudit: { fallback: 'analise', onLoad: (saved) => (saved === 'auditoria' ? 'auditoria' : 'analise') },
+  }, { onHydrated: migrarFsPlayersHidratado });
 
   /** Snapshot da fonte ATIVA: recrutadas, ou defesa convertida ("Na Aldeia",
    *  com/sem "a caminho") — todo o filtro/agregação opera nele, sem duplicar
@@ -245,170 +295,6 @@ export default function Sg2Page() {
     if (fsUnitMode === 'ofensivas') return snapshotUnitIds.filter((id) => OFFENSIVE_UNIT_IDS.has(id));
     return fsCustomUnits.size > 0 ? [...fsCustomUnits] : undefined;
   }
-  const [minXText, setMinXText] = useState('');
-  const [maxXText, setMaxXText] = useState('');
-  const [minYText, setMinYText] = useState('');
-  const [maxYText, setMaxYText] = useState('');
-
-  // Preferências do módulo: os formulários sobrevivem a F5/reinício.
-  const { prefs, savePrefs, resetPrefs } = usePreferences<Sg2Prefs>('sg2', {
-    unitInputs: emptyUnitInputs(),
-    mode: 'has',
-    scope: 'village',
-    coordsText: '',
-    minXText: '',
-    maxXText: '',
-    minYText: '',
-    maxYText: '',
-    kText: '',
-    kMode: 'incluir',
-    fullPopText: '18000',
-    semiPopText: '12000',
-    minFullsText: '0',
-    minSemisText: '0',
-    fsSort: 'fulls',
-    fsKText: '',
-    fsKMode: 'incluir',
-    fsPlayersText: '',
-    fsPlayersMode: 'excluir',
-    autoCollectHours: '0',
-    fonte: 'recrutadas',
-    paradasTransito: 'paradas',
-    abaAudit: 'analise',
-  });
-
-  // Hidratação única: aplica o que veio do store sobre os estados do formulário.
-  const prefsHydrated = useRef(false);
-  useEffect(() => {
-    if (prefs === null || prefsHydrated.current) return;
-    prefsHydrated.current = true;
-    if (prefs.unitInputs !== undefined) setUnitInputs({ ...emptyUnitInputs(), ...prefs.unitInputs });
-    if (prefs.mode !== undefined) setMode(prefs.mode);
-    if (prefs.scope !== undefined) setScope(prefs.scope);
-    if (prefs.coordsText !== undefined) setCoordsText(prefs.coordsText);
-    if (prefs.minXText !== undefined) setMinXText(prefs.minXText);
-    if (prefs.maxXText !== undefined) setMaxXText(prefs.maxXText);
-    if (prefs.minYText !== undefined) setMinYText(prefs.minYText);
-    if (prefs.maxYText !== undefined) setMaxYText(prefs.maxYText);
-    if (prefs.kText !== undefined) setKText(prefs.kText);
-    if (prefs.kMode !== undefined) setKMode(prefs.kMode);
-    if (prefs.fullPopText !== undefined) setFullPopText(prefs.fullPopText);
-    if (prefs.semiPopText !== undefined) setSemiPopText(prefs.semiPopText);
-    if (prefs.minFullsText !== undefined) setMinFullsText(prefs.minFullsText);
-    if (prefs.minSemisText !== undefined) setMinSemisText(prefs.minSemisText);
-    if (prefs.fsSort !== undefined) setFsSort(prefs.fsSort);
-    if (prefs.fsKText !== undefined) setFsKText(prefs.fsKText);
-    if (prefs.fsKMode !== undefined) setFsKMode(prefs.fsKMode);
-    if (prefs.fsPlayersText !== undefined) {
-      // Migração ÚNICA do legado pré-v0.33 (lista por ESPAÇO): no formato
-      // antigo nick com espaço nunca funcionou, então texto com espaço e sem
-      // ";" só pode ser lista multi-nick. A flag grava que já migramos — sem
-      // ela, nick COM espaço salvo no formato novo seria re-quebrado a cada
-      // boot (P2 da revisão integrada v0.33.1).
-      if (prefs.fsPlayersMigrated === true) {
-        setFsPlayersText(prefs.fsPlayersText);
-      } else {
-        const migrated = migrateLegacyNamesText(prefs.fsPlayersText);
-        setFsPlayersText(migrated);
-        savePrefs({ fsPlayersText: migrated, fsPlayersMigrated: true });
-      }
-    }
-    if (prefs.fsPlayersMode !== undefined) setFsPlayersMode(prefs.fsPlayersMode);
-    if (prefs.autoCollectHours !== undefined) setAutoCollectHours(normalizeAutoCollect(prefs.autoCollectHours));
-    if (prefs.fonte === 'disponivel-agora') setFonte('disponivel-agora');
-    if (prefs.paradasTransito === 'paradas-e-transito') setParadasTransito('paradas-e-transito');
-    if (prefs.abaAudit === 'auditoria') setAbaAudit('auditoria');
-  }, [prefs]);
-
-  // Persistência por campo (só depois de hidratado, para não sobrescrever o stored).
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ unitInputs });
-  }, [unitInputs, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ mode });
-  }, [mode, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ scope });
-  }, [scope, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ coordsText });
-  }, [coordsText, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ minXText });
-  }, [minXText, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ maxXText });
-  }, [maxXText, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ minYText });
-  }, [minYText, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ maxYText });
-  }, [maxYText, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ kText });
-  }, [kText, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ kMode });
-  }, [kMode, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ fullPopText });
-  }, [fullPopText, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ semiPopText });
-  }, [semiPopText, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ minFullsText });
-  }, [minFullsText, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ minSemisText });
-  }, [minSemisText, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ fsSort });
-  }, [fsSort, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ fsKText });
-  }, [fsKText, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ fsKMode });
-  }, [fsKMode, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ fsPlayersText });
-  }, [fsPlayersText, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ fsPlayersMode });
-  }, [fsPlayersMode, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ autoCollectHours });
-  }, [autoCollectHours, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ fonte });
-  }, [fonte, savePrefs]);
-  useEffect(() => {
-    if (!prefsHydrated.current) return;
-    savePrefs({ paradasTransito });
-  }, [paradasTransito, savePrefs]);
 
   // Resultado.
   const [result, setResult] = useState<Sg2FilterResult | null>(null);
@@ -689,12 +575,12 @@ export default function Sg2Page() {
 
   /** Trocar fonte/contagem invalida o resultado (nunca misturar listas). */
   function trocarFonte(next: 'recrutadas' | 'disponivel-agora'): void {
-    setFonte(next);
+    setValue('fonte', next);
     setResult(null);
     setActionError('');
   }
   function trocarContagem(next: 'paradas' | 'paradas-e-transito'): void {
-    setParadasTransito(next);
+    setValue('paradasTransito', next);
     setResult(null);
     setActionError('');
   }
@@ -882,7 +768,7 @@ export default function Sg2Page() {
   }
 
   function updateUnitInput(id: UnitId, value: string): void {
-    setUnitInputs((current) => ({ ...current, [id]: value }));
+    setValue('unitInputs', { ...unitInputs, [id]: value });
   }
 
   /**
@@ -907,16 +793,16 @@ export default function Sg2Page() {
       const value = unitsBrutos[id];
       if (typeof value === 'string') nextUnits[id] = value;
     }
-    setUnitInputs(nextUnits);
-    if (fields['mode'] === 'has' || fields['mode'] === 'lacks') setMode(fields['mode']);
-    if (fields['scope'] === 'village' || fields['scope'] === 'player') setScope(fields['scope']);
-    if (typeof fields['coordsText'] === 'string') setCoordsText(fields['coordsText']);
-    if (typeof fields['minXText'] === 'string') setMinXText(fields['minXText']);
-    if (typeof fields['maxXText'] === 'string') setMaxXText(fields['maxXText']);
-    if (typeof fields['minYText'] === 'string') setMinYText(fields['minYText']);
-    if (typeof fields['maxYText'] === 'string') setMaxYText(fields['maxYText']);
-    if (typeof fields['kText'] === 'string') setKText(fields['kText']);
-    if (fields['kMode'] === 'incluir' || fields['kMode'] === 'excluir') setKMode(fields['kMode']);
+    setValue('unitInputs', nextUnits);
+    if (fields['mode'] === 'has' || fields['mode'] === 'lacks') setValue('mode', fields['mode']);
+    if (fields['scope'] === 'village' || fields['scope'] === 'player') setValue('scope', fields['scope']);
+    if (typeof fields['coordsText'] === 'string') setValue('coordsText', fields['coordsText']);
+    if (typeof fields['minXText'] === 'string') setValue('minXText', fields['minXText']);
+    if (typeof fields['maxXText'] === 'string') setValue('maxXText', fields['maxXText']);
+    if (typeof fields['minYText'] === 'string') setValue('minYText', fields['minYText']);
+    if (typeof fields['maxYText'] === 'string') setValue('maxYText', fields['maxYText']);
+    if (typeof fields['kText'] === 'string') setValue('kText', fields['kText']);
+    if (fields['kMode'] === 'incluir' || fields['kMode'] === 'excluir') setValue('kMode', fields['kMode']);
     // Fonte/contagem do preset invalidam o resultado quando MUDAM (mesma
     // invariante dos radios — nunca misturar listas de fontes diferentes).
     const nextFonte = fields['fonte'] === 'disponivel-agora' ? 'disponivel-agora' : 'recrutadas';
@@ -930,52 +816,29 @@ export default function Sg2Page() {
    * contagem ("Contar Full/Semi" continua manual).
    */
   function applyFullSemiPreset(fields: Record<string, string>): void {
-    if (typeof fields['fullPopText'] === 'string') setFullPopText(fields['fullPopText']);
-    if (typeof fields['semiPopText'] === 'string') setSemiPopText(fields['semiPopText']);
-    if (typeof fields['minFullsText'] === 'string') setMinFullsText(fields['minFullsText']);
-    if (typeof fields['minSemisText'] === 'string') setMinSemisText(fields['minSemisText']);
-    if (typeof fields['fsKText'] === 'string') setFsKText(fields['fsKText']);
+    if (typeof fields['fullPopText'] === 'string') setValue('fullPopText', fields['fullPopText']);
+    if (typeof fields['semiPopText'] === 'string') setValue('semiPopText', fields['semiPopText']);
+    if (typeof fields['minFullsText'] === 'string') setValue('minFullsText', fields['minFullsText']);
+    if (typeof fields['minSemisText'] === 'string') setValue('minSemisText', fields['minSemisText']);
+    if (typeof fields['fsKText'] === 'string') setValue('fsKText', fields['fsKText']);
     if (typeof fields['fsPlayersText'] === 'string') {
       // Presets salvos antes da v0.33 podem ter lista por espaço (legado).
-      setFsPlayersText(migrateLegacyNamesText(fields['fsPlayersText']));
+      setValue('fsPlayersText', migrateLegacyNamesText(fields['fsPlayersText']));
     }
-    if (fields['fsKMode'] === 'incluir' || fields['fsKMode'] === 'excluir') setFsKMode(fields['fsKMode']);
+    if (fields['fsKMode'] === 'incluir' || fields['fsKMode'] === 'excluir') setValue('fsKMode', fields['fsKMode']);
     if (fields['fsPlayersMode'] === 'incluir' || fields['fsPlayersMode'] === 'excluir') {
-      setFsPlayersMode(fields['fsPlayersMode']);
+      setValue('fsPlayersMode', fields['fsPlayersMode']);
     }
   }
 
   /** Volta os formulários aos padrões e apaga as preferências persistidas do módulo. */
   function resetFormPrefs(): void {
     if (!window.confirm('Restaurar padrões? TODOS os campos salvos deste módulo voltam ao padrão e os resultados na tela somem. Esta ação não pode ser desfeita.')) return;
-    setUnitInputs(emptyUnitInputs());
-    setMode('has');
-    setScope('village');
-    setCoordsText('');
-    setMinXText('');
-    setMaxXText('');
-    setMinYText('');
-    setMaxYText('');
-    setKText('');
-    setKMode('incluir');
-    setFullPopText('18000');
-    setSemiPopText('12000');
-    setMinFullsText('0');
-    setMinSemisText('0');
-    setFsSort('fulls');
-    setFsKText('');
-    setFsKMode('incluir');
-    setFsPlayersText('');
-    setFsPlayersMode('excluir');
-    setAutoCollectHours('0');
-    setFonte('recrutadas');
-    setParadasTransito('paradas');
-    void resetPrefs();
+    void resetPersisted();
   }
 
   function switchAbaAudit(tab: 'analise' | 'auditoria'): void {
-    setAbaAudit(tab);
-    savePrefs({ abaAudit: tab });
+    setValue('abaAudit', tab);
   }
 
   const updatedLabel =
@@ -1055,7 +918,7 @@ export default function Sg2Page() {
             <div className="card-header"><h2 className="card-title">Membros com erro na última coleta ({collectFailures.length})</h2></div>
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>Membro</th><th>Motivo</th></tr></thead>
+                <thead><tr><th scope="col">Membro</th><th scope="col">Motivo</th></tr></thead>
                 <tbody>
                   {collectFailures.map((failure) => (
                     <tr key={failure.playerName}><td className="cell-nowrap">{failure.playerName}</td><td className="cell-detail muted">{failure.reason}</td></tr>
@@ -1124,7 +987,7 @@ export default function Sg2Page() {
                   className="select"
                   value={autoCollectHours}
                   aria-label="Intervalo da coleta automática de tropas"
-                  onChange={(event) => setAutoCollectHours(normalizeAutoCollect(event.target.value))}
+                  onChange={(event) => setValue('autoCollectHours', normalizeAutoCollect(event.target.value))}
                 >
                   <option value="0">Desligado</option>
                   <option value="4">A cada 4 horas</option>
@@ -1222,6 +1085,7 @@ export default function Sg2Page() {
                 type="button"
                 className="btn btn-ghost btn-sm"
                 aria-expanded={showForm}
+                aria-controls="sg2-filtros-painel"
                 onClick={() => setShowForm((visible) => !visible)}
               >
                 {showForm ? 'Ocultar filtros' : 'Abrir filtros'}
@@ -1234,7 +1098,7 @@ export default function Sg2Page() {
             </div>
 
             {showForm && (
-              <div className="card">
+              <div className="card" id="sg2-filtros-painel">
                 <div className="card-body">
                   {/* Preset FORA do form de propósito — Enter no input de nome
                       não pode submeter o formulário e rodar a consulta. */}
@@ -1405,7 +1269,7 @@ export default function Sg2Page() {
                             name="sg2-mode"
                             value="has"
                             checked={mode === 'has'}
-                            onChange={() => setMode('has')}
+                            onChange={() => setValue('mode', 'has')}
                           />
                           <span>Possuem as tropas informadas</span>
                         </label>
@@ -1415,7 +1279,7 @@ export default function Sg2Page() {
                             name="sg2-mode"
                             value="lacks"
                             checked={mode === 'lacks'}
-                            onChange={() => setMode('lacks')}
+                            onChange={() => setValue('mode', 'lacks')}
                           />
                           <span>Não possuem as tropas informadas</span>
                         </label>
@@ -1431,7 +1295,7 @@ export default function Sg2Page() {
                             name="sg2-scope"
                             value="village"
                             checked={scope === 'village'}
-                            onChange={() => setScope('village')}
+                            onChange={() => setValue('scope', 'village')}
                           />
                           <span>Total de aldeia</span>
                         </label>
@@ -1441,7 +1305,7 @@ export default function Sg2Page() {
                             name="sg2-scope"
                             value="player"
                             checked={scope === 'player'}
-                            onChange={() => setScope('player')}
+                            onChange={() => setValue('scope', 'player')}
                           />
                           <span>Total de jogador</span>
                         </label>
@@ -1460,7 +1324,7 @@ export default function Sg2Page() {
                           rows={3}
                           value={coordsText}
                           aria-describedby="sg2-coords-hint"
-                          onChange={(event) => setCoordsText(event.target.value)}
+                          onChange={(event) => setValue('coordsText', event.target.value)}
                         />
                       </Field>
                     </div>
@@ -1478,7 +1342,7 @@ export default function Sg2Page() {
                             placeholder="0"
                             value={minXText}
                             aria-label="Eixo X mínimo"
-                            onChange={(event) => setMinXText(event.target.value)}
+                            onChange={(event) => setValue('minXText', event.target.value)}
                           />
                         </label>
                         <label className="sg2-axis-field">
@@ -1491,7 +1355,7 @@ export default function Sg2Page() {
                             placeholder="999"
                             value={maxXText}
                             aria-label="Eixo X máximo"
-                            onChange={(event) => setMaxXText(event.target.value)}
+                            onChange={(event) => setValue('maxXText', event.target.value)}
                           />
                         </label>
                       </div>
@@ -1510,7 +1374,7 @@ export default function Sg2Page() {
                             placeholder="0"
                             value={minYText}
                             aria-label="Eixo Y mínimo"
-                            onChange={(event) => setMinYText(event.target.value)}
+                            onChange={(event) => setValue('minYText', event.target.value)}
                           />
                         </label>
                         <label className="sg2-axis-field">
@@ -1523,7 +1387,7 @@ export default function Sg2Page() {
                             placeholder="999"
                             value={maxYText}
                             aria-label="Eixo Y máximo"
-                            onChange={(event) => setMaxYText(event.target.value)}
+                            onChange={(event) => setValue('maxYText', event.target.value)}
                           />
                         </label>
                       </div>
@@ -1537,15 +1401,15 @@ export default function Sg2Page() {
                           placeholder="55 77"
                           value={kText}
                           aria-label="Continentes K"
-                          onChange={(event) => setKText(event.target.value)}
+                          onChange={(event) => setValue('kText', event.target.value)}
                         />
                         <div className="sg2-radio-row" role="radiogroup" aria-label="Modo do filtro por continente">
                           <label className="checkbox-field">
-                            <input type="radio" name="sg2-kmode" checked={kMode === 'incluir'} onChange={() => setKMode('incluir')} />
+                            <input type="radio" name="sg2-kmode" checked={kMode === 'incluir'} onChange={() => setValue('kMode', 'incluir')} />
                             incluir apenas
                           </label>
                           <label className="checkbox-field">
-                            <input type="radio" name="sg2-kmode" checked={kMode === 'excluir'} onChange={() => setKMode('excluir')} />
+                            <input type="radio" name="sg2-kmode" checked={kMode === 'excluir'} onChange={() => setValue('kMode', 'excluir')} />
                             excluir
                           </label>
                         </div>
@@ -1597,23 +1461,23 @@ export default function Sg2Page() {
                   <div className="sg4-params">
                     <label className="field">
                       <span className="field-label">População mínima FULL</span>
-                      <input className="input" type="number" min={1} value={fullPopText} aria-label="População mínima para FULL" onChange={(event) => setFullPopText(event.target.value)} />
+                      <input className="input" type="number" min={1} value={fullPopText} aria-label="População mínima para FULL" onChange={(event) => setValue('fullPopText', event.target.value)} />
                     </label>
                     <label className="field">
                       <span className="field-label">População mínima SEMI</span>
-                      <input className="input" type="number" min={1} value={semiPopText} aria-label="População mínima para SEMI" onChange={(event) => setSemiPopText(event.target.value)} />
+                      <input className="input" type="number" min={1} value={semiPopText} aria-label="População mínima para SEMI" onChange={(event) => setValue('semiPopText', event.target.value)} />
                     </label>
                     <label className="field">
                       <span className="field-label">Mín. de fulls por jogador</span>
-                      <input className="input" type="number" min={0} value={minFullsText} aria-label="Mínimo de aldeias full por jogador" onChange={(event) => setMinFullsText(event.target.value)} />
+                      <input className="input" type="number" min={0} value={minFullsText} aria-label="Mínimo de aldeias full por jogador" onChange={(event) => setValue('minFullsText', event.target.value)} />
                     </label>
                     <label className="field">
                       <span className="field-label">Mín. de semis por jogador</span>
-                      <input className="input" type="number" min={0} value={minSemisText} aria-label="Mínimo de aldeias semi por jogador" onChange={(event) => setMinSemisText(event.target.value)} />
+                      <input className="input" type="number" min={0} value={minSemisText} aria-label="Mínimo de aldeias semi por jogador" onChange={(event) => setValue('minSemisText', event.target.value)} />
                     </label>
                     <label className="field">
                       <span className="field-label">Ordenar por</span>
-                      <select className="select" value={fsSort} aria-label="Ordenação do contador" onChange={(event) => setFsSort(event.target.value as FullSemiSortBy)}>
+                      <select className="select" value={fsSort} aria-label="Ordenação do contador" onChange={(event) => setValue('fsSort', event.target.value as FullSemiSortBy)}>
                         <option value="fulls">Mais fulls</option>
                         <option value="semis">Mais semis</option>
                         <option value="total">Mais aldeias (full+semi)</option>
@@ -1676,14 +1540,14 @@ export default function Sg2Page() {
                   <div className="sg4-params">
                     <label className="field">
                       <span className="field-label">Continentes K (ex.: 55 77)</span>
-                      <input className="input" placeholder="55 77" value={fsKText} aria-label="Continentes do contador" onChange={(event) => setFsKText(event.target.value)} />
+                      <input className="input" placeholder="55 77" value={fsKText} aria-label="Continentes do contador" onChange={(event) => setValue('fsKText', event.target.value)} />
                       <div className="sg2-radio-row" role="radiogroup" aria-label="Modo do K do contador">
                         <label className="checkbox-field">
-                          <input type="radio" name="fs-kmode" checked={fsKMode === 'incluir'} onChange={() => setFsKMode('incluir')} />
+                          <input type="radio" name="fs-kmode" checked={fsKMode === 'incluir'} onChange={() => setValue('fsKMode', 'incluir')} />
                           incluir apenas
                         </label>
                         <label className="checkbox-field">
-                          <input type="radio" name="fs-kmode" checked={fsKMode === 'excluir'} onChange={() => setFsKMode('excluir')} />
+                          <input type="radio" name="fs-kmode" checked={fsKMode === 'excluir'} onChange={() => setValue('fsKMode', 'excluir')} />
                           excluir
                         </label>
                       </div>
@@ -1696,16 +1560,16 @@ export default function Sg2Page() {
                         placeholder="Jogador Um; Zé; Outro Nick"
                         value={fsPlayersText}
                         aria-label="Filtro por jogadores do contador"
-                        onChange={(event) => setFsPlayersText(event.target.value)}
+                        onChange={(event) => setValue('fsPlayersText', event.target.value)}
                       />
                       <span className="field-hint">{fsPlayersLabel}</span>
                       <div className="sg2-radio-row" role="radiogroup" aria-label="Modo do filtro por jogadores">
                         <label className="checkbox-field">
-                          <input type="radio" name="fs-pmode" checked={fsPlayersMode === 'incluir'} onChange={() => setFsPlayersMode('incluir')} />
+                          <input type="radio" name="fs-pmode" checked={fsPlayersMode === 'incluir'} onChange={() => setValue('fsPlayersMode', 'incluir')} />
                           incluir apenas
                         </label>
                         <label className="checkbox-field">
-                          <input type="radio" name="fs-pmode" checked={fsPlayersMode === 'excluir'} onChange={() => setFsPlayersMode('excluir')} />
+                          <input type="radio" name="fs-pmode" checked={fsPlayersMode === 'excluir'} onChange={() => setValue('fsPlayersMode', 'excluir')} />
                           excluir
                         </label>
                       </div>

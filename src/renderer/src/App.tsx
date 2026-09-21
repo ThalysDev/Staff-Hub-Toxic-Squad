@@ -241,6 +241,11 @@ export default function App() {
       <div className="app-shell">
         <TitleBar />
         <ToastViewport toasts={globalToasts.toasts} onDismiss={globalToasts.dismiss} />
+        {/* Banner de atualização TAMBÉM no ramo deslogado/expirado: quem está
+            banido ou com a sessão do sistema expirada continua precisando (e
+            podendo) atualizar o hub — "impossível de perder". Fora do splash
+            'verificando' de propósito. */}
+        <UpdateBanner />
         <LoginPage status={auth} onLogado={() => void window.staffhub.auth.refreshNow()} />
       </div>
     );
@@ -249,6 +254,11 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      {/* WCAG 2.4.1 — atalho para pular a navegação: invisível até receber
+          foco (Tab), então aparece no topo esquerdo (ver .skip-link). */}
+      <a href="#conteudo-principal" className="skip-link">
+        Pular para o conteúdo
+      </a>
       <TitleBar />
       {/* Banner global de atualização: primeiro bloco sob a TitleBar — EMPURRA
           o conteúdo para baixo (shell é flex column), nunca sobrepõe. Só monta
@@ -262,7 +272,7 @@ export default function App() {
       )}
       <div className="app-main-row">
         <Sidebar groups={navGroupsPara(ehAdmin)} active={page} onNavigate={navigate} onOpenPalette={() => setPaletteOpen(true)} />
-        <main className="content">
+        <main className="content" id="conteudo-principal" tabIndex={-1}>
           {MODULES.filter((module) => mountedModules.has(module.id)).map((module) => {
             const SgPage = SG_PAGES[module.id];
             return (

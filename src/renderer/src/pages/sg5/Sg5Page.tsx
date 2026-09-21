@@ -11,6 +11,7 @@ import {
   type Sg5ViewFilter,
 } from '@shared/sg5-view-filter';
 import { useToast } from '../../hooks/useToast';
+import { useGameCollection } from '../../hooks/useGameCollection';
 import Callout from '../../components/Callout';
 import PageHeader from '../../components/PageHeader';
 import ProgressBar from '../../components/ProgressBar';
@@ -64,8 +65,13 @@ export default function Sg5Page() {
   const [viewFilter, setViewFilter] = useState<Sg5ViewFilter>(EMPTY_SG5_VIEW_FILTER);
   const [totalsResult, setTotalsResult] = useState<Sg5TotalsResult | null>(null);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState<'verify' | 'totals' | null>(null);
-  const [progress, setProgress] = useState<{ label: string; done: number; total: number } | null>(null);
+  // Encanamento da coleta (busy/progresso/toast) por operação; resultados e o
+  // erro inline continuam estados da página. Duas instâncias: a trava cruzada
+  // dos botões (busy !== null compartilhado de antes) é reproduzida abaixo.
+  const verifyRun = useGameCollection();
+  const totalsRun = useGameCollection();
+  const collectionBusy = verifyRun.busy || totalsRun.busy;
+  const collectionProgress = verifyRun.busy ? verifyRun.progress : totalsRun.progress;
 
   // Preferências do módulo: o título do documento sobrevive a F5/reinício
   // (resultados, conferências e o Gantt continuam voláteis).
@@ -87,11 +93,6 @@ export default function Sg5Page() {
     if (!prefsHydrated.current) return;
     savePrefs({ tituloDoc: docTitle });
   }, [docTitle, savePrefs]);
-
-  useEffect(() => {
-    const unsubscribe = window.staffhub.events.onQueueProgress(setProgress);
-    return unsubscribe;
-  }, []);
 
   // ---- Filtros de visualização (SG_5): TODAS as vistas (documento, Gantt e
   // contagem) derivam deste `filtered`; o diff continua com o resultado COMPLETO
@@ -145,51 +146,57 @@ export default function Sg5Page() {
   }, [timeline]);
 
   const [nowTick, setNowTick] = useState(Date.now());
+  /** Raiz da página: as páginas SG ficam keep-mounted com `hidden` no pai
+   *  quando outra está ativa — o tick do Gantt não pode rodar às cegas. */
+  const pageRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (ganttWindow === null) return;
-    const id = window.setInterval(() => setNowTick(Date.now()), 1000);
+    const id = window.setInterval(() => {
+      // Tick só com a página REALMENTE visível: checkVisibility() cobre o
+      // `hidden` do painel pai (outra SG ativa) e document.hidden cobre a
+      // janela minimizada. Sem isso, re-render por segundo em painel oculto
+      // era trabalho morto. A 1ª marca volta no tick seguinte (≤1s).
+      if (document.hidden || (pageRef.current !== null && !pageRef.current.checkVisibility())) return;
+      setNowTick(Date.now());
+    }, 1000);
     return () => window.clearInterval(id);
   }, [ganttWindow]);
 
   async function runVerify(): Promise<void> {
-    setBusy('verify');
     setError('');
     try {
-      const entries = parseEntries(entriesText);
-      if (entries.length === 0) throw new Error('Cole as linhas "nick;coord coord" (saída da distribuição do SG4).');
-      const result = await window.staffhub.sg5.verify(entries);
-      setVerifyResult(result);
-      const total = result.villages.reduce((sum, v) => sum + v.commands.length, 0);
-      push('ok', `Verificação concluída: ${total} comando(s) em ${result.villages.length} aldeia(s).`);
+      const result = await verifyRun.run(async () => {
+        const entries = parseEntries(entriesText);
+        if (entries.length === 0) throw new Error('Cole as linhas "nick;coord coord" (saída da distribuição do SG4).');
+        return window.staffhub.sg5.verify(entries);
+      }, {
+        doneLabel: (res) =>
+          `Verificação concluída: ${res.villages.reduce((sum, v) => sum + v.commands.length, 0)} comando(s) em ${res.villages.length} aldeia(s).`,
+      });
+      if (result !== null) setVerifyResult(result);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      push('error', message);
-    } finally {
-      setBusy(null);
+      // Toast do erro já vem do hook; aqui só o erro inline da página.
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function runTotals(): Promise<void> {
-    setBusy('totals');
     setError('');
     try {
-      const coords = parseCoordList(coordsText).map((c) => `${c.x}|${c.y}`);
-      if (coords.length === 0) throw new Error('Cole as coordenadas dos alvos (separadas por espaço).');
-      const result = await window.staffhub.sg5.totals(coords);
-      setTotalsResult(result);
-      push('ok', `Totalizador pronto: ${result.totals.length} jogador(es).`);
+      const result = await totalsRun.run(async () => {
+        const coords = parseCoordList(coordsText).map((c) => `${c.x}|${c.y}`);
+        if (coords.length === 0) throw new Error('Cole as coordenadas dos alvos (separadas por espaço).');
+        return window.staffhub.sg5.totals(coords);
+      }, { doneLabel: (res) => `Totalizador pronto: ${res.totals.length} jogador(es).` });
+      if (result !== null) setTotalsResult(result);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      push('error', message);
-    } finally {
-      setBusy(null);
+      // Toast do erro já vem do hook; aqui só o erro inline da página.
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   return (
-    <section className="page">
+    <section className="page" ref={pageRef}>
       <PageHeader
         kicker={moduleInfo !== undefined ? `Módulo ${moduleInfo.id.toUpperCase()} — Fase ${moduleInfo.phase}` : 'Módulo SG5 — Fase 5'}
         title={moduleInfo?.originalLabel ?? 'Conferência de Comandos'}
@@ -249,13 +256,17 @@ export default function Sg5Page() {
             </label>
             {error !== '' && <p className="error" role="alert">{error}</p>}
             <div className="row">
-              <button type="button" className="btn" onClick={() => void runVerify()} disabled={busy !== null}>
+              <button type="button" className="btn" onClick={() => void runVerify()} disabled={collectionBusy}>
                 <ListChecks size={16} aria-hidden="true" />
-                {busy === 'verify' ? <><span className="btn-spinner" aria-hidden="true" /> Verificando…</> : 'Obter verificação'}
+                {verifyRun.busy ? <><span className="btn-spinner" aria-hidden="true" /> Verificando…</> : 'Obter verificação'}
               </button>
-              {busy !== null && progress !== null && (
+              {collectionBusy && collectionProgress !== null && (
               <>
-              <ProgressBar done={progress.done} total={progress.total} label={progress.label} />
+              <ProgressBar
+                done={collectionProgress.done}
+                total={collectionProgress.total}
+                label={collectionProgress.label}
+              />
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
@@ -377,12 +388,12 @@ export default function Sg5Page() {
                     <table className="table">
                       <thead>
                         <tr>
-                          <th>Comando</th>
-                          <th>Tipo</th>
-                          <th>Jogador</th>
-                          <th>Origem</th>
-                          <th>Chegada</th>
-                          <th>Chega em</th>
+                          <th scope="col">Comando</th>
+                          <th scope="col">Tipo</th>
+                          <th scope="col">Jogador</th>
+                          <th scope="col">Origem</th>
+                          <th scope="col">Chegada</th>
+                          <th scope="col">Chega em</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -488,8 +499,8 @@ export default function Sg5Page() {
               />
             </label>
             <div className="row">
-              <button type="button" className="btn" onClick={() => void runTotals()} disabled={busy !== null}>
-                {busy === 'totals' ? <><span className="btn-spinner" aria-hidden="true" /> Totalizando…</> : 'Totalizar comandos'}
+              <button type="button" className="btn" onClick={() => void runTotals()} disabled={collectionBusy}>
+                {totalsRun.busy ? <><span className="btn-spinner" aria-hidden="true" /> Totalizando…</> : 'Totalizar comandos'}
               </button>
               {totalsResult !== null && (
                 <button
@@ -511,12 +522,12 @@ export default function Sg5Page() {
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Jogador</th>
-                      <th>Ataques</th>
-                      <th>Fakes</th>
-                      <th>Com nobre</th>
-                      <th>Suportes</th>
-                      <th>Total</th>
+                      <th scope="col">Jogador</th>
+                      <th scope="col">Ataques</th>
+                      <th scope="col">Fakes</th>
+                      <th scope="col">Com nobre</th>
+                      <th scope="col">Suportes</th>
+                      <th scope="col">Total</th>
                     </tr>
                   </thead>
                   <tbody>

@@ -20,6 +20,10 @@ const MAX_VISIBLE = 4;
 let toasts: ToastItem[] = [];
 let nextId = 0;
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
+/** Prazo absoluto de dismiss (epoch ms) — pausar guarda o RESTANTE, não zera os 5s. */
+const deadlines = new Map<number, number>();
+/** Presente = auto-dismiss pausado (pointer sobre o toast OU foco dentro dele). */
+const pausedRemaining = new Map<number, number>();
 const listeners = new Set<() => void>();
 
 function emit(): void {
@@ -37,25 +41,54 @@ function snapshot(): ToastItem[] {
   return toasts;
 }
 
-function dismissToast(id: number): void {
-  if (!toasts.some((toast) => toast.id === id)) return;
-  toasts = toasts.filter((toast) => toast.id !== id);
+function clearTimer(id: number): void {
   const timer = timers.get(id);
   if (timer) {
     clearTimeout(timer);
     timers.delete(id);
   }
+}
+
+function dismissToast(id: number): void {
+  if (!toasts.some((toast) => toast.id === id)) return;
+  toasts = toasts.filter((toast) => toast.id !== id);
+  clearTimer(id);
+  deadlines.delete(id);
+  pausedRemaining.delete(id);
   emit();
+}
+
+/** (Re)agenda o auto-dismiss a partir de AGORA + durationMs. */
+function scheduleDismiss(id: number, durationMs: number): void {
+  clearTimer(id);
+  deadlines.set(id, Date.now() + durationMs);
+  timers.set(
+    id,
+    setTimeout(() => dismissToast(id), durationMs),
+  );
+}
+
+/** Pausa o auto-dismiss de UM toast (hover/foco) — guarda o tempo restante. */
+export function pauseToastDismiss(id: number): void {
+  const deadline = deadlines.get(id);
+  if (deadline === undefined || pausedRemaining.has(id)) return;
+  clearTimer(id);
+  pausedRemaining.set(id, Math.max(0, deadline - Date.now()));
+}
+
+/** Retoma o auto-dismiss com o tempo RESTANTE (não reinicia os 5s). */
+export function resumeToastDismiss(id: number): void {
+  const remaining = pausedRemaining.get(id);
+  if (remaining === undefined) return;
+  pausedRemaining.delete(id);
+  scheduleDismiss(id, remaining);
 }
 
 function pushToast(variant: ToastVariant, message: string, durationMs: number = DEFAULT_DURATION_MS): void {
   nextId += 1;
   const id = nextId;
   toasts = [...toasts.slice(-(MAX_VISIBLE - 1)), { id, variant, message }];
-  timers.set(
-    id,
-    setTimeout(() => dismissToast(id), durationMs),
-  );
+  scheduleDismiss(id, durationMs);
   emit();
 }
 

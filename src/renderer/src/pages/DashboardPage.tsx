@@ -40,7 +40,7 @@ function formatMb(bytes: number): string {
 }
 
 function UpdateCard({ currentVersion }: { currentVersion: string | null }) {
-  const { state, download, restart, snooze, snoozedVersion } = useUpdateStatus();
+  const { state, download, restart, snooze, snoozedVersion, retryFromError } = useUpdateStatus();
   const [restarting, setRestarting] = useState(false);
   const [errorDismissed, setErrorDismissed] = useState("");
   // O hook não carrega a versão na fase de preparo — guarda a última vista
@@ -58,6 +58,13 @@ function UpdateCard({ currentVersion }: { currentVersion: string | null }) {
     // download() nunca lança e o próprio hook entra em 'downloading' na hora —
     // o clique duplo morre na troca de fase, sem estado local extra.
     void download();
+  }
+
+  function handleRetryFromError(): void {
+    // MESMA ação da faixa do banner (retryFromError do hook): re-checa o canal
+    // e, havendo atualização, já baixa na sequência — antes o card só baixava
+    // e o banner só checava (drift entre as duas superfícies).
+    void retryFromError();
   }
 
   async function handleRestart(): Promise<void> {
@@ -100,7 +107,7 @@ function UpdateCard({ currentVersion }: { currentVersion: string | null }) {
                   ? `Tentar baixar a versão ${knownVersion} novamente`
                   : 'Tentar baixar a atualização novamente'
               }
-              onClick={handleDownload}
+              onClick={handleRetryFromError}
             >
               Tentar de novo
             </button>

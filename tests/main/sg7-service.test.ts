@@ -43,7 +43,7 @@ import { Journal } from '../../src/main/journal';
 import { JsonStore } from '../../src/main/stores/json-store';
 import { RequestQueue } from '../../src/main/tw/request-queue';
 import { DEFAULT_SETTINGS, type AppSettings } from '@shared/ipc-types';
-import { Sg7Service } from '../../src/main/mutations/sg7-service';
+import { Sg7Service, type Sg7ServiceOptions } from '../../src/main/mutations/sg7-service';
 
 const WORLD = 'br142';
 const SID = `0:${'2e'.repeat(32)}`;
@@ -119,7 +119,7 @@ interface Harness {
   queue: RequestQueue;
 }
 
-async function buildHarness(routes: FetchRoute[]): Promise<Harness> {
+async function buildHarness(routes: FetchRoute[], serviceOptions: Sg7ServiceOptions = {}): Promise<Harness> {
   const journal = new Journal();
   const settingsStore = new JsonStore<AppSettings>('settings', DEFAULT_SETTINGS);
   await settingsStore.save({ ...DEFAULT_SETTINGS, requestMinIntervalMs: 350, requestJitterMs: 0, requestCeiling: 400 });
@@ -132,7 +132,7 @@ async function buildHarness(routes: FetchRoute[]): Promise<Harness> {
   routeElectronFetch([...routes, { match: 'screen=overview', handler: () => html(fixture('overview.html')) }]);
   const login = await twSession.loginWithSid(WORLD, SID);
   expect(login.ok).toBe(true);
-  return { service: new Sg7Service(twSession, journal, queue, settingsStore), journal, queue };
+  return { service: new Sg7Service(twSession, journal, queue, settingsStore, serviceOptions), journal, queue };
 }
 
 beforeEach(() => {
@@ -163,7 +163,7 @@ describe('Sg7Service.conference (conferência dos posts)', () => {
     expect(result.updatedMessage).toBe(result.firstPostMessage);
     expect(result.recognizedPostIds).toEqual([12678]);
     const entry = journal.list(10).find((e) => e.action === 'sg7-conference');
-    expect(entry).toMatchObject({ kind: 'read', detail: 'thread=2115 reconhecidos=14', dryRun: true });
+    expect(entry).toMatchObject({ kind: 'read', detail: 'thread=2115 reconhecidos=14', dryRun: false });
   });
 
   it('reconhece pedido 243/100/0/0 e produz a tabela atualizada (changed=true)', async () => {
@@ -192,12 +192,15 @@ describe('Sg7Service.conference (conferência dos posts)', () => {
     expect(fetchCallCount('screenmode=view_thread')).toBe(0);
   });
 
-  it('sentinela de sessão expirada na leitura aborta com erro claro', async () => {
+  it('sentinela de sessão expirada na leitura aborta com erro claro e aciona onSessionLost', async () => {
+    const onSessionLost = vi.fn();
     const { service } = await buildHarness([
       { match: 'page=last', handler: () => html('<html><form id="login"><input name="password"></form></html>') },
-    ]);
+    ], { onSessionLost });
 
-    await expect(service.conference(THREAD_URL)).rejects.toThrow('Sessão expirada — faça login novamente.');
+    await expect(service.conference(THREAD_URL)).rejects.toThrow('Sessão expirada — operação interrompida. Faça login novamente.');
+    expect(onSessionLost).toHaveBeenCalledTimes(1);
+    expect(onSessionLost).toHaveBeenCalledWith('session-expired');
   });
 
   it('página sem posts (estrutura inesperada) é fail-closed', async () => {
@@ -327,6 +330,44 @@ describe('Sg7Service.adjust (ajusta o post da tabela)', () => {
     await expect(service.adjust(THREAD_URL, false)).rejects.toThrow('Confirmação dupla necessária');
     expect(fetchCallCount('screen=forum')).toBe(0);
   });
+
+  it('cancel() antes do POST: ajuste NÃO dispara envio, journala o cancelamento e devolve "Cancelado pelo usuário"', async () => {
+    const holder: { queue?: RequestQueue } = {};
+    let editFormCalls = 0;
+    const { service, journal, queue } = await buildHarness([
+      {
+        match: 'edit_post_id=',
+        handler: () => {
+          editFormCalls += 1;
+          if (editFormCalls >= 2) holder.queue?.cancel(); // 2ª abertura do form = última leitura antes do POST
+          return html(synthEditFormHtml(ORIGINAL_TABLE));
+        },
+      },
+      { match: 'page=last', handler: () => html(synthThreadHtml([FIRST_POST, COMMENT_243])) },
+      { match: 'screenmode=view_thread', handler: () => html(synthThreadHtml([FIRST_POST, COMMENT_243])) },
+    ]);
+    holder.queue = queue;
+
+    const result = await service.adjust(THREAD_URL, true);
+
+    expect(result).toEqual({ ok: false, detail: 'Cancelado pelo usuário — nada foi enviado.' });
+    expect(fetchCallCount('action=edit_post')).toBe(0);
+    const cancel = journal.list(10).find((e) => e.action === 'forum-adjust-cancel');
+    expect(cancel?.kind).toBe('mutation');
+    expect(cancel?.detail).toContain('cancelado pelo usuário antes do POST (thread=2115) — nada foi enviado');
+    expect(queue.isRunning).toBe(false);
+  }, 15_000);
+
+  it('falha ANTES do POST (tópico sem posts) journala "forum-adjust-erro" com POST NÃO disparado', async () => {
+    const { service, journal } = await buildHarness([
+      { match: 'page=last', handler: () => html(synthThreadHtml([])) },
+    ]);
+
+    await expect(service.adjust(THREAD_URL, true)).rejects.toThrow('Nenhum post encontrado no tópico');
+    const erro = journal.list(10).find((e) => e.action === 'forum-adjust-erro');
+    expect(erro?.kind).toBe('mutation');
+    expect(erro?.detail).toContain('POST NÃO disparado — falha antes do envio: Nenhum post encontrado no tópico');
+  }, 15_000);
 });
 
 describe('Sg7Service.deletePosts (apagar mensagens)', () => {

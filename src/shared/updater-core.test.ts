@@ -1,20 +1,42 @@
+import { generateKeyPairSync, sign as cryptoSign, createPublicKey } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   buildSwapScript,
   compareVersions,
   isValidManifest,
   isNewerVersion,
+  manifestCanonicalString,
+  UPDATE_PUBKEY_B64,
   updatePhases,
+  verifyManifestSignature,
   type SwapScriptInput,
+  type UpdateManifest,
 } from './updater-core';
 
-const MANIFESTO_VALIDO = {
+// Par Ed25519 gerado NO TESTE — os testes NUNCA assinam com a chave de produção.
+// A pública do teste é passada como 2º argumento de isValidManifest/
+// verifyManifestSignature (produção usa o default = UPDATE_PUBKEY_B64).
+const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+const PUB_TESTE = publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
+
+function assinar(campos: Pick<UpdateManifest, 'version' | 'url' | 'sha256' | 'notes'>): string {
+  return cryptoSign(null, Buffer.from(manifestCanonicalString(campos), 'utf8'), privateKey).toString('base64');
+}
+
+const MANIFESTO_BASE = {
   version: '0.15.0',
   notes: 'Correções na sala de guerra e novo resumo de chegadas.',
   url: 'https://releases.exemplo.com.br/staff-hub/staff-hub-0.15.0.zip',
   sha256: 'a'.repeat(64),
   releasedAt: '2026-08-26T12:00:00.000Z',
 };
+
+/** Manifesto válido ASSINADO pela chave do teste, com overrides opcionais.
+ *  Um override de `sig` é respeitado (para testar assinaturas inválidas). */
+function manifesto(overrides: Partial<UpdateManifest> = {}): UpdateManifest {
+  const base = { ...MANIFESTO_BASE, ...overrides };
+  return { ...base, sig: overrides.sig ?? assinar(base) };
+}
 
 const SWAP_BASE: SwapScriptInput = {
   pid: 4321,
@@ -25,62 +47,113 @@ const SWAP_BASE: SwapScriptInput = {
 };
 
 describe('isValidManifest', () => {
-  it('aceita um manifesto completo e válido', () => {
-    expect(isValidManifest(MANIFESTO_VALIDO)).toEqual(MANIFESTO_VALIDO);
+  it('aceita um manifesto completo e válido (sha não vazio + assinatura conferida)', () => {
+    const m = manifesto();
+    expect(isValidManifest(m, PUB_TESTE)).toEqual(m);
   });
 
   it('version fora do formato X.Y.Z → null', () => {
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, version: '1.2' })).toBeNull();
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, version: 'v1.2.3' })).toBeNull();
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, version: '1.2.3.4' })).toBeNull();
+    expect(isValidManifest(manifesto({ version: '1.2' }), PUB_TESTE)).toBeNull();
+    expect(isValidManifest(manifesto({ version: 'v1.2.3' }), PUB_TESTE)).toBeNull();
+    expect(isValidManifest(manifesto({ version: '1.2.3.4' }), PUB_TESTE)).toBeNull();
   });
 
   it('notes acima de 600 caracteres → null', () => {
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, notes: 'x'.repeat(601) })).toBeNull();
+    expect(isValidManifest(manifesto({ notes: 'x'.repeat(601) }), PUB_TESTE)).toBeNull();
   });
 
   it('url sem http(s), sem host ou sem caminho → null', () => {
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, url: 'ftp://host/app.zip' })).toBeNull();
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, url: 'http:///app.zip' })).toBeNull();
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, url: 'https://host' })).toBeNull();
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, url: 'apenas-texto' })).toBeNull();
+    expect(isValidManifest(manifesto({ url: 'ftp://host/app.zip' }), PUB_TESTE)).toBeNull();
+    expect(isValidManifest(manifesto({ url: 'http:///app.zip' }), PUB_TESTE)).toBeNull();
+    expect(isValidManifest(manifesto({ url: 'https://host' }), PUB_TESTE)).toBeNull();
+    expect(isValidManifest(manifesto({ url: 'apenas-texto' }), PUB_TESTE)).toBeNull();
   });
 
   it('url em host localhost é aceita (decisão do dono: qualquer host http(s))', () => {
-    expect(
-      isValidManifest({ ...MANIFESTO_VALIDO, url: 'http://localhost:8080/staff-hub-0.15.0.zip' })
-    ).toEqual({ ...MANIFESTO_VALIDO, url: 'http://localhost:8080/staff-hub-0.15.0.zip' });
+    const m = manifesto({ url: 'http://localhost:8080/staff-hub-0.15.0.zip' });
+    expect(isValidManifest(m, PUB_TESTE)).toEqual(m);
   });
 
-  it('sha256 torto → null (com 64 hex maiúsculos continua válido)', () => {
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, sha256: 'xyz' })).toBeNull();
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, sha256: 'g'.repeat(64) })).toBeNull();
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, sha256: `${'A'.repeat(63)}0` })).toEqual({
-      ...MANIFESTO_VALIDO,
-      sha256: `${'A'.repeat(63)}0`,
-    });
+  it('sha256 torto ou VAZIO → null (o bypass de sha vazio foi extinto)', () => {
+    expect(isValidManifest(manifesto({ sha256: 'xyz' }), PUB_TESTE)).toBeNull();
+    expect(isValidManifest(manifesto({ sha256: 'g'.repeat(64) }), PUB_TESTE)).toBeNull();
+    expect(isValidManifest(manifesto({ sha256: '' }), PUB_TESTE)).toBeNull();
+    const maiusculo = manifesto({ sha256: `${'A'.repeat(63)}0` });
+    expect(isValidManifest(maiusculo, PUB_TESTE)).toEqual(maiusculo);
   });
 
   it('releasedAt não parseável como data finita → null', () => {
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, releasedAt: 'nao-e-data' })).toBeNull();
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, releasedAt: '' })).toBeNull();
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, releasedAt: '2026-13-45T99:00:00Z' })).toBeNull();
+    expect(isValidManifest(manifesto({ releasedAt: 'nao-e-data' }), PUB_TESTE)).toBeNull();
+    expect(isValidManifest(manifesto({ releasedAt: '' }), PUB_TESTE)).toBeNull();
+    expect(isValidManifest(manifesto({ releasedAt: '2026-13-45T99:00:00Z' }), PUB_TESTE)).toBeNull();
   });
 
   it('campo ausente ou com tipo errado → null', () => {
-    const semVersion = { ...MANIFESTO_VALIDO };
-    delete (semVersion as Partial<typeof semVersion>).version;
-    expect(isValidManifest(semVersion)).toBeNull();
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, version: 150 })).toBeNull();
-    expect(isValidManifest({ ...MANIFESTO_VALIDO, notes: null })).toBeNull();
+    const semVersion = manifesto();
+    delete (semVersion as Partial<UpdateManifest>).version;
+    expect(isValidManifest(semVersion, PUB_TESTE)).toBeNull();
+    expect(isValidManifest({ ...MANIFESTO_BASE, version: 150, sig: 'x' })).toBeNull();
+    expect(isValidManifest({ ...MANIFESTO_BASE, notes: null, sig: 'x' })).toBeNull();
+  });
+
+  it('sig ausente, vazia ou torta → null (assinatura é OBRIGATÓRIA)', () => {
+    const semSig = manifesto();
+    delete (semSig as Partial<UpdateManifest>).sig;
+    expect(isValidManifest(semSig, PUB_TESTE)).toBeNull();
+    expect(isValidManifest(manifesto({ sig: '' } as Partial<UpdateManifest>), PUB_TESTE)).toBeNull();
+    expect(isValidManifest(manifesto({ sig: '###nao-base64###' } as Partial<UpdateManifest>), PUB_TESTE)).toBeNull();
+  });
+
+  it('assinado por OUTRA chave (a de produção, por exemplo) → null', () => {
+    // O teste assina com PUB_TESTE; sem passar PUB_TESTE, o default é a chave
+    // de produção embutida — prova que a validação amarra a CHAVE, não só o formato.
+    expect(isValidManifest(manifesto())).toBeNull();
+  });
+
+  it('qualquer alteração DEPOIS de assinar → null', () => {
+    const m = manifesto();
+    const adulterado: UpdateManifest = { ...m, url: 'http://evil.example.com.br/app.zip' };
+    expect(isValidManifest(adulterado, PUB_TESTE)).toBeNull();
+    const notasTrocadas: UpdateManifest = { ...m, notes: `${m.notes} ` };
+    expect(isValidManifest(notasTrocadas, PUB_TESTE)).toBeNull();
   });
 
   it('fail-closed TOTAL: null, array, string e número → null (nunca lança)', () => {
-    expect(isValidManifest(null)).toBeNull();
-    expect(isValidManifest(undefined)).toBeNull();
-    expect(isValidManifest([MANIFESTO_VALIDO])).toBeNull();
-    expect(isValidManifest('manifesto')).toBeNull();
-    expect(isValidManifest(42)).toBeNull();
+    expect(isValidManifest(null, PUB_TESTE)).toBeNull();
+    expect(isValidManifest(undefined, PUB_TESTE)).toBeNull();
+    expect(isValidManifest([manifesto()], PUB_TESTE)).toBeNull();
+    expect(isValidManifest('manifesto', PUB_TESTE)).toBeNull();
+    expect(isValidManifest(42, PUB_TESTE)).toBeNull();
+  });
+});
+
+describe('verifyManifestSignature', () => {
+  it('manifesto íntegro assinado pela chave certa → true', () => {
+    expect(verifyManifestSignature(manifesto(), PUB_TESTE)).toBe(true);
+  });
+
+  it('versão/url/sha256 alterados sem reassinar → false (fazem parte do canônico)', () => {
+    expect(verifyManifestSignature({ ...manifesto(), version: '0.15.1' }, PUB_TESTE)).toBe(false);
+    expect(verifyManifestSignature({ ...manifesto(), sha256: 'b'.repeat(64) }, PUB_TESTE)).toBe(false);
+  });
+
+  it('sig truncada, vazia ou com padding furado → false (Ed25519 = 64 bytes)', () => {
+    const truncada = manifesto();
+    truncada.sig = truncada.sig.slice(0, -4);
+    expect(verifyManifestSignature(truncada, PUB_TESTE)).toBe(false);
+    expect(verifyManifestSignature(manifesto({ sig: '' } as Partial<UpdateManifest>), PUB_TESTE)).toBe(false);
+  });
+
+  it('chave pública errada → false', () => {
+    const { publicKey: outra } = generateKeyPairSync('ed25519');
+    const outraB64 = outra.export({ format: 'der', type: 'spki' }).toString('base64');
+    expect(verifyManifestSignature(manifesto(), outraB64)).toBe(false);
+  });
+
+  it('UPDATE_PUBKEY_B64 é uma chave Ed25519 SPKI válida (formato da chave embutida)', () => {
+    const chave = createPublicKey({ key: Buffer.from(UPDATE_PUBKEY_B64, 'base64'), format: 'der', type: 'spki' });
+    expect(chave.asymmetricKeyType).toBe('ed25519');
+    expect(chave.export({ format: 'der', type: 'spki' }).toString('base64')).toBe(UPDATE_PUBKEY_B64);
   });
 });
 
@@ -231,6 +304,34 @@ describe('buildSwapScript (PowerShell .ps1)', () => {
   it('falha na troca tenta reabrir a versão antiga (usuário nunca fica sem app)', () => {
     const script = buildSwapScript(SWAP_BASE);
     expect(script).toContain('Start-Process -FilePath (Join-Path $AppDir $ExeName)');
+  });
+
+  it('REPARO no começo: restaura a pasta do app a partir do backup (meio-troca de execução morta)', () => {
+    const script = buildSwapScript(SWAP_BASE);
+    expect(script).toContain('if ((-not (Test-Path -LiteralPath $AppDir)) -and (Test-Path -LiteralPath $BackupPath)) {');
+    expect(script).toContain('Rename-Item -LiteralPath $BackupPath -NewName (Split-Path $AppDir -Leaf)');
+    expect(script).toContain('Log "REPARO-OK');
+    // O reparo roda ANTES da espera do processo (fase 1) — nunca depois.
+    const posicaoReparo = script.indexOf('REPARO');
+    const posicaoFase1 = script.indexOf('FASE 1');
+    expect(posicaoReparo).toBeGreaterThan(-1);
+    expect(posicaoReparo).toBeLessThan(posicaoFase1);
+  });
+
+  it('FASE 4 com RETENÇÃO de 7 dias: não apaga o backup recém-criado imediatamente', () => {
+    const script = buildSwapScript(SWAP_BASE);
+    expect(script).toContain('AddDays(-7)');
+    expect(script).toContain("-Filter 'shb-old-*'");
+    // A deleção imediata do backup (comportamento antigo) foi extinta — só
+    // sobra a condição de retenção do Where-Object.
+    expect(script).not.toMatch(/Remove-Item -LiteralPath \$BackupPath -Recurse -Force -ErrorAction/);
+  });
+
+  it('grava RECUPERACAO.txt ao lado do backup com o comando manual de uma linha', () => {
+    const script = buildSwapScript(SWAP_BASE);
+    expect(script).toContain("'RECUPERACAO.txt'");
+    expect(script).toContain("-f $BackupPath, (Split-Path $AppDir -Leaf)");
+    expect(script).toContain('-Encoding UTF8');
   });
 });
 

@@ -6,6 +6,11 @@ import {
   DEFAULT_INACTIVE_ABS_OFF_POP,
   DEFAULT_SHARP_DECLINE_OFF_POP,
   DEFAULT_SHARP_DECLINE_VILLAGES,
+  DEFAULT_STAGNATION_ABS_OFF_POP,
+  DEFAULT_STAGNATION_MIN_VERSIONS,
+  DEFAULT_STAGNATION_OFF_POP_DROP,
+  STAGNATION_LABEL,
+  detectStagnation,
   formatAuditDiffTsv,
   formatPlayerTimelineTsv,
   playerTimeline,
@@ -404,5 +409,194 @@ describe('reconcileSelection — remoção da versão B (P3 revisão 2)', () => 
 
   it('lista com 1 versão: A continua vazia (não há par)', () => {
     expect(reconcileSelection([vers('v1')], 'v1', 'v1')).toEqual({ aId: '', bId: 'v1' });
+  });
+});
+
+describe('detectStagnation', () => {
+  /**
+   * Janela de 6 coletas (ASC): 'queda' despenca na janela cheia (-18000 off),
+   * 'cresce' evolui normal (+4000 off e +2 aldeias), 'tardio' entra na v2 com
+   * 5 presenças (baseline = própria 1ª presença), 'desistente' fica parado e
+   * sai após a v4 (última presença = baseline do fim) e 'passageiro' tem só
+   * 3 presenças (menos que minVersions).
+   */
+  function janelaEstagnacao(): TroopsHistoryVersion[] {
+    return [
+      version('v1', '2026-08-01T00:00:00.000Z', [
+        player(1, 'queda', 12, 30000, 5000),
+        player(2, 'cresce', 8, 5000, 2000),
+        player(3, 'passageiro', 5, 4400, 1500),
+        player(5, 'desistente', 6, 4000, 1500),
+      ]),
+      version('v2', '2026-08-08T00:00:00.000Z', [
+        player(1, 'queda', 12, 28000, 5000),
+        player(2, 'cresce', 9, 5500, 2000),
+        player(3, 'passageiro', 5, 4400, 1500),
+        player(4, 'tardio', 3, 2000, 800),
+        player(5, 'desistente', 6, 4000, 1500),
+      ]),
+      version('v3', '2026-08-15T00:00:00.000Z', [
+        player(1, 'queda', 11, 26000, 5000),
+        player(2, 'cresce', 9, 6000, 2000),
+        player(3, 'passageiro', 5, 4400, 1500),
+        player(4, 'tardio', 3, 2050, 800),
+        player(5, 'desistente', 6, 4000, 1500),
+      ]),
+      version('v4', '2026-08-22T00:00:00.000Z', [
+        player(1, 'queda', 11, 20000, 5000),
+        player(2, 'cresce', 10, 7000, 2000),
+        player(4, 'tardio', 3, 2075, 800),
+        player(5, 'desistente', 6, 4000, 1500),
+      ]),
+      version('v5', '2026-08-29T00:00:00.000Z', [
+        player(1, 'queda', 10, 15000, 5000),
+        player(2, 'cresce', 10, 8000, 2000),
+        player(4, 'tardio', 3, 2100, 800),
+      ]),
+      version('v6', '2026-09-05T00:00:00.000Z', [
+        player(1, 'queda', 10, 12000, 5000),
+        player(2, 'cresce', 10, 9000, 2000),
+        player(4, 'tardio', 3, 2100, 800),
+      ]),
+    ];
+  }
+
+  it('em-declinio: queda líquida de pop ofensiva na janela cheia dispara o sinal', () => {
+    const queda = detectStagnation(janelaEstagnacao()).find((s) => s.playerName === 'queda');
+    expect(queda).toEqual({
+      playerName: 'queda',
+      versionsPresent: 6,
+      offPopFirst: 30000,
+      offPopLast: 12000,
+      offPopDelta: -18000,
+      villagesFirst: 12,
+      villagesLast: 10,
+      villagesDelta: -2,
+      kind: 'em-declinio',
+    });
+  });
+
+  it('estagnado: pop off parado (|Δ| < 500) e aldeias sem crescer na janela cheia', () => {
+    const signals = detectStagnation(janelaEstagnacao());
+    const tardio = signals.find((s) => s.playerName === 'tardio');
+    expect(tardio).toEqual({
+      playerName: 'tardio',
+      versionsPresent: 5,
+      offPopFirst: 2000, // baseline = própria 1ª presença (v2), NUNCA 0 da v1
+      offPopLast: 2100,
+      offPopDelta: 100,
+      villagesFirst: 3,
+      villagesLast: 3,
+      villagesDelta: 0,
+      kind: 'estagnado',
+    });
+    // Quem saiu no meio é avaliado até a ÚLTIMA PRESENÇA (desistente: v4), não até 0.
+    const desistente = signals.find((s) => s.playerName === 'desistente');
+    expect(desistente).toMatchObject({
+      versionsPresent: 4,
+      offPopFirst: 4000,
+      offPopLast: 4000,
+      villagesDelta: 0,
+      kind: 'estagnado',
+    });
+  });
+
+  it('crescimento normal e histórico curto demais não geram sinal', () => {
+    const names = detectStagnation(janelaEstagnacao()).map((s) => s.playerName);
+    expect(names).toEqual(['queda', 'desistente', 'tardio']); // declínio primeiro
+    expect(names).not.toContain('cresce'); // cresceu de verdade na janela
+    expect(names).not.toContain('passageiro'); // 3 presenças < minVersions 4
+  });
+
+  it('cenário canônico: carla cai na janela cheia e eva (plana) fica estagnada', () => {
+    const byName = new Map(detectStagnation(cenario()).map((s) => [s.playerName, s]));
+    expect(byName.get('carla')).toMatchObject({ kind: 'em-declinio', offPopDelta: -22000, versionsPresent: 4 });
+    expect(byName.get('eva')).toMatchObject({
+      kind: 'estagnado',
+      offPopDelta: 0,
+      villagesDelta: 0,
+      versionsPresent: 4,
+    });
+    // bruno/ana crescem; fabi tem 2 presenças; dora tem 3 (< 4).
+    expect([...byName.keys()].sort()).toEqual(['carla', 'eva']);
+  });
+
+  it('ordena: em-declinio por Δoff asc (pior primeiro); estagnado por Δaldeias asc e nome pt-BR', () => {
+    const flat = (name: string, n: number, villages: number, off: number) => player(n, name, villages, off, 100);
+    const inicio = [
+      flat('alfa', 1, 10, 22000),
+      flat('bravo', 2, 10, 22000),
+      flat('zeca', 3, 10, 5000),
+      flat('bia', 4, 10, 5000),
+      flat('carla', 5, 7, 5000),
+      flat('ana', 6, 7, 5000),
+    ];
+    const fim = [
+      flat('alfa', 1, 10, 9000), // Δoff -13000 (pior)
+      flat('bravo', 2, 10, 11500), // Δoff -10500
+      flat('zeca', 3, 10, 5000), // Δaldeias 0
+      flat('bia', 4, 9, 5000), // Δaldeias -1
+      flat('carla', 5, 7, 5000), // Δaldeias 0
+      flat('ana', 6, 7, 5000), // Δaldeias 0
+    ];
+    const versions = [0, 1, 2, 3].map((n) =>
+      version(`v${n + 1}`, `2026-08-0${n + 1}T00:00:00.000Z`, n === 3 ? fim : inicio),
+    );
+    expect(detectStagnation(versions).map((s) => `${s.kind}:${s.playerName}`)).toEqual([
+      'em-declinio:alfa',
+      'em-declinio:bravo',
+      'estagnado:bia',
+      'estagnado:ana',
+      'estagnado:carla',
+      'estagnado:zeca',
+    ]);
+  });
+
+  it('limiar de declínio é inclusivo: Δoff = -10000 dispara; -9999 não', () => {
+    // 4 versões com um único jogador: off/aldeias fixos, exceto na última coleta.
+    const janela = (offUltimo: number): TroopsHistoryVersion[] =>
+      [0, 1, 2, 3].map((n) =>
+        version(`v${n + 1}`, `2026-08-0${n + 1}T00:00:00.000Z`, [player(1, 'fulano', 10, n === 3 ? offUltimo : 30000, 100)]),
+      );
+    expect(detectStagnation(janela(20000)).map((s) => s.kind)).toEqual(['em-declinio']); // 30000 → 20000
+    expect(detectStagnation(janela(20001))).toEqual([]); // -9999: nem declínio nem estagnado
+  });
+
+  it('limiar de estagnação: |Δoff| < 500 (500 já não é) e Δaldeias <= 0', () => {
+    const janela = (offUltimo: number, villagesUltimo = 10): TroopsHistoryVersion[] =>
+      [0, 1, 2, 3].map((n) =>
+        version(`v${n + 1}`, `2026-08-0${n + 1}T00:00:00.000Z`, [
+          player(1, 'fulano', n === 3 ? villagesUltimo : 10, n === 3 ? offUltimo : 30000, 100),
+        ]),
+      );
+    expect(detectStagnation(janela(30499)).map((s) => s.kind)).toEqual(['estagnado']); // |+499| < 500
+    expect(detectStagnation(janela(30500))).toEqual([]); // 500 já passou da tolerância
+    expect(detectStagnation(janela(30000, 11))).toEqual([]); // aldeias +1 → cresceu, não é estagnado
+    expect(detectStagnation(janela(30000, 9)).map((s) => s.kind)).toEqual(['estagnado']); // -1 ainda é
+  });
+
+  it('opts sobrescrevem os defaults (minOffPopDrop e minVersions)', () => {
+    const versions = janelaEstagnacao();
+    // Subindo o limiar de queda para 20000, 'queda' (Δ -18000) sai da lista…
+    expect(detectStagnation(versions, { minOffPopDrop: 20000 }).map((s) => s.playerName)).toEqual([
+      'desistente',
+      'tardio',
+    ]);
+    // …e baixando minVersions para 3, 'passageiro' (3 presenças, parado) entra como estagnado.
+    expect(detectStagnation(versions, { minVersions: 3 }).map((s) => s.playerName)).toEqual([
+      'queda',
+      'desistente',
+      'passageiro',
+      'tardio',
+    ]);
+  });
+
+  it('fail-closed: lista vazia/1 versão devolve vazio; defaults e rótulos documentados', () => {
+    expect(detectStagnation([])).toEqual([]);
+    expect(detectStagnation(janelaEstagnacao().slice(0, 1))).toEqual([]);
+    expect(DEFAULT_STAGNATION_OFF_POP_DROP).toBe(10000);
+    expect(DEFAULT_STAGNATION_ABS_OFF_POP).toBe(500);
+    expect(DEFAULT_STAGNATION_MIN_VERSIONS).toBe(4);
+    expect(STAGNATION_LABEL).toEqual({ 'em-declinio': 'Em declínio', estagnado: 'Estagnado' });
   });
 });

@@ -12,23 +12,35 @@ export interface WorldConfig {
   /** Hora local (0-23) em que a janela noturna fecha, exclusive. Pode ser
    * menor que nightStartHour quando a janela cruza a meia-noite (BR142: 23→7). */
   nightEndHour: number;
+  /** Fator de lentidão das tropas dentro da janela noturna (<def_factor>).
+   * 2 = clássico (meia velocidade); 1 = sem lentidão. */
+  defFactor: number;
   hasArchers: boolean;
   hasPaladin: boolean;
   hasMilitia: boolean;
 }
-
-/** Fallback para mundo clássico (speed-adjust) antes da config real chegar. */
-export const NOBLE_MINUTES_PER_FIELD_DEFAULT = 35;
 
 function tagContent(xml: string, tag: string): string | null {
   const match = new RegExp(`<${tag}>\\s*([^<]*?)\\s*</${tag}>`, 'i').exec(xml);
   return match?.[1] ?? null;
 }
 
-function parseNumber(value: string | null, fallback: number): number {
-  if (value === null) return fallback;
+// Fail-closed: tag numérica essencial ausente (ou vazia) ou sem valor finito
+// > 0 lança erro — fallback silencioso (ex. speed 1) geraria tempo de envio
+// plausível mas ERRADO em todo o app.
+function requirePositiveNumber(value: string | null, tag: string): number {
+  if (value === null || value.trim() === '') {
+    throw new Error(
+      `Configuração do mundo sem <${tag}> válida — recolete os dados do mundo (Análise de Aldeias → Obter análise do mundo).`,
+    );
+  }
   const parsed = Number.parseFloat(value.replace(',', '.'));
-  return Number.isFinite(parsed) ? parsed : fallback;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(
+      `Configuração do mundo com <${tag}> inválida ("${value.trim().slice(0, 30)}") — recolete os dados do mundo (Análise de Aldeias → Obter análise do mundo).`,
+    );
+  }
+  return parsed;
 }
 
 // Validado contra o XML real do BR142: flags podem ser 1/2/3 (ex. moral=2,
@@ -67,6 +79,20 @@ function parseHour(value: string | null): number | null {
 // sem lançar erro. Fail-closed para a janela em si: "ativo" com horários
 // ausentes/fora de 0-23/iguais não pode ser aplicado com segurança — desligamos
 // o bônus em vez de aplicar uma janela inventada.
+
+// Fator noturno clássico (meia velocidade na janela) — usado APENAS quando o
+// mundo não traz <def_factor> (nem no bloco <night>, nem plano). Tag presente
+// e inválida é fail-closed, igual a speed/unit_speed.
+const DEF_FACTOR_DEFAULT = 2;
+
+/** <def_factor> do mundo: vive DENTRO do bloco <night> no XML real do BR142;
+ *  mundos sem o bloco podem expor a tag plana (legado). */
+function parseDefFactor(xml: string): number {
+  const nightBlock = new RegExp(`<night[^>]*>([\\s\\S]*?)</night>`, 'i').exec(xml)?.[1];
+  const raw = (nightBlock !== undefined ? tagContent(nightBlock, 'def_factor') : null) ?? tagContent(xml, 'def_factor');
+  if (raw === null) return DEF_FACTOR_DEFAULT;
+  return requirePositiveNumber(raw, 'def_factor');
+}
 function parseNightBlock(xml: string): NightWindow {
   const block = new RegExp(`<night[^>]*>([\\s\\S]*?)</night>`, 'i').exec(xml);
   if (!block?.[1]) {
@@ -85,8 +111,9 @@ function parseNightBlock(xml: string): NightWindow {
   return { active, startHour: startHour ?? 0, endHour: endHour ?? 0 };
 }
 
-// Tags ausentes recebem fallback (speed/unitSpeed 1, flags false) — o XML do
-// get_config normalmente traz todas; o fallback é apenas defensivo.
+// speed/unitSpeed/def_factor são fail-closed (ausente/inválido lança — nunca
+// fallback que distorceria todo cálculo de tempo); flags ausentes recebem
+// fallback (false/moral ATIVA) — o XML do get_config normalmente traz todas.
 export function parseWorldConfigXml(world: string, xml: string): WorldConfig {
   const night = parseNightBlock(xml);
   // Moral por pontos: o get_config real expõe <disable_morale>1</disable_morale>
@@ -97,12 +124,13 @@ export function parseWorldConfigXml(world: string, xml: string): WorldConfig {
   const disableMorale = tagContent(xml, 'disable_morale');
   return {
     world,
-    speed: parseNumber(tagContent(xml, 'speed'), 1),
-    unitSpeed: parseNumber(tagContent(xml, 'unit_speed'), 1),
+    speed: requirePositiveNumber(tagContent(xml, 'speed'), 'speed'),
+    unitSpeed: requirePositiveNumber(tagContent(xml, 'unit_speed'), 'unit_speed'),
     moralActive: disableMorale !== null ? disableMorale.trim() !== '1' : parseFlag(tagContent(xml, 'moral'), true),
     nightBonusActive: night.active,
     nightStartHour: night.startHour,
     nightEndHour: night.endHour,
+    defFactor: parseDefFactor(xml),
     hasArchers: parseFlag(tagContent(xml, 'archer'), false),
     hasPaladin: parseFlag(tagContent(xml, 'knight'), false),
     hasMilitia: parseFlag(tagContent(xml, 'militia'), false),

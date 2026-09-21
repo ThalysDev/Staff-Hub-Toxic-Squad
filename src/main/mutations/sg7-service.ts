@@ -5,6 +5,7 @@ import type { JsonStore } from '../stores/json-store';
 import type { RequestQueue } from '../tw/request-queue';
 import { forumTokens, parseEditForm, parseForumThread, decodeHtmlEntities } from '@shared/parsers/forum-parsers';
 import { applyBlindUpdate, recognizeComments, recognizedSummary, sumByPedido } from '@shared/sg7-engine';
+import { erroFilaOcupada, erroSessao, erroSentinela } from '@shared/error-catalog';
 import { detectPageSentinels } from '../tw/request-queue';
 import { DEFAULT_SETTINGS, type AppSettings } from '@shared/ipc-types';
 
@@ -19,6 +20,13 @@ export interface ForumConferenceResult {
   changed: boolean;
   /** Posts com comentários reconhecidos (para "Apagar mensagens"). */
   recognizedPostIds: number[];
+}
+
+export interface Sg7ServiceOptions {
+  /** Sentinela detectada DIRETO nas leituras/POSTs do fórum (fora da fila — o
+   * onSentinel da RequestQueue não vê): espelha a queda no TwSessionManager
+   * para a UI parar de mostrar "Ativa" na hora. Best-effort, default no-op. */
+  onSessionLost?: (kind: 'session-expired' | 'captcha-suspected') => void;
 }
 
 /**
@@ -36,12 +44,13 @@ export class Sg7Service {
     private readonly queue: RequestQueue,
     /** Instância COMPARTILHADA com o index — pacing das settings do usuário. */
     private readonly settingsStore: JsonStore<AppSettings>,
+    private readonly options: Sg7ServiceOptions = {},
   ) {}
 
   /** C4: coleta/mutação em andamento = esta operação NÃO executa. */
   private assertQueueIdle(): void {
     if (this.queue.isRunning) {
-      throw new Error('Uma operação está em andamento — aguarde terminar antes de usar o fórum.');
+      throw new Error(erroFilaOcupada('usar o fórum'));
     }
   }
 
@@ -59,7 +68,7 @@ export class Sg7Service {
   private world(): string {
     const { state, world } = this.twSession.getStatus();
     if (state !== 'logged-in' || world === null) {
-      throw new Error('Nenhuma sessão ativa no jogo — faça login antes de usar o fórum.');
+      throw new Error(erroSessao());
     }
     return world;
   }
@@ -76,8 +85,12 @@ export class Sg7Service {
     const result = await this.twSession.fetchForQueue(`https://${world}.tribalwars.com.br/${path}`);
     if (!result.ok) throw new Error(`HTTP ${result.status} ao abrir ${path}`);
     const sentinel = detectPageSentinels(result.body);
-    if (sentinel === 'session-expired') throw new Error('Sessão expirada — faça login novamente.');
-    if (sentinel === 'captcha-suspected') throw new Error('Captcha detectado — resolva na janela de login.');
+    if (sentinel !== null) {
+      // Sentinela FORA da fila: espelha a queda de sessão no TwSessionManager
+      // (a RequestQueue.onSentinel não enxerga os GETs diretos do fórum).
+      this.options.onSessionLost?.(sentinel);
+      throw new Error(erroSentinela(sentinel));
+    }
     return result.body;
   }
 
@@ -123,7 +136,7 @@ export class Sg7Service {
     const comments = recognizeComments(thread.posts.slice(1));
     const sums = sumByPedido(comments);
     const updated = applyBlindUpdate(firstPostMessage, sums);
-    await this.journal.append('read', 'sg7-conference', `thread=${thread.threadId} reconhecidos=${sums.length}`, true);
+    await this.journal.append('read', 'sg7-conference', `thread=${thread.threadId} reconhecidos=${sums.length}`, false);
     return {
       threadId: thread.threadId,
       firstPostMessage,
@@ -139,6 +152,8 @@ export class Sg7Service {
     if (!confirm) throw new Error('Confirmação dupla necessária — revise a conferência e confirme na tela.');
     this.assertQueueIdle();
     this.queue.beginOperation();
+    let postDispatched = false; // o fetch do POST foi chamado (com ou sem resposta)
+    let falhaJaJournalada = false; // o catch pós-POST já registrou o resultado incerto
     try {
       const conference = await this.doConference(threadUrl);
       if (!conference.changed) {
@@ -156,12 +171,19 @@ export class Sg7Service {
       const world = this.world();
       const ses = session.fromPartition(TW_PARTITION);
       await sleep(await this.pacingMs(true));
+      if (this.queue.isCancelled()) {
+        // Cancelamento pela barra de progresso: parar ATÉ o último instante
+        // antes do POST — depois disso o resultado é incerto ('-erro').
+        await this.journal.append('mutation', 'forum-adjust-cancel', `Ajuste cancelado pelo usuário antes do POST (thread=${conference.threadId}) — nada foi enviado`, false);
+        return { ok: false, detail: 'Cancelado pelo usuário — nada foi enviado.' };
+      }
       const body = new URLSearchParams({
         message: conference.updatedMessage,
         do: form.doValue,
         'current_page': form.currentPage,
         send: 'Enviar',
       }).toString();
+      postDispatched = true;
       const response = await ses.fetch(`https://${world}.tribalwars.com.br/${form.action.replace(/^\//, '')}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -184,10 +206,26 @@ export class Sg7Service {
         await this.journal.append('mutation', 'forum-adjust', `thread=${conference.threadId} → ${detail}`, false);
         return { ok, detail };
       } catch (error) {
+        falhaJaJournalada = true;
         const message = error instanceof Error ? error.message : String(error);
         await this.journal.append('mutation', 'forum-adjust-erro', `POST disparado (thread=${conference.threadId}) — resultado incerto: ${message}`, false);
         throw error;
       }
+    } catch (error) {
+      if (!falhaJaJournalada) {
+        // Journal gap: ou a falha foi ANTES do POST, ou o próprio fetch do POST
+        // rejeitou sem resposta — tentativa de mutação nunca fica sem rastro.
+        const message = error instanceof Error ? error.message : String(error);
+        await this.journal.append(
+          'mutation',
+          'forum-adjust-erro',
+          postDispatched
+            ? `POST disparado sem resposta confirmada (thread=${threadUrl}) — resultado incerto: ${message}`
+            : `POST NÃO disparado — falha antes do envio: ${message}`,
+          false,
+        );
+      }
+      throw error;
     } finally {
       this.queue.endOperation();
     }
@@ -208,6 +246,8 @@ export class Sg7Service {
     }
     this.assertQueueIdle();
     this.queue.beginOperation();
+    let postDispatched = false; // o fetch do POST foi chamado (com ou sem resposta)
+    let falhaJaJournalada = false; // o catch pós-POST já registrou o resultado incerto
     try {
       const pathLast = threadUrl.replace(/^https?:\/\/[^/]+\//, '');
       const html = await this.getHtml(pathLast);
@@ -220,6 +260,12 @@ export class Sg7Service {
       const world = this.world();
       const ses = session.fromPartition(TW_PARTITION);
       await sleep(await this.pacingMs(true));
+      if (this.queue.isCancelled()) {
+        // Cancelamento pela barra de progresso: parar ANTES do POST destrutivo.
+        await this.journal.append('mutation', 'forum-delete-posts-cancel', `Exclusão cancelada pelo usuário antes do POST (thread=${thread.threadId} posts=${postIds.length}) — nada foi apagado`, false);
+        return { ok: false, detail: 'Cancelado pelo usuário — nada foi apagado.' };
+      }
+      postDispatched = true;
       const response = await ses.fetch(
         `https://${world}.tribalwars.com.br/game.php?screen=forum&screenmode=view_thread&action=del_posts&thread_id=${thread.threadId}&page=0&forum_id=${forumId}&h=${csrf}`,
         { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString(), redirect: 'follow' },
@@ -240,10 +286,26 @@ export class Sg7Service {
         await this.journal.append('mutation', 'forum-delete-posts', `thread=${thread.threadId} posts=${postIds.length} → ${detail}`, false);
         return { ok, detail };
       } catch (error) {
+        falhaJaJournalada = true;
         const message = error instanceof Error ? error.message : String(error);
         await this.journal.append('mutation', 'forum-delete-posts-erro', `POST disparado (thread=${thread.threadId} posts=${postIds.length}) — resultado incerto: ${message}`, false);
         throw error;
       }
+    } catch (error) {
+      if (!falhaJaJournalada) {
+        // Journal gap: ou a falha foi ANTES do POST, ou o próprio fetch do POST
+        // rejeitou sem resposta — tentativa de mutação nunca fica sem rastro.
+        const message = error instanceof Error ? error.message : String(error);
+        await this.journal.append(
+          'mutation',
+          'forum-delete-posts-erro',
+          postDispatched
+            ? `POST disparado sem resposta confirmada (thread=${threadUrl}) — resultado incerto: ${message}`
+            : `POST NÃO disparado — falha antes do envio: ${message}`,
+          false,
+        );
+      }
+      throw error;
     } finally {
       this.queue.endOperation();
     }
@@ -262,6 +324,8 @@ export class Sg7Service {
     if (bbcode.trim() === '') throw new Error('Plano vazio — gere o Pacote de Comunicação antes de postar.');
     this.assertQueueIdle();
     this.queue.beginOperation();
+    let postDispatched = false; // o fetch do POST foi chamado (com ou sem resposta)
+    let falhaJaJournalada = false; // o catch pós-POST já registrou o resultado incerto
     try {
       const world = this.world();
       if (!threadUrl.includes(`${world}.tribalwars.com.br`)) {
@@ -278,12 +342,19 @@ export class Sg7Service {
       const { form } = await this.openEditForm(thread.threadId, firstPost.postId, Number(forumId));
       const ses = session.fromPartition(TW_PARTITION);
       await sleep(await this.pacingMs(true));
+      if (this.queue.isCancelled()) {
+        // Cancelamento pela barra de progresso: parar ANTES de sobrescrever o
+        // primeiro post do tópico.
+        await this.journal.append('mutation', 'forum-post-plan-cancel', `Postagem do plano cancelada pelo usuário antes do POST (thread=${thread.threadId}) — nada foi enviado`, false);
+        return { ok: false, detail: 'Cancelado pelo usuário — nada foi enviado.' };
+      }
       const body = new URLSearchParams({
         message: bbcode,
         do: form.doValue,
         'current_page': form.currentPage,
         send: 'Enviar',
       }).toString();
+      postDispatched = true;
       const response = await ses.fetch(`https://${world}.tribalwars.com.br/${form.action.replace(/^\//, '')}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -296,6 +367,7 @@ export class Sg7Service {
       try {
         const sentinel = detectPageSentinels(responseText);
         if (sentinel !== null) {
+          this.options.onSessionLost?.(sentinel);
           throw new Error(sentinel === 'session-expired' ? 'Sessão expirada no meio do envio — confira o tópico manualmente.' : 'Captcha detectado — confira o tópico manualmente.');
         }
         // Sem heurística de "erro" no HTML: a PROVA é a verificação real
@@ -313,10 +385,26 @@ export class Sg7Service {
         await this.journal.append('mutation', 'forum-post-plan', `thread=${thread.threadId} (${bbcode.length} chars BBCode) → ${detail}`, false);
         return { ok, detail };
       } catch (error) {
+        falhaJaJournalada = true;
         const message = error instanceof Error ? error.message : String(error);
         await this.journal.append('mutation', 'forum-post-plan-erro', `POST disparado (thread=${thread.threadId}) — resultado incerto: ${message}`, false);
         throw error;
       }
+    } catch (error) {
+      if (!falhaJaJournalada) {
+        // Journal gap: ou a falha foi ANTES do POST, ou o próprio fetch do POST
+        // rejeitou sem resposta — tentativa de mutação nunca fica sem rastro.
+        const message = error instanceof Error ? error.message : String(error);
+        await this.journal.append(
+          'mutation',
+          'forum-post-plan-erro',
+          postDispatched
+            ? `POST disparado sem resposta confirmada (thread=${threadUrl}) — resultado incerto: ${message}`
+            : `POST NÃO disparado — falha antes do envio: ${message}`,
+          false,
+        );
+      }
+      throw error;
     } finally {
       this.queue.endOperation();
     }

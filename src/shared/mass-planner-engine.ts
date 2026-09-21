@@ -56,6 +56,9 @@ export const MASS_HEAVY_PAIRS = 100_000;
 /** Escala de "mundo inteiro": a geração pode levar dezenas de segundos a minutos. */
 export const MASS_WORLD_PAIRS = 5_000_000;
 
+/** Passo do relatório de progresso (pares avaliados entre callbacks opcionais). */
+const PROGRESS_EVERY_PAIRS = 500_000;
+
 // ---------------------------------------------------------------------------
 // Geometria: distância do ponto ao segmento (Torre de Vigia, raio 15 campos)
 // ---------------------------------------------------------------------------
@@ -342,14 +345,24 @@ interface PlannedCommand {
  * (throw PT-BR) quando um grupo é estruturalmente inválido ou o mundo não tem
  * os dados que o grupo exige — o caller valida antes com validateMassGroup;
  * o throw aqui é a última linha de defesa (fail-closed, nunca parcial).
+ *
+ * `onProgress` é OPCIONAL e puramente observacional (aditivo v0.36): a cada
+ * ~500k pares AVALIADOS na fase de candidatos (inclui descartes) recebe a
+ * contagem cumulativa entre grupos — o caller fora da thread (worker) usa isso
+ * como sinal de vida. Ausente: comportamento idêntico ao anterior.
  */
-export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPlanContext): MassPlanResult {
+export function generateMassPlan(
+  groups: readonly MassGroupConfig[],
+  ctx: MassPlanContext,
+  onProgress?: (evaluatedPairs: number) => void,
+): MassPlanResult {
   const discards = new Map<string, number>();
   const countDiscard = (reason: string): void => {
     discards.set(reason, (discards.get(reason) ?? 0) + 1);
   };
   const warnings: string[] = [];
   const planned: PlannedCommand[] = [];
+  let evaluatedPairs = 0;
 
   groups.forEach((group, groupOrder) => {
     if (group.origins.length === 0 || group.targets.length === 0) {
@@ -402,6 +415,10 @@ export function generateMassPlan(groups: readonly MassGroupConfig[], ctx: MassPl
     group.targets.forEach((target, targetIndex) => {
       targetOffset[targetIndex] = candTotal;
       group.origins.forEach((origin, originIndex) => {
+        // Progresso observacional: contagem no TOPO do corpo (conta também os
+        // descartes abaixo — o callback nunca altera o resultado).
+        evaluatedPairs += 1;
+        if (onProgress !== undefined && evaluatedPairs % PROGRESS_EVERY_PAIRS === 0) onProgress(evaluatedPairs);
         const distanceFields = fieldsBetween(origin, target);
         if (distanceFields < group.minDistance) {
           countDiscard(D_MIN_DIST);

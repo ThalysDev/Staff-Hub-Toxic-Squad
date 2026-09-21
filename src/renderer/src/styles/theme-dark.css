@@ -23,6 +23,7 @@
   --text-strong: #f2e9d8;
   --text: #e0d6c2;
   --text-muted: #b3a58b; /* era #a99a80 (6.4:1) — helper/muted ganharam um passo */
+  --text-placeholder: #a2957c; /* 5.4:1 sobre --bg-field (era #857763, 3.6:1 — fantasma) */
   --text-meta: #7d6f59;
   --text-disabled: #857763; /* ≈3.6:1 sobre --bg-field — legível sem parecer habilitado */
 
@@ -126,13 +127,9 @@
   background: rgba(242, 233, 216, 0.05);
 }
 
-/* ===== Formulários — placeholder e brilho de foco ===== */
-[data-theme='escuro'] .input::placeholder,
-[data-theme='escuro'] .textarea::placeholder {
-  /* #857763 sobre --bg-field #26221c ≈ 3.6:1 (era #6e6250 ≈ 2.9:1, fantasma). */
-  color: #857763;
-}
-
+/* ===== Formulários — brilho de foco =====
+   (o ::placeholder não precisa mais de override: app.css usa
+   var(--text-placeholder), que o bloco de tokens acima já escurece.) */
 [data-theme='escuro'] .input:focus,
 [data-theme='escuro'] .textarea:focus,
 [data-theme='escuro'] .select:focus {

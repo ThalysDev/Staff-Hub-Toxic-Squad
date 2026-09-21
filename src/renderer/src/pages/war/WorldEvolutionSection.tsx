@@ -11,6 +11,7 @@ import type { TribeMarking, WorldAlly, WorldVillage } from '@shared/types';
 import WorldMapCanvas from '../sg1/WorldMapCanvas';
 import Callout from '../../components/Callout';
 import { useToast } from '../../hooks/useToast';
+import { getWorldVillages } from '../../world-cache';
 
 /**
  * Sala de Guerra — "Evolução do Mundo" (roadmap 18: diff de dumps).
@@ -299,7 +300,7 @@ export default function WorldEvolutionSection(): JSX.Element {
     setMapError('');
     try {
       const [loadedVillages, loadedTribes] = await Promise.all([
-        window.staffhub.world.villages(),
+        getWorldVillages(),
         window.staffhub.world.tribes(),
       ]);
       setVillages(loadedVillages);

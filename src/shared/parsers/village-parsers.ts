@@ -216,10 +216,15 @@ export function parseOwnUnitsTable(html: string): { villages: OwnUnitsVillage[] 
     if (villageMatch !== null) {
       const name = villageMatch[2] ?? '';
       const coord = /\((\d{1,3})\|(\d{1,3})\)/.exec(name);
+      // Fail-closed (mesma regra de ally-parsers parseVillageCell): nome sem
+      // "(x|y)" vira 0|0 plausível-errado — lança em vez de inventar coordenada.
+      if (coord === null) {
+        throw new ParseError(`tabela de unidades da própria conta: nome da aldeia sem coordenada "(x|y)" ("${name.trim()}")`);
+      }
       current = {
         villageId: Number(villageMatch[1]),
         name: name.replace(/\s*\(\d{1,3}\|\d{1,3}\).*/, '').trim(),
-        coord: { x: Number(coord?.[1] ?? 0), y: Number(coord?.[2] ?? 0) },
+        coord: { x: Number(coord[1]), y: Number(coord[2]) },
         own: {}, inVillage: {}, inTransit: {},
       };
       villages.push(current);

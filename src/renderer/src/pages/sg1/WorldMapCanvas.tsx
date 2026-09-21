@@ -34,7 +34,11 @@ export const MARKING_OPTIONS: readonly TribeMarking[] = ['Marrom', 'Azul', 'Azul
 const COLOR_NO_TRIBE = '#d3bc9c'; // marrom claro — aldeia bárbara/sem tribo
 const BG = '#f0e6cf';
 const GRID_LINE = '#ddccaa';
-const GRID_LABEL = '#b0a17f';
+// Rótulos K: secundários mas legíveis — ≥4.5:1 sobre o pergaminho (era #b0a17f, 2.05:1).
+const GRID_LABEL = '#6b5d3f';
+// Setas da OP (origem→alvo): âmbar escuro ≥3:1 sobre o pergaminho
+// (era rgba(240,198,116,0.85), ~1.25:1 — invisível para baixa visão).
+const OP_ARROW = '#9c6f1f';
 const WORLD_SIZE = 1000;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 30;
@@ -247,10 +251,10 @@ export default function WorldMapCanvas({ villages, markings, highlights, origins
       ctx.stroke();
     }
 
-    // Conexões (overlay da OP): setas amarelas de origem → alvo.
+    // Conexões (overlay da OP): setas âmbar de origem → alvo.
     if (connections !== undefined && connections.length > 0) {
       ctx.save();
-      ctx.strokeStyle = 'rgba(240, 198, 116, 0.85)';
+      ctx.strokeStyle = OP_ARROW;
       ctx.lineWidth = Math.max(1, z * 0.4);
       ctx.setLineDash([6, 4]);
       for (const conn of connections) {
@@ -404,7 +408,37 @@ export default function WorldMapCanvas({ villages, markings, highlights, origins
           ref={canvasRef}
           className="sg1-map-canvas"
           role="img"
-          aria-label="Mapa do mundo do Tribal Wars. Arraste para mover e use a roda do mouse (ou os botões) para dar zoom."
+          tabIndex={0}
+          aria-label="Mapa do mundo do Tribal Wars. Arraste ou use as setas do teclado para mover (Shift com as setas move mais rápido) e a roda do mouse (ou os botões) para dar zoom."
+          onKeyDown={(event) => {
+            // WCAG 2.1.1 — pan por teclado, mesma escala do arrastar:
+            // seta = 1/8 da largura visível; Shift+seta = viewport inteiro.
+            const { w } = sizeRef.current;
+            if (w === 0) return;
+            const step = w / (event.shiftKey ? 1 : 8) / zoomRef.current;
+            let dx = 0;
+            let dy = 0;
+            switch (event.key) {
+              case 'ArrowLeft':
+                dx = -step;
+                break;
+              case 'ArrowRight':
+                dx = step;
+                break;
+              case 'ArrowUp':
+                dy = -step;
+                break;
+              case 'ArrowDown':
+                dy = step;
+                break;
+              default:
+                return;
+            }
+            event.preventDefault();
+            viewRef.current = { x: viewRef.current.x + dx, y: viewRef.current.y + dy };
+            clampView();
+            scheduleDraw();
+          }}
           onPointerDown={(event) => {
             if (event.button !== 0 && event.pointerType === 'mouse') return;
             event.currentTarget.setPointerCapture(event.pointerId);
@@ -433,7 +467,7 @@ export default function WorldMapCanvas({ villages, markings, highlights, origins
         />
       </div>
       <p className="sg1-map-hint">
-        Zoom: {zoom.toFixed(1)} px/campo — arraste para navegar, role a roda do mouse para aproximar.
+        Zoom: {zoom.toFixed(1)} px/campo — arraste (ou use as setas do teclado) para navegar, role a roda do mouse para aproximar.
       </p>
     </div>
   );

@@ -7,6 +7,11 @@ import type {
   AdminUserRow,
   BlindCheckInput,
   BlindVillageResult,
+  DigestConfig,
+  DigestSendResult,
+  DigestStatus,
+  OdaOddRefreshResult,
+  OdaOddStatus,
   OpArchiveEntry,
   OpConferenceSnapshot,
   OpSaveInput,
@@ -93,6 +98,10 @@ const api = {
       invoke('blinddebt:apply', round) as Promise<import('@shared/blind-debt').BlindDebtEntry[]>,
     clear: () => invoke('blinddebt:clear') as Promise<void>,
   },
+  oda: {
+    status: () => invoke('oda:status') as Promise<OdaOddStatus>,
+    refresh: (tribeId: number) => invoke('oda:refresh', tribeId) as Promise<OdaOddRefreshResult>,
+  },
   queue: {
     cancel: () => invoke('queue:cancel'),
   },
@@ -101,7 +110,7 @@ const api = {
     downloadAndPrepare: () => invoke('updater:download-prepare'),
     restartToUpdate: () => invoke('updater:restart'),
     listAvailableVersions: () => invoke('updater:list-versions'),
-    prepareVersion: (version: string, url: string, sha256: string) => invoke('updater:prepare-version', version, url, sha256),
+    prepareVersion: (version: string, url: string, sha256: string, sig: string) => invoke('updater:prepare-version', version, url, sha256, sig),
   },
   dev: {
     captureFixture: (name: string, url: string) => invoke('dev:capture-fixture', name, url),
@@ -179,6 +188,11 @@ const api = {
     exportOp: (id: string) =>
       invoke('opshare:export', id) as Promise<{ ok: boolean; path?: string; detail: string }>,
     importOp: () => invoke('opshare:import') as Promise<{ ok: boolean; detail: string }>,
+  },
+  digest: {
+    get: () => invoke('digest:get') as Promise<DigestStatus>,
+    set: (config: DigestConfig) => invoke('digest:set', config) as Promise<DigestStatus>,
+    send: () => invoke('digest:send') as Promise<DigestSendResult>,
   },
   sg5: {
     verify: (entries: import('@shared/ipc-types').Sg5VerifyEntry[]) =>

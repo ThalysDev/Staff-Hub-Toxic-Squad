@@ -100,6 +100,18 @@ describe('diffConferences', () => {
     expect(diff.lostTargets).toEqual(['300|300', '500|500']);
   });
 
+  it('mesma coord: empate ordena por commandId (comparação de STRING, não numérica)', () => {
+    // Inserção proposital fora da ordem esperada: 40 entra antes de 100, mas
+    // "100" < "40" como texto — a ordem de saída NÃO é a de inserção.
+    const previous = snapshot([]);
+    const current = snapshot([village('450|450', [command(40, 'bravo'), command(100, 'alfa'), command(9, 'carol')])]);
+    const diff = diffConferences(previous, current);
+    expect(diff.newCommands.map((c) => c.commandId)).toEqual([100, 40, 9]);
+    // Mesma regra nos cancelados.
+    const depois = snapshot([village('450|450', [])]);
+    expect(diffConferences(current, depois).cancelledCommands.map((c) => c.commandId)).toEqual([100, 40, 9]);
+  });
+
   it('fail-closed: villages ausentes/malformados em QUALQUER rodada lançam PT-BR', () => {
     const ok = snapshot([village('450|450', [command(101, 'alfa')])]);
     const semVillages = { generatedAt: AT } as unknown as ConferenceSnapshot;
