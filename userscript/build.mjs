@@ -36,6 +36,10 @@ const header = `// ==UserScript==
 // @grant        GM_xmlhttpRequest
 // @connect      api.reidasmultistw.com.br
 // @connect      74.0.5.75
+// @homepageURL  http://74.0.5.75/staffhub/scripts/staff-hub-in-game.user.js
+// @updateURL    http://74.0.5.75/staffhub/scripts/staff-hub-in-game.meta.js
+// @downloadURL  http://74.0.5.75/staffhub/scripts/staff-hub-in-game.user.js
+// @license      Proprietary - Toxic Squad personal use
 // @run-at       document-idle
 // @noframes
 // ==/UserScript==

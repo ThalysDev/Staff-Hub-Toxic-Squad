@@ -20,7 +20,7 @@ if (!existsSync(keyPath)) {
 }
 
 const root = resolve(import.meta.dirname, '..');
-const FONTES = ['server.mjs', 'db.mjs', 'auth.mjs', 'config.mjs', 'ratelimit.mjs', 'check-admin.mjs'];
+const FONTES = ['server.mjs', 'db.mjs', 'auth.mjs', 'config.mjs', 'ratelimit.mjs', 'check-admin.mjs', 'keys.mjs'];
 const REMOTO = '/home/Thalys/staffhub-auth';
 
 const resetIdx = process.argv.indexOf('--reset-admin');
@@ -40,6 +40,27 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header Host $host;
         proxy_http_version 1.1;
+    }
+}
+
+# Bloco :80 — além do canal estático de updates, expõe /staffhub/api/ em HTTP
+# p/ o USERSCRIPT (Tampermonkey não confia no cert self-signed por IP).
+# Integridade: validate é fail-closed no servidor + ticket HMAC; update de app
+# é assinado Ed25519. MITM aqui = reuso/bloqueio de chave, não código.
+server {
+    listen 80;
+    server_name 74.0.5.75;
+
+    location /staffhub/api/ {
+        proxy_pass http://127.0.0.1:8787/staffhub/api/;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Host $host;
+        proxy_http_version 1.1;
+    }
+
+    location /staffhub/scripts/ {
+        alias /var/www/staffhub-updates/scripts/;
+        add_header Cache-Control "max-age=300";
     }
 }
 `;
