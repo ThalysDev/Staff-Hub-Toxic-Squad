@@ -13,6 +13,7 @@ const LICENSE_BASE = 'http://74.0.5.75/staffhub/api';
 // http por IP — fail-closed no servidor, ticket HMAC; risco MITM = reuso de
 // chave, não injeção de código).
 const GRACE_MS = 72 * 60 * 60 * 1000;
+const CLOCK_MAX_KEY = 'shs-in-game:clock-max';
 
 export interface LicenseSession {
   key: string;
@@ -32,6 +33,8 @@ declare const GM_xmlhttpRequest: undefined | ((details: {
   timeout?: number;
   onload: GmXhrCallback;
   onerror: GmXhrCallback;
+  ontimeout: GmXhrCallback;
+  onabort: GmXhrCallback;
 }) => void);
 
 /** POST cross-origin (licenças) — GM_xmlhttpRequest bypassa CORS por ser
@@ -58,6 +61,8 @@ function postJson(url: string, body: unknown): Promise<{ status: number; body: u
         resolve({ status: response.status, body: parsed });
       },
       onerror: () => reject(new Error('Falha de rede ao contatar o servidor de licenças.')),
+      ontimeout: () => reject(new Error('Servidor de licenças não respondeu (tempo esgotado).')),
+      onabort: () => reject(new Error('Servidor de licenças não respondeu (tempo esgotado).')),
     });
   });
 }
@@ -67,9 +72,11 @@ function loadSession(): LicenseSession | null {
 }
 
 function saveSession(session: LicenseSession | null): void {
+  // 'shs-in-game:key' é resíduo de versão antiga (a chave já vive dentro da
+  // sessão); qualquer gravação/remoção de sessão aproveita para limpá-lo.
+  gm.remove('shs-in-game:key');
   if (session === null) {
     gm.remove('shs-in-game:license');
-    gm.remove('shs-in-game:key');
   } else gm.set('shs-in-game:license', session);
 }
 
@@ -79,33 +86,49 @@ export type LicenseState =
   | { kind: 'graca'; accountName: string; offlineAte: number }
   | { kind: 'ausente' };
 
+/** "Agora" anti-recuo de relógio (espelho do maxClockSeen do app Electron):
+ *  persiste o maior timestamp já visto; se o relógio local voltar, as
+ *  comparações de expiração/graça usam este teto em vez do Date.now() recuado. */
+function clockNow(): number {
+  const stored = gm.get<unknown>(CLOCK_MAX_KEY, 0);
+  const seen = typeof stored === 'number' && Number.isFinite(stored) ? stored : 0;
+  const now = Math.max(seen, Date.now());
+  gm.set(CLOCK_MAX_KEY, now);
+  return now;
+}
+
 export function licenseState(): LicenseState {
   const session = loadSession();
   if (session === null) return { kind: 'ausente' };
-  const recentlyValidated = Date.now() - session.lastValidatedAt < 24 * 60 * 60 * 1000;
+  const now = clockNow();
+  // Licença expirada no ticket: sessão vale zero (reativar revalida no
+  // servidor, então não precisa limpar o storage aqui).
+  if (session.licenseExpiresAt !== null && now > session.licenseExpiresAt) return { kind: 'ausente' };
+  const recentlyValidated = now - session.lastValidatedAt < 24 * 60 * 60 * 1000;
   if (recentlyValidated) return { kind: 'valida', accountName: session.accountName, licenseExpiresAt: session.licenseExpiresAt };
   // Sem validação nas últimas 24h: graça de 72h desde a última validação
   // bem-sucedida (mesma régua do modo guerra do app). Revogação propaga na
   // próxima validação bem-sucedida; falha de rede mantém a graça.
   const offlineAte = session.lastValidatedAt + GRACE_MS;
-  if (Date.now() < offlineAte) return { kind: 'graca', accountName: session.accountName, offlineAte };
+  if (now < offlineAte) return { kind: 'graca', accountName: session.accountName, offlineAte };
   return { kind: 'ausente' };
 }
 
 /** Ativa/valida uma chave no VPS do hub: fail-closed no servidor (hash,
  *  revogação, expiração) + binding ao jogador no primeiro uso (anti-share
- *  casual). O servidor responde 403 com {erro} para TODAS as recusas
- *  (inexistente/revogada/expirada/vinculada) — mostramos o motivo dele. */
+ *  casual). Recusas vêm com {erro} no corpo (inexistente/revogada/expirada/
+ *  vinculada/rate-limit) — mostramos o motivo do servidor. */
 export async function activate(code: string, accountName: string): Promise<void> {
   const response = await postJson(`${LICENSE_BASE}/key/validate`, {
     key: code.trim(),
     player: accountName.trim(),
   });
-  if (response.status === 403) {
+  if (response.status !== 200 && response.status !== 201) {
+    // Qualquer recusa (400/403/429/500…) pode trazer o motivo em {erro} —
+    // mostramos o motivo do servidor em vez de uma mensagem genérica.
     const erro = (response.body as { erro?: string } | null)?.erro;
-    throw new Error(erro ?? 'Chave inválida, revogada ou já vinculada a outra conta.');
+    throw new Error(erro !== undefined && erro !== '' ? erro : 'Chave recusada pelo servidor de licenças.');
   }
-  if (response.status !== 200 && response.status !== 201) throw new Error('Chave recusada pelo servidor de licenças.');
   const payload = response.body as {
     ok?: boolean;
     expiresAt?: number | string;
@@ -117,13 +140,12 @@ export async function activate(code: string, accountName: string): Promise<void>
   const raw = payload.expiresAt;
   const parsed = typeof raw === 'number' ? raw : Date.parse(String(raw));
   const licenseExpiresAt = Number.isFinite(parsed) ? parsed : null;
-  gm.set('shs-in-game:key', code.trim());
   saveSession({
     key: code.trim(),
     ticket: payload.ticket,
     accountName: accountName.trim(),
     licenseExpiresAt,
-    lastValidatedAt: Date.now(),
+    lastValidatedAt: clockNow(),
   });
 }
 
@@ -149,7 +171,7 @@ export async function revalidate(): Promise<void> {
       ...session,
       ticket: payload.ticket ?? session.ticket,
       licenseExpiresAt: Number.isFinite(parsed) ? parsed : session.licenseExpiresAt,
-      lastValidatedAt: Date.now(),
+      lastValidatedAt: clockNow(),
     });
   } catch {
     // Rede fora: mantém a sessão — a graça cuida da janela.

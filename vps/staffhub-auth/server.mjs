@@ -320,23 +320,25 @@ rota('POST', `${PREFIXO}/admin/keys/:id/revogar`, async (req, res, _corpo, param
 
 // ---- validação de chave (PÚBLICA — o userscript in-game consome) ----
 // Fail-closed + rate-limit em DOIS baldes reutilizando o ratelimit do login:
-// '__keyvalidate__' (visão por IP; balde global como o '__register__' — teto
-// ajustável por LOGIN_MAX_FALHAS_NICK) e um balde POR CHAVE derivado do hash
+// '__keyvalidate__:<ip>' (balde POR IP — falhasNick é global por nick, então o
+// sufixo com o ip isola o teto de cada endereço; ajustável por
+// LOGIN_MAX_FALHAS_NICK) e um balde POR CHAVE derivado do hash
 // da string (a chave crua nunca é gravada na tabela de tentativas). Martelada
-// numa chave não queima as outras.
+// numa chave não queima as outras — e erro de um IP não trava os demais.
 rota('POST', `${PREFIXO}/key/validate`, async (req, res, corpo) => {
   const ip = ipDe(req);
   const chaveTexto = String(corpo.key ?? '').trim();
   const player = String(corpo.player ?? '').trim();
   if (chaveTexto === '' || !NICK_RE.test(player)) return erro(res, 400, 'Requisição inválida.');
   const baldeChave = `__key_${hashChave(chaveTexto).slice(0, 24)}`;
-  if (!podeTentar(ip, '__keyvalidate__').ok || !podeTentar(ip, baldeChave).ok) {
+  const baldeValidate = `__keyvalidate__:${ip}`;
+  if (!podeTentar(ip, baldeValidate).ok || !podeTentar(ip, baldeChave).ok) {
     return erro(res, 429, 'Muitas tentativas — aguarde alguns minutos.', 'rate');
   }
   const registro = q.chavePorHash.get(hashChave(chaveTexto));
   const decisao = decidirValidacao(registro, player);
   if (!decisao.ok) {
-    registrarFalha(ip, '__keyvalidate__');
+    registrarFalha(ip, baldeValidate);
     registrarFalha(ip, baldeChave);
     // Audit só quando a chave EXISTE (inexistente = brute force — não alimenta audit).
     if (decisao.motivo !== 'inexistente') {

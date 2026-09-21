@@ -3,6 +3,7 @@
 //   node userscript/build.mjs --watch    → rebuild no save
 // Reuse LITERAL de src/shared (alias @shared) — zero cópia de engine.
 // updater-core NÃO entra (node:crypto; irrelevante na página).
+import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,6 +35,7 @@ const header = `// ==UserScript==
 // @grant        GM_getValue
 // @grant        GM_deleteValue
 // @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
 // @connect      api.reidasmultistw.com.br
 // @connect      74.0.5.75
 // @homepageURL  http://74.0.5.75/staffhub/scripts/staff-hub-in-game.user.js
@@ -54,7 +56,12 @@ const options = {
   outfile: join(here, 'dist', 'staff-hub-in-game.user.js'),
   banner: { js: header },
   logLevel: 'info',
-  define: { 'process.env.NODE_ENV': '"production"' },
+  define: {
+    'process.env.NODE_ENV': '"production"',
+    // Versão de compile-time (mesma do header/version.json): o planner usa no
+    // JSON da OP — nada de hardcoded divergente entre módulo e canal.
+    '__SHS_VERSION__': JSON.stringify(version),
+  },
 };
 
 if (watch) {
@@ -87,12 +94,28 @@ if (watch) {
     splitStrings: true,
     splitStringsChunkLength: 8,
     transformObjectKeys: false,
+    // LOAD-BEARING: renameGlobals:false — ligar isso renomearia globals do
+    // sandbox do Tampermonkey (unsafeWindow, GM_*) e quebraria TODOS os grants.
     renameGlobals: false,
     selfDefending: false,
     debugProtection: false,
     disableConsoleOutput: false,
   }).getObfuscatedCode();
   writeFileSync(out, `${header}\n${obfuscated}\n`);
+
+  // Validação do ARQUIVO FINAL (o header é re-anexado só aqui, depois da
+  // obfuscação): header TM no início (senão o Tampermonkey nem instala) e
+  // sintaxe válida — o ofuscador não pode corromper o bundle.
+  if (!readFileSync(out, 'utf-8').startsWith('// ==UserScript==')) {
+    throw new Error('artefato ofuscado final sem header Tampermonkey');
+  }
+  try {
+    execFileSync(process.execPath, ['--check', out], { stdio: 'pipe' });
+  } catch (error) {
+    throw new Error(
+      `artefato ofuscado falhou no node --check (${out}): ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 
   // meta.js para o canal (mesmo header — o Tampermonkey só lê o bloco).
   writeFileSync(join(here, 'dist', 'staff-hub-in-game.meta.js'), header);

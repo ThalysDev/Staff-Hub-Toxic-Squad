@@ -5,6 +5,8 @@
 // - Mutações: SOMENTE via TribalWars.post (gateway do jogo, com csrf dele) e
 //   nunca com retry automático.
 
+import { pageWindow } from './page';
+
 export class CaptchaDetectedError extends Error {
   constructor() {
     super('Captcha detectado — resolva na janela do jogo e tente de novo.');
@@ -89,7 +91,7 @@ export function csrfToken(): string {
 export async function gamePost(screen: string, action: string, fields: Record<string, string>): Promise<string> {
   const payload = new URLSearchParams({ ...fields, h: csrfToken() });
   return enqueue(async () => {
-    const tribalWars = (window as unknown as { TribalWars?: { post?: (screen: string, action: string, payload: URLSearchParams | FormData) => Promise<unknown> } }).TribalWars;
+    const tribalWars = pageWindow().TribalWars;
     if (tribalWars?.post === undefined) {
       throw new Error('Gateway do jogo indisponível (TribalWars.post) — atualize a página.');
     }

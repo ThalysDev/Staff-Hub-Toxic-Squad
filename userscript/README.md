@@ -16,10 +16,12 @@ de cálculo do Staff Hub desktop (`src/shared`, via alias de build — zero cóp
 
 ## Atualização
 
-**Manual por enquanto**: o canal público (com `@updateURL` automático) ainda não
-está alimentado — enquanto isso, o líder envia o `.user.js` novo e a staff
-reinstala por cima (as chaves e os dados continuam salvos). Quando o canal
-irmão for alimentado, a atualização passa a ser automática.
+**Automática**: o header traz `@updateURL`/`@downloadURL` apontando para o canal
+(`http://74.0.5.75/staffhub/scripts/staff-hub-in-game.meta.js`) — sempre que o
+líder bumpa `userscript/version.json`, roda o build e publica, o Tampermonkey
+oferece a versão nova (checagem periódica/no início do navegador; basta reabrir
+o jogo). As chaves e os dados continuam salvos. Fallback manual: o líder envia
+o `.user.js` novo e a staff reinstala por cima.
 
 ## Módulos
 
@@ -61,11 +63,23 @@ Versão: edite `userscript/version.json` (o header do .user.js é gerado dela).
 
 ## Publicação (líder)
 
-Canal em produção: `api.reidasmultistw.com.br` (mesmo serviço dos userscripts
-da Feira Nobre). Subir os dois arquivos de `userscript/dist/`:
+Canal em produção no VPS: `http://74.0.5.75/staffhub/scripts/` (nginx +
+`/var/www/staffhub-updates/scripts/`). O script de publicação sobe os dois
+arquivos de `userscript/dist/` via SFTP:
 
-1. `staff-hub-in-game.user.js` → URL versionada (imutável);
-2. `staff-hub-in-game.meta.js` → `latest.meta.js` do canal (max-age=0).
+```
+node scripts/publish-userscript.mjs
+```
 
-O `sha256` do `.user.js` vai no catálogo. Enquanto o canal não estiver
-alimentado, distribuir o `.user.js` direto (instalação manual).
+1. `staff-hub-in-game.user.js` → instalação/`@downloadURL` (URL estável + cópia
+   versionada `staff-hub-in-game-<versão>.user.js`);
+2. `staff-hub-in-game.meta.js` → `@updateURL` (só o header — o Tampermonkey
+   compara a `@version` dele para decidir pela atualização).
+
+Antes de subir, o publish valida que a `@version` do `.user.js` bate com a
+`version.json` (dist stale aborta), que o header traz `@grant unsafeWindow`
+(essencial: sem ele o sandbox do Tampermonkey esconde o game_data do jogo) e
+que a `@version` do `.meta.js` é igual à do `.user.js` — aborta em qualquer
+divergência — e imprime as URLs públicas + o `sha256` dos dois arquivos.
+Bump de versão: edite `userscript/version.json`, rode o build e o publish —
+a atualização chega sozinha para quem já tem instalado.

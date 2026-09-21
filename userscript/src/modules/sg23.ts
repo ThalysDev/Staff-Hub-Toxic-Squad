@@ -224,12 +224,15 @@ type MemberVillage =
  * Coleta completa por ALDEIA: 1 requisição do dropdown + 1 por membro (+ páginas
  * extras via extractPagedNavPages, teto de 50 — fix do pager memorizado na
  * sessão: a 1ª chamada usa page=1 EXPLÍCITO). Um membro com erro NÃO aborta a
- * coleta; sentinelas de sessão/captcha abortam tudo.
+ * coleta; sentinelas de sessão/captcha abortam tudo. shouldCancel é checado
+ * ENTRE membros e ENTRE páginas (nunca no meio de um GET); ao cancelar, o
+ * parcial coletado até então volta com cancelled: true.
  */
 async function collectMembers(
   kind: TroopKind,
   onProgress: (done: number, total: number, nick: string) => void,
-): Promise<{ snapshot: TroopSnapshot; defenseVillages: DefenseSnapshot | null }> {
+  shouldCancel: () => boolean,
+): Promise<{ snapshot: TroopSnapshot; defenseVillages: DefenseSnapshot | null; cancelled: boolean }> {
   const base = membersPagePath(kind);
   const selector = parseMemberSelector(await pacedGet(base));
   const members = selector.options;
@@ -249,8 +252,14 @@ async function collectMembers(
   const entries: TroopEntry[] = [];
   const defenseRows: DefenseVillageEntry[] = [];
   const failures: NonNullable<TroopSnapshot['failures']> = [];
+  let cancelled = false;
 
   for (let i = 0; i < members.length; i += 1) {
+    if (shouldCancel()) {
+      // Cancelamento ENTRE membros: mantém o parcial já coletado.
+      cancelled = true;
+      break;
+    }
     const member = members[i];
     if (member === undefined) continue;
     onProgress(i + 1, members.length, member.name);
@@ -303,6 +312,11 @@ async function collectMembers(
       // Paginação: páginas extras do pager (paged-nav-item). Falha de página não
       // descarta as já coletadas — registra e segue (mesma resiliência do app).
       for (const page of extractPagedNavPages(firstBody)) {
+        if (shouldCancel()) {
+          // Cancelamento ENTRE páginas (nunca no meio de um GET).
+          cancelled = true;
+          break;
+        }
         if (page > MAX_PAGES_PER_MEMBER) {
           failures.push({
             playerName: member.name,
@@ -334,7 +348,7 @@ async function collectMembers(
     kind === 'defense'
       ? { kind: 'defense', collectedAt: snapshot.collectedAt, entries: defenseRows }
       : null;
-  return { snapshot, defenseVillages };
+  return { snapshot, defenseVillages, cancelled };
 }
 
 // ---------------------------------------------------------------------------
@@ -400,14 +414,16 @@ function renderSection(container: HTMLElement): void {
   const btnTroops = el('button', 'shs-btn', 'Coletar tropas (membros)');
   const btnDefense = el('button', 'shs-btn', 'Coletar defesa (membros)');
   const btnSummary = el('button', 'shs-btn shs-btn-ghost', 'Resumo (1 requisição)');
+  const btnCancel = el('button', 'shs-btn shs-btn-ghost', 'Cancelar');
+  btnCancel.disabled = true;
   const progress = el('span', 'shs-muted');
-  collectRow.append(btnTroops, btnDefense, btnSummary, progress);
+  collectRow.append(btnTroops, btnDefense, btnSummary, btnCancel, progress);
   container.appendChild(collectRow);
   container.appendChild(
     el(
       'p',
       'shs-muted',
-      'Coleta por membro: 1 requisição por membro (pacing anti-ban) + páginas extras. O resumo substitui a última coleta de tropas (uma posição por tipo).',
+      'Coleta por membro: 1 requisição por membro (pacing anti-ban) + páginas extras. O resumo substitui a última coleta de tropas (uma posição por tipo). O cancelamento interrompe a coleta entre membros e mantém o parcial já coletado.',
     ),
   );
 
@@ -438,6 +454,9 @@ function renderSection(container: HTMLElement): void {
     btnDefense.disabled = busy;
     btnSummary.disabled = busy;
   }
+
+  /** Pedido de cancelamento da coleta por membro — checado só ENTRE GETs. */
+  let cancelRequested = false;
 
   function copyText(text: string, okMessage: string): void {
     navigator.clipboard.writeText(text).then(
@@ -919,27 +938,50 @@ function renderSection(container: HTMLElement): void {
 
   async function runMemberCollect(kind: TroopKind): Promise<void> {
     setBusy(true);
+    cancelRequested = false;
+    btnCancel.disabled = false;
     setMsg('', 'muted');
     progress.textContent = 'Lendo membros da tribo…';
+    let lastDone = 0;
+    let lastTotal = 0;
     try {
-      const { snapshot, defenseVillages } = await collectMembers(kind, (done, total, nick) => {
-        progress.textContent = `Coletando ${done}/${total} — ${nick}`;
-      });
+      const { snapshot, defenseVillages, cancelled } = await collectMembers(
+        kind,
+        (done, total, nick) => {
+          lastDone = done;
+          lastTotal = total;
+          progress.textContent = `Coletando ${done}/${total} — ${nick}`;
+        },
+        () => cancelRequested,
+      );
       saveCollected(world, snapshot, defenseVillages);
-      const archived = archiveHistory(world, snapshot);
       progress.textContent = '';
       const label = kind === 'troops' ? 'Tropas' : 'Defesa';
-      const emptyWarning = snapshot.entries.length === 0 ? ' · NENHUMA entrada coletada' : '';
-      setMsg(
-        `${label} coletadas: ${fmt(snapshot.entries.length)} aldeia(s)${failuresSuffix(snapshot)}${archived ? ' · versão arquivada no histórico' : ''}${emptyWarning}`,
-        snapshot.entries.length > 0 ? 'ok' : 'err',
-      );
+      if (cancelled) {
+        // Parcial fica coletado (uma posição por tipo, como a coleta completa),
+        // mas NÃO vira versão do histórico — diff com dados parciais geraria
+        // sinais falsos de auditoria/estagnação.
+        const membros = lastTotal > 0 ? `${fmt(lastDone)} de ${fmt(lastTotal)} membros` : 'nenhum membro processado';
+        setMsg(
+          `Coleta cancelada — dados parciais (${membros}): ${fmt(snapshot.entries.length)} aldeia(s)${failuresSuffix(snapshot)}.`,
+          'err',
+        );
+      } else {
+        const archived = archiveHistory(world, snapshot);
+        const emptyWarning = snapshot.entries.length === 0 ? ' · NENHUMA entrada coletada' : '';
+        setMsg(
+          `${label} coletadas: ${fmt(snapshot.entries.length)} aldeia(s)${failuresSuffix(snapshot)}${archived ? ' · versão arquivada no histórico' : ''}${emptyWarning}`,
+          snapshot.entries.length > 0 ? 'ok' : 'err',
+        );
+      }
       renderStatus();
       renderTabBody();
     } catch (error) {
       progress.textContent = '';
       setMsg(errorMessage(error), 'err');
     } finally {
+      btnCancel.disabled = true;
+      cancelRequested = false;
       setBusy(false);
     }
   }
@@ -969,6 +1011,11 @@ function renderSection(container: HTMLElement): void {
   btnTroops.addEventListener('click', () => void runMemberCollect('troops'));
   btnDefense.addEventListener('click', () => void runMemberCollect('defense'));
   btnSummary.addEventListener('click', () => void runSummaryCollect());
+  btnCancel.addEventListener('click', () => {
+    // Checado ENTRE membros e ENTRE páginas — nunca interrompe um GET no meio.
+    cancelRequested = true;
+    btnCancel.disabled = true;
+  });
 
   renderTabs();
   renderStatus();

@@ -307,11 +307,22 @@ export function renderOda(container: HTMLElement): void {
     void (async () => {
       try {
         const nowIso = new Date().toISOString();
-        const updates = [await updateKind(active, 'att', nowIso), await updateKind(active, 'def', nowIso)];
-        gm.set(storageKey, active);
+        // Persistência após CADA dump bem-sucedido (não só depois dos dois):
+        // updateKind atualiza o estado só em memória, então se o 2º kind falhar
+        // (ex.: tribo ausente no dump ODD → killsOfTribe lança) o download já
+        // feito precisa estar no storage — o guarda de 1/hora não pode obrigar
+        // a re-baixar o 1º arquivo no próximo clique. Cache (<1h) não grava:
+        // o estado nem mudou.
+        const att = await updateKind(active, 'att', nowIso);
+        if (!att.reused) gm.set(storageKey, active);
+        const def = await updateKind(active, 'def', nowIso);
+        if (!def.reused) gm.set(storageKey, active);
+        const updates = [att, def];
         draw(active);
         setStatus(changedTribe ? `Tribo alterada — histórico reiniciado. ${describeUpdates(updates)}` : describeUpdates(updates), false);
       } catch (error) {
+        // Falha parcial: grava o que conseguiu baixar antes de reportar o erro.
+        gm.set(storageKey, active);
         setStatus(error instanceof Error ? error.message : String(error), true);
       } finally {
         button.disabled = false;

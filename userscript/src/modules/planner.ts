@@ -48,9 +48,11 @@ import { parseCoord, type Coord } from '@shared/coords';
 import { computeSendTimes, formatHms, type SendPair } from '@shared/sg4-timing';
 import { solveDepartureForArrival, type NightBonusCfg } from '@shared/night-bonus';
 
-// Manter em sync com userscript/version.json (lido pelo build.mjs no header TM);
-// entra como metadado "version" do JSON da OP.
-const USERSCRIPT_VERSION = '1.0.0';
+// Versão injetada em compile-time pelo build.mjs (define do esbuild, lido de
+// userscript/version.json — a mesma do header TM); entra como metadado
+// "version" do JSON da OP. O `declare` satisfaz o tsc; em runtime o
+// identificador já foi substituído pelo literal antes da obfuscação.
+declare const __SHS_VERSION__: string;
 
 // Molde de MP "Diretrizes de OP" aprovado pelo dono (o mesmo seed do app —
 // MassPlannerSection.DEFAULT_OP_MP_BODY). Editável na UI; placeholder exige
@@ -397,9 +399,8 @@ function aggregateByPlayer(commands: readonly MassPlanCommand[]): PlayerAgg[] {
 // Ajudantes de UI local (design system do shell, via core/ui)
 // ---------------------------------------------------------------------------
 
-/** Campo do design system: .shs-field com rótulo .shs-field-label. O texto do
- *  rótulo entra como child string — o attrs.text do el() do core NÃO é aplicado
- *  hoje (assinatura declara, implementação ignora); nunca dependa dele aqui. */
+/** Campo do design system: .shs-field com rótulo .shs-field-label (o texto do
+ *  rótulo entra como child string — o el() do core o converte em text node). */
 function field(labelText: string, control: HTMLElement): HTMLDivElement {
   return el('div', { className: 'shs-field' }, el('span', { className: 'shs-field-label' }, labelText), control);
 }
@@ -436,18 +437,6 @@ function numberInput(min: string): HTMLInputElement {
 function option(value: string, label: string): HTMLOptionElement {
   const element = el('option', undefined, label);
   element.value = value;
-  return element;
-}
-
-/** Tabela de dados via ui.table(). O el() do core aceita attrs.text na
- *  assinatura mas ainda não o aplica — os th/td sairiam vazios; os textos são
- *  preenchidos aqui pela ordem (no-op inofensivo quando o core for corrigido). */
-function dataTable(headers: readonly string[], rows: readonly (readonly string[])[]): HTMLTableElement {
-  const element = table(headers, rows);
-  const texts = [...headers, ...rows.flat()];
-  element.querySelectorAll('th, td').forEach((cell, index) => {
-    cell.textContent = texts[index] ?? '';
-  });
   return element;
 }
 
@@ -726,10 +715,7 @@ function renderPlanner(container: HTMLElement): void {
         `${group.nome}: ${group.origins.length} origens (${originCommands} comandos) × ` +
         `${group.targets.length} alvos (${targetCommands}) · ${UNITS[group.slowestUnit].name} · ` +
         `${MODE_LABELS[group.assignMode]}`;
-      // core el() ignora attrs.text hoje: o pill() sairia vazio e o texto é
-      // reforçado aqui (no-op inofensivo quando o core for corrigido).
       const summary = pill(summaryText);
-      summary.textContent = summaryText;
       const remove = button(
         'Remover',
         'ghost',
@@ -824,7 +810,7 @@ function renderPlanner(container: HTMLElement): void {
     // Mesmo formato do compartilhamento da OP no app (ipc-op): cada (jogador,
     // alvo) vira uma linha do JSON portável; a origem não existe no arquivo (vazia).
     const json = serializeOpExport({
-      version: USERSCRIPT_VERSION,
+      version: __SHS_VERSION__,
       world,
       opTitle: opTitleInput.value.trim() || 'OP',
       targets: [...new Set(commands.map((command) => command.target))],
@@ -912,7 +898,7 @@ function renderPlanner(container: HTMLElement): void {
         el(
           'div',
           { className: 'shs-tablewrap' },
-          dataTable(
+          table(
             ['Motivo', 'Pares'],
             lastResult.discards.map((entry) => [entry.reason, String(entry.count)]),
           ),
@@ -932,7 +918,7 @@ function renderPlanner(container: HTMLElement): void {
       el(
         'div',
         { className: 'shs-tablewrap' },
-        dataTable(
+        table(
           ['Executor', 'Comandos', '1º envio', 'Último envio'],
           aggregateByPlayer(commands).map((player) => [
             player.nick,
@@ -1048,7 +1034,7 @@ function renderPlanner(container: HTMLElement): void {
         el(
           'div',
           { className: 'shs-tablewrap' },
-          dataTable(
+          table(
             ['Alvo', 'Origem', 'Campos', 'Chegada', 'Enviar às'],
             rows.map((row) => [
               row.targetCoord,

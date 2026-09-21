@@ -235,8 +235,31 @@ export function renderSg7(container: HTMLElement): void {
   let snapshot: ConferenceSnapshot | null = gm.get<ConferenceSnapshot | null>(lastKey, null);
   if (snapshot !== null && snapshot.threadId !== threadId) snapshot = null;
 
+  // Busy-guard compartilhado (mesmo padrão de sg5/sg23/oda): conferir, ajustar
+  // e apagar são EXCLUSIVOS — durante qualquer uma das 3 operações os TRÊS
+  // botões ficam desabilitados (duplo clique dispararia 2 cadeias de POSTs
+  // destrutivos, e uma conferência concorrente faria a mutação regravar um
+  // snapshot antigo por cima do novo).
+  let busy = false;
+  let adjustBtn: HTMLButtonElement | null = null;
+  let deleteBtn: HTMLButtonElement | null = null;
+  let mergeRoundBtn: HTMLButtonElement | null = null;
+
+  function setBusy(next: boolean): void {
+    busy = next;
+    conferBtn.disabled = next;
+    // Sem busy, cada botão de mutação volta ao estado lógico do snapshot
+    // corrente (o mesmo objeto para o qual renderResult os criou).
+    if (adjustBtn !== null) adjustBtn.disabled = next || snapshot === null || !snapshot.changed;
+    if (deleteBtn !== null) {
+      deleteBtn.disabled = next || snapshot === null || snapshot.recognizedPostIds.length === 0;
+    }
+    // Mesclar a rodada mexe no ledger/snapshot: fora do busy também.
+    if (mergeRoundBtn !== null) mergeRoundBtn.disabled = next;
+  }
+
   async function runConference(): Promise<void> {
-    conferBtn.disabled = true;
+    setBusy(true);
     status.textContent = 'Conferindo posts…';
     try {
       snapshot = await conferThread(forumId);
@@ -246,30 +269,31 @@ export function renderSg7(container: HTMLElement): void {
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : String(error);
     } finally {
-      conferBtn.disabled = false;
+      setBusy(false);
     }
   }
 
   // --- MUTAÇÃO 1: editar a tabela do 1º post (espelho do sg7-service.adjust) ---
   async function runAdjust(current: ConferenceSnapshot): Promise<void> {
-    if (
-      !window.confirm(
-        `Blindagem 1/2 — atualizar a tabela do PRIMEIRO POST do tópico ${current.threadId}? ` +
-          'O post da tabela será sobrescrito com o conteúdo da prévia exibida. Revise a prévia antes de continuar.',
-      )
-    ) {
-      return;
-    }
-    if (
-      !window.confirm(
-        'Blindagem 2/2 — CONFIRMAÇÃO FINAL: executar a edição REAL do primeiro post no fórum do jogo? ' +
-          'Ação destrutiva (sobrescreve o conteúdo atual do post), UMA única tentativa, sem repetição automática — não pode ser desfeita.',
-      )
-    ) {
-      return;
-    }
-    setMutationStatus('Atualizando a tabela do 1º post…');
+    setBusy(true);
     try {
+      if (
+        !window.confirm(
+          `Blindagem 1/2 — atualizar a tabela do PRIMEIRO POST do tópico ${current.threadId}? ` +
+            'O post da tabela será sobrescrito com o conteúdo da prévia exibida. Revise a prévia antes de continuar.',
+        )
+      ) {
+        return;
+      }
+      if (
+        !window.confirm(
+          'Blindagem 2/2 — CONFIRMAÇÃO FINAL: executar a edição REAL do primeiro post no fórum do jogo? ' +
+            'Ação destrutiva (sobrescreve o conteúdo atual do post), UMA única tentativa, sem repetição automática — não pode ser desfeita.',
+        )
+      ) {
+        return;
+      }
+      setMutationStatus('Atualizando a tabela do 1º post…');
       // Action EXATA que o jogo espera: reabre o formulário e reusa os params
       // da action (village/thread_id/edit_post_id/post_id/page/forum_id) —
       // o corpo leva message/do/current_page/send, como o sg7-service.
@@ -290,7 +314,9 @@ export function renderSg7(container: HTMLElement): void {
       const applied = appliedByPedido(current);
       current.changed = false;
       current.round = current.round.map((row) => ({ ...row, sent: applied.get(row.pedido) ?? row.sent }));
-      gm.set(lastKey, current);
+      // Só regrava se o snapshot em memória ainda é o da operação: uma
+      // conferência mais nova já está no storage e não pode ser revertida.
+      if (snapshot === current) gm.set(lastKey, current);
       renderResult();
       setMutationStatus(
         verified
@@ -300,72 +326,80 @@ export function renderSg7(container: HTMLElement): void {
       );
     } catch (error) {
       setMutationStatus(`Falha no ajuste (nada reenviado): ${error instanceof Error ? error.message : String(error)}`, false);
+    } finally {
+      setBusy(false);
     }
   }
 
   // --- MUTAÇÃO 2: apagar os comentários processados (sg7-service.deletePosts) ---
   async function runDelete(current: ConferenceSnapshot): Promise<void> {
-    const total = current.recognizedPostIds.length;
-    if (total === 0) return;
-    if (
-      !window.confirm(
-        `Blindagem 1/2 — remover os ${total} comentário(s) processado(s) do tópico ${current.threadId}? ` +
-          'Cada comentário reconhecido será EXCLUÍDO do fórum (1 requisição por comentário, com pausa entre elas).',
-      )
-    ) {
-      return;
-    }
-    if (
-      !window.confirm(
-        `Blindagem 2/2 — você realmente deseja excluir as ${total} mensagem(ns) selecionadas? ` +
-          'CONFIRMAÇÃO FINAL: exclusão REAL no fórum, UMA tentativa por mensagem, sem repetição — não pode ser desfeita.',
-      )
-    ) {
-      return;
-    }
-    setMutationStatus(`Removendo ${total} comentário(s)…`);
-    const targets = [...current.recognizedPostIds];
-    const failures: string[] = [];
-    for (const postId of targets) {
-      try {
-        // Mesmos campos do fluxo del_posts do sg7-service (chk_del_posts[] +
-        // submit_del_posts); h vai injetado pelo gamePost. 1 post por chamada.
-        await gamePost('forum', 'del_posts', {
-          screenmode: 'view_thread',
-          thread_id: String(current.threadId),
-          page: '0',
-          forum_id: forumId,
-          'chk_del_posts[]': String(postId),
-          submit_del_posts: 'Apagar mensagens',
-        });
-      } catch (error) {
-        // Sem retry: para no 1º erro e reporta o que ficou pendente.
-        failures.push(`Post #${postId}: ${error instanceof Error ? error.message : String(error)}`);
-        break;
-      }
-    }
-    // Verificação REAL: relê a última página do tópico e confere o que sumiu.
-    let remaining = targets;
+    setBusy(true);
     try {
-      const after = await pacedGet(
-        `game.php?screen=forum&screenmode=view_thread&thread_id=${current.threadId}&forum_id=${forumId}&page=last`,
-        { fresh: true },
-      );
-      const ids = new Set(targets);
-      remaining = parseForumThread(after).posts.filter((post) => ids.has(post.postId)).map((post) => post.postId);
-    } catch {
-      // Verificação indisponível: assume o que não falhou explicitamente.
-      remaining = failures.length > 0 ? targets : [];
+      const total = current.recognizedPostIds.length;
+      if (total === 0) return;
+      if (
+        !window.confirm(
+          `Blindagem 1/2 — remover os ${total} comentário(s) processado(s) do tópico ${current.threadId}? ` +
+            'Cada comentário reconhecido será EXCLUÍDO do fórum (1 requisição por comentário, com pausa entre elas).',
+        )
+      ) {
+        return;
+      }
+      if (
+        !window.confirm(
+          `Blindagem 2/2 — você realmente deseja excluir as ${total} mensagem(ns) selecionadas? ` +
+            'CONFIRMAÇÃO FINAL: exclusão REAL no fórum, UMA tentativa por mensagem, sem repetição — não pode ser desfeita.',
+        )
+      ) {
+        return;
+      }
+      setMutationStatus(`Removendo ${total} comentário(s)…`);
+      const targets = [...current.recognizedPostIds];
+      const failures: string[] = [];
+      for (const postId of targets) {
+        try {
+          // Mesmos campos do fluxo del_posts do sg7-service (chk_del_posts[] +
+          // submit_del_posts); h vai injetado pelo gamePost. 1 post por chamada.
+          await gamePost('forum', 'del_posts', {
+            screenmode: 'view_thread',
+            thread_id: String(current.threadId),
+            page: '0',
+            forum_id: forumId,
+            'chk_del_posts[]': String(postId),
+            submit_del_posts: 'Apagar mensagens',
+          });
+        } catch (error) {
+          // Sem retry: para no 1º erro e reporta o que ficou pendente.
+          failures.push(`Post #${postId}: ${error instanceof Error ? error.message : String(error)}`);
+          break;
+        }
+      }
+      // Verificação REAL: relê a última página do tópico e confere o que sumiu.
+      let remaining = targets;
+      try {
+        const after = await pacedGet(
+          `game.php?screen=forum&screenmode=view_thread&thread_id=${current.threadId}&forum_id=${forumId}&page=last`,
+          { fresh: true },
+        );
+        const ids = new Set(targets);
+        remaining = parseForumThread(after).posts.filter((post) => ids.has(post.postId)).map((post) => post.postId);
+      } catch {
+        // Verificação indisponível: assume o que não falhou explicitamente.
+        remaining = failures.length > 0 ? targets : [];
+      }
+      current.recognizedPostIds = remaining;
+      // Só regrava se o snapshot em memória ainda é o da operação (ver runAdjust).
+      if (snapshot === current) gm.set(lastKey, current);
+      renderResult();
+      const deleted = total - remaining.length;
+      const detail =
+        failures.length > 0
+          ? `Removidos ${deleted} de ${total} — parou sem repetir em: ${failures[0] ?? ''}`
+          : `Removidos ${deleted} de ${total} comentário(s) processado(s).`;
+      setMutationStatus(detail, failures.length === 0 && remaining.length === 0);
+    } finally {
+      setBusy(false);
     }
-    current.recognizedPostIds = remaining;
-    gm.set(lastKey, current);
-    renderResult();
-    const deleted = total - remaining.length;
-    const detail =
-      failures.length > 0
-        ? `Removidos ${deleted} de ${total} — parou sem repetir em: ${failures[0] ?? ''}`
-        : `Removidos ${deleted} de ${total} comentário(s) processado(s).`;
-    setMutationStatus(detail, failures.length === 0 && remaining.length === 0);
   }
 
   const mutationStatus = el('div', 'shs-row');
@@ -415,10 +449,10 @@ export function renderSg7(container: HTMLElement): void {
     }
 
     const mutations = el('div', 'shs-row');
-    const adjustBtn = elButton('Atualizar tabela do 1º post', 'shs-btn', () => runAdjust(current));
+    adjustBtn = elButton('Atualizar tabela do 1º post', 'shs-btn', () => runAdjust(current));
     adjustBtn.disabled = !current.changed;
     mutations.appendChild(adjustBtn);
-    const deleteBtn = elButton(
+    deleteBtn = elButton(
       `Remover comentários processados (${current.recognizedPostIds.length})`,
       'shs-btn',
       () => runDelete(current),
@@ -426,6 +460,9 @@ export function renderSg7(container: HTMLElement): void {
     deleteBtn.disabled = current.recognizedPostIds.length === 0;
     mutations.appendChild(deleteBtn);
     resultBox.appendChild(mutations);
+    // Recriados no meio de uma operação (renderResult roda durante o busy):
+    // seguem desabilitados até o finally da operação.
+    if (busy) setBusy(true);
 
     if (current.round.length > 0) {
       const pending = el('div', 'shs-row');
@@ -438,12 +475,14 @@ export function renderSg7(container: HTMLElement): void {
           `Rodada da conferência: ${current.round.length} jogador(es) · pediu ${INT_FMT.format(totalRequested)} · enviou ${INT_FMT.format(totalSent)}.`,
         ),
       );
-      pending.appendChild(
-        elButton('Somar esta rodada ao débito', 'shs-btn', () => {
-          mergeRound(current);
-        }),
-      );
+      mergeRoundBtn = elButton('Somar esta rodada ao débito', 'shs-btn', () => {
+        mergeRound(current);
+      });
+      pending.appendChild(mergeRoundBtn);
       resultBox.appendChild(pending);
+      // Recriado no meio de uma operação (renderResult roda durante o busy):
+      // segue desabilitado até o finally da operação.
+      if (busy) setBusy(true);
     }
   }
 

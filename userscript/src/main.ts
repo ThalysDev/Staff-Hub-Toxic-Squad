@@ -35,7 +35,7 @@ function renderActivation(onActivate: () => void): void {
   const input = document.createElement('input');
   input.className = 'shs-input';
   input.id = 'shs-key';
-  input.placeholder = 'Chave (ex.: SHS-XXXX-XXXX)';
+  input.placeholder = 'Chave (ex.: SHS-XXXX-XXXX-XXXX)';
   const button = document.createElement('button');
   button.className = 'shs-btn';
   button.id = 'shs-ativar';
@@ -58,7 +58,7 @@ function renderActivation(onActivate: () => void): void {
       message.textContent = 'Informe a chave.';
       return;
     }
-    if (ctx.player === '—') {
+    if (!ctx.player || ctx.player === '—') {
       message.textContent = 'Não consegui identificar sua conta do jogo — recarregue a página e tente de novo.';
       return;
     }

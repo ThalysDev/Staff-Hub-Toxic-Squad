@@ -2,6 +2,7 @@
 // do CSS do jogo) com abas registradas por módulo. PT-BR.
 
 import { licenseState } from './license';
+import { gameContextFrom, pageWindow } from './page';
 
 export interface SectionDef {
   id: string;
@@ -25,14 +26,7 @@ export function currentScreen(): string {
 }
 
 export function gameContext(): { player: string; world: string; villageId: string } {
-  const data = (window as unknown as {
-    game_data?: { player?: { name?: string }; world?: string; village?: { id?: number | string } };
-  }).game_data;
-  return {
-    player: data?.player?.name ?? '—',
-    world: data?.world ?? '—',
-    villageId: String(data?.village?.id ?? '—'),
-  };
+  return gameContextFrom(pageWindow().game_data);
 }
 
 function styles(): string {
@@ -306,18 +300,25 @@ export function mountShell(): void {
     const faixa = document.createElement('div');
     faixa.className = 'shs-license';
     const ate = new Date(license.offlineAte).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    faixa.textContent = `Modo offline — licença será revalidada automaticamente (tenta de novo a partir das ${ate}).`;
+    faixa.textContent = `Modo offline — a licença será revalidada no próximo carregamento da página (a partir das ${ate}).`;
     panel.appendChild(faixa);
   }
 
   const tabs = document.createElement('div');
   tabs.className = 'shs-tabs';
+  tabs.role = 'tablist';
   panel.appendChild(tabs);
 
   const body = document.createElement('div');
   body.className = 'shs-body';
+  body.role = 'tabpanel';
   body.dataset.section = '';
   panel.appendChild(body);
+
+  // Última screen do jogo renderizada (null = nenhuma ainda): o re-render
+  // automático da aba ativa só acontece quando a screen MUDA — mutações de DOM
+  // sem navegação não descartam o estado do usuário.
+  let renderedScreen: string | null = null;
 
   function renderTabs(): void {
     const screen = currentScreen();
@@ -327,19 +328,30 @@ export function mountShell(): void {
       const tab = document.createElement('button');
       tab.className = 'shs-tab';
       tab.textContent = section.label;
-      tab.dataset.active = String(body.dataset.section === section.id);
+      tab.role = 'tab';
+      const selected = String(body.dataset.section === section.id);
+      tab.dataset.active = selected;
+      tab.setAttribute('aria-selected', selected);
       tab.addEventListener('click', () => {
         body.innerHTML = '';
         body.dataset.section = section.id;
-        for (const other of Array.from(tabs.children)) (other as HTMLElement).dataset.active = 'false';
+        for (const other of Array.from(tabs.children)) {
+          (other as HTMLElement).dataset.active = 'false';
+          (other as HTMLElement).setAttribute('aria-selected', 'false');
+        }
         tab.dataset.active = 'true';
+        tab.setAttribute('aria-selected', 'true');
         section.render(body);
       });
       tabs.appendChild(tab);
     }
-    // Re-render a aba ativa quando as abas são refeitas (troca de página do jogo).
-    const active = sections.find((section) => section.id === body.dataset.section);
-    if (active !== undefined && available.includes(active)) active.render(body);
+    // Re-render a aba ativa SÓ quando a screen do jogo mudou (troca de página);
+    // no 1º render renderedScreen é null, então renderiza.
+    if (screen !== renderedScreen) {
+      renderedScreen = screen;
+      const active = sections.find((section) => section.id === body.dataset.section);
+      if (active !== undefined && available.includes(active)) active.render(body);
+    }
   }
 
   // Navegação interna do jogo troca o conteúdo sem recarregar: observa e refaz as abas.
