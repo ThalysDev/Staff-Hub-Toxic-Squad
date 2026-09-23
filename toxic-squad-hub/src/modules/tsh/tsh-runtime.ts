@@ -248,6 +248,14 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
 /**
  * Heartbeat: percorre as automações a cada 30s (aba aberta). O ciclo de cada
  * módulo decide se é a tela/hora dele; mutantes só com armação válida.
+ *
+ * Modo Sentinela (Onda 5): a aba de fundo chama ESTE mesmo heartbeat. O gate
+ * de tela NÃO foi reescrito nesta onda (decisão explícita): automações
+ * API-first (screen null) rodam em qualquer tela — logo rodam na Sentinela;
+ * as presas a uma tela seguem limitadas à tela aberta NA ABA ATIVA (a
+ * Sentinela destrava as null-screen e acelera as demais quando o usuário
+ * navega nela). O lock por módulo+mundo abaixo é o que impede Sentinela e aba
+ * normal executarem o mesmo módulo ao mesmo tempo.
  */
 export function startTshHeartbeat(scope: ModuleScope): void {
   scope.every(() => {
@@ -255,4 +263,16 @@ export function startTshHeartbeat(scope: ModuleScope): void {
       void runTshCycle(automation.id);
     }
   }, 30_000);
+}
+
+/**
+ * Quantas automações estão ligadas (switch Ativo) — usado pelo badge da aba
+ * Sentinela (contagem "N ativas" no título, sem abrir painel).
+ */
+export function activeTshCount(): number {
+  let total = 0;
+  for (const id of automations.keys()) {
+    if (isTshEnabled(id)) total += 1;
+  }
+  return total;
 }

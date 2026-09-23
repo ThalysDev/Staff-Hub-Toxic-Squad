@@ -10,6 +10,11 @@ import { card, cardTitle, iconButton, spinner } from './core/ui';
 import { icon } from './core/icons';
 import { renderVantaSuite, runVantaOnLoad } from './modules/vanta';
 import { renderTshPanel, startTshHeartbeat } from './modules/tsh';
+import {
+  isSentinelaTab,
+  mountSentinelaLauncher,
+  startSentinelaBadge,
+} from './modules/tsh/tsh-sentinela';
 import { renderHome } from './modules/home';
 import { createModuleScope } from './modules/vanta/vanta-lifecycle';
 
@@ -186,6 +191,15 @@ function renderActivation(onActivate: () => void): void {
 }
 
 function main(): void {
+  // Aba Sentinela (Onda 5): aba de fundo do jogo — sem shell/painel (não há UI
+  // a montar fora da aba do jogador), só o heartbeat normal + o badge do
+  // título com a contagem de automações ativas. O registro das seções nem roda.
+  if (isSentinelaTab()) {
+    startSentinelaBadge(createModuleScope('tsh-sentinela'));
+    startTshHeartbeat(createModuleScope('tsh-heartbeat'));
+    return;
+  }
+
   // Registro das seções ANTES do gate: após a 1ª ativação o painel já nasce
   // completo, sem recarregar a página. "Início" é a entrada padrão (1ª).
   registerSection({ id: 'inicio', label: 'Início', icon: 'home', render: renderHome });
@@ -198,6 +212,7 @@ function main(): void {
       mountShell();
       runVantaOnLoad();
       startTshHeartbeat(createModuleScope('tsh-heartbeat'));
+      mountSentinelaLauncher();
     });
     return;
   }
@@ -205,6 +220,7 @@ function main(): void {
   mountShell();
   runVantaOnLoad();
   startTshHeartbeat(createModuleScope('tsh-heartbeat'));
+  mountSentinelaLauncher();
   void logout;
   void licenseState;
 }
