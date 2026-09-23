@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { createWorldState, normalizeWorldState, setModuleSettings, type HubWorldState } from './state/hub-state';
 import {
   activeSchedulerCommandRecords,
+  CATAPULT_TARGETS,
   deriveSchedulerCommandStatus,
   mergeSchedulerTransit,
   migrateLegacySchedulerCommands,
   parseSchedulerCommandRecord,
   recordSchedulerCommandEvent,
   removeSchedulerCommand,
+  SCHEDULER_CANCEL_COUNTS,
+  SCHEDULER_DEFAULT_WINDOW,
   schedulerMotorCommands,
   setSchedulerCommandPaused,
   upsertSchedulerCommand,
@@ -303,5 +306,236 @@ describe('fonte única do motor (Onda 3)', () => {
     expect(schedulerMotorCommands(raw, [], now)).toHaveLength(0);
     const normalized = normalizeWorldState(raw);
     expect(schedulerMotorCommands(normalized, [], now)).toHaveLength(1);
+  });
+});
+
+describe('Onda 1 — cancelamento, sequencial, snipe/dodge, forçar, catapulta e percentual', () => {
+  it('kind=cancel com cancelCount faz roundtrip (todas as quantidades canônicas passam)', () => {
+    for (const cancelCount of SCHEDULER_CANCEL_COUNTS) {
+      const parsed = parseSchedulerCommandRecord(command({ kind: 'cancel', cancelCount }));
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+      expect(parsed.record.kind).toBe('cancel');
+      expect(parsed.record.cancelCount).toBe(cancelCount);
+      expect(parsed.record.units).toEqual({ spear: 250 });
+    }
+  });
+
+  it('cancelCount fora da lista canônica (21, 6, 0, fracionário) é recusado na fronteira', () => {
+    // 6 está na faixa 1..20 mas NÃO é quantidade canônica: a lista manda.
+    for (const cancelCount of [21, 6, 0, 2.5]) {
+      const parsed = parseSchedulerCommandRecord(command({ kind: 'cancel', cancelCount }));
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) expect(parsed.message).toContain('quantidade de cancelamentos');
+    }
+  });
+
+  it('cancelCount em comando que não é cancelar é recusado (campo não vaza para outros kinds)', () => {
+    const parsed = parseSchedulerCommandRecord(command({ kind: 'attack', cancelCount: 5 }));
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.message).toContain('quantidade de cancelamentos');
+    // kind=cancel SEM cancelCount segue aceito (o formulário pode não ter escolhido a quantidade).
+    expect(parseSchedulerCommandRecord(command({ kind: 'cancel' })).ok).toBe(true);
+  });
+
+  it('registro ANTIGO (pré-Onda 1, fixture mínima) continua parseando e sem campos novos', () => {
+    const legacy = {
+      id: 'cid_legacy_0001',
+      kind: 'attack',
+      sourceVillageId: '238755',
+      target: { x: 500, y: 500 },
+      units: { spear: 250 },
+      sendAt: '2026-08-20T20:39:23.000Z',
+      createdAt: now.toISOString(),
+      events: [],
+    };
+    const parsed = parseSchedulerCommandRecord(legacy);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    // Defaults antigos intactos.
+    expect(parsed.record.timingMode).toBe('send');
+    expect(parsed.record.paused).toBe(false);
+    // Campos da Onda 1 ausentes — nada é inventado no registro antigo.
+    expect(parsed.record.cancelCount).toBeUndefined();
+    expect(parsed.record.sequentialCount).toBeUndefined();
+    expect(parsed.record.timingStrategy).toBeUndefined();
+    expect(parsed.record.forced).toBeUndefined();
+    expect(parsed.record.catapultTarget).toBeUndefined();
+    expect(parsed.record.percentMode).toBeUndefined();
+    expect(parsed.record.unitsPercent).toBeUndefined();
+    expect(Object.keys(parsed.record)).not.toContain('timingStrategy');
+  });
+
+  it('catapultTarget aceita só as chaves do jogo ("" = Padrão) e recusa alvo inventado', () => {
+    for (const catapultTarget of ['', 'wall', 'smith', 'garbage'] as const) {
+      const parsed = parseSchedulerCommandRecord(command({ catapultTarget }));
+      expect(parsed.ok).toBe(true);
+      if (parsed.ok) expect(parsed.record.catapultTarget).toBe(catapultTarget);
+    }
+    const invalid = parseSchedulerCommandRecord(command({ catapultTarget: 'townhall' }));
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok) expect(invalid.message).toContain('alvo da catapulta');
+  });
+
+  it('percentMode com unitsPercent 50 guarda o percentual; 150/negativo/tropa estranha recusam', () => {
+    const parsed = parseSchedulerCommandRecord(
+      command({ percentMode: true, unitsPercent: { spear: 50, ram: 100 } }),
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.record.percentMode).toBe(true);
+    expect(parsed.record.unitsPercent).toEqual({ spear: 50, ram: 100 });
+
+    const over = parseSchedulerCommandRecord(command({ percentMode: true, unitsPercent: { spear: 150 } }));
+    expect(over.ok).toBe(false);
+    if (!over.ok) expect(over.message).toContain('percentual de tropas');
+
+    const negative = parseSchedulerCommandRecord(command({ percentMode: true, unitsPercent: { spear: -1 } }));
+    expect(negative.ok).toBe(false);
+
+    // Tropa fora do elenco do jogo (typo de UI) nunca é gravada — igual ao `units`.
+    const unknownUnit = parseSchedulerCommandRecord(command({ percentMode: true, unitsPercent: { spiar: 50 } }));
+    expect(unknownUnit.ok).toBe(false);
+    if (!unknownUnit.ok) expect(unknownUnit.message).toContain('percentual de tropas');
+  });
+
+  it('sequentialCount aceita os limites 1..20 e recusa 0/21/fracionário', () => {
+    for (const sequentialCount of [1, 20]) {
+      const parsed = parseSchedulerCommandRecord(command({ sequentialCount }));
+      expect(parsed.ok).toBe(true);
+      if (parsed.ok) expect(parsed.record.sequentialCount).toBe(sequentialCount);
+    }
+    for (const sequentialCount of [0, 21, 2.5]) {
+      const parsed = parseSchedulerCommandRecord(command({ sequentialCount }));
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) expect(parsed.message).toContain('repetições do comando');
+    }
+  });
+
+  it('estratégia de envio: direto/snipe/dodge passam, valor estranho recusa (timingMode legado intacto)', () => {
+    for (const timingStrategy of ['direto', 'snipe', 'dodge'] as const) {
+      const parsed = parseSchedulerCommandRecord(command({ timingStrategy }));
+      expect(parsed.ok).toBe(true);
+      if (parsed.ok) expect(parsed.record.timingStrategy).toBe(timingStrategy);
+    }
+    const invalid = parseSchedulerCommandRecord({ ...command(), timingStrategy: 'turbo' });
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok) expect(invalid.message).toContain('estratégia de envio');
+
+    // O `timingMode` antigo (QUAL horário o operador digitou) segue só arrival/send.
+    const legacyField = parseSchedulerCommandRecord({ ...command(), timingMode: 'snipe' });
+    expect(legacyField.ok).toBe(false);
+    if (!legacyField.ok) expect(legacyField.message).toContain('modo de horário');
+  });
+
+  it('forced flag faz roundtrip (ausente = não forçado) e valor não-booleano recusa', () => {
+    const forced = parseSchedulerCommandRecord(command({ forced: true }));
+    expect(forced.ok).toBe(true);
+    if (forced.ok) expect(forced.record.forced).toBe(true);
+
+    const absent = parseSchedulerCommandRecord(command());
+    expect(absent.ok).toBe(true);
+    if (absent.ok) expect(absent.record.forced).toBeUndefined();
+
+    const invalid = parseSchedulerCommandRecord({ ...command(), forced: 'sim' });
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok) expect(invalid.message).toContain('forçar envio');
+  });
+
+  it('registro completo da Onda 1 sobrevive ao JSON da persistência (roundtrip de tudo junto)', () => {
+    const full = command({
+      sequentialCount: 3,
+      forced: true,
+      catapultTarget: 'smith',
+      percentMode: true,
+      unitsPercent: { catapult: 100 },
+      timingStrategy: 'dodge',
+    });
+    const parsed = parseSchedulerCommandRecord(full);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const state = upsertSchedulerCommand(
+      createWorldState({ worldId: 'br142', worldLabel: 'Mundo 142', playerName: 'Toxic' }),
+      parsed.record,
+      now,
+    );
+    const persisted: unknown = JSON.parse(JSON.stringify(state.scheduler?.commands[0]));
+    const reparsed = parseSchedulerCommandRecord(persisted);
+    expect(reparsed.ok).toBe(true);
+    if (!reparsed.ok) return;
+    expect(reparsed.record).toMatchObject({
+      sequentialCount: 3,
+      forced: true,
+      catapultTarget: 'smith',
+      percentMode: true,
+      unitsPercent: { catapult: 100 },
+      timingStrategy: 'dodge',
+      timingMode: 'send',
+    });
+  });
+
+  it('kind=cancel segue o MESMO fluxo de janela/envio dos outros kinds (motor e derivação)', () => {
+    const parsed = parseSchedulerCommandRecord(command({ kind: 'cancel', cancelCount: 3, timingStrategy: 'snipe' }));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const record = parsed.record;
+    const state: HubWorldState = {
+      ...createWorldState({ worldId: 'br142', worldLabel: 'Mundo 142', playerName: 'Toxic' }),
+      scheduler: { commands: [record], transit: [] },
+    };
+    expect(activeSchedulerCommandRecords(state.scheduler, now).map((candidate) => candidate.id)).toEqual([record.id]);
+    expect(deriveSchedulerCommandStatus(record, new Date('2026-08-20T20:10:00.000Z'), SCHEDULER_DEFAULT_WINDOW)).toBe(
+      'agendado',
+    );
+    expect(deriveSchedulerCommandStatus(record, new Date('2026-08-20T20:39:10.000Z'), SCHEDULER_DEFAULT_WINDOW)).toBe(
+      'janela',
+    );
+    expect(deriveSchedulerCommandStatus(record, new Date('2026-08-20T20:40:00.000Z'), SCHEDULER_DEFAULT_WINDOW)).toBe(
+      'falhou',
+    );
+
+    const motor = schedulerMotorCommands(state, [], now);
+    expect(motor).toHaveLength(1);
+    expect(motor[0]).toMatchObject({ id: record.id, kind: 'cancel', sendAt: record.sendAt });
+
+    // Pausar e o fato terminal valem para cancel como para qualquer outro kind.
+    const paused = setSchedulerCommandPaused(state, record.id, true, now);
+    expect(schedulerMotorCommands(paused, [], now)).toHaveLength(0);
+    const sent = recordSchedulerCommandEvent(state, record.id, { status: 'enviado' }, now);
+    expect(schedulerMotorCommands(sent, [], new Date('2026-08-20T20:39:30.000Z'))).toHaveLength(0);
+  });
+
+  it('vocabulário exportado: 12 alvos de catapulta + Padrão e a lista canônica de cancelamentos', () => {
+    expect(Object.keys(CATAPULT_TARGETS)).toEqual([
+      '',
+      'main',
+      'snob',
+      'storage',
+      'wood',
+      'stable',
+      'statue',
+      'farm',
+      'smith',
+      'market',
+      'iron',
+      'wall',
+      'garbage',
+    ]);
+    expect(Object.values(CATAPULT_TARGETS)).toEqual([
+      'Padrão',
+      'Edifício Principal',
+      'Academia',
+      'Armazém',
+      'Bosque',
+      'Estábulo',
+      'Estátua',
+      'Fazenda',
+      'Ferreiro',
+      'Mercado',
+      'Mina de Ferro',
+      'Muralha',
+      'Lixeira',
+    ]);
+    expect([...SCHEDULER_CANCEL_COUNTS]).toEqual([1, 2, 3, 4, 5, 10, 15, 20]);
   });
 });

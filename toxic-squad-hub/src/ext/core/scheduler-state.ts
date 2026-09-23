@@ -12,9 +12,52 @@ import type { ScheduledCommand, UnitType } from '../modules/shared/module-types'
  * `removido`) são FATOS persistidos em `events` e nunca rederivados pelo
  * relógio; o motor só dispara comandos com status ativo (agendado/janela) e
  * `paused === false`. Desde a Onda 3 o estado novo é a FONTE ÚNICA do motor.
+ *
+ * A Onda 1 acrescentou o vocabulário de cancelamento (Auto Cancel Snipe),
+ * repetição sequencial, snipe/dodge, forçar, alvo de catapulta e tropas em
+ * percentual — TUDO em campos opcionais, então registros antigos continuam
+ * parseando exatamente como antes.
  */
 
-export type ScheduledCommandKind = 'attack' | 'support' | 'noble' | 'fake';
+/**
+ * Tipos de comando do Agendador: os quatro de combate do jogo mais `cancel`
+ * (Onda 1 — cancelamento cronometrado de N comandos do alvo, o "Auto Cancel
+ * Snipe"). `cancel` percorre o MESMO ciclo de vida dos demais (agendado →
+ * janela → envio → fato terminal); o transporte do cancelamento (Praça) vive
+ * fora deste arquivo.
+ */
+export type ScheduledCommandKind = 'attack' | 'support' | 'noble' | 'fake' | 'cancel';
+
+/** Quantidades canônicas de cancelamentos do Auto Cancel Snipe (qtd 1..20 da UI). */
+export const SCHEDULER_CANCEL_COUNTS = [1, 2, 3, 4, 5, 10, 15, 20] as const;
+
+/**
+ * Alvos de catapulta do jogo, na ordem do select da UI (`''` = Padrão, o alvo
+ * que o jogo usa quando nenhum foi escolhido). O `catapultTarget` do registro
+ * é uma destas CHAVES; o valor é o label pt-BR exibido.
+ */
+export const CATAPULT_TARGETS = {
+  '': 'Padrão',
+  main: 'Edifício Principal',
+  snob: 'Academia',
+  storage: 'Armazém',
+  wood: 'Bosque',
+  stable: 'Estábulo',
+  statue: 'Estátua',
+  farm: 'Fazenda',
+  smith: 'Ferreiro',
+  market: 'Mercado',
+  iron: 'Mina de Ferro',
+  wall: 'Muralha',
+  garbage: 'Lixeira',
+} as const;
+
+export type CatapultTarget = keyof typeof CATAPULT_TARGETS;
+
+/** Estratégias de envio: `direto` (ms planejado), `snipe` e `dodge` (cruzamento com o ataque que chega). */
+export const SCHEDULER_TIMING_STRATEGIES = ['direto', 'snipe', 'dodge'] as const;
+
+export type SchedulerTimingStrategy = (typeof SCHEDULER_TIMING_STRATEGIES)[number];
 
 export type ScheduledCommandStatus = 'agendado' | 'janela' | 'enviando' | 'enviado' | 'incerto' | 'falhou' | 'removido';
 
@@ -48,10 +91,37 @@ export interface ScheduledCommandRecord {
   units: Partial<Record<UnitType, number>>;
   /** Modo em que o horário foi digitado; o outro é sempre derivado e exibido. */
   timingMode: 'arrival' | 'send';
+  /**
+   * Estratégia de envio (Onda 1); ausente = `'direto'`.
+   *
+   * NOME: a spec da Onda 1 pedia este campo como `timingMode`, mas esse nome já
+   * é do campo ACIMA (`'arrival' | 'send'` = QUAL horário o operador digitou,
+   * contrato antigo, obrigatório e retrocompatível). O eixo aqui é OUTRO (COMO
+   * o comando é executado), então o campo tem nome próprio em vez de
+   * sobrecarregar o antigo.
+   */
+  timingStrategy?: SchedulerTimingStrategy;
   /** ISO 8601, hora do SERVIDOR, segundos. */
   sendAt: string;
   /** Chegada derivada (recalculada quando tropas/origem mudam). Ausente quando inderivável (migração sem coordenada). */
   arrivalAt?: string;
+  // --- Onda 1: cancelamento, sequencial, forçar, catapulta e tropas em % ---
+  /**
+   * Quantidade de comandos a cancelar no alvo (SÓ com `kind: 'cancel'`, uma das
+   * quantidades canônicas de `SCHEDULER_CANCEL_COUNTS`). Ausente = o formulário
+   * não escolheu quantidade.
+   */
+  cancelCount?: number;
+  /** Repetir o comando X vezes (1..20): envios em sequência no mesmo alvo. */
+  sequentialCount?: number;
+  /** Agendado mesmo com timing impossível (o operador assume o risco; sem ele o agendamento é recusado). */
+  forced?: boolean;
+  /** Alvo da catapulta: uma das chaves de `CATAPULT_TARGETS` (`''` = Padrão). */
+  catapultTarget?: string;
+  /** Tropas em PERCENTUAL (0..100) em vez de absolutas; `units` segue congelado para exibição/matcher. */
+  percentMode?: boolean;
+  /** Percentuais por tipo de tropa (0..100), lidos quando `percentMode` é true. */
+  unitsPercent?: Partial<Record<string, number>>;
   paused: boolean;
   templateRef?: { id: string; label: string; builtin: boolean };
   createdAt: string;
@@ -115,6 +185,10 @@ const commandEventSchema = z.object({
   detail: z.string().optional(),
 });
 
+const SCHEDULER_CANCEL_COUNT_SET: ReadonlySet<number> = new Set(SCHEDULER_CANCEL_COUNTS);
+
+const CATAPULT_TARGET_KEYS = Object.keys(CATAPULT_TARGETS) as [CatapultTarget, ...CatapultTarget[]];
+
 /**
  * Contrato do registro na fronteira do upsert: um registro malformado (ex. sem
  * `events`, `sendAt` ilegível) derrubaria a derivação de status e o motor
@@ -123,29 +197,60 @@ const commandEventSchema = z.object({
  * operacionais com default sensível onde o contrato permite: `timingMode`
  * ('send', o modo do legado) e `paused` (false). `events` é obrigatório (pode
  * ser vetor vazio na edição) — ausência é rejeitada.
+ *
+ * Os campos da Onda 1 (cancelamento/sequencial/snipe-dodge/forçar/catapulta/%)
+ * são TODOS opcionais: um registro antigo (pré-Onda 1) continua parseando
+ * exatamente como antes, e a ausência de `timingStrategy` vale `'direto'`.
  */
-const scheduledCommandRecordInputSchema = z.object({
-  id: z.string().min(1),
-  kind: z.enum(['attack', 'support', 'noble', 'fake']),
-  sourceVillageId: z.string().min(1),
-  sourceName: z.string().optional(),
-  source: coordinateSchema.optional(),
-  target: coordinateSchema,
-  targetName: z.string().optional(),
-  targetPoints: z.number().int().positive().optional(),
-  // vendored-adapt: no zod 4 (versão do monorepo userscript) `z.record` com
-  // chave enum exige registro EXAUSTIVO; `z.partialRecord` preserva a
-  // semântica do `z.record(enum, valor)` do zod 3 da extensão (parcial,
-  // chave desconhecida rejeitada).
-  units: z.partialRecord(z.enum(SCHEDULER_UNIT_TYPES), z.number().int().positive()),
-  timingMode: z.enum(['arrival', 'send']).default('send'),
-  sendAt: z.string().datetime(),
-  arrivalAt: z.string().datetime().optional(),
-  paused: z.boolean().default(false),
-  templateRef: z.object({ id: z.string().min(1), label: z.string(), builtin: z.boolean() }).optional(),
-  createdAt: z.string().datetime(),
-  events: z.array(commandEventSchema),
-});
+const scheduledCommandRecordInputSchema = z
+  .object({
+    id: z.string().min(1),
+    kind: z.enum(['attack', 'support', 'noble', 'fake', 'cancel']),
+    sourceVillageId: z.string().min(1),
+    sourceName: z.string().optional(),
+    source: coordinateSchema.optional(),
+    target: coordinateSchema,
+    targetName: z.string().optional(),
+    targetPoints: z.number().int().positive().optional(),
+    // vendored-adapt: no zod 4 (versão do monorepo userscript) `z.record` com
+    // chave enum exige registro EXAUSTIVO; `z.partialRecord` preserva a
+    // semântica do `z.record(enum, valor)` do zod 3 da extensão (parcial,
+    // chave desconhecida rejeitada).
+    units: z.partialRecord(z.enum(SCHEDULER_UNIT_TYPES), z.number().int().positive()),
+    timingMode: z.enum(['arrival', 'send']).default('send'),
+    timingStrategy: z.enum(SCHEDULER_TIMING_STRATEGIES).optional(),
+    sendAt: z.string().datetime(),
+    arrivalAt: z.string().datetime().optional(),
+    cancelCount: z.number().int().min(1).max(20).optional(),
+    sequentialCount: z.number().int().min(1).max(20).optional(),
+    forced: z.boolean().optional(),
+    catapultTarget: z.enum(CATAPULT_TARGET_KEYS).optional(),
+    percentMode: z.boolean().optional(),
+    // Mesmo elenco do jogo do `units` (typo de UI nunca é gravado), valores 0..100.
+    unitsPercent: z.partialRecord(z.enum(SCHEDULER_UNIT_TYPES), z.number().min(0).max(100)).optional(),
+    paused: z.boolean().default(false),
+    templateRef: z.object({ id: z.string().min(1), label: z.string(), builtin: z.boolean() }).optional(),
+    createdAt: z.string().datetime(),
+    events: z.array(commandEventSchema),
+  })
+  .superRefine((value, ctx) => {
+    if (value.cancelCount === undefined) return;
+    if (value.kind !== 'cancel') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['cancelCount'],
+        message: 'quantidade de cancelamentos só vale para comando do tipo cancelar.',
+      });
+      return;
+    }
+    if (!SCHEDULER_CANCEL_COUNT_SET.has(value.cancelCount)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['cancelCount'],
+        message: `quantidade de cancelamentos fora da lista canônica (${SCHEDULER_CANCEL_COUNTS.join(', ')}).`,
+      });
+    }
+  });
 
 const COMMAND_FIELD_LABELS: Record<string, string> = {
   id: 'id',
@@ -156,13 +261,32 @@ const COMMAND_FIELD_LABELS: Record<string, string> = {
   targetPoints: 'pontos do alvo',
   units: 'unidades',
   timingMode: 'modo de horário',
+  timingStrategy: 'estratégia de envio',
   sendAt: 'horário de envio',
   arrivalAt: 'horário de chegada',
+  cancelCount: 'quantidade de cancelamentos',
+  sequentialCount: 'repetições do comando',
+  forced: 'forçar envio',
+  catapultTarget: 'alvo da catapulta',
+  percentMode: 'modo percentual',
+  unitsPercent: 'percentual de tropas',
   paused: 'pausado',
   templateRef: 'template',
   createdAt: 'criado em',
   events: 'eventos',
 };
+
+/**
+ * Rótulo pt-BR de um issue do zod. Caminho aninhado (`unitsPercent.spy`) não
+ * tem rótulo próprio e cai no rótulo da RAIZ — a mensagem nunca vaza um path
+ * cru de JSON para o operador.
+ */
+function commandFieldLabel(path: string): string {
+  const root = path.split('.')[0] ?? '';
+  const label = COMMAND_FIELD_LABELS[path] ?? COMMAND_FIELD_LABELS[root];
+  if (label) return label;
+  return path === '' ? 'registro' : path;
+}
 
 /** Remove chaves opcionais ausentes (exactOptionalPropertyTypes no estado). */
 function withoutUndefinedKeys<T extends Record<string, unknown>>(value: T): T {
@@ -180,11 +304,7 @@ export function parseSchedulerCommandRecord(
   const parsed = scheduledCommandRecordInputSchema.safeParse(raw);
   if (!parsed.success) {
     const fields = [
-      ...new Set(
-        parsed.error.issues.map(
-          (issue) => COMMAND_FIELD_LABELS[issue.path.join('.')] ?? issue.path.join('.') ?? 'registro',
-        ),
-      ),
+      ...new Set(parsed.error.issues.map((issue) => commandFieldLabel(issue.path.join('.')))),
     ];
     return { ok: false, message: `Registro de comando inválido — nada foi gravado. Revise: ${fields.join(', ')}.` };
   }
@@ -245,7 +365,7 @@ export function activeSchedulerCommandRecords(
   });
 }
 
-/** Registro do estado novo → forma de comando do motor (module-types ScheduledCommand). */
+/** Registro do estado novo → forma de comando do motor (module-types ScheduledCommand, que já lista `cancel`). */
 export function toMotorScheduledCommand(record: ScheduledCommandRecord): ScheduledCommand {
   return {
     id: record.id,
@@ -270,6 +390,9 @@ export function toMotorScheduledCommand(record: ScheduledCommandRecord): Schedul
  * jamais é ressuscitado por fora dele. A janela de derivação de status é a dos
  * SETTINGS do módulo (focusLeadMs/allowLateMs) — um allowLateMs customizado
  * não pode ser ignorado ao classificar "falhou".
+ *
+ * Comandos `cancel` (Onda 1) percorrem este MESMO fluxo de janela/envio: o
+ * transporte do cancelamento (Praça) vive fora deste arquivo.
  */
 export function schedulerMotorCommands(
   hubWorldState: HubWorldState | undefined,
