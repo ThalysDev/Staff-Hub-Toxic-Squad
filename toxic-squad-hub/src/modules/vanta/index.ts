@@ -21,10 +21,16 @@ import {
 import './apoio-massa';
 import './autocunhar';
 import './blindagem';
+import './bonus-diario';
+import './cancelamento-bloco';
 import './coletor';
 import './dashboard';
 import './etiquetador';
+import './grupos-io';
+import './inspecao-mapa';
+import './mapa-enxuto';
 import './overview-agenda';
+import './previa-aldeia';
 import './reliquias';
 import './renomeador';
 import './stack-health';

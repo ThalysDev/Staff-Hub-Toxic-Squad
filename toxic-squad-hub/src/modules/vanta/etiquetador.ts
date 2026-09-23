@@ -10,12 +10,23 @@
 // - Confirmação ao LIGAR o automático (automação assumida pelo dono; sem
 //   confirmação por ciclo).
 // - P1-4: listeners/timers/node via ModuleScope (nada solto acumulando).
+// - ONDA 3: alarme sonoro local (4 sons) disparado conforme o gatilho
+//   configurado (qualquer ataque / nobre+aríete / apenas nobre) quando o
+//   etiquetador encontra novidades.
 
 import { gm } from '../../core/storage';
 import type { ModuleScope } from './vanta-lifecycle';
 import { registerVanta } from './vanta-registry';
 import { ensureVantaStyles } from './vanta-styles';
 import { parsePtBrInt } from './vanta-utils';
+import {
+  ALARM_SOUND_LABELS,
+  ALARM_TRIGGER_LABELS,
+  normalizeAlarmConfig,
+  playAlarm,
+  testAlarm,
+  type AlarmConfig,
+} from './alarm-sound';
 
 function params(): URLSearchParams {
   return new URLSearchParams(window.location.search);
@@ -23,15 +34,24 @@ function params(): URLSearchParams {
 
 const INTERVAL_KEY = 'tsh-vanta:etiquetador:interval';
 const ENABLED_KEY = 'tsh-vanta:etiquetador:enabled';
+const ALARM_KEY = 'tsh-vanta:etiquetador:alarm';
 
 function isEnabled(): boolean {
   return gm.get<boolean>(ENABLED_KEY, false);
 }
 
+function alarmConfig(): AlarmConfig {
+  return normalizeAlarmConfig(gm.get<unknown>(ALARM_KEY, null));
+}
+
+function saveAlarmConfig(config: AlarmConfig): void {
+  gm.set(ALARM_KEY, config);
+}
+
 registerVanta({
   id: 'vanta-etiquetador',
   label: 'Etiquetador',
-  desc: 'Etiqueta ataques novos automaticamente',
+  desc: 'Etiqueta ataques novos automaticamente e toca alarme',
   group: 'utilidades',
   match: () =>
     params().get('screen') === 'overview_villages' &&
@@ -50,9 +70,11 @@ registerVanta({
 
     const savedInterval = gm.get<number>(INTERVAL_KEY, 10);
     const savedEnabled = gm.get<boolean>(ENABLED_KEY, false);
+    const alarm = alarmConfig();
 
     const container = document.createElement('div');
     container.id = 'vanta-etiquetador-ui';
+    // Casca estática (sem dado dinâmico) — valores entram via .value abaixo.
     container.innerHTML = `
             <div id="vanta-etiquetador-header">
                 <span id="vanta-etiquetador-header-title">Etiquetador</span>
@@ -66,6 +88,21 @@ registerVanta({
                     Ativar etiquetador automático:
                     <input type="checkbox" id="vanta-etiquetador-toggle" ${savedEnabled ? 'checked' : ''}>
                 </label>
+                <div id="vanta-etiquetador-alarm">
+                    <label>
+                        Alarme:
+                        <select id="vanta-etiquetador-alarm-trigger"></select>
+                    </label>
+                    <label>
+                        Som:
+                        <select id="vanta-etiquetador-alarm-sound"></select>
+                    </label>
+                    <label>
+                        Volume:
+                        <input type="range" id="vanta-etiquetador-alarm-volume" min="0" max="100" step="5">
+                    </label>
+                    <button type="button" id="vanta-etiquetador-alarm-test">Testar som</button>
+                </div>
                 <div id="vanta-etiquetador-status"></div>
             </div>
         `;
@@ -75,10 +112,18 @@ registerVanta({
     const intervalInputEl = document.getElementById('vanta-etiquetador-interval');
     const toggleEl = document.getElementById('vanta-etiquetador-toggle');
     const statusEl = document.getElementById('vanta-etiquetador-status');
+    const triggerEl = document.getElementById('vanta-etiquetador-alarm-trigger');
+    const soundEl = document.getElementById('vanta-etiquetador-alarm-sound');
+    const volumeEl = document.getElementById('vanta-etiquetador-alarm-volume');
+    const testBtnEl = document.getElementById('vanta-etiquetador-alarm-test');
     if (
       !(intervalInputEl instanceof HTMLInputElement) ||
       !(toggleEl instanceof HTMLInputElement) ||
-      statusEl === null
+      statusEl === null ||
+      !(triggerEl instanceof HTMLSelectElement) ||
+      !(soundEl instanceof HTMLSelectElement) ||
+      !(volumeEl instanceof HTMLInputElement) ||
+      testBtnEl === null
     ) {
       return;
     }
@@ -86,6 +131,43 @@ registerVanta({
     const intervalInput: HTMLInputElement = intervalInputEl;
     const toggle: HTMLInputElement = toggleEl;
     const status: HTMLElement = statusEl;
+    const trigger: HTMLSelectElement = triggerEl;
+    const sound: HTMLSelectElement = soundEl;
+    const volume: HTMLInputElement = volumeEl;
+    const testBtn: HTMLElement = testBtnEl;
+
+    // Preenche os selects de alarme com os catálogos do módulo de som.
+    for (const [value, label] of Object.entries(ALARM_TRIGGER_LABELS)) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      option.selected = value === alarm.trigger;
+      trigger.appendChild(option);
+    }
+    for (const [value, label] of Object.entries(ALARM_SOUND_LABELS)) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      option.selected = value === alarm.sound;
+      sound.appendChild(option);
+    }
+    volume.value = String(Math.round(alarm.volume * 100));
+
+    const persistAlarm = (): void => {
+      const current = alarmConfig();
+      saveAlarmConfig({
+        ...current,
+        trigger: (trigger.value || current.trigger) as AlarmConfig['trigger'],
+        sound: (sound.value || current.sound) as AlarmConfig['sound'],
+        volume: Number.isFinite(Number(volume.value)) ? Math.min(1, Math.max(0, Number(volume.value) / 100)) : current.volume,
+      });
+    };
+    scope.on(trigger, 'change', persistAlarm);
+    scope.on(sound, 'change', persistAlarm);
+    scope.on(volume, 'input', persistAlarm);
+    scope.on(testBtn, 'click', () => {
+      void testAlarm((sound.value || alarm.sound) as AlarmConfig['sound'], Number(volume.value) / 100);
+    });
 
     function setStatus(color: string, text: string): void {
       status.style.color = color;
@@ -131,6 +213,15 @@ registerVanta({
       scheduleReload(mins * 60_000, `Próxima verificação em ${mins} minuto${mins !== 1 ? 's' : ''}...`);
     }
 
+    /** O gatilho de alarme autoriza tocar para estas novidades? */
+    function alarmShouldFire(hasNoble: boolean, hasRam: boolean): boolean {
+      const cfg = alarmConfig();
+      if (cfg.trigger === 'desligado') return false;
+      if (cfg.trigger === 'qualquer') return true;
+      if (cfg.trigger === 'apenas_nobre') return hasNoble;
+      return hasNoble || hasRam; // 'nobre_ariete'
+    }
+
     function runEtiquetador(): void {
       if (!toggle.checked) return;
 
@@ -141,13 +232,27 @@ registerVanta({
       }
 
       let hasNew = false;
-      table.querySelectorAll('tbody .quickedit-label').forEach((label) => {
+      let hasNoble = false;
+      let hasRam = false;
+      table.querySelectorAll('tbody tr').forEach((row) => {
+        const label = row.querySelector('.quickedit-label');
+        if (label === null) return;
         const text = label.textContent ?? '';
-        if (text.includes('Ataque') || text.includes('Apoio')) hasNew = true;
+        const isNew = text.includes('Ataque') || text.includes('Apoio');
+        if (!isNew) return;
+        hasNew = true;
+        // Ícones de unidade na linha revelam nobres/aríetes (best-effort: só
+        // quando o jogo renderiza os ícones — gatilho nunca toca por menos).
+        if (row.querySelector('img[src*="unit_snob"]') !== null) hasNoble = true;
+        if (row.querySelector('img[src*="unit_ram"]') !== null) hasRam = true;
       });
 
       if (hasNew) {
         setStatus('#3f8f43', 'Ataques não etiquetados encontrados! Etiquetando...');
+        if (alarmShouldFire(hasNoble, hasRam)) {
+          const cfg = alarmConfig();
+          void playAlarm(cfg.sound, cfg.volume);
+        }
         scope.after(() => {
           const selectAll = table.querySelector<HTMLInputElement>('tbody tr input#select_all');
           if (selectAll !== null) selectAll.click();
