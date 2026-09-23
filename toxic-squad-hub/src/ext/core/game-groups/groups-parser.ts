@@ -54,6 +54,16 @@ const COORD_RE = /\(\s*(\d{1,3})\s*\|\s*(\d{1,3})\s*\)/;
 const GROUP_PARAM_RE = /[?&]group=(\d+)/;
 const INFO_VILLAGE_RE = /screen=info_village/;
 const VILLAGE_ID_RE = /\bid=(\d+)/;
+/**
+ * Link da PRÓPRIA aldeia na tabela de `overview_villages`: `game.php?village=
+ * NNN&screen=<tela>` com `Nome (x|y) Kxx` no texto. A tela do link MUDA com o
+ * modo que o jogo lembra (Combinado/Produção → overview, Edifícios → main,
+ * Pesquisa → smith…), então vale qualquer `screen=` com `village=`. Era o
+ * formato que faltava — o leitor só aceitava `info_village&id=` e devolvia 0
+ * aldeias em TODO grupo (conferido no BR142: 0 lidas vs 3/23/807 na tela).
+ */
+const OWN_VILLAGE_RE = /[?&]screen=[a-z_]+/;
+const OWN_VILLAGE_ID_RE = /[?&]village=(\d+)/;
 
 const NAMED_ENTITIES: Readonly<Record<string, string>> = {
   amp: '&',
@@ -180,13 +190,19 @@ function collectVillageRows(html: string): VillageRow[] {
 
   for (const match of html.matchAll(ANCHOR_RE)) {
     const href = decodeEntities(readAttr(match[1] ?? '', HREF_ATTR_RE) ?? '');
-    if (!INFO_VILLAGE_RE.test(href)) continue;
-    const idMatch = VILLAGE_ID_RE.exec(href);
+    const isInfo = INFO_VILLAGE_RE.test(href);
+    const isOwn = !isInfo && OWN_VILLAGE_RE.test(href) && OWN_VILLAGE_ID_RE.test(href);
+    if (!isInfo && !isOwn) continue;
+    const idMatch = (isInfo ? VILLAGE_ID_RE : OWN_VILLAGE_ID_RE).exec(href);
     const villageId = Number.parseInt(idMatch?.[1] ?? '', 10);
     if (!Number.isInteger(villageId) || villageId <= 0 || seen.has(villageId)) continue;
 
     const anchorText = cleanText(match[2] ?? '');
     const inAnchor = coordinateIn(anchorText);
+    // Link `village=` sem coordenada no PRÓPRIO texto é navegação do
+    // cabeçalho/menu/atalhos (aldeia atual) — olhar depois dele pegaria a
+    // coordenada de outra coisa. Só o formato info_village aceita vizinha.
+    if (isOwn && inAnchor === null) continue;
     const coordinate = inAnchor ?? coordinateAfterAnchor(html, (match.index ?? 0) + match[0].length);
     if (coordinate === null) continue;
 

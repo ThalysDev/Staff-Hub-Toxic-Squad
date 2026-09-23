@@ -4,13 +4,13 @@
 // ações à direita (chip de status, pills fantasma, armar 30min para mutantes,
 // engrenagem configurar, play circular rodar agora, switch Ativo).
 //
-// TIMERS — exatamente UM no módulo: setInterval de 1s (countdown vivo,
-// criado na 1ª render com guard por flag). A cada tick ele atualiza SOMENTE
-// textContent: [data-tsh-next] ("em MM:SS" / "agora"), o texto dos chips
-// [data-tsh-armed] (minutos restantes; esconde quando a armação vence) e o
-// rótulo dos botões [data-tsh-armed-btn] (destrava quando a armação vence) —
-// nunca re-renderiza o painel. Nenhum outro timer nasce aqui (heartbeat dos
-// ciclos fica no runtime; os modais em tsh-settings-ui não têm timers).
+// TIMERS — exatamente UM por seção aberta: setInterval de 1s criado pelo
+// renderTshPanel e DEVOLVIDO como limpeza ao shell (Onda B — antes era um
+// interval global eterno). A cada tick ele atualiza textContent de
+// [data-tsh-next] / [data-tsh-armed] / [data-tsh-armed-btn] e, quando a
+// ASSINATURA do estado muda (status/ligado/armado/próximo ciclo — um ciclo
+// terminou no heartbeat, por exemplo), redesenha o painel: status ao vivo.
+// Não redesenha com um diálogo aberto nem com o ponteiro pressionado.
 //
 // Segurança: zero innerHTML com dado dinâmico — mensagem de status, labels e
 // JSON de prévia entram sempre por textContent/createTextNode.
@@ -18,12 +18,14 @@
 import { licenseState } from '../../core/license';
 import { icon, type IconName } from '../../core/icons';
 import { ensureHost } from '../../core/shell';
+import { currentWorld } from '../../core/page';
 import { gm } from '../../core/storage';
 import { ensureTshPanelStyles } from './tsh-panel-styles';
 import { loadSchedule } from './tsh-settings';
 import { openTshPreviewModal, openTshSettingsModal, tshConfirm } from './tsh-settings-ui';
 import {
   armTsh,
+  disarmTsh,
   effectiveCooldownMs,
   isTshEnabled,
   runTshCycle,
@@ -57,9 +59,7 @@ function nextLabel(next: number, now: number): string {
   return rest <= 0 ? 'agora' : `em ${fmtMmSs(rest)}`;
 }
 
-// ── Countdown vivo (ÚNICO timer do módulo — ver cabeçalho) ──
-
-let countdownTimer: ReturnType<typeof setInterval> | null = null;
+// ── Countdown vivo (ver cabeçalho) ──
 
 /** Chips/botões com ícone guardam o rótulo num span — atualiza só o texto. */
 function labelOf(host: HTMLElement, selector: string): HTMLElement {
@@ -96,9 +96,63 @@ function tickCountdown(shadow: ShadowRoot): void {
   }
 }
 
-function ensureCountdown(shadow: ShadowRoot): void {
-  if (countdownTimer !== null) return; // guard: um único interval para o módulo
-  countdownTimer = setInterval(() => tickCountdown(shadow), 1000);
+/**
+ * Assinatura do que o painel mostra (Onda B): muda quando um ciclo publica
+ * status, quando algo liga/desliga/arma, ou quando o próximo ciclo é
+ * reagendado — só então o painel é redesenhado.
+ */
+export function tshPanelSignature(world: string): string {
+  return tshAutomations()
+    .map((a) => {
+      const status = tshStatus(a.id, world);
+      return [
+        a.id,
+        isTshEnabled(a.id) ? 1 : 0,
+        tshArmedUntil(a.id) > Date.now() ? 1 : 0,
+        tshNextRunAt(a.id, world) ?? '',
+        // Mensagem+tipo (não o horário): o heartbeat regrava o MESMO aviso a
+        // cada 30s e isso redesenhava à toa (revisão Onda C).
+        status?.message ?? '',
+        status?.kind ?? '',
+      ].join(':');
+    })
+    .join('|');
+}
+
+// ── Filtro e grupos recolhidos (Onda C — preferências persistidas) ──
+
+export type TshListFilter = 'todas' | 'ativas' | 'atencao';
+const FILTER_KEY = 'tsh-ui:auto-filter';
+const COLLAPSED_KEY = 'tsh-ui:auto-collapsed';
+
+function currentFilter(): TshListFilter {
+  const raw = gm.get<string>(FILTER_KEY, 'todas');
+  return raw === 'ativas' || raw === 'atencao' ? raw : 'todas';
+}
+
+function collapsedGroups(): Set<string> {
+  const raw = gm.get<unknown>(COLLAPSED_KEY, []);
+  return new Set(Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string') : []);
+}
+
+/**
+ * Busca rápida (revisão Onda C): garante que a linha da automação fique
+ * VISÍVEL — filtro volta para "Todas" e o grupo dela é expandido.
+ */
+export function revealTshAutomation(id: string): void {
+  gm.set(FILTER_KEY, 'todas');
+  const automation = tshAutomations().find((a) => a.id === id);
+  if (automation === undefined) return;
+  const atual = collapsedGroups();
+  atual.delete(automation.category ?? 'outros');
+  gm.set(COLLAPSED_KEY, [...atual]);
+}
+
+/** A automação aparece com este filtro? (puro — status/ligado vêm por parâmetro) */
+export function passesTshFilter(filter: TshListFilter, enabled: boolean, statusKind: string | null): boolean {
+  if (filter === 'ativas') return enabled;
+  if (filter === 'atencao') return enabled && statusKind === 'warn';
+  return true;
 }
 
 // ── Grupos (ordem fixa; category ausente → último grupo) ──
@@ -173,6 +227,7 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   const enabled = isTshEnabled(automation.id);
   const rowEl = document.createElement('div');
   rowEl.className = enabled ? 'tsh-row' : 'tsh-row tsh-row--off';
+  rowEl.dataset.searchId = `tsh:${automation.id}`; // alvo da busca rápida (Onda C)
 
   // ── coluna esquerda: título + badges + descrição + meta + status ──
   const main = document.createElement('div');
@@ -317,9 +372,9 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
     armar.disabled = armed;
     // P2 (revisão Onda 8): o tick de 1s destrava o botão quando a armação vence.
     armar.dataset.tshArmedBtn = String(until);
-    armar.title = 'Autorizar ações no jogo por 30 minutos';
-    armar.classList.add('tsh-tip'); // tooltip CSS além do title nativo
-    armar.setAttribute('data-tip', armar.title);
+    // Onda B: só o tooltip do painel (title nativo duplicava).
+    armar.classList.add('tsh-tip');
+    armar.setAttribute('data-tip', 'Autorizar ações no jogo por 30 minutos');
     // P2 (auditoria impeccable): window.confirm → diálogo Nexus (tshConfirm).
     armar.addEventListener('click', async () => {
       const ok = await tshConfirm(
@@ -338,8 +393,7 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   const configurar = document.createElement('button');
   configurar.type = 'button';
   configurar.className = 'tsh-icbtn';
-  configurar.title = 'Configurar';
-  configurar.classList.add('tsh-tip'); // tooltip CSS além do title nativo
+  configurar.classList.add('tsh-tip');
   configurar.setAttribute('data-tip', 'Configurar');
   configurar.setAttribute('aria-label', 'Configurar');
   configurar.appendChild(icon('settings', 15));
@@ -349,9 +403,8 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   const rodar = document.createElement('button');
   rodar.type = 'button';
   rodar.className = 'tsh-runbtn';
-  rodar.title = 'Rodar agora — executa um ciclo agora (ignora cooldown; armação e lock continuam valendo)';
-  rodar.classList.add('tsh-tip'); // tooltip CSS além do title nativo
-  rodar.setAttribute('data-tip', rodar.title);
+  rodar.classList.add('tsh-tip');
+  rodar.setAttribute('data-tip', 'Rodar agora — executa um ciclo agora (ignora o intervalo; armação e lock continuam valendo)');
   rodar.setAttribute('aria-label', 'Rodar agora');
   rodar.appendChild(icon('play', 12));
   rodar.disabled = !enabled;
@@ -403,7 +456,7 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
 function panelHeader(all: readonly TshAutomation[]): HTMLElement {
   const ativas = all.filter((a) => isTshEnabled(a.id)).length;
   const now = Date.now();
-  const armadas = all.filter((a) => a.mutating && now < tshArmedUntil(a.id)).length;
+  const armadas = all.filter((a) => a.mutating && a.armExempt !== true && now < tshArmedUntil(a.id)).length;
   const licencaOk = licenseState().kind !== 'ausente';
 
   const head = document.createElement('div');
@@ -438,22 +491,61 @@ function panelHeader(all: readonly TshAutomation[]): HTMLElement {
   return head;
 }
 
-/** Seção "Automações" do painel. */
-export function renderTshPanel(container: HTMLElement): void {
+/** Seção "Automações" do painel — devolve a limpeza do timer vivo (Onda B). */
+export function renderTshPanel(container: HTMLElement): () => void {
+  const shadow = ensureHost();
+  const world = currentWorld();
+  let signature = tshPanelSignature(world);
+  let disposed = false;
+  // Ponteiro pressionado (com teto de 3s: pointerup perdido não trava o ao vivo).
+  let pointerDownAt = 0;
+  const onDown = (): void => {
+    pointerDownAt = Date.now();
+  };
+  const onUp = (): void => {
+    pointerDownAt = 0;
+  };
+  container.addEventListener('pointerdown', onDown);
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+  window.addEventListener('blur', onUp);
+  const redraw = (): void => {
+    // Revisão Onda C: redesenho atrasado (Rodar agora/Salvar) depois de trocar
+    // de seção NÃO pode pintar Automações por cima da seção nova.
+    if (disposed || !container.isConnected || container.dataset.section !== 'tsh') return;
+    const scroller = container.closest('.shs-body');
+    const top = scroller?.scrollTop ?? 0;
+    container.replaceChildren();
+    drawTshPanel(container, redraw);
+    if (scroller !== null) scroller.scrollTop = top;
+    signature = tshPanelSignature(world);
+  };
+  drawTshPanel(container, redraw);
+  const timer = window.setInterval(() => {
+    tickCountdown(shadow);
+    const pressionado = pointerDownAt !== 0 && Date.now() - pointerDownAt < 3_000;
+    if (pressionado || shadow.querySelector('.tsh-overlay') !== null) return;
+    if (tshPanelSignature(world) !== signature) redraw();
+  }, 1000);
+  return () => {
+    disposed = true;
+    window.clearInterval(timer);
+    container.removeEventListener('pointerdown', onDown);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
+    window.removeEventListener('blur', onUp);
+  };
+}
+
+function drawTshPanel(container: HTMLElement, rerender: () => void): void {
   const shadow = ensureHost();
   ensureTshPanelStyles(shadow);
-  ensureCountdown(shadow);
 
-  const world = window.location.hostname.split('.')[0] ?? 'mundo';
+  const world = currentWorld();
   const all = tshAutomations();
 
   const cardEl = document.createElement('div');
   cardEl.className = 'shs-card';
-
-  const rerender = (): void => {
-    container.replaceChildren();
-    renderTshPanel(container);
-  };
 
   cardEl.appendChild(panelHeader(all));
   const desc = document.createElement('div');
@@ -473,20 +565,106 @@ export function renderTshPanel(container: HTMLElement): void {
     return;
   }
 
-  for (const group of GROUPS) {
-    const items = all.filter((a) => a.category === group.category);
-    if (items.length === 0) continue;
-    const temAtivos = items.some((a) => isTshEnabled(a.id));
+  // ── Barra de ferramentas (Onda C): filtro + ações em massa ──
+  const filter = currentFilter();
+  const toolbar = document.createElement('div');
+  toolbar.className = 'tsh-toolbar';
+  const seg = document.createElement('div');
+  seg.className = 'tsh-seg';
+  seg.setAttribute('role', 'radiogroup');
+  seg.setAttribute('aria-label', 'Filtrar automações');
+  const filtros: { value: TshListFilter; label: string }[] = [
+    { value: 'todas', label: 'Todas' },
+    { value: 'ativas', label: 'Ativas' },
+    { value: 'atencao', label: 'Com atenção' },
+  ];
+  for (const opt of filtros) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tsh-seg-btn';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(opt.value === filter));
+    b.textContent = opt.label;
+    b.addEventListener('click', () => {
+      gm.set(FILTER_KEY, opt.value);
+      rerender();
+    });
+    seg.appendChild(b);
+  }
+  toolbar.appendChild(seg);
+  const massSpacer = document.createElement('span');
+  massSpacer.style.flex = '1';
+  toolbar.appendChild(massSpacer);
+  const armadasAgora = all.filter((a) => a.mutating && a.armExempt !== true && Date.now() < tshArmedUntil(a.id));
+  if (armadasAgora.length > 0) {
+    const desarmar = document.createElement('button');
+    desarmar.type = 'button';
+    desarmar.className = 'tsh-btn tsh-btn--ghost tsh-btn--sm';
+    desarmar.appendChild(icon('lock', 12));
+    desarmar.appendChild(document.createTextNode(`Desarmar todas (${armadasAgora.length})`));
+    desarmar.addEventListener('click', () => {
+      for (const a of armadasAgora) disarmTsh(a.id);
+      rerender();
+    });
+    toolbar.appendChild(desarmar);
+  }
+  const ligadasAgora = all.filter((a) => isTshEnabled(a.id));
+  if (ligadasAgora.length > 0) {
+    const desligar = document.createElement('button');
+    desligar.type = 'button';
+    desligar.className = 'tsh-btn tsh-btn--danger tsh-btn--sm';
+    desligar.appendChild(icon('pause', 12));
+    desligar.appendChild(document.createTextNode(`Desligar todas (${ligadasAgora.length})`));
+    desligar.addEventListener('click', async () => {
+      const ok = await tshConfirm(
+        shadow,
+        'Desligar todas',
+        `Desligar as ${ligadasAgora.length} automações ativas? Nada mais roda até você religar (comandos agendados ficam guardados, mas o Agendador desligado não os envia).`,
+        { danger: true },
+      );
+      if (!ok) return;
+      for (const a of ligadasAgora) {
+        setTshEnabled(a.id, false);
+        disarmTsh(a.id);
+      }
+      rerender();
+    });
+    toolbar.appendChild(desligar);
+  }
+  cardEl.appendChild(toolbar);
 
-    const groupTitle = document.createElement('div');
+  const collapsed = collapsedGroups();
+  let visiveis = 0;
+  for (const group of GROUPS) {
+    const items = all
+      .filter((a) => a.category === group.category)
+      .filter((a) => passesTshFilter(filter, isTshEnabled(a.id), tshStatus(a.id, world)?.kind ?? null));
+    if (items.length === 0) continue;
+    visiveis += items.length;
+    const temAtivos = items.some((a) => isTshEnabled(a.id));
+    const groupKey = group.category ?? 'outros';
+    const fechado = collapsed.has(groupKey);
+
+    const groupTitle = document.createElement('button');
+    groupTitle.type = 'button';
     groupTitle.className = temAtivos ? 'tsh-group-title tsh-group-title--on' : 'tsh-group-title';
+    groupTitle.setAttribute('aria-expanded', String(!fechado));
+    groupTitle.appendChild(icon(fechado ? 'arrowRight' : 'chevronDown', 12));
     groupTitle.appendChild(icon(group.iconName, 12));
     groupTitle.appendChild(document.createTextNode(group.label));
     const count = document.createElement('span');
     count.className = temAtivos ? 'tsh-group-count tsh-group-count--on' : 'tsh-group-count';
     count.textContent = String(items.length);
     groupTitle.appendChild(count);
+    groupTitle.addEventListener('click', () => {
+      const atual = collapsedGroups();
+      if (atual.has(groupKey)) atual.delete(groupKey);
+      else atual.add(groupKey);
+      gm.set(COLLAPSED_KEY, [...atual]);
+      rerender();
+    });
     cardEl.appendChild(groupTitle);
+    if (fechado) continue;
 
     const rows = document.createElement('div');
     rows.className = 'tsh-rows';
@@ -494,6 +672,15 @@ export function renderTshPanel(container: HTMLElement): void {
       rows.appendChild(automationRow(automation, shadow, world, rerender));
     }
     cardEl.appendChild(rows);
+  }
+  if (visiveis === 0) {
+    const vazio = document.createElement('div');
+    vazio.className = 'shs-empty';
+    vazio.textContent =
+      filter === 'ativas'
+        ? 'Nenhuma automação ativa — escolha "Todas" para ligar alguma.'
+        : 'Nenhuma automação pedindo atenção agora.';
+    cardEl.appendChild(vazio);
   }
 
   container.appendChild(cardEl);

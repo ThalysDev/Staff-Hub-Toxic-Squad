@@ -404,8 +404,8 @@ function buildVillageSection(table: HTMLTableElement, data: IncomingRow[]): stri
                                     </td>
                                     <td rowspan="2" style="vertical-align:middle;font-size:11px;line-height:1.5">
                                         ${escapeHtml(cmd.arrivalFull)}
-                                        <br><span style="color:#6f5e40;font-size:10px">Duração: <span class="vanta-cmd-duracao" data-command-id="${cmdIdAttr}">${escapeHtml(cmd.chegaEmText || '--:--:--')}</span></span>
-                                        ${cmd.torreText !== '' ? `<br><span style="color:#6f5e40;font-size:10px">Torre: <span class="vanta-cmd-torre" data-command-id="${cmdIdAttr}">${escapeHtml(cmd.torreText)}</span> <span class="vanta-cmd-lead" data-command-id="${cmdIdAttr}"></span></span>` : ''}
+                                        <br><span style="color:var(--shs-muted, #6f5e40);font-size:10px">Duração: <span class="vanta-cmd-duracao" data-command-id="${cmdIdAttr}">${escapeHtml(cmd.chegaEmText || '--:--:--')}</span></span>
+                                        ${cmd.torreText !== '' ? `<br><span style="color:var(--shs-muted, #6f5e40);font-size:10px">Torre: <span class="vanta-cmd-torre" data-command-id="${cmdIdAttr}">${escapeHtml(cmd.torreText)}</span> <span class="vanta-cmd-lead" data-command-id="${cmdIdAttr}"></span></span>` : ''}
                                     </td>
                                 </tr>
                                 <tr class="${cls}" data-command-id="${cmdIdAttr}">
@@ -1180,6 +1180,7 @@ function mountCores(scope: ModuleScope): void {
 registerVanta({
   id: 'vanta-dashboard',
   label: 'Painel de Incomings',
+  icon: 'alert',
   desc: 'Resumo de ataques/nobres/jogadores, comandos por aldeia, tropas e sim de blindagem',
   group: 'defesa',
   match: () => params().get('screen') === 'overview_villages' && params().get('mode') === 'incomings',
@@ -1190,6 +1191,7 @@ registerVanta({
 registerVanta({
   id: 'vanta-cores',
   label: 'Cores de Incomings',
+  icon: 'tag',
   desc: 'Colore os ataques da lista de incomings conforme a tag do rótulo',
   group: 'defesa',
   match: () => params().get('screen') === 'overview_villages' && params().get('mode') === 'incomings',

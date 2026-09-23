@@ -54,6 +54,13 @@ export interface TshAutomation {
   settingsDefaults?: Record<string, unknown>;
   /** Ações extras no cartão do painel (ex.: "Comandos" do agendador). */
   extraActions?: TshExtraAction[];
+  /**
+   * Roda um ciclo LOGO após o carregamento da página (Onda A), sem esperar o
+   * 1º heartbeat de 30s — ex.: o agendador precisa mirar na tela de
+   * confirmação recém-aberta pelo pré-arme. Cooldown ignorado só neste boot;
+   * lock/armação/tela/janela seguem valendo.
+   */
+  bootOnLoad?: boolean;
   /** Um ciclo: ler → planejar → NO MÁXIMO 1 mutação (F2). */
   runCycle(ctx: TshCycleContext): Promise<void>;
 }
@@ -71,6 +78,11 @@ interface CycleStatus {
 
 const automations = new Map<string, TshAutomation>();
 const TAB_ID = `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+/** Id desta carga de página (aba) — reivindicações entre abas (Onda A). */
+export function tshTabId(): string {
+  return TAB_ID;
+}
 const LOCK_TTL_MS = 2 * 60 * 1000;
 const ARM_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
@@ -107,6 +119,11 @@ export function armTsh(id: string): void {
   gm.set(armKey(id), Date.now() + ARM_TTL_MS);
 }
 
+/** Desarma na hora (Onda C: "Desarmar todas" no painel). */
+export function disarmTsh(id: string): void {
+  gm.set(armKey(id), 0);
+}
+
 export function tshArmedUntil(id: string): number {
   return gm.get<number>(armKey(id), 0);
 }
@@ -121,12 +138,31 @@ function acquireLock(id: string, world: string): boolean {
   const lock = gm.get<{ tab: string; at: number } | null>(key, null);
   const now = Date.now();
   if (lock !== null && lock.tab !== TAB_ID && now - lock.at < LOCK_TTL_MS) return false;
+  handedOff.delete(id); // novo ciclo desta aba: volta a ser dona do lock
   gm.set(key, { tab: TAB_ID, at: now });
   return true;
 }
 
 function renewLock(id: string, world: string): void {
+  // Lock entregue à página seguinte (clique/submit que navega): o `finally`
+  // do ciclo roda ANTES da navegação e não pode retomá-lo (Onda E).
+  if (handedOff.has(id)) return;
   gm.set(lockKey(id, world), { tab: TAB_ID, at: Date.now() });
+}
+
+/**
+ * Libera o lock do módulo SE for desta aba (Onda A): chamado logo antes de uma
+ * ação que NAVEGA de propósito (pré-arme do cravado) — a página nova recebe
+ * um id de aba novo e, sem isto, ficaria até 2min sem conseguir o lock.
+ */
+/** Módulos que ENTREGARAM o lock à próxima página (o finally não o retoma). */
+const handedOff = new Set<string>();
+
+export function releaseTshLock(id: string, world: string): void {
+  handedOff.add(id);
+  const key = lockKey(id, world);
+  const lock = gm.get<{ tab: string; at: number } | null>(key, null);
+  if (lock !== null && lock.tab === TAB_ID) gm.set(key, { tab: TAB_ID, at: 0 });
 }
 
 /**
@@ -135,6 +171,7 @@ function renewLock(id: string, world: string): void {
  * TTL de 2min sem renovação, senão outra aba assume e duplica a ação).
  */
 export function renewTshLock(id: string, world: string): void {
+  handedOff.delete(id); // renovação explícita = a aba segue dona (ex.: o clique falhou)
   renewLock(id, world);
 }
 
@@ -163,6 +200,24 @@ export function effectiveCooldownMs(automation: TshAutomation, schedule: TshSche
     return schedule.cooldownMinutes * 60_000;
   }
   return automation.cooldownMs ?? DEFAULT_COOLDOWN_MS;
+}
+
+/**
+ * Aplica NA HORA um novo intervalo salvo nas configurações. O `nextRunAt` é
+ * gravado quando o ciclo começa, com o intervalo da época: sem isto, baixar de
+ * 60 para 5 min só valia depois de esperar os 60 antigos ("não consigo alterar
+ * o tempo de ciclo"). Recalcula a partir do último ciclo com o intervalo novo.
+ */
+export function applyScheduleChange(id: string, world: string): void {
+  const automation = automations.get(id);
+  if (automation === undefined) return;
+  const state = gm.get<CycleState>(stateKey(id, world), {});
+  if (state.lastRunAt === undefined) {
+    if (state.nextRunAt !== undefined) gm.set<CycleState>(stateKey(id, world), {});
+    return;
+  }
+  const cooldown = effectiveCooldownMs(automation, loadSchedule(world, id));
+  gm.set<CycleState>(stateKey(id, world), { ...state, nextRunAt: state.lastRunAt + cooldown });
 }
 
 /** Próxima execução agendada (epoch ms) para contagem no painel; null = livre. */
@@ -225,7 +280,16 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
     world: worldId,
     villageId,
     storage: {
-      get: <T,>(key: string, fallback: T): T => gm.get<T>(`tsh-auto:${worldId}:${id}:${key}`, fallback),
+      get: <T,>(key: string, fallback: T): T => {
+        const value = gm.get<T>(`tsh-auto:${worldId}:${id}:${key}`, fallback);
+        // Settings salvos PARCIAIS (versão antiga, chave nova sem campo no
+        // formulário) chegavam com chaves undefined ao ciclo: completa com os
+        // padrões do módulo — o salvo sempre vence.
+        if (key === 'settings' && automation.settingsDefaults !== undefined && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+          return { ...automation.settingsDefaults, ...(value as Record<string, unknown>) } as T;
+        }
+        return value;
+      },
       set: <T,>(key: string, value: T): void => {
         gm.set(`tsh-auto:${worldId}:${id}:${key}`, value);
       },
@@ -258,6 +322,12 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
  * normal executarem o mesmo módulo ao mesmo tempo.
  */
 export function startTshHeartbeat(scope: ModuleScope): void {
+  // Boot (Onda A): módulos que pedem ciclo imediato rodam ~0,4s após o load.
+  scope.after(() => {
+    for (const automation of automations.values()) {
+      if (automation.bootOnLoad === true) void runTshCycle(automation.id, { ignoreCooldown: true });
+    }
+  }, 400);
   scope.every(() => {
     for (const automation of automations.values()) {
       void runTshCycle(automation.id);

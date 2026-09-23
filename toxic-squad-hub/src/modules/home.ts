@@ -6,11 +6,14 @@
 import { icon, type IconName } from '../core/icons';
 import { gm } from '../core/storage';
 import { licenseState } from '../core/license';
-import { pageWindow } from '../core/page';
+import { currentWorld, pageWindow } from '../core/page';
 import { gameContext } from '../core/shell';
 import { isVantaEnabled, vantaLaunchers } from './vanta/vanta-registry';
 import { isTshEnabled, tshArmedUntil, tshAutomations, tshNextRunAt, tshStatus } from './tsh/tsh-runtime';
 import { loadSchedule, isScheduleStopped } from './tsh/tsh-settings';
+import { tshPanelSignature } from './tsh/tsh-panel';
+import { serverNowMs } from '../core/game-clock';
+import { clockLabelMs } from '../ext/core/timing/precise-fire';
 
 export const SUPPORT_PHONE = '+55 81 99413-1872';
 const SUPPORT_WA = 'https://wa.me/5581994131872';
@@ -29,15 +32,15 @@ const HOME_CSS = `
   .home-line { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--shs-ink, #5a3a16); margin-top: 6px; }
   .home-line svg { color: var(--shs-muted, #6f5e40); flex-shrink: 0; }
   .home-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid var(--shs-border-strong, #cbb384); background: var(--shs-bg-inset, #f4ead0); color: var(--shs-ink, #5a3a16); }
-  .home-pill--ok { background: var(--shs-ok-bg, #e8f4e2); border-color: #b5d4a8; color: #2e5b2a; }
-  .home-pill--warn { background: #fdf6d8; border-color: #e8d588; color: #6b5518; }
+  .home-pill--ok { background: var(--shs-ok-bg, #e8f4e2); border-color: var(--shs-ok-border, #b5d4a8); color: var(--shs-ok-ink, #2e5b2a); }
+  .home-pill--warn { background: var(--shs-warn-soft, #fdf6d8); border-color: #e8d588; color: #6b5518; }
   .home-pill--err { background: var(--shs-danger-bg, #fceaea); border-color: var(--shs-danger, #c04038); color: var(--shs-danger, #c04038); }
   .home-stat { display: flex; align-items: baseline; justify-content: space-between; padding: 7px 0; border-bottom: 1px dashed var(--shs-border, #e0cda0); font-size: 12.5px; color: var(--shs-ink, #5a3a16); }
   .home-stat:last-child { border-bottom: none; }
   .home-stat strong { font-size: 15px; color: var(--shs-ink-strong, #3c250a); font-variant-numeric: tabular-nums; }
   .home-contact { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
-  .home-wa { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 8px; background: #6d3c14; color: #fff !important; font-size: 12.5px; font-weight: 600; text-decoration: none; border: none; cursor: pointer; }
-  .home-wa:hover { background: #834a1a; }
+  .home-wa { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 8px; background: var(--shs-action, #6d3c14); color: #fff !important; font-size: 12.5px; font-weight: 600; text-decoration: none; border: none; cursor: pointer; }
+  .home-wa:hover { background: var(--shs-action-hover, #834a1a); }
   .home-phone { font-family: var(--shs-font-mono, monospace); font-size: 14px; color: var(--shs-ink-strong, #3c250a); font-weight: 600; font-variant-numeric: tabular-nums; }
   .home-note { font-size: 11px; color: var(--shs-muted, #6f5e40); line-height: 1.5; margin-top: 8px; }
   .home-tip { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; font-size: 12px; color: var(--shs-ink, #5a3a16); }
@@ -111,7 +114,7 @@ interface CommandRecordLike {
  * e os pausados deixaram de inflar o número. nextAt = menor sendAt futuro
  * ENTRE os vivos.
  */
-function nextScheduled(world: string): { count: number; nextAt: number | null } {
+export function nextScheduled(world: string): { count: number; nextAt: number | null } {
   const state = gm.get<{ commands?: unknown[] }>(`tsh-auto:${world}:command-scheduler:scheduler`, {});
   const commands = Array.isArray(state.commands) ? state.commands : [];
   const vivos = commands.filter((raw): raw is CommandRecordLike => {
@@ -122,15 +125,46 @@ function nextScheduled(world: string): { count: number; nextAt: number | null } 
     const ultimo = events.at(-1);
     return !(ultimo !== undefined && typeof ultimo.status === 'string' && EVENTOS_TERMINAIS.has(ultimo.status));
   });
+  // Onda C: sendAt está no relógio do SERVIDOR — compara com o "agora" dele.
+  const agora = serverNowMs();
   const future = vivos
     .map((c) => Date.parse(typeof c.sendAt === 'string' ? c.sendAt : ''))
-    .filter((t) => Number.isFinite(t) && t > Date.now())
+    .filter((t) => Number.isFinite(t) && t > agora)
     .sort((a, b) => a - b);
   return { count: vivos.length, nextAt: future[0] ?? null };
 }
 
-/** Seção "Início" — registrada em main.ts como primeira entrada da sidebar. */
-export function renderHome(container: HTMLElement): void {
+/** Assinatura do que a Início mostra (muda → redesenha; Onda B "ao vivo"). */
+function homeSignature(world: string): string {
+  const sched = nextScheduled(world);
+  const vanta = vantaLaunchers()
+    .map((l) => (isVantaEnabled(l.id) ? 1 : 0))
+    .join('');
+  return `${tshPanelSignature(world)}#${vanta}#${sched.count}:${sched.nextAt ?? ''}`;
+}
+
+/**
+ * Seção "Início" — registrada em main.ts como primeira entrada da sidebar.
+ * Onda B: o Painel de Atividades é AO VIVO (verifica a cada 3s e redesenha
+ * quando algo muda); devolve a limpeza do timer ao shell.
+ */
+export function renderHome(container: HTMLElement): () => void {
+  const world = currentWorld();
+  drawHome(container);
+  let signature = homeSignature(world);
+  const timer = window.setInterval(() => {
+    const now = homeSignature(world);
+    if (now === signature) return;
+    signature = now;
+    const scroller = container.closest('.shs-body');
+    const top = scroller?.scrollTop ?? 0;
+    drawHome(container);
+    if (scroller !== null) scroller.scrollTop = top;
+  }, 3_000);
+  return () => window.clearInterval(timer);
+}
+
+function drawHome(container: HTMLElement): void {
   ensureHomeStyles(container);
   container.replaceChildren();
   const grid = document.createElement('div');
@@ -193,7 +227,7 @@ export function renderHome(container: HTMLElement): void {
   const autos = tshAutomations();
   const autoOn = autos.filter((a) => isTshEnabled(a.id));
   const armados = autos.filter((a) => a.mutating && a.armExempt !== true && Date.now() < tshArmedUntil(a.id)).length;
-  const sched = nextScheduled(ctx.world);
+  const sched = nextScheduled(currentWorld());
   const stat = (label: string, value: string): HTMLElement => {
     const row = document.createElement('div');
     row.className = 'home-stat';
@@ -210,7 +244,11 @@ export function renderHome(container: HTMLElement): void {
   panorama.body.appendChild(
     stat(
       'Comandos agendados',
-      sched.count === 0 ? '0' : sched.nextAt !== null ? `${sched.count} · próximo ${fmtDate(sched.nextAt)} ${new Date(sched.nextAt).toLocaleTimeString('pt-BR')}` : String(sched.count),
+      sched.count === 0
+        ? '0'
+        : sched.nextAt !== null
+          ? `${sched.count} · próximo ${fmtDate(sched.nextAt)} ${clockLabelMs(sched.nextAt)}`
+          : String(sched.count),
     ),
   );
   grid.appendChild(panorama.box);
@@ -238,8 +276,8 @@ export function renderHome(container: HTMLElement): void {
     name.className = 'home-act-name';
     name.textContent = auto.label;
     row.appendChild(name);
-    const schedule = loadSchedule(ctx.world, auto.id);
-    const status = tshStatus(auto.id, ctx.world);
+    const schedule = loadSchedule(currentWorld(), auto.id);
+    const status = tshStatus(auto.id, currentWorld());
     const pill = document.createElement('span');
     if (isScheduleStopped(schedule)) {
       pill.className = 'home-pill home-pill--warn';
@@ -262,7 +300,7 @@ export function renderHome(container: HTMLElement): void {
       msg.textContent = status.message;
       row.appendChild(msg);
     }
-    const nextAt = tshNextRunAt(auto.id, ctx.world);
+    const nextAt = tshNextRunAt(auto.id, currentWorld());
     if (nextAt !== null && nextAt > Date.now()) {
       const next = document.createElement('span');
       next.className = 'home-act-next';
@@ -304,9 +342,10 @@ export function renderHome(container: HTMLElement): void {
     row.appendChild(document.createTextNode(text));
     dicas.body.appendChild(row);
   };
-  tip('clock', 'A janela do painel pode ser arrastada pelo cabeçalho — e duplo clique nele maximiza/restaura.');
+  tip('search', 'Ctrl+K abre a busca rápida de qualquer tela do jogo — digite o nome da ferramenta e tecle Enter.');
+  tip('maximize', 'A janela do painel pode ser arrastada pelo cabeçalho — e duplo clique nele maximiza/restaura. Esc fecha.');
   tip('check', 'Na aba Automações, cada módulo nasce desligado: ative, configure o intervalo em minutos e "arme" os que agem no jogo.');
-  tip('info', 'Cada módulo da Suite Vanta injeta na própria tela do jogo (incomings, mapa, academia…) — abra a tela e clique em "Montar".');
+  tip('info', 'As ferramentas da Suite Vanta aparecem sozinhas na tela certa do jogo (incomings, mapa, praça…). Use "Abrir" para ir até ela.');
   grid.appendChild(dicas.box);
 
   container.appendChild(grid);

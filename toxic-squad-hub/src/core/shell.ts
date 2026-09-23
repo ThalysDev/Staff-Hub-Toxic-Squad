@@ -7,6 +7,7 @@ import { licenseState } from './license';
 import { gameContextFrom, pageWindow } from './page';
 import { gm } from './storage';
 import { icon, type IconName } from './icons';
+import { themeDeclarations } from './theme';
 
 export interface SectionDef {
   id: string;
@@ -15,7 +16,12 @@ export interface SectionDef {
   icon?: IconName;
   /** Só ativa nesta screen do jogo (undefined = todas). */
   matchScreen?: string;
-  render: (container: HTMLElement) => void;
+  /**
+   * Desenha a seção. Pode devolver uma função de LIMPEZA (timers de
+   * atualização ao vivo etc.) — o shell a chama ao trocar de seção, ao
+   * re-renderizar e ao fechar o painel (Onda B: nada de timer órfão).
+   */
+  render: (container: HTMLElement) => void | (() => void);
 }
 
 const sections: SectionDef[] = [];
@@ -38,6 +44,13 @@ export interface SearchEntry {
   icon?: IconName;
   /** Termos extra para casar (ex.: desc da automação). */
   keywords?: string;
+  /**
+   * Alvo dentro da seção (Onda C): elemento com `data-search-id` igual a
+   * este valor é rolado até a vista e destacado após a navegação.
+   */
+  targetId?: string;
+  /** Prepara a seção antes de navegar (ex.: tirar filtro que esconde o alvo). */
+  beforeNavigate?: () => void;
 }
 
 const searchEntries = new Map<string, SearchEntry>();
@@ -55,6 +68,64 @@ function normalizeSearch(text: string): string {
 }
 
 let panelOpen = false;
+const PANEL_OPEN_KEY = 'shs-in-game:panel-open';
+const LAST_SECTION_KEY = 'shs-in-game:last-section';
+
+/** Alvo de digitação (campo de texto/número, select, textarea, contenteditable)? */
+function isEditableTarget(node: EventTarget | undefined): boolean {
+  if (!(node instanceof HTMLElement)) return false;
+  if (node.isContentEditable) return true;
+  if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) return true;
+  if (node instanceof HTMLInputElement) {
+    return !['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file'].includes(node.type);
+  }
+  return false;
+}
+
+/**
+ * Host PRÓPRIO do Toxic Squad Hub. Antes era 'shs-in-game-host' — o MESMO id
+ * do Staff Hub In-Game: com os dois instalados, quem carregava depois achava
+ * o painel do outro, "reabria" o painel da Staff e nunca montava o seu.
+ */
+export const TSH_HOST_ID = 'tsh-hub-host';
+
+/**
+ * Onda B — isolamento do teclado: fora do Shadow DOM o evento de tecla chega
+ * "reapontado" para o host, então os ATALHOS DO JOGO não percebem que você
+ * está digitando no painel (cada letra podia disparar um atalho). Tecla
+ * digitada num campo do painel para no host; Esc e combinações com Ctrl/⌘
+ * seguem (fechar diálogos, Ctrl+K).
+ */
+function isolateKeyboard(host: HTMLElement): void {
+  const stop = (event: Event): void => {
+    const key = event as KeyboardEvent;
+    // Esc/Tab seguem (diálogos e foco preso); Ctrl/⌘ são comandos — exceto
+    // AltGr (teclado ABNT2 reporta ctrlKey no AltGr+Q = "/").
+    const comando = (key.ctrlKey || key.metaKey) && !key.getModifierState('AltGraph');
+    if (key.key === 'Escape' || key.key === 'Tab' || comando) return;
+    if (isEditableTarget(event.composedPath()[0])) event.stopPropagation();
+  };
+  for (const type of ['keydown', 'keypress', 'keyup']) host.addEventListener(type, stop);
+}
+
+/**
+ * Onda C — alerta no botão flutuante: com texto, o escudo pulsa em latão e o
+ * rótulo acessível/tooltip dizem o motivo (ex.: cravado chegando); null limpa.
+ */
+export function setFabAlert(text: string | null): void {
+  const fab = document.getElementById(TSH_HOST_ID)?.shadowRoot?.querySelector<HTMLButtonElement>('.shs-fab');
+  if (fab === null || fab === undefined) return;
+  // Só escreve quando muda (leitores de tela não re-anunciam a cada segundo).
+  if ((fab.getAttribute('data-tip') ?? null) === text) return;
+  fab.classList.toggle('shs-fab--alert', text !== null);
+  if (text !== null) {
+    fab.setAttribute('data-tip', text);
+    fab.setAttribute('aria-label', `Abrir Toxic Squad Hub — ${text}`);
+  } else {
+    fab.removeAttribute('data-tip');
+    fab.setAttribute('aria-label', 'Abrir Toxic Squad Hub');
+  }
+}
 
 export function currentScreen(): string {
   const params = new URLSearchParams(window.location.search);
@@ -72,34 +143,9 @@ function styles(): string {
        esquerda, conteúdo rolável à direita e faixa de licença no rodapé do
        conteúdo. Tudo em Shadow DOM — zero conflito com o jogo. */
     :host {
-      --shs-bg: #f8f0d4;
-      --shs-bg-card: #fffdf3;
-      --shs-bg-inset: #f4ead0;
-      --shs-bg-head: #efe2ba;
-      --shs-ink: #5a3a16;
-      --shs-ink-strong: #3c250a;
-      --shs-muted: #6f5e40;
-      --shs-border: #e0cda0;
-      --shs-border-strong: #cbb384;
-      --shs-action: #6d3c14;
-      --shs-action-hover: #834a1a;
-      --shs-danger: #c04038;
-      --shs-danger-bg: #fceaea;
-      --shs-brass: #b8860b;
-      --shs-brass-bright: #d9a520;
-      --shs-brass-soft: #e8c040;
-      --shs-ok: #3f8f43;
-      --shs-ok-bg: #e8f4e2;
-      --shs-info: #2f66c0;
-      --shs-info-bg: #e2ebfa;
-      --shs-warn: #8a6d1f;
-      --shs-warn-bg: #f5ecd0;
-      --shs-radius: 10px;
-      --shs-shadow: 0 14px 40px rgba(40, 24, 6, .38), 0 2px 8px rgba(40, 24, 6, .22);
-      --shs-font: Verdana, Geneva, 'DejaVu Sans', sans-serif;
-      --shs-font-display: Georgia, 'Times New Roman', serif;
+      ${themeDeclarations()}
       all: initial;
-      font-family: var(--shs-font);
+      font-family: var(--shs-font, Verdana, sans-serif);
       font-size: 12px;
       color: var(--shs-ink);
     }
@@ -110,14 +156,19 @@ function styles(): string {
     ::selection { background: #e8c04066; }
 
     /* ---- FAB (botão escudo flutuante — mesmo gradiente chocolate do badge) ---- */
-    .shs-fab { position: fixed; left: 10px; bottom: 10px; z-index: 2147483000;
+    .shs-fab { position: fixed; left: 60px; bottom: 10px; z-index: 2147483000;
       width: 44px; height: 44px; border-radius: 12px; cursor: pointer;
-      border: 2px solid #4a2708; background: linear-gradient(180deg, #6d3c14, #4a2708);
+      border: 2px solid var(--shs-action-dark, #4a2708); background: linear-gradient(180deg, var(--shs-action, #6d3c14), var(--shs-action-dark, #4a2708));
       color: var(--shs-brass-soft); font-family: var(--shs-font-display); font-size: 15px;
       font-weight: 700; letter-spacing: .5px;
       box-shadow: 0 3px 10px rgba(40,24,6,.45), inset 0 1px 0 rgba(255,255,255,.12); }
-    .shs-fab:hover { border-color: var(--shs-brass); color: #f5ecd0; }
+    .shs-fab:hover { border-color: var(--shs-brass); color: var(--shs-on-dark, #f5ecd0); }
     .shs-fab:focus-visible { outline: 2px solid var(--shs-brass); outline-offset: 2px; }
+    @keyframes shs-fab-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(217,165,32,.0), 0 3px 10px rgba(40,24,6,.45); }
+      50% { box-shadow: 0 0 0 6px rgba(217,165,32,.55), 0 3px 10px rgba(40,24,6,.45); } }
+    .shs-fab--alert { border-color: var(--shs-brass-bright); animation: shs-fab-pulse 1.2s ease-in-out infinite; }
+    .shs-fab[data-tip]:hover::after { left: 0; transform: none; bottom: calc(100% + 8px); }
+    .shs-fab[data-tip]:hover::before { left: 16px; transform: none; }
 
     /* ---- Painel (janela Nexus) ---- */
     .shs-panel { position: fixed; left: 10px; bottom: 62px; z-index: 2147483000;
@@ -125,7 +176,7 @@ function styles(): string {
       background: var(--shs-bg); color: var(--shs-ink);
       border: 1px solid var(--shs-border-strong); border-radius: var(--shs-radius);
       box-shadow: var(--shs-shadow);
-      font-family: var(--shs-font); font-size: 12px; line-height: 1.45;
+      font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; line-height: 1.45;
       transition: width .18s ease, height .18s ease, max-height .18s ease,
         left .18s ease, bottom .18s ease, transform .18s ease; }
     /* Painel do hub (o diálogo de ativação reutiliza .shs-panel sem altura fixa). */
@@ -137,6 +188,9 @@ function styles(): string {
     /* Minimizado: recolhe TUDO exceto o header (a janela encolhe com ele);
        o ⤢ de maximizar some — não faz sentido com o corpo escondido. */
     .shs-panel--min > :not(.shs-head) { display: none !important; }
+    /* Minimizado = só o cabeçalho: sem recorte, para tooltips e a lista da
+       busca não serem cortados (revisão Onda C). */
+    .shs-panel--min { overflow: visible; }
     .shs-panel--app.shs-panel--min { height: auto; }
     .shs-panel--min .shs-headbtn[data-max] { display: none; }
     /* [11] Momento autoral ÚNICO do shell: entrada do painel ao abrir (FAB ou
@@ -153,15 +207,15 @@ function styles(): string {
     /* ---- Header: badge chocolate + wordmark + botões-ícone ---- */
     .shs-head { display: flex; align-items: center; gap: 10px; flex-shrink: 0;
       height: 52px; padding: 0 12px;
-      background: var(--shs-bg-head); border-bottom: 1px solid #d9c48f;
+      background: var(--shs-bg-head); border-bottom: 1px solid var(--shs-border-head, #d9c48f);
       border-radius: var(--shs-radius) var(--shs-radius) 0 0; }
     .shs-brand-badge { width: 34px; height: 34px; flex-shrink: 0; border-radius: 9px;
       display: inline-flex; align-items: center; justify-content: center;
-      background: linear-gradient(180deg, #6d3c14, #4a2708);
+      background: linear-gradient(180deg, var(--shs-action, #6d3c14), var(--shs-action-dark, #4a2708));
       color: var(--shs-brass-soft);
       box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 1px 2px rgba(40,24,6,.25); }
     .shs-head-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-    .shs-head strong { font-family: var(--shs-font); font-size: 15px; font-weight: 700;
+    .shs-head strong { font-family: var(--shs-font, Verdana, sans-serif); font-size: 15px; font-weight: 700;
       letter-spacing: 2.5px; line-height: 1.2; color: var(--shs-ink-strong);
       white-space: nowrap; }
     .shs-head-sub { display: inline-flex; align-items: center; gap: 5px;
@@ -176,13 +230,26 @@ function styles(): string {
     .shs-headbtn:hover { background: #e5d5a8; }
     .shs-headbtn:focus-visible { outline: 2px solid var(--shs-brass); }
     .shs-head-spacer { margin-left: auto; }
+    /* Onda B: tooltips do cabeçalho abrem PARA BAIXO (para cima eram cortados
+       pela borda do painel). */
+    .shs-head [data-tip]:hover::after, .shs-head [data-tip]:focus-visible::after {
+      bottom: auto; top: calc(100% + 7px); }
+    .shs-head [data-tip]:hover::before, .shs-head [data-tip]:focus-visible::before {
+      bottom: auto; top: calc(100% + 2px); border-top-color: transparent;
+      border-bottom-color: var(--shs-ink-strong); }
+    .shs-head [data-tip]:last-child:hover::after, .shs-head [data-tip]:last-child:focus-visible::after {
+      left: auto; right: 0; transform: none; }
+    /* Onda C: destaque do item encontrado pela busca. */
+    @keyframes shs-flash { 0%, 100% { box-shadow: 0 0 0 0 rgba(217,165,32,0); }
+      30% { box-shadow: 0 0 0 3px rgba(217,165,32,.75); } }
+    .shs-flash { animation: shs-flash 1.6s ease-in-out 2; border-radius: 8px; }
 
     /* Busca rápida (Onda 6): campo no header + dropdown ancorado. */
     .shs-searchwrap { position: relative; margin-left: 8px; }
     .shs-search { width: 180px; height: 28px; padding: 0 10px; font-size: 11.5px;
-      font-family: var(--shs-font); color: var(--shs-ink); background: #fbf5e2;
+      font-family: var(--shs-font, Verdana, sans-serif); color: var(--shs-ink); background: #fbf5e2;
       border: 1px solid var(--shs-border-strong); border-radius: 8px; outline: none; }
-    .shs-search:focus { border-color: var(--shs-brass); background: #fffdf3; }
+    .shs-search:focus { border-color: var(--shs-brass); background: var(--shs-bg-card, #fffdf3); }
     .shs-search::placeholder { color: var(--shs-muted); }
     .shs-searchpop { display: none; position: absolute; top: 32px; left: 0; width: 300px;
       max-height: 320px; overflow-y: auto; background: var(--shs-bg-card);
@@ -191,9 +258,10 @@ function styles(): string {
     .shs-searchpop--open { display: block; }
     .shs-searchitem { display: flex; align-items: center; gap: 8px; width: 100%;
       padding: 7px 9px; background: transparent; border: none; border-radius: 7px;
-      font-family: var(--shs-font); font-size: 12px; color: var(--shs-ink);
+      font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; color: var(--shs-ink);
       cursor: pointer; text-align: left; }
-    .shs-searchitem:hover, .shs-searchitem:focus-visible { background: #f2e6c4; outline: none; }
+    .shs-searchitem:hover, .shs-searchitem:focus-visible,
+    .shs-searchitem[data-active='true'] { background: var(--shs-bg-hover, #f2e6c4); outline: none; }
     .shs-searchitem-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .shs-searchitem-hint { font-size: 10.5px; color: var(--shs-muted); flex-shrink: 0; }
     .shs-searchempty { padding: 9px; font-size: 11.5px; color: var(--shs-muted); }
@@ -208,25 +276,25 @@ function styles(): string {
 
     /* Sidebar de navegação (um item por seção registrada). */
     .shs-side { width: 200px; flex-shrink: 0; display: flex; flex-direction: column;
-      min-height: 0; background: #ece0b6; border-right: 1px solid #d9c48f; }
+      min-height: 0; background: var(--shs-bg-side, #ece0b6); border-right: 1px solid var(--shs-border-head, #d9c48f); }
     .shs-nav { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 0;
       display: flex; flex-direction: column; overscroll-behavior: contain; }
     .shs-nav::-webkit-scrollbar { width: 8px; }
     .shs-nav::-webkit-scrollbar-thumb { background: var(--shs-border-strong);
       border-radius: 4px; }
-    .shs-nav::-webkit-scrollbar-track { background: #ece0b6; }
+    .shs-nav::-webkit-scrollbar-track { background: var(--shs-bg-side, #ece0b6); }
     .shs-navitem { display: flex; align-items: center; gap: 8px; height: 40px;
       flex-shrink: 0; margin-right: 6px; padding: 0 12px; border: none;
       border-radius: 0 8px 8px 0; background: transparent; color: var(--shs-ink);
-      cursor: pointer; font-family: var(--shs-font); font-size: 12.5px;
+      cursor: pointer; font-family: var(--shs-font, Verdana, sans-serif); font-size: 12.5px;
       font-weight: 600; text-align: left; }
-    .shs-navitem:hover { background: #f2e6c4; }
+    .shs-navitem:hover { background: var(--shs-bg-hover, #f2e6c4); }
     /* Ativo: fundo claro + barra vertical 3px vermelho-escuro colada na borda
        esquerda da sidebar (inset = sem deslocar o conteúdo).
        [12] EXCEÇÃO de mundo comprometido mantida de propósito: a barra de 3px
        do item ativo é a gramática visual do Nexus (a esteira irmã mostra
        exatamente isto) — não remover. */
-    .shs-navitem[data-active='true'] { background: #f7ecd2;
+    .shs-navitem[data-active='true'] { background: var(--shs-bg-active, #f7ecd2);
       color: var(--shs-ink-strong); box-shadow: inset 3px 0 0 #8a2f1e; }
     .shs-navitem[data-active='true'] .shs-ic { color: var(--shs-danger); }
     .shs-navitem:focus-visible { outline: 2px solid var(--shs-brass); outline-offset: -2px; }
@@ -241,12 +309,12 @@ function styles(): string {
     .shs-body::-webkit-scrollbar { width: 8px; height: 8px; }
     .shs-body::-webkit-scrollbar-thumb { background: var(--shs-border-strong);
       border-radius: 4px; }
-    .shs-body::-webkit-scrollbar-track { background: #ece0b6; }
+    .shs-body::-webkit-scrollbar-track { background: var(--shs-bg-side, #ece0b6); }
     /* [3] Mesmo scrollbar custom para os wrappers de tabela roláveis. */
     .shs-tablewrap::-webkit-scrollbar { width: 8px; height: 8px; }
     .shs-tablewrap::-webkit-scrollbar-thumb { background: var(--shs-border-strong);
       border-radius: 4px; }
-    .shs-tablewrap::-webkit-scrollbar-track { background: #ece0b6; }
+    .shs-tablewrap::-webkit-scrollbar-track { background: var(--shs-bg-side, #ece0b6); }
     .shs-body:focus-visible { outline: none; }
     .shs-body table { border-collapse: collapse; width: 100%; margin: 8px 0;
       background: var(--shs-bg-card); }
@@ -262,7 +330,7 @@ function styles(): string {
     /* ---- Rodapé do conteúdo: faixa fina de licença + versão ---- */
     .shs-foot { display: flex; align-items: center; gap: 8px; flex-shrink: 0;
       padding: 4px 12px; font-size: 11px; flex-wrap: wrap;
-      background: var(--shs-ok-bg); border-top: 1px solid #b5d4a8; color: #2e5b2a;
+      background: var(--shs-ok-bg); border-top: 1px solid var(--shs-ok-border, #b5d4a8); color: var(--shs-ok-ink, #2e5b2a);
       font-variant-numeric: tabular-nums; }
     .shs-foot--warn { background: var(--shs-warn-bg);
       border-top-color: var(--shs-border-strong); color: var(--shs-warn); }
@@ -293,20 +361,20 @@ function styles(): string {
     .shs-input, .shs-body select, .shs-body textarea { padding: 5px 8px;
       border: 1px solid var(--shs-border-strong); border-radius: 5px;
       background: var(--shs-bg-card); color: var(--shs-ink-strong);
-      font-family: var(--shs-font); font-size: 12px; width: 100%;
+      font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; width: 100%;
       box-sizing: border-box; caret-color: var(--shs-action); }
     .shs-body textarea { resize: vertical; min-height: 56px;
-      font-family: var(--shs-font); line-height: 1.4; }
+      font-family: var(--shs-font, Verdana, sans-serif); line-height: 1.4; }
     .shs-input:focus, .shs-body select:focus, .shs-body textarea:focus {
       outline: 2px solid var(--shs-brass); outline-offset: -1px; }
-    /* [2] Placeholder com contraste ≥4.5:1 sobre #fffdf3 (era #b3a17c ≈2,5:1). */
+    /* [2] Placeholder com contraste ≥4.5:1 sobre var(--shs-bg-card, #fffdf3) (era #b3a17c ≈2,5:1). */
     .shs-input::placeholder, .shs-body textarea::placeholder { color: var(--shs-muted); }
 
     /* ---- Botões ---- */
     .shs-btn { display: inline-flex; align-items: center; gap: 6px;
-      padding: 5px 12px; border: 1px solid #4a2708; border-radius: 6px;
-      background: var(--shs-action); color: #f7ecd2; cursor: pointer;
-      font-family: var(--shs-font); font-size: 12px; font-weight: 600; }
+      padding: 5px 12px; border: 1px solid var(--shs-action-dark, #4a2708); border-radius: 6px;
+      background: var(--shs-action); color: var(--shs-on-action, #f7ecd2); cursor: pointer;
+      font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; font-weight: 600; }
     .shs-btn:hover:not([disabled]) { background: var(--shs-action-hover); }
     .shs-btn[disabled] { opacity: .55; cursor: default; }
     .shs-btn:focus-visible { outline: 2px solid var(--shs-brass); outline-offset: 1px; }
@@ -324,10 +392,10 @@ function styles(): string {
     [data-tip]:hover::after, [data-tip]:focus-visible::after {
       content: attr(data-tip); position: absolute; bottom: calc(100% + 7px);
       left: 50%; transform: translateX(-50%); z-index: 2147483600;
-      background: var(--shs-ink-strong); color: #f5ecd0;
+      background: var(--shs-ink-strong); color: var(--shs-on-dark, #f5ecd0);
       border: 1px solid var(--shs-brass);
       padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 400;
-      font-family: var(--shs-font); line-height: 1.35;
+      font-family: var(--shs-font, Verdana, sans-serif); line-height: 1.35;
       white-space: normal; max-width: min(260px, 90vw); text-align: center;
       pointer-events: none; box-shadow: 0 3px 10px rgba(40,24,6,.35); }
     [data-tip]:hover::before, [data-tip]:focus-visible::before {
@@ -335,6 +403,9 @@ function styles(): string {
       transform: translateX(-50%); z-index: 2147483600;
       border: 5px solid transparent; border-top-color: var(--shs-ink-strong);
       pointer-events: none; }
+    /* P0 revisão Onda C: o [data-tip] acima (position: relative) NÃO pode
+       tirar o botão flutuante do canto quando ele ganha tooltip de alerta. */
+    .shs-fab, .shs-fab[data-tip] { position: fixed; }
 
     /* ---- Spinner (currentColor: visível em botão primário E ghost/danger) ---- */
     .shs-spinner { width: 13px; height: 13px; display: inline-block;
@@ -351,7 +422,7 @@ function styles(): string {
     .shs-activate .shs-brand { display: flex; align-items: center; gap: 12px;
       padding: 14px 16px; }
     .shs-activate .shs-brand-txt { display: flex; flex-direction: column; gap: 2px; }
-    .shs-activate .shs-brand-txt strong { font-family: var(--shs-font);
+    .shs-activate .shs-brand-txt strong { font-family: var(--shs-font, Verdana, sans-serif);
       font-size: 15px; letter-spacing: 2px; color: var(--shs-ink-strong); }
     .shs-activate .shs-brand-txt span { font-size: 11px; color: var(--shs-muted); }
     .shs-input--key { font-family: ui-monospace, Consolas, 'Courier New', monospace;
@@ -406,13 +477,14 @@ function styles(): string {
  *  (P0 da revisão: main.ts criava o host antes, o que fazia o mountShell
  *  retornar cedo e o shell NUNCA montar). */
 export function ensureHost(): ShadowRoot {
-  let host = document.getElementById('shs-in-game-host');
+  let host = document.getElementById(TSH_HOST_ID);
   if (host === null) {
     host = document.createElement('div');
-    host.id = 'shs-in-game-host';
+    host.id = TSH_HOST_ID;
     document.body.appendChild(host);
   }
   if (host.shadowRoot === null) {
+    isolateKeyboard(host);
     const shadow = host.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
     style.textContent = styles();
@@ -445,18 +517,12 @@ export function mountShell(): void {
 
   const fab = document.createElement('button');
   fab.className = 'shs-fab';
-  fab.title = 'Toxic Squad Hub';
+  fab.type = 'button';
+
   fab.setAttribute('aria-label', 'Abrir Toxic Squad Hub');
   fab.appendChild(icon('shield', 22));
   fab.addEventListener('click', () => {
-    panelOpen = !panelOpen;
-    panel.style.display = panelOpen ? 'flex' : 'none';
-    if (panelOpen) {
-      // Reabrir pelo FAB volta do estado minimizado (mesmo contrato do fechar).
-      defineMin(false);
-      renderNav();
-      animarAbertura(panel);
-    }
+    setPanelOpen(!panelOpen);
   });
   shadow.appendChild(fab);
 
@@ -466,28 +532,41 @@ export function mountShell(): void {
   panel.className = 'shs-panel shs-panel--app';
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-label', 'Toxic Squad Hub');
-  panel.style.display = 'flex';
-  // Nasce aberto: sincronizar o estado, senão o 1º clique no FAB é no-op.
-  panelOpen = true;
+  // Onda B: o painel LEMBRA se estava aberto ou fechado (antes reabria sobre o
+  // jogo a cada troca de página). 1º uso = aberto.
+  panelOpen = gm.get<boolean>(PANEL_OPEN_KEY, true);
+  panel.style.display = panelOpen ? 'flex' : 'none';
   // [11] Entrada animada no 1º mount (e a classe se remove sozinha ao terminar).
   panel.addEventListener('animationend', (event) => {
     if (event.target === panel && event.animationName === 'shs-open') panel.classList.remove('shs-open');
     if (event.target === panel && event.animationName === 'shs-open-max') panel.classList.remove('shs-open');
   });
-  animarAbertura(panel);
+  if (panelOpen) animarAbertura(panel);
   // Preferência de tamanho persistida (maximizado entre sessões).
   const maximizarPref = gm.get<boolean>('shs-in-game:panel-max', false);
   if (maximizarPref) panel.classList.add('shs-panel--max');
   // Posição arrastada persistida (restaurada no tamanho normal).
   const POS_KEY = 'shs-in-game:panel-pos';
+  /** Mantém a posição dentro da janela (Onda C: monitor/janela menor escondia o painel). */
+  const clampPos = (left: number, top: number): { l: number; t: number } => {
+    const width = panel.offsetWidth || Math.min(1060, window.innerWidth - 24);
+    return {
+      l: Math.min(Math.max(4, left), Math.max(4, window.innerWidth - width - 4)),
+      t: Math.min(Math.max(4, top), Math.max(4, window.innerHeight - 60)),
+    };
+  };
   const restorePanelPos = (): void => {
     const pos = gm.get<{ l: number; t: number } | null>(POS_KEY, null);
-    if (pos === null) return;
+    if (pos === null || !Number.isFinite(pos.l) || !Number.isFinite(pos.t)) return;
+    const safe = clampPos(pos.l, pos.t);
     panel.style.right = 'auto';
     panel.style.bottom = 'auto';
-    panel.style.left = `${pos.l}px`;
-    panel.style.top = `${pos.t}px`;
+    panel.style.left = `${safe.l}px`;
+    panel.style.top = `${safe.t}px`;
   };
+  window.addEventListener('resize', () => {
+    if (!panel.classList.contains('shs-panel--max') && panel.style.top !== '') restorePanelPos();
+  });
   restorePanelPos();
   shadow.appendChild(panel);
 
@@ -510,6 +589,10 @@ export function mountShell(): void {
   sub.appendChild(document.createTextNode(ctx.world));
   headTxt.append(strong, sub);
   head.append(badge, headTxt);
+  // Busca rápida logo após a marca (Onda B: antes ficava à direita do X).
+  const searchWrap = document.createElement('div');
+  searchWrap.className = 'shs-searchwrap';
+  head.appendChild(searchWrap);
   const spacer = document.createElement('span');
   spacer.className = 'shs-head-spacer';
   head.appendChild(spacer);
@@ -531,9 +614,10 @@ export function mountShell(): void {
       restorePanelPos();
     }
     maximize.replaceChildren(icon(max ? 'compress' : 'maximize', 14));
-    maximize.title = max ? 'Restaurar tamanho' : 'Maximizar painel';
-    maximize.setAttribute('aria-label', maximize.title);
-    maximize.setAttribute('data-tip', maximize.title);
+    // Onda B: só o tooltip do painel (o title nativo gerava DOIS tooltips).
+    const rotulo = max ? 'Restaurar tamanho' : 'Maximizar painel';
+    maximize.setAttribute('aria-label', rotulo);
+    maximize.setAttribute('data-tip', rotulo);
     gm.set('shs-in-game:panel-max', max);
   };
   maximize.addEventListener('click', () => {
@@ -551,9 +635,9 @@ export function mountShell(): void {
   const defineMin = (min: boolean): void => {
     panel.classList.toggle('shs-panel--min', min);
     minimize.replaceChildren(icon(min ? 'maximize' : 'minus', 14));
-    minimize.title = min ? 'Restaurar painel' : 'Minimizar painel';
-    minimize.setAttribute('aria-label', minimize.title);
-    minimize.setAttribute('data-tip', minimize.title);
+    const rotulo = min ? 'Restaurar painel' : 'Minimizar painel';
+    minimize.setAttribute('aria-label', rotulo);
+    minimize.setAttribute('data-tip', rotulo);
   };
   minimize.addEventListener('click', () => {
     defineMin(!panel.classList.contains('shs-panel--min'));
@@ -565,36 +649,49 @@ export function mountShell(): void {
   close.className = 'shs-headbtn';
   close.type = 'button';
   close.appendChild(icon('x', 14));
-  close.title = 'Fechar painel';
   close.setAttribute('aria-label', 'Fechar painel');
   close.setAttribute('data-tip', 'Fechar painel');
   close.addEventListener('click', () => {
-    panelOpen = false;
-    panel.style.display = 'none';
-    // Reabrir pelo FAB volta do estado minimizado para o painel completo.
-    defineMin(false);
+    setPanelOpen(false);
   });
   head.appendChild(close);
   panel.appendChild(head);
 
   // ===== Busca rápida (Onda 6): Ctrl+K foca; resultados navegam à seção =====
-  const searchWrap = document.createElement('div');
-  searchWrap.className = 'shs-searchwrap';
   const searchInput = document.createElement('input');
   searchInput.type = 'search';
   searchInput.className = 'shs-search';
-  searchInput.placeholder = 'Buscar ferramenta… (Ctrl+K)';
+  searchInput.placeholder = 'Buscar (Ctrl+K)';
   searchInput.setAttribute('aria-label', 'Busca rápida de ferramentas');
   const searchPop = document.createElement('div');
   searchPop.className = 'shs-searchpop';
   searchWrap.append(searchInput, searchPop);
-  head.appendChild(searchWrap);
+  // Clique na lista (inclusive na barra de rolagem) não tira o foco do campo.
+  searchPop.addEventListener('mousedown', (event) => event.preventDefault());
 
-  const switchToSection = (sectionId: string): void => {
+  // Seção ativa: desenha com LIMPEZA do anterior (timers ao vivo) e lembra a
+  // escolha entre páginas (Onda B: antes voltava sempre para "Início").
+  let sectionCleanup: (() => void) | null = null;
+  const disposeSection = (): void => {
+    const cleanup = sectionCleanup;
+    sectionCleanup = null;
+    try {
+      cleanup?.();
+    } catch {
+      /* limpeza nunca derruba o painel */
+    }
+  };
+  const drawSection = (section: SectionDef): void => {
+    disposeSection();
+    body.replaceChildren();
+    const cleanup = section.render(body);
+    sectionCleanup = typeof cleanup === 'function' ? cleanup : null;
+  };
+  const switchToSection = (sectionId: string, targetId?: string): void => {
     const section = sections.find((s) => s.id === sectionId);
     if (section === undefined) return;
-    body.replaceChildren();
     body.dataset.section = section.id;
+    gm.set(LAST_SECTION_KEY, section.id);
     for (const other of Array.from(nav.children)) {
       (other as HTMLElement).dataset.active = 'false';
       (other as HTMLElement).setAttribute('aria-selected', 'false');
@@ -606,7 +703,36 @@ export function mountShell(): void {
       item.dataset.active = 'true';
       item.setAttribute('aria-selected', 'true');
     }
-    section.render(body);
+    drawSection(section);
+    body.scrollTop = 0;
+    if (targetId !== undefined) highlightTarget(targetId);
+  };
+  /** Rola até o item da busca e pisca o destaque (Onda C). */
+  const highlightTarget = (targetId: string): void => {
+    const alvo = Array.from(body.querySelectorAll<HTMLElement>('[data-search-id]')).find(
+      (el) => el.dataset.searchId === targetId,
+    );
+    if (alvo === undefined) return;
+    alvo.scrollIntoView({ block: 'center' });
+    alvo.classList.remove('shs-flash');
+    void alvo.offsetWidth;
+    alvo.classList.add('shs-flash');
+    window.setTimeout(() => alvo.classList.remove('shs-flash'), 3_400);
+  };
+
+  const setPanelOpen = (open: boolean): void => {
+    panelOpen = open;
+    gm.set(PANEL_OPEN_KEY, open);
+    panel.style.display = open ? 'flex' : 'none';
+    // Reabrir volta do estado minimizado para o painel completo.
+    defineMin(false);
+    if (open) {
+      renderedScreen = null; // redesenha a seção ativa (dados frescos)
+      renderNav();
+      animarAbertura(panel);
+    } else {
+      disposeSection(); // painel fechado: nenhum timer de seção fica rodando
+    }
   };
 
   const closeSearch = (): void => {
@@ -650,7 +776,8 @@ export function mountShell(): void {
         botao.appendChild(hint);
       }
       botao.addEventListener('click', () => {
-        switchToSection(entry.sectionId);
+        entry.beforeNavigate?.();
+        switchToSection(entry.sectionId, entry.targetId);
         searchInput.value = '';
         closeSearch();
         searchInput.blur();
@@ -659,31 +786,74 @@ export function mountShell(): void {
     }
     searchPop.classList.add('shs-searchpop--open');
   });
+  // Onda C: ↑/↓ percorrem os resultados, Enter abre o destacado (ou o 1º).
+  let activeIndex = -1;
+  const resultButtons = (): HTMLButtonElement[] =>
+    Array.from(searchPop.querySelectorAll<HTMLButtonElement>('.shs-searchitem'));
+  const markActive = (index: number): void => {
+    const buttons = resultButtons();
+    if (buttons.length === 0) return;
+    activeIndex = (index + buttons.length) % buttons.length;
+    buttons.forEach((button, i) => {
+      button.dataset.active = String(i === activeIndex);
+    });
+    buttons[activeIndex]?.scrollIntoView({ block: 'nearest' });
+  };
+  searchInput.addEventListener('input', () => {
+    activeIndex = -1;
+  });
   searchInput.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
+      event.stopPropagation();
       searchInput.value = '';
       closeSearch();
       searchInput.blur();
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      markActive(activeIndex + 1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      markActive(activeIndex - 1);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const buttons = resultButtons();
+      buttons[activeIndex >= 0 ? activeIndex : 0]?.click();
     }
   });
   searchInput.addEventListener('blur', () => {
-    // Fecha no próximo tick: o clique no resultado precisa acontecer antes.
-    window.setTimeout(() => closeSearch(), 150);
+    closeSearch();
   });
   document.addEventListener('keydown', (event) => {
-    if (event.ctrlKey && event.key.toLowerCase() === 'k') {
-      if (!panelOpen) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault();
+      // Onda B: Ctrl+K também ABRE o painel fechado/minimizado.
+      if (!panelOpen) setPanelOpen(true);
+      if (panel.classList.contains('shs-panel--min')) defineMin(false);
       searchInput.focus();
       searchInput.select();
     }
+  });
+
+  // Onda C: Esc fecha o painel quando o foco está nele (e não há diálogo
+  // aberto nem campo sendo editado — Esc no campo só sai do campo).
+  panel.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !panelOpen) return;
+    if (shadow.querySelector('.tsh-overlay') !== null) return;
+    if (isEditableTarget(event.composedPath()[0])) {
+      (event.composedPath()[0] as HTMLElement).blur();
+      return;
+    }
+    setPanelOpen(false);
+    fab.focus();
   });
 
   // ===== Arraste pelo header (Onda 22): posição persistida, botões excluídos =====
   head.style.cursor = 'grab';
   head.addEventListener('mousedown', (event) => {
     if (!(event.target instanceof Element)) return;
-    if (event.target.closest('.shs-headbtn') !== null) return; // botões não arrastam
+    // Onda B: botões E a busca não arrastam (o mousedown com preventDefault
+    // impedia clicar no campo de busca).
+    if (event.target.closest('.shs-headbtn, .shs-searchwrap, input, button, select, textarea') !== null) return;
     if (panel.classList.contains('shs-panel--max')) return; // maximizado é fixo
     if (event.button !== 0) return;
     const rect = panel.getBoundingClientRect();
@@ -703,7 +873,7 @@ export function mountShell(): void {
       document.removeEventListener('mouseup', onUp);
       head.style.cursor = 'grab';
       const final = panel.getBoundingClientRect();
-      gm.set(POS_KEY, { l: Math.round(final.left), t: Math.round(final.top) });
+      gm.set(POS_KEY, clampPos(Math.round(final.left), Math.round(final.top)));
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
@@ -712,20 +882,15 @@ export function mountShell(): void {
   // Duplo clique no header alterna maximizar (como janelas de desktop).
   head.addEventListener('dblclick', (event) => {
     if (!(event.target instanceof Element)) return;
-    if (event.target.closest('.shs-headbtn') !== null) return;
+    if (event.target.closest('.shs-headbtn, .shs-searchwrap, input, button') !== null) return;
     defineMax(!panel.classList.contains('shs-panel--max'));
   });
 
   // Faixa de estado da licença em modo graça (rede caiu / revalidação 24h) —
   // entre o header e o layout.
+  // (Onda C: a faixa de modo offline no topo repetia o rodapé — o aviso agora
+  //  vive só no rodapé, com o horário da revalidação.)
   const license = licenseState();
-  if (license.kind === 'graca') {
-    const faixa = document.createElement('div');
-    faixa.className = 'shs-license';
-    const ate = new Date(license.offlineAte).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    faixa.textContent = `Modo offline — a licença será revalidada no próximo carregamento da página (a partir das ${ate}).`;
-    panel.appendChild(faixa);
-  }
 
   // ===== Layout em colunas: sidebar de navegação + conteúdo =====
   const layout = document.createElement('div');
@@ -768,7 +933,10 @@ export function mountShell(): void {
         : 'ativa';
     selo.appendChild(validade);
   } else if (license.kind === 'graca') {
-    selo.appendChild(document.createTextNode('Modo offline — licença temporariamente inacessível'));
+    const ate = new Date(license.offlineAte).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    selo.appendChild(
+      document.createTextNode(`Modo offline — a licença revalida no próximo carregamento da página (a partir das ${ate})`),
+    );
   } else {
     selo.className = 'shs-selo shs-selo--warn';
     selo.appendChild(document.createTextNode('Licença inativa'));
@@ -795,8 +963,10 @@ export function mountShell(): void {
     // ou se a selecionada não está disponível nesta tela → a primeira disponível.
     const atualValida = available.some((section) => section.id === body.dataset.section);
     if (body.dataset.section === '' || body.dataset.section === undefined || !atualValida) {
-      const primeira = available[0];
-      if (primeira !== undefined) body.dataset.section = primeira.id;
+      // Onda B: volta para a última seção usada (se disponível nesta tela).
+      const lembrada = gm.get<string>(LAST_SECTION_KEY, '');
+      const escolhida = available.find((section) => section.id === lembrada) ?? available[0];
+      if (escolhida !== undefined) body.dataset.section = escolhida.id;
     }
     for (const section of available) {
       const item = document.createElement('button');
@@ -816,14 +986,13 @@ export function mountShell(): void {
     }
     // Re-render a seção ativa SÓ quando a screen do jogo mudou (troca de
     // página); no 1º render renderedScreen é null, então renderiza.
-    if (screen !== renderedScreen) {
+    if (screen !== renderedScreen && panelOpen) {
       renderedScreen = screen;
       const active = sections.find((section) => section.id === body.dataset.section);
       if (active !== undefined && available.includes(active)) {
         // P1 (revisão Nexus): limpa ANTES de renderizar — as seções só fazem
         // appendChild; sem isto, navegar in-game duplicava a seção inteira.
-        body.replaceChildren();
-        active.render(body);
+        drawSection(active);
       }
     }
   }

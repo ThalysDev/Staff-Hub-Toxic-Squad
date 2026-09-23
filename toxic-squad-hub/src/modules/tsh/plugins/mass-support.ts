@@ -127,7 +127,8 @@ type MassSupportDefenseTarget = MassSupportSettings['targets'][number];
 /** Defaults efetivos do schema (o que o plugin assume com settings vazio). */
 export const DEFAULT_SETTINGS: MassSupportSettings = {
   mode: 'immediate',
-  sourceGroupId: null,
+  // '' (não null): o campo é de TEXTO — o formulário só relê string.
+  sourceGroupId: '',
   allocationStrategy: 'max_available',
   distancePriority: 'closest',
   villageLimit: 0,
@@ -135,7 +136,7 @@ export const DEFAULT_SETTINGS: MassSupportSettings = {
   destinations: [],
   // P1 (revisão Onda 8): sem esta chave o loadSettings descartava o valor
   // salvo e o campo "Chegada agendada" reabria vazio a cada configuração.
-  scheduledArrivalAt: undefined,
+  scheduledArrivalAt: '',
   targets: [],
   destinationsText: '',
   targetsText: '',
@@ -143,6 +144,9 @@ export const DEFAULT_SETTINGS: MassSupportSettings = {
   executionMode: 'immediate',
   defensePopulationLimit: 5000,
   hasArchers: true,
+  // Sem esta chave o switch "armed" reabria SEMPRE desligado e o próximo
+  // Salvar gravava false por cima (auditoria de formulários, 23/09).
+  armed: false,
 };
 
 // ── Texto "x|y por linha" → listas que a engine consome ────────────────────

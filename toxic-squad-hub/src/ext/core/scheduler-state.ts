@@ -59,6 +59,12 @@ export const SCHEDULER_TIMING_STRATEGIES = ['direto', 'snipe', 'dodge'] as const
 
 export type SchedulerTimingStrategy = (typeof SCHEDULER_TIMING_STRATEGIES)[number];
 
+/** Trem nativo do jogo: 5 ataques no total = #1 + até 4 adicionais. */
+export const SCHEDULER_NATIVE_TRAIN_MAX_EXTRA = 4;
+
+/** Espaço entre as chegadas do trem nativo (observado no jogo: 100 ms). */
+export const NATIVE_TRAIN_ARRIVAL_STEP_MS = 100;
+
 export type ScheduledCommandStatus = 'agendado' | 'janela' | 'enviando' | 'enviado' | 'incerto' | 'falhou' | 'removido';
 
 /** Status exibido: deriva do relógio + eventos, incluindo o estado pausado (UI). */
@@ -122,6 +128,12 @@ export interface ScheduledCommandRecord {
   percentMode?: boolean;
   /** Percentuais por tipo de tropa (0..100), lidos quando `percentMode` é true. */
   unitsPercent?: Partial<Record<string, number>>;
+  /**
+   * Onda E — TREM NATIVO do jogo: ataques ADICIONAIS (#2..#5) da tela de
+   * confirmação ("Adicionar ataque adicional"). `units` é o ataque #1; o jogo
+   * envia todos num único clique, com chegadas espaçadas em 100 ms.
+   */
+  trainUnits?: ReadonlyArray<Partial<Record<UnitType, number>>>;
   paused: boolean;
   templateRef?: { id: string; label: string; builtin: boolean };
   createdAt: string;
@@ -228,12 +240,31 @@ const scheduledCommandRecordInputSchema = z
     percentMode: z.boolean().optional(),
     // Mesmo elenco do jogo do `units` (typo de UI nunca é gravado), valores 0..100.
     unitsPercent: z.partialRecord(z.enum(SCHEDULER_UNIT_TYPES), z.number().min(0).max(100)).optional(),
+    // Onda E: trem nativo — até 4 ataques adicionais (o jogo aceita 5 no total).
+    trainUnits: z
+      .array(z.partialRecord(z.enum(SCHEDULER_UNIT_TYPES), z.number().int().positive()))
+      .min(1)
+      .max(SCHEDULER_NATIVE_TRAIN_MAX_EXTRA)
+      .optional(),
     paused: z.boolean().default(false),
     templateRef: z.object({ id: z.string().min(1), label: z.string(), builtin: z.boolean() }).optional(),
     createdAt: z.string().datetime(),
     events: z.array(commandEventSchema),
   })
   .superRefine((value, ctx) => {
+    if (value.trainUnits !== undefined) {
+      if (value.kind !== 'attack' && value.kind !== 'noble') {
+        ctx.addIssue({ code: 'custom', path: ['trainUnits'], message: 'trem nativo só vale para ataque/nobre.' });
+      }
+      if (value.percentMode === true) {
+        ctx.addIssue({ code: 'custom', path: ['trainUnits'], message: 'trem nativo não aceita tropas em percentual.' });
+      }
+      value.trainUnits.forEach((row, index) => {
+        if (Object.keys(row).length === 0) {
+          ctx.addIssue({ code: 'custom', path: ['trainUnits', index], message: 'ataque adicional sem tropas.' });
+        }
+      });
+    }
     if (value.cancelCount === undefined) return;
     if (value.kind !== 'cancel') {
       ctx.addIssue({
@@ -270,6 +301,7 @@ const COMMAND_FIELD_LABELS: Record<string, string> = {
   catapultTarget: 'alvo da catapulta',
   percentMode: 'modo percentual',
   unitsPercent: 'percentual de tropas',
+  trainUnits: 'ataques adicionais do trem',
   paused: 'pausado',
   templateRef: 'template',
   createdAt: 'criado em',

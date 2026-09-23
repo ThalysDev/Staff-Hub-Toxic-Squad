@@ -52,7 +52,7 @@ function buildCard(relics: EquippedRelic[]): { card: HTMLElement; removeBtn: HTM
   const card = document.createElement('div');
   card.id = 'vanta-reliquias-ui';
   card.style.cssText =
-    'background:#fffdf3;border:1px solid #e0cda0;border-radius:10px;margin:12px 0;font-family:"Segoe UI",sans-serif;color:#5a3a16;max-width:600px;';
+    'background:var(--shs-bg-card, #fffdf3);border:1px solid var(--shs-border, #e0cda0);border-radius:10px;margin:12px 0;font-family:var(--shs-font, Verdana, sans-serif);color:var(--shs-ink, #5a3a16);max-width:600px;';
 
   const header = document.createElement('div');
   header.style.cssText =
@@ -103,6 +103,7 @@ function buildCard(relics: EquippedRelic[]): { card: HTMLElement; removeBtn: HTM
 registerVanta({
   id: 'vanta-reliquias',
   label: 'Remover Relíquias',
+  icon: 'package',
   desc: 'Remove em lote as relíquias equipadas',
   group: 'utilidades',
   match: () => params().get('screen') === 'relic_system' && params().get('mode') === 'overview',

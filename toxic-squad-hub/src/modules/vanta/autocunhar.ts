@@ -45,6 +45,7 @@ function findMintButton(mintInput: HTMLInputElement): HTMLElement | null {
 registerVanta({
   id: 'vanta-autocunhar',
   label: 'Auto Cunhar',
+  icon: 'coins',
   desc: 'Cunha o máximo de moedas e recarrega a página em intervalo',
   group: 'utilidades',
   match: () => params().get('screen') === 'snob',

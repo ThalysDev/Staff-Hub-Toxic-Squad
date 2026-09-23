@@ -107,6 +107,7 @@ export function iconButton(
   if (variant !== 'primary') classes.push(`shs-btn-${variant}`);
   if (opts?.small === true) classes.push('shs-btn-sm');
   const btn = el('button', { className: classes.join(' ') }, icon(iconName), document.createTextNode(label));
+  btn.type = 'button'; // Onda C: nunca submete formulário do jogo por acidente
   if (opts?.tip !== undefined) withTip(btn, opts.tip);
   return btn;
 }

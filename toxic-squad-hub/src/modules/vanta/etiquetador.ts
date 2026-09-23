@@ -51,6 +51,7 @@ function saveAlarmConfig(config: AlarmConfig): void {
 registerVanta({
   id: 'vanta-etiquetador',
   label: 'Etiquetador',
+  icon: 'bell',
   desc: 'Etiqueta ataques novos automaticamente e toca alarme',
   group: 'utilidades',
   match: () =>

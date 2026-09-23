@@ -349,7 +349,7 @@ function clickConfirmSend(form: HTMLFormElement): void {
   send.click();
 }
 
-type ConfirmMatch = 'match' | 'mismatch' | 'unknown';
+export type ConfirmMatch = 'match' | 'mismatch' | 'unknown';
 
 /**
  * P1-2 da revisão: o alvo de edifício da Praça é `select[name="building"]`
@@ -559,6 +559,239 @@ export async function submitCommand2Step(
     }
     clickConfirmSend(current);
   });
+}
+
+/**
+ * PRÉ-ARME do cravado (Onda A — regra de ouro): executa SÓ o passo 1 (preencher
+ * e submeter a Praça — nenhuma tropa sai) alguns segundos ANTES do horário,
+ * para que o clique final (passo 2) aconteça no ms planejado na tela de
+ * confirmação. Fluxo normal do jogo: a submissão NAVEGA e este contexto morre
+ * — a página nova (tela de confirmação) retoma pelo ciclo de boot do agendador.
+ * Se a confirmação aparecer NESTE contexto (variante AJAX), devolve true e o
+ * chamador mira/clica aqui mesmo. Tela da Praça ausente/alterada → erro
+ * PAGE_SELECTOR_CHANGED (nada foi submetido).
+ */
+export async function prearmCommandStep1(
+  target: string,
+  units: Record<string, number>,
+  opts: CommandOptions,
+  /** Chamado DENTRO do slot urgente, imediatamente antes do submit (marcadores/lock). */
+  beforeSubmit?: () => void,
+): Promise<boolean> {
+  // Regra de ouro: fakes (faixa humanizada) respeitam a política ANTES do
+  // passo 1; cravados (precisão) nunca esperam.
+  if ((opts.lane ?? 'precisao') === 'humanizado') {
+    const liberado = await awaitRoutineMutation('fake');
+    if (!liberado) {
+      throw transportError('Pausa de humanização ativa — comando humanizado pulado.', 'HUMANIZE_PAUSE');
+    }
+  }
+  const coords = parseCommandTarget(target);
+  if (findCommandConfirmForm() !== null) return true; // já na confirmação
+  const form = document.querySelector<HTMLFormElement>(
+    '#command-data-form, form[action*="screen=place"][action*="try=confirm"]',
+  );
+  if (form === null)
+    throw transportError('O formulário canônico da Praça de Reunião não foi encontrado.', 'PAGE_SELECTOR_CHANGED');
+  const submitter = form.querySelector<HTMLElement>(
+    opts.attack ? 'input[name="attack"], input#target_attack' : 'input[name="support"], input#target_support',
+  );
+  if (submitter === null) {
+    throw transportError(
+      `O botão canônico de ${opts.attack ? 'ataque' : 'apoio'} (#target_${opts.attack ? 'attack' : 'support'}) não foi encontrado na Praça de Reunião.`,
+      'PAGE_SELECTOR_CHANGED',
+    );
+  }
+  const fields: Record<string, number> = { x: coords.x, y: coords.y };
+  for (const [unit, amount] of Object.entries(units)) fields[unit] = integerAmount(amount);
+  const catapultSelect = requireCatapultTargetSelect(form, opts.catapultTarget, units);
+  const catapultTarget = opts.catapultTarget ?? '';
+  // Passo 1 pela fila urgente (faixa de precisão — nunca espera a normal).
+  await enqueueUrgent(async () => {
+    assertMutablePage(document);
+    if (catapultSelect !== null) setCatapultTarget(catapultSelect, catapultTarget);
+    fillFormFields(form, fields);
+    beforeSubmit?.();
+    form.requestSubmit(submitter);
+  });
+  const reached = await pollUntil(() => (findCommandConfirmForm() === null ? null : true), COMMAND_CONFIRM_TIMEOUT_MS);
+  return reached === true;
+}
+
+/** A tela de confirmação aberta casa com o comando? 'absent' = não há confirmação nesta página. */
+export function commandConfirmScreenState(
+  target: string,
+  units: Record<string, number>,
+  opts: CommandOptions,
+): ConfirmMatch | 'absent' {
+  const form = findCommandConfirmForm();
+  if (form === null) return 'absent';
+  return matchConfirmScreen(form, parseCommandTarget(target), units, opts);
+}
+
+// ── Onda E: TREM NATIVO do jogo (tela de confirmação) ────────────────────────
+// Estrutura lida da tela real (br142, 23/09/2026): tabela #place_confirm_units
+// com linhas tr.units-row ("Ataque #1" = o comando base, sem inputs; os
+// adicionais têm input[type=number][data-unit][name="train[N][unidade]"]);
+// o botão a#troop_confirm_train chama Place.confirmScreen.addAdditionalAttack
+// (máximo 5 ataques no total) e o jogo valida com validateTrainRows().
+
+const TRAIN_UNIT_ORDER = ['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob'] as const;
+
+interface ConfirmScreenApi {
+  addAdditionalAttack?: () => void;
+  validateTrainRows?: () => { error_count?: number; has_fake_violation?: boolean; has_unprotected_snob?: boolean };
+}
+
+function confirmScreenApi(): ConfirmScreenApi | null {
+  const place = (pageWindow() as { Place?: { confirmScreen?: ConfirmScreenApi } }).Place;
+  return place?.confirmScreen ?? null;
+}
+
+/** Linhas de ataque ADICIONAL visíveis (sem a do Ataque #1), na ordem da tela. */
+function additionalTrainRows(): HTMLTableRowElement[] {
+  const rows = Array.from(document.querySelectorAll<HTMLTableRowElement>('#place_confirm_units tr.units-row'));
+  return rows.filter((row) => row.querySelector('input[name^="train["]') !== null);
+}
+
+/** Tropas de uma linha adicional (vazio = 0), por data-unit. */
+function readTrainRow(row: HTMLTableRowElement): Record<string, number> {
+  const units: Record<string, number> = {};
+  for (const input of Array.from(row.querySelectorAll<HTMLInputElement>('input[name^="train["]'))) {
+    const unit = input.dataset.unit ?? /\]\[(\w+)\]$/.exec(input.name)?.[1] ?? '';
+    const amount = Number.parseInt(input.value, 10);
+    if (unit !== '' && Number.isFinite(amount) && amount > 0) units[unit] = amount;
+  }
+  return units;
+}
+
+/** Linhas adicionais preenchidas na tela (o que o jogo vai enviar além do #1). */
+export function readNativeTrainFromScreen(): Record<string, number>[] {
+  return additionalTrainRows()
+    .map(readTrainRow)
+    .filter((units) => Object.keys(units).length > 0);
+}
+
+function sameUnits(a: Partial<Record<string, number>>, b: Partial<Record<string, number>>): boolean {
+  for (const unit of TRAIN_UNIT_ORDER) {
+    if ((a[unit] ?? 0) !== (b[unit] ?? 0)) return false;
+  }
+  return true;
+}
+
+/** A tela tem EXATAMENTE os ataques adicionais pedidos (mesma ordem e tropas)? */
+export function nativeTrainMatches(rows: ReadonlyArray<Partial<Record<string, number>>>): boolean {
+  const onScreen = additionalTrainRows().map(readTrainRow);
+  if (onScreen.length !== rows.length) return false;
+  return rows.every((row, index) => sameUnits(row, onScreen[index] ?? {}));
+}
+
+/**
+ * Monta o trem nativo na tela de confirmação ANTES da mira: adiciona as
+ * linhas pelo próprio jogo, preenche cada unidade (0 = vazio) disparando os
+ * eventos que o jogo escuta, confere tudo e pede a validação do jogo.
+ * Fail-closed: tela com linhas adicionais que NÃO são as pedidas (o jogador
+ * mexeu) não é alterada; seletor ausente → PAGE_SELECTOR_CHANGED.
+ */
+export async function prepareNativeTrain(rows: ReadonlyArray<Partial<Record<string, number>>>): Promise<void> {
+  if (findCommandConfirmForm() === null)
+    throw transportError('A tela de confirmação não está aberta — o trem não pode ser montado.', 'CONFIRM_SCREEN_NOT_REACHED');
+  if (nativeTrainMatches(rows)) return; // já montado (ex.: pelo próprio jogador no "Cravar daqui")
+  const existing = additionalTrainRows();
+  if (existing.length > rows.length)
+    throw transportError(
+      `A tela tem ${existing.length} ataques adicionais e o trem agendado tem ${rows.length} — remova as linhas a mais.`,
+      'PLAN_INVALID',
+    );
+  const preenchidas = existing.filter((row) => Object.keys(readTrainRow(row)).length > 0);
+  if (preenchidas.length > 0)
+    throw transportError(
+      'A tela já tem ataques adicionais diferentes do trem agendado — nada foi alterado. Confira a tela ou reagende.',
+      'RESULT_UNCERTAIN',
+    );
+  const api = confirmScreenApi();
+  const addButton = document.querySelector<HTMLElement>('#troop_confirm_train');
+  if (api?.addAdditionalAttack === undefined && addButton === null)
+    throw transportError('O botão "Adicionar ataque adicional" do jogo não foi encontrado.', 'PAGE_SELECTOR_CHANGED');
+  while (additionalTrainRows().length < rows.length) {
+    const before = additionalTrainRows().length;
+    if (api?.addAdditionalAttack !== undefined) api.addAdditionalAttack();
+    else addButton?.click();
+    const grew = await pollUntil(() => (additionalTrainRows().length > before ? true : null), 2_000);
+    if (grew !== true)
+      throw transportError('O jogo não criou a linha do ataque adicional (limite de 5 ataques?).', 'PAGE_SELECTOR_CHANGED');
+  }
+  const screenRows = additionalTrainRows();
+  rows.forEach((wanted, index) => {
+    const row = screenRows[index];
+    if (row === undefined) return;
+    for (const unit of TRAIN_UNIT_ORDER) {
+      const input = row.querySelector<HTMLInputElement>(`input[data-unit="${unit}"], input[name$="[${unit}]"]`);
+      const amount = wanted[unit] ?? 0;
+      if (input === null) {
+        if (amount > 0)
+          throw transportError(`Campo de "${unit}" do ataque adicional não encontrado na tela.`, 'PAGE_SELECTOR_CHANGED');
+        continue;
+      }
+      // Setter NATIVO + eventos que o jogo escuta (input/change/keyup).
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      if (setter !== undefined) setter.call(input, amount > 0 ? String(amount) : '');
+      else input.value = amount > 0 ? String(amount) : '';
+      for (const type of ['input', 'change', 'keyup']) input.dispatchEvent(new Event(type, { bubbles: true }));
+    }
+  });
+  if (!nativeTrainMatches(rows))
+    throw transportError('Os ataques adicionais não ficaram como o planejado — nada foi confirmado.', 'PAGE_SELECTOR_CHANGED');
+  if (api?.validateTrainRows === undefined)
+    throw transportError('A validação do trem do jogo não foi encontrada — nada foi confirmado.', 'PAGE_SELECTOR_CHANGED');
+  const verdict = api.validateTrainRows();
+  if (verdict.has_unprotected_snob === true)
+    throw transportError(
+      'O jogo avisa nobre sem escolta no trem (pediria confirmação extra) — adicione escolta em cada ataque.',
+      'PLAN_INVALID',
+    );
+  if ((verdict.error_count ?? 0) > 0) {
+    throw transportError(
+      verdict.has_fake_violation === true
+        ? 'O jogo recusou o trem: um ataque adicional fica abaixo do limite de fakes.'
+        : 'O jogo recusou o trem: há ataque adicional vazio ou inválido.',
+      'PLAN_INVALID',
+    );
+  }
+}
+
+/**
+ * Clique FINAL do cravado (passo 2), SÍNCRONO — chamado no instante exato pela
+ * mira de precisão. Sem fila nem await: nada entre o fim da espera e o clique.
+ * Fail-closed: re-lê a tela e passa o matcher (tipo/alvo/tropas/catapulta)
+ * imediatamente antes; qualquer divergência lança SEM clicar.
+ */
+export function clickCommandConfirmNow(
+  target: string,
+  units: Record<string, number>,
+  opts: CommandOptions,
+  train?: ReadonlyArray<Partial<Record<string, number>>>,
+): void {
+  assertMutablePage(document);
+  // Trem nativo: a tela precisa ter EXATAMENTE os adicionais planejados — e
+  // sem trem, nenhum adicional preenchido (senão o jogo mandaria a mais).
+  if (!nativeTrainMatches(train ?? []))
+    throw transportError(
+      'Os ataques adicionais da tela não batem com o comando agendado — nada foi confirmado.',
+      'RESULT_UNCERTAIN',
+    );
+  const current = findCommandConfirmForm();
+  if (current === null)
+    throw transportError(
+      'A tela de confirmação do comando desapareceu antes do clique final — nada foi confirmado.',
+      'CONFIRM_SCREEN_NOT_REACHED',
+    );
+  if (matchConfirmScreen(current, parseCommandTarget(target), units, opts) !== 'match')
+    throw transportError(
+      'A tela de confirmação atual não corresponde ao comando pedido (tipo, alvo ou tropas) — nada foi confirmado.',
+      'RESULT_UNCERTAIN',
+    );
+  clickConfirmSend(current);
 }
 
 /**

@@ -30,7 +30,7 @@ import {
   type SettingsField,
   type TshSchedule,
 } from './tsh-settings';
-import { effectiveCooldownMs, type TshAutomation } from './tsh-runtime';
+import { applyScheduleChange, effectiveCooldownMs, type TshAutomation } from './tsh-runtime';
 import { isUnitKey, unitIcon, unitLabelOrKey } from './tsh-units';
 
 /** Campo do formulário já ligado ao input (para ler os valores no Salvar). */
@@ -48,7 +48,33 @@ interface FieldBinding {
 interface TshModal {
   body: HTMLDivElement;
   foot: HTMLDivElement;
+  /** Fecha JÁ (Salvar/Cancelar explícitos). */
   close: () => void;
+  /**
+   * Onda B: marca o conteúdo atual como "salvo" — a partir daí fechar pelo X,
+   * Esc ou clique fora com alterações pede confirmação (antes perdia tudo).
+   */
+  markClean: (scope?: HTMLElement) => void;
+  /** Fecha PERGUNTANDO se houver alterações não salvas (botão "Fechar"). */
+  requestClose: () => void;
+}
+
+/** Pilha de diálogos abertos (Onda B: Esc fecha só o do TOPO, não todos). */
+const modalStack: symbol[] = [];
+
+/** Fotografia dos campos do diálogo (detecção de alterações não salvas). */
+function formSnapshot(root: HTMLElement): string {
+  const parts: string[] = [];
+  for (const el of root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+    'input, select, textarea',
+  )) {
+    if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {
+      parts.push(el.checked ? '1' : '0');
+    } else {
+      parts.push(el.value);
+    }
+  }
+  return parts.join('\u0001');
 }
 
 // ── Helpers de construção (tudo textContent — nada de HTML dinâmico) ──
@@ -87,7 +113,6 @@ function fieldLabel(text: string, help?: string): HTMLSpanElement {
   if (help !== undefined) {
     const tip = document.createElement('span');
     tip.className = 'tsh-field-info tsh-tip tsh-tip--right';
-    tip.title = help;
     tip.setAttribute('data-tip', help);
     tip.setAttribute('aria-label', help);
     tip.appendChild(icon('info', 11));
@@ -128,6 +153,11 @@ export function buildTshModal(
   iconName: IconName,
   opts?: { onClose?: () => void },
 ): TshModal {
+  const token = Symbol('tsh-modal');
+  // A11y (revisão Onda C): o foco volta para quem abriu o diálogo ao fechar.
+  const opener = shadow.activeElement instanceof HTMLElement ? shadow.activeElement : null;
+  let cleanSnapshot: string | null = null;
+  let dirtyScope: HTMLElement | null = null;
   ensureTshPanelStyles(shadow);
   const overlay = document.createElement('div');
   overlay.className = 'tsh-overlay';
@@ -142,7 +172,6 @@ export function buildTshModal(
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.className = 'tsh-modal-close tsh-tip tsh-tip--below';
-  closeBtn.title = 'Fechar';
   closeBtn.setAttribute('data-tip', 'Fechar');
   closeBtn.setAttribute('aria-label', 'Fechar');
   closeBtn.appendChild(icon('x', 14));
@@ -159,23 +188,79 @@ export function buildTshModal(
   shadow.appendChild(overlay);
 
   let closed = false;
+  let asking = false;
+  const isTop = (): boolean => modalStack[modalStack.length - 1] === token;
   const onKey = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape') close();
+    if (!isTop()) return; // Onda B: só o diálogo do topo reage
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      void requestClose();
+    } else if (event.key === 'Tab') {
+      // Foco preso no diálogo (acessibilidade): Tab/Shift+Tab circulam nele.
+      const focaveis = Array.from(
+        modal.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]'),
+      ).filter((el) => el.offsetParent !== null);
+      const primeiro = focaveis[0];
+      const ultimo = focaveis[focaveis.length - 1];
+      if (primeiro === undefined || ultimo === undefined) return;
+      const ativo = shadow.activeElement;
+      if (event.shiftKey && (ativo === primeiro || !modal.contains(ativo))) {
+        event.preventDefault();
+        ultimo.focus();
+      } else if (!event.shiftKey && (ativo === ultimo || !modal.contains(ativo))) {
+        event.preventDefault();
+        primeiro.focus();
+      }
+    }
   };
   const close = (): void => {
     if (closed) return;
     closed = true;
     document.removeEventListener('keydown', onKey);
+    const index = modalStack.indexOf(token);
+    if (index >= 0) modalStack.splice(index, 1);
     overlay.remove();
+    if (opener !== null && opener.isConnected) opener.focus();
     opts?.onClose?.();
   };
+  /** X / Esc / clique fora: com alterações não salvas, pergunta antes. */
+  const requestClose = async (): Promise<void> => {
+    if (closed || asking) return;
+    if (cleanSnapshot !== null && formSnapshot(dirtyScope ?? body) !== cleanSnapshot) {
+      asking = true;
+      const descartar = await tshConfirm(
+        shadow,
+        'Descartar alterações?',
+        'Há alterações não salvas nesta janela. Fechar e perder o que foi digitado?',
+        { danger: true },
+      );
+      asking = false;
+      if (!descartar) return;
+    }
+    close();
+  };
+  modalStack.push(token);
   document.addEventListener('keydown', onKey);
-  closeBtn.addEventListener('click', close);
+  closeBtn.addEventListener('click', () => {
+    void requestClose();
+  });
   overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) close(); // clique fora do modal fecha
+    if (event.target === overlay) void requestClose(); // clique fora do modal fecha
   });
   closeBtn.focus();
-  return { body, foot, close };
+  const markClean = (scope?: HTMLElement): void => {
+    dirtyScope = scope ?? body;
+    cleanSnapshot = formSnapshot(dirtyScope);
+  };
+  return {
+    body,
+    foot,
+    close,
+    markClean,
+    requestClose: () => {
+      void requestClose();
+    },
+  };
 }
 
 // ── Diálogo de confirmação (substitui window.confirm — P2 auditoria) ──
@@ -218,7 +303,9 @@ export function tshConfirm(
       close();
     });
     foot.append(cancelBtn, okBtn);
-    okBtn.focus(); // foco na ação (o scaffold foca o X do cabeçalho)
+    // Ação perigosa: o foco fica em Cancelar (Enter não destrói por engano).
+    if (opts?.danger === true) cancelBtn.focus();
+    else okBtn.focus();
   });
 }
 
@@ -295,7 +382,7 @@ function renderField(
       if (field.placeholder !== undefined) el.placeholder = field.placeholder;
       if (typeof initial === 'number') el.value = String(initial);
       input = el;
-      side.appendChild(fieldLabel(field.label, field.help));
+      side.appendChild(fieldLabel(field.label)); // ajuda vai em texto logo abaixo (Onda C: sem duplicar no ⓘ)
       wrap.append(side, el);
       break;
     }
@@ -311,7 +398,7 @@ function renderField(
       track.className = 'tsh-switch-track';
       sw.append(el, track);
       input = el;
-      side.appendChild(fieldLabel(field.label, field.help));
+      side.appendChild(fieldLabel(field.label)); // ajuda vai em texto logo abaixo (Onda C: sem duplicar no ⓘ)
       wrap.append(side, sw);
       break;
     }
@@ -321,7 +408,7 @@ function renderField(
       if (field.placeholder !== undefined) el.placeholder = field.placeholder;
       if (typeof initial === 'string') el.value = initial;
       input = el;
-      side.appendChild(fieldLabel(field.label, field.help));
+      side.appendChild(fieldLabel(field.label)); // ajuda vai em texto logo abaixo (Onda C: sem duplicar no ⓘ)
       wrap.append(side, el);
       break;
     }
@@ -336,7 +423,7 @@ function renderField(
       }
       if (typeof initial === 'string') el.value = initial;
       input = el;
-      side.appendChild(fieldLabel(field.label, field.help));
+      side.appendChild(fieldLabel(field.label)); // ajuda vai em texto logo abaixo (Onda C: sem duplicar no ⓘ)
       wrap.append(side, el);
       break;
     }
@@ -372,7 +459,7 @@ function renderField(
         cell.append(lab, inp);
         grid.appendChild(cell);
       }
-      side.appendChild(fieldLabel(field.label, field.help));
+      side.appendChild(fieldLabel(field.label)); // ajuda vai em texto logo abaixo (Onda C: sem duplicar no ⓘ)
       if (field.help !== undefined) appendHelp(side, field.help);
       wrap.append(side, grid);
       const hidden = document.createElement('input'); // compat: binding sempre tem um input
@@ -389,13 +476,52 @@ function renderField(
       if (field.placeholder !== undefined) el.placeholder = field.placeholder;
       if (typeof initial === 'string') el.value = initial;
       input = el;
-      side.appendChild(fieldLabel(field.label, field.help));
+      side.appendChild(fieldLabel(field.label)); // ajuda vai em texto logo abaixo (Onda C: sem duplicar no ⓘ)
       wrap.append(side, el);
     }
   }
   if (field.help !== undefined) appendHelp(side, field.help);
   bindings.push({ field, input, initial });
   return wrap;
+}
+
+/**
+ * Onda C — validação VISÍVEL de número (antes o Salvar corrigia em silêncio):
+ * null = ok (vazio também é ok: cai no padrão); senão a mensagem pt-BR.
+ */
+export function numberFieldIssue(raw: string, limits: { min?: number; max?: number }): string | null {
+  const trimmed = raw.trim();
+  if (trimmed === '') return null;
+  const n = Number(trimmed.replace(',', '.'));
+  if (!Number.isFinite(n)) return 'não é um número';
+  if (limits.min !== undefined && n < limits.min) return `mínimo ${limits.min}`;
+  if (limits.max !== undefined && n > limits.max) return `máximo ${limits.max}`;
+  return null;
+}
+
+/** Marca/desmarca os campos numéricos fora da faixa; devolve as mensagens. */
+function validateNumberBindings(bindings: readonly FieldBinding[]): string[] {
+  const issues: string[] = [];
+  const check = (input: HTMLInputElement, label: string, limits: { min?: number; max?: number }): void => {
+    // "1e" num campo numérico lê como '' — o navegador sinaliza badInput.
+    const issue = input.validity.badInput ? 'não é um número' : numberFieldIssue(input.value, limits);
+    input.classList.toggle('tsh-input--invalid', issue !== null);
+    input.setAttribute('aria-invalid', issue !== null ? 'true' : 'false');
+    if (issue !== null) issues.push(`${label}: ${issue}`);
+  };
+  for (const binding of bindings) {
+    const field = binding.field;
+    if (field.type === 'number' && binding.input instanceof HTMLInputElement) {
+      check(binding.input, field.label, { ...(field.min !== undefined ? { min: field.min } : {}), ...(field.max !== undefined ? { max: field.max } : {}) });
+    } else if (field.type === 'record') {
+      for (const rk of field.recordKeys ?? []) {
+        const input = binding.recordInputs?.[rk.key];
+        if (input === undefined) continue;
+        check(input, `${field.label} (${rk.label})`, { ...(rk.min !== undefined ? { min: rk.min } : {}), ...(rk.max !== undefined ? { max: rk.max } : {}) });
+      }
+    }
+  }
+  return issues;
 }
 
 /** Lê o valor do input já convertido/clampado para gravar no settings. */
@@ -498,7 +624,7 @@ export function openTshSettingsModal(
   world: string,
   onSaved: () => void,
 ): void {
-  const { body, foot, close } = buildTshModal(shadow, `Configurar — ${automation.label}`, 'settings');
+  const { body, foot, close, markClean } = buildTshModal(shadow, `Configurar — ${automation.label}`, 'settings');
   const form = automation.settingsForm ?? [];
   const defaults = automation.settingsDefaults ?? {};
   const merged = loadSettings(world, automation.id, defaults);
@@ -520,7 +646,7 @@ export function openTshSettingsModal(
   cooldownInput.max = '1440';
   cooldownInput.placeholder = String(Math.max(1, Math.round(effectiveCooldownMs(automation, {}) / 60_000)));
   if (schedule.cooldownMinutes !== undefined) cooldownInput.value = String(schedule.cooldownMinutes);
-  cooldownSide.appendChild(fieldLabel('Intervalo entre ciclos (minutos)', 'Vazio = padrão do módulo.'));
+  cooldownSide.appendChild(fieldLabel('Intervalo entre ciclos (minutos)'));
   appendHelp(cooldownSide, 'Vazio = padrão do módulo.');
   cooldownField.append(cooldownSide, cooldownInput);
   agenda.body.appendChild(cooldownField);
@@ -549,7 +675,7 @@ export function openTshSettingsModal(
   if (schedule.activeTo !== undefined && schedule.activeTo !== '') toInput.value = schedule.activeTo;
   const janelaHelp =
     'Janela ativa no relógio LOCAL do seu computador; vazia = sempre. Janela que cruza a meia-noite (ex.: 22:00–06:00) é suportada.';
-  toSide.appendChild(fieldLabel('Ativa até (HH:MM)', janelaHelp));
+  toSide.appendChild(fieldLabel('Ativa até (HH:MM)'));
   appendHelp(toSide, janelaHelp);
   toField.append(toSide, toInput);
   agenda.body.appendChild(toField);
@@ -569,7 +695,7 @@ export function openTshSettingsModal(
   if (schedule.stopAt !== undefined && schedule.stopAt !== '') stopInput.value = schedule.stopAt;
   const stopHelp =
     'Quando ligada e o horário passar, esta automação para de rodar até você desligar a parada aqui.';
-  stopSide.appendChild(fieldLabel('Parada programada', stopHelp));
+  stopSide.appendChild(fieldLabel('Parada programada'));
   appendHelp(stopSide, stopHelp);
   stopField.append(stopToggle, stopSide, stopInput);
   agenda.body.appendChild(stopField);
@@ -608,6 +734,7 @@ export function openTshSettingsModal(
     if (!ok) return;
     clearSettings(world, automation.id); // zera mesmo (saveSettings agora faz merge)
     saveSchedule(world, automation.id, {});
+    applyScheduleChange(automation.id, world);
     close();
     onSaved();
   });
@@ -644,15 +771,28 @@ export function openTshSettingsModal(
       showError(erro);
       return;
     }
+    const issues = validateNumberBindings(bindings);
+    if (issues.length > 0) {
+      showError(`Corrija os campos destacados — ${issues.join(' · ')}.`);
+      return;
+    }
     const values: Record<string, unknown> = {};
     for (const binding of bindings) collectFieldValue(binding, values);
     saveSchedule(world, automation.id, nextSchedule);
     saveSettings(world, automation.id, values);
+    applyScheduleChange(automation.id, world); // intervalo novo vale já, não após o antigo
     close();
     onSaved();
   });
 
   foot.append(resetBtn, buttonRow(cancelBtn, saveBtn));
+  // Onda C: o destaque some assim que o valor volta para a faixa.
+  body.addEventListener('input', (event) => {
+    if (event.target instanceof HTMLInputElement && event.target.classList.contains('tsh-input--invalid')) {
+      validateNumberBindings(bindings);
+    }
+  });
+  markClean(); // Onda B: fechar com alterações pede confirmação
 }
 
 // ── Modal de prévia (somente-leitura, mesmo scaffold) ──

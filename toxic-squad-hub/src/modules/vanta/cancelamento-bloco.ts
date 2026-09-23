@@ -29,6 +29,7 @@
 // quando o jogo não a expõe, a ação ajax `info_command&ajaxaction=cancel` (a
 // mesma família do `ajaxaction=edit_other_comment` já usada por vanta-net).
 
+import { iconMarkup } from '../../core/icons';
 import { registerVanta } from './vanta-registry';
 import { ensureVantaStyles } from './vanta-styles';
 import type { ModuleScope } from './vanta-lifecycle';
@@ -67,75 +68,75 @@ function ensureStyles(): void {
         #vanta-cb-ui {
             display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
             margin: 8px 0; padding: 8px 10px;
-            background: #fffdf3; border: 1px solid #e0cda0; border-radius: 10px;
-            font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #5a3a16;
+            background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border, #e0cda0); border-radius: 10px;
+            font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; color: var(--shs-ink, #5a3a16);
         }
         #vanta-cb-ui * { box-sizing: border-box; }
         #vanta-cb-ui .vanta-cb-title {
             font-size: 11px; font-weight: 700; letter-spacing: 1px;
-            text-transform: uppercase; color: #8a5a1e;
+            text-transform: uppercase; color: var(--shs-accent-ink, #8a5a1e);
         }
         #vanta-cb-ui button {
-            background: #fbf4de; border: 1px solid #cbb384; border-radius: 8px;
-            color: #5a3a16; padding: 4px 10px; font-size: 11px;
+            background: var(--shs-bg-field, #fbf4de); border: 1px solid var(--shs-border-strong, #cbb384); border-radius: 8px;
+            color: var(--shs-ink, #5a3a16); padding: 4px 10px; font-size: 11px;
             font-family: inherit; cursor: pointer;
         }
-        #vanta-cb-ui button:hover:not(:disabled) { background: #efe2ba; border-color: #834a1a; color: #834a1a; }
+        #vanta-cb-ui button:hover:not(:disabled) { background: var(--shs-bg-head, #efe2ba); border-color: var(--shs-action-hover, #834a1a); color: var(--shs-action-hover, #834a1a); }
         #vanta-cb-ui button:disabled { opacity: 0.4; cursor: default; }
         #vanta-cb-ui #vanta-cb-cancelar {
-            background: #6d3c14; border-color: #5a3110; color: #fff; font-weight: 600;
+            background: var(--shs-action, #6d3c14); border-color: var(--shs-action-deep, #5a3110); color: #fff; font-weight: 600;
         }
-        #vanta-cb-ui #vanta-cb-cancelar:hover:not(:disabled) { background: #834a1a; color: #fff; }
-        #vanta-cb-ui .vanta-cb-status { flex: 1 1 100%; font-size: 11px; color: #6f5e40; min-height: 14px; }
-        #vanta-cb-ui .vanta-cb-status--erro { color: #c04038; }
-        #vanta-cb-ui .vanta-cb-status--ok { color: #3f8f43; font-weight: 600; }
+        #vanta-cb-ui #vanta-cb-cancelar:hover:not(:disabled) { background: var(--shs-action-hover, #834a1a); color: #fff; }
+        #vanta-cb-ui .vanta-cb-status { flex: 1 1 100%; font-size: 11px; color: var(--shs-muted, #6f5e40); min-height: 14px; }
+        #vanta-cb-ui .vanta-cb-status--erro { color: var(--shs-danger, #c04038); }
+        #vanta-cb-ui .vanta-cb-status--ok { color: var(--shs-ok, #3f8f43); font-weight: 600; }
 
         /* Modal de confirmação (padrão vanta, light DOM) */
         .vanta-ccb-overlay {
             position: fixed; inset: 0; z-index: 100002;
             background: rgba(60,37,10,0.42);
             display: flex; align-items: center; justify-content: center;
-            font-family: 'Segoe UI', Arial, sans-serif;
+            font-family: var(--shs-font, Verdana, sans-serif);
         }
         .vanta-ccb-modal {
             width: min(520px, calc(100vw - 32px)); max-height: 80vh;
             display: flex; flex-direction: column;
-            background: #fffdf3; border: 1px solid #cbb384; border-radius: 12px;
-            box-shadow: 0 16px 48px rgba(60,37,10,0.35); color: #5a3a16;
+            background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border-strong, #cbb384); border-radius: 12px;
+            box-shadow: 0 16px 48px rgba(60,37,10,0.35); color: var(--shs-ink, #5a3a16);
         }
         .vanta-ccb-head {
             display: flex; align-items: center; justify-content: space-between;
-            padding: 9px 14px; background: #efe2ba; border-bottom: 1px solid #e0cda0;
+            padding: 9px 14px; background: var(--shs-bg-head, #efe2ba); border-bottom: 1px solid var(--shs-border, #e0cda0);
             border-radius: 12px 12px 0 0;
         }
         .vanta-ccb-title {
             font-size: 12px; font-weight: 700; letter-spacing: 1px;
-            text-transform: uppercase; color: #8a5a1e;
+            text-transform: uppercase; color: var(--shs-accent-ink, #8a5a1e);
         }
         .vanta-ccb-close {
-            background: none; border: none; color: #6f5e40; font-size: 15px;
+            background: none; border: none; color: var(--shs-muted, #6f5e40); font-size: 15px;
             line-height: 1; cursor: pointer; padding: 0 2px;
         }
-        .vanta-ccb-close:hover { color: #c04038; }
+        .vanta-ccb-close:hover { color: var(--shs-danger, #c04038); }
         .vanta-ccb-body { padding: 12px 14px; overflow-y: auto; font-size: 12.5px; }
         .vanta-ccb-msg { line-height: 1.45; }
         .vanta-ccb-list {
             margin: 8px 0 0; padding: 0; list-style: none;
-            font-size: 11.5px; color: #6f5e40;
+            font-size: 11.5px; color: var(--shs-muted, #6f5e40);
         }
-        .vanta-ccb-list li { padding: 3px 0; border-top: 1px dashed #e0cda0; }
+        .vanta-ccb-list li { padding: 3px 0; border-top: 1px dashed var(--shs-border, #e0cda0); }
         .vanta-ccb-list li:first-child { border-top: none; }
         .vanta-ccb-foot {
             display: flex; justify-content: flex-end; gap: 8px;
-            padding: 10px 14px; border-top: 1px solid #e0cda0;
+            padding: 10px 14px; border-top: 1px solid var(--shs-border, #e0cda0);
         }
         .vanta-ccb-btn {
-            border: 1px solid #cbb384; border-radius: 8px; background: #fbf4de;
-            color: #5a3a16; padding: 5px 14px; font-size: 12px; font-weight: 600;
+            border: 1px solid var(--shs-border-strong, #cbb384); border-radius: 8px; background: var(--shs-bg-field, #fbf4de);
+            color: var(--shs-ink, #5a3a16); padding: 5px 14px; font-size: 12px; font-weight: 600;
             font-family: inherit; cursor: pointer;
         }
-        .vanta-ccb-btn:hover { background: #efe2ba; }
-        .vanta-ccb-btn--danger { background: #fceaea; border-color: #c04038; color: #c04038; }
+        .vanta-ccb-btn:hover { background: var(--shs-bg-head, #efe2ba); }
+        .vanta-ccb-btn--danger { background: var(--shs-danger-bg, #fceaea); border-color: var(--shs-danger, #c04038); color: var(--shs-danger, #c04038); }
         .vanta-ccb-btn--danger:hover { background: #f8d7d7; }
     `;
   document.head.appendChild(style);
@@ -170,7 +171,7 @@ export function vantaConfirm(scope: ModuleScope, opts: VantaConfirmOptions): Pro
             <div class="vanta-ccb-modal">
                 <div class="vanta-ccb-head">
                     <span class="vanta-ccb-title"></span>
-                    <button type="button" class="vanta-ccb-close" aria-label="Fechar">✕</button>
+                    <button type="button" class="vanta-ccb-close" aria-label="Fechar">${iconMarkup('x', 13)}</button>
                 </div>
                 <div class="vanta-ccb-body">
                     <div class="vanta-ccb-msg"></div>
@@ -424,6 +425,7 @@ function gameError(json: Record<string, unknown>): string | null {
 registerVanta({
   id: 'vanta-cancelamento-bloco',
   label: 'Cancelamento em Bloco',
+  icon: 'x',
   desc: 'Cancela vários comandos de uma vez, com confirmação',
   group: 'defesa',
   match: () => {
