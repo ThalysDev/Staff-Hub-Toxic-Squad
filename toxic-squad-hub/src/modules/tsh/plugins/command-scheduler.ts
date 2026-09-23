@@ -21,6 +21,7 @@
 //   e dispara no sendAt exato — revalidando pausa/terminal depois da mira.
 
 import { z } from 'zod';
+import { alert } from '../tsh-alerts';
 import { registerTsh, renewTshLock, type TshAutomation, type TshCycleContext } from '../tsh-runtime';
 import { cancelGameCommandsAtTarget, isUncertainMutationError, normalizeVillageId, submitCommand2Step } from '../tsh-transport';
 import { pacedGet } from '../../../core/net';
@@ -586,10 +587,23 @@ async function fireCancelCommand(ctx: TshCycleContext, record: ScheduledCommandR
   try {
     const preparsedHtml = freshCancelPreread(target, Date.now());
     const result = await cancelGameCommandsAtTarget(target, count, preparsedHtml);
+    // Pré-canário: NENHUM cancelamento feito (cancelled 0) com falha de POST é
+    // fato terminal 'falhou' — gravar 'enviado' aqui era um selo que mentia.
+    // Misto (algum cancelado + falha) continua 'enviado', com o detalhe.
+    const allFailed = result.cancelled === 0 && result.failed > 0;
     ctx.storage.set(
       SCHEDULER_STORAGE_KEY,
-      appendSchedulerEvent(readSchedulerState(ctx), record.id, 'enviado', new Date().toISOString(), result.message),
+      appendSchedulerEvent(
+        readSchedulerState(ctx),
+        record.id,
+        allFailed ? 'falhou' : 'enviado',
+        new Date().toISOString(),
+        result.message,
+      ),
     );
+    if (allFailed) {
+      alert('comando_falhou', `Cancelamento em ${target} (comando ${record.id}) falhou: ${result.message}`);
+    }
     ctx.status(`Cancelamento em ${target}: ${result.message}`, result.failed > 0 ? 'warn' : 'ok');
   } catch (error) {
     if (isUncertainMutationError(error)) {
@@ -652,6 +666,10 @@ async function fireCommand(
       ),
     );
     ctx.status(`Comando ${record.id} enviado para ${target} (${record.kind}).`, 'ok');
+    // Canal de alertas (Onda 6): só o nobre avisa — os demais envios seriam spam.
+    if (record.kind === 'noble') {
+      alert('comando_enviado', `Nobre enviado para ${target} (comando ${record.id}).`);
+    }
   } catch (error) {
     if (isUncertainMutationError(error)) {
       // Mutação inconclusiva: registra o fato terminal — NUNCA reenvia às cegas.
@@ -712,6 +730,10 @@ function holdSchedulerCommands(
     ctx.status(
       `Comando ${record.id} segurado pelo Envio automático desligado e a janela (${sendAtClockLabel(record)}) venceu — marcado como falhou, nada foi enviado.`,
       'warn',
+    );
+    alert(
+      'comando_falhou',
+      `Comando ${record.id} para ${record.target.x}|${record.target.y} venceu segurado (Envio automático desligado) — nada foi enviado.`,
     );
   }
 
@@ -850,11 +872,17 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
         );
         // P2-2 (revisão): cancelamento chegando — pré-lê a Visão de Comandos
         // AGORA (fila normal) para que no sendAt só os POSTs urgentes corram.
+        // Pré-canário: SEM aguardar — a pré-leitura é otimização e não pode
+        // segurar a mira (com a fila normal ocupada, o await acordava o ciclo
+        // DEPOIS da janela e o comando virava 'falhou' sem disparar). Roda
+        // concorrente ao sleep; se não ficar pronta a tempo, o disparo usa o
+        // fallback normal (busca no transporte). prereadCancelPage engole os
+        // próprios erros — nenhuma promise rejeitada fica solta.
         const proximo = own
           .filter((record) => Number.isFinite(Date.parse(record.sendAt)) && Date.parse(record.sendAt) === nextSendAt)
           .find((record) => record.kind === 'cancel');
         if (proximo !== undefined) {
-          await prereadCancelPage(ctx, `${proximo.target.x}|${proximo.target.y}`);
+          void prereadCancelPage(ctx, `${proximo.target.x}|${proximo.target.y}`);
         }
         await sleep(Math.min(waitMs, 90_000));
         // P2 (revisão Onda 9): renova o lock após o sono longo — a mira final
@@ -983,7 +1011,7 @@ export const commandSchedulerAutomation: TshAutomation = {
       key: 'autoSend',
       label: 'Envio automático',
       type: 'boolean',
-      help: 'Desligado: nada é enviado. O comando devido fica SEGURADO e é reavaliado a cada ciclo — religar dentro da tolerância de atraso o dispara; passada a tolerância, ele é marcado como falhou (sem envio). A confirmação aberta fica para você confirmar à mão.',
+      help: 'Desligado: nada é enviado. O comando devido fica SEGURADO e é reavaliado a cada ciclo — religar dentro da tolerância de atraso o dispara; passada a tolerância, ele é marcado como falhou (sem envio). Exceção: comandos marcados como "forçar" permanecem segurados até a janela deles vencer (forçar aceita atraso, não dispara às cegas). A confirmação aberta fica para você confirmar à mão.',
     },
   ],
   runCycle,

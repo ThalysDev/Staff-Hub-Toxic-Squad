@@ -61,6 +61,8 @@ const POLL_INTERVAL_MS = 100;
 const CONFIRM_TIMEOUT_MS = 3_000;
 const COMMAND_CONFIRM_TIMEOUT_MS = 10_000;
 const GAME_API_TIMEOUT_MS = 4_000;
+/** Teto do POST urgente de cancelamento (mesmo espírito do GET de 30s do core). */
+const CANCEL_POST_TIMEOUT_MS = 15_000;
 
 export interface TransportError extends Error {
   code: string;
@@ -879,7 +881,8 @@ export function parseCancelableRows(html: string, target: { x: number; y: number
  * `preparsedHtml` (P2-2 da revisão): HTML da Visão de Comandos lido ANTES do
  * instante sendAt pelo chamador — quando ausente, a leitura acontece aqui
  * (comportamento anterior). Para no primeiro POST que falha (fail-closed —
- * nunca martela o jogo) e devolve o resumo do que conseguiu.
+ * nunca martela o jogo) e devolve o resumo do que conseguiu; o POST tem teto
+ * de 15s (abort = falha) para não pendurar a fila urgente.
  */
 export async function cancelGameCommandsAtTarget(
   target: string,
@@ -905,13 +908,26 @@ export async function cancelGameCommandsAtTarget(
   let message = '';
   for (const row of alvo) {
     const ok = await enqueueUrgent(async () => {
-      const response = await fetch(row.url, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: '',
-      });
-      return response.ok;
+      // Timeout do POST urgente (pré-canário): sem AbortController um fetch
+      // pendurado trava a fila URGENTE INTEIRA para sempre. Abort = falha do
+      // POST (mesmo tratamento do HTTP não-OK: para o lote).
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), CANCEL_POST_TIMEOUT_MS);
+      try {
+        const response = await fetch(row.url, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: '',
+          signal: controller.signal,
+        });
+        return response.ok;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return false;
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
     });
     if (ok) {
       cancelled += 1;
