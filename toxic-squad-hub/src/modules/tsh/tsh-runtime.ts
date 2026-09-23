@@ -119,6 +119,11 @@ export function armTsh(id: string): void {
   gm.set(armKey(id), Date.now() + ARM_TTL_MS);
 }
 
+/** Desarma na hora (Onda C: "Desarmar todas" no painel). */
+export function disarmTsh(id: string): void {
+  gm.set(armKey(id), 0);
+}
+
 export function tshArmedUntil(id: string): number {
   return gm.get<number>(armKey(id), 0);
 }

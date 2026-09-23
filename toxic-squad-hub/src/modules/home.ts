@@ -6,7 +6,7 @@
 import { icon, type IconName } from '../core/icons';
 import { gm } from '../core/storage';
 import { licenseState } from '../core/license';
-import { pageWindow } from '../core/page';
+import { currentWorld, pageWindow } from '../core/page';
 import { gameContext } from '../core/shell';
 import { isVantaEnabled, vantaLaunchers } from './vanta/vanta-registry';
 import { isTshEnabled, tshArmedUntil, tshAutomations, tshNextRunAt, tshStatus } from './tsh/tsh-runtime';
@@ -114,7 +114,7 @@ interface CommandRecordLike {
  * e os pausados deixaram de inflar o número. nextAt = menor sendAt futuro
  * ENTRE os vivos.
  */
-function nextScheduled(world: string): { count: number; nextAt: number | null } {
+export function nextScheduled(world: string): { count: number; nextAt: number | null } {
   const state = gm.get<{ commands?: unknown[] }>(`tsh-auto:${world}:command-scheduler:scheduler`, {});
   const commands = Array.isArray(state.commands) ? state.commands : [];
   const vivos = commands.filter((raw): raw is CommandRecordLike => {
@@ -149,7 +149,7 @@ function homeSignature(world: string): string {
  * quando algo muda); devolve a limpeza do timer ao shell.
  */
 export function renderHome(container: HTMLElement): () => void {
-  const world = gameContext().world;
+  const world = currentWorld();
   drawHome(container);
   let signature = homeSignature(world);
   const timer = window.setInterval(() => {
@@ -227,7 +227,7 @@ function drawHome(container: HTMLElement): void {
   const autos = tshAutomations();
   const autoOn = autos.filter((a) => isTshEnabled(a.id));
   const armados = autos.filter((a) => a.mutating && a.armExempt !== true && Date.now() < tshArmedUntil(a.id)).length;
-  const sched = nextScheduled(ctx.world);
+  const sched = nextScheduled(currentWorld());
   const stat = (label: string, value: string): HTMLElement => {
     const row = document.createElement('div');
     row.className = 'home-stat';
@@ -276,8 +276,8 @@ function drawHome(container: HTMLElement): void {
     name.className = 'home-act-name';
     name.textContent = auto.label;
     row.appendChild(name);
-    const schedule = loadSchedule(ctx.world, auto.id);
-    const status = tshStatus(auto.id, ctx.world);
+    const schedule = loadSchedule(currentWorld(), auto.id);
+    const status = tshStatus(auto.id, currentWorld());
     const pill = document.createElement('span');
     if (isScheduleStopped(schedule)) {
       pill.className = 'home-pill home-pill--warn';
@@ -300,7 +300,7 @@ function drawHome(container: HTMLElement): void {
       msg.textContent = status.message;
       row.appendChild(msg);
     }
-    const nextAt = tshNextRunAt(auto.id, ctx.world);
+    const nextAt = tshNextRunAt(auto.id, currentWorld());
     if (nextAt !== null && nextAt > Date.now()) {
       const next = document.createElement('span');
       next.className = 'home-act-next';

@@ -249,8 +249,8 @@ registerVanta({
           const shownName = escapeHtml(name);
           const actionCell =
             name === 'Próprias'
-              ? `<td class="vanta-b-acoes"><div class="vanta-b-dropdown"><button class="vanta-b-acoes-trigger">Ações ▾</button><div class="vanta-b-dropdown-menu" hidden><button class="vanta-b-devolver-btn" data-player="${escapedName}">↩ Devolver tudo</button><button class="vanta-b-devolver-parcial-btn">✂ Devolver parcial</button><button class="vanta-b-analise-grupo-btn">📊 Análise por Grupo</button></div></div></td>`
-              : `<td class="vanta-b-acoes"><div class="vanta-b-dropdown"><button class="vanta-b-acoes-trigger">Ações ▾</button><div class="vanta-b-dropdown-menu" hidden><button class="vanta-b-devolver-btn" data-player="${escapedName}">↩ Devolver tudo</button></div></div></td>`;
+              ? `<td class="vanta-b-acoes"><div class="vanta-b-dropdown"><button type="button" class="vanta-b-acoes-trigger">Ações ▾</button><div class="vanta-b-dropdown-menu" hidden><button type="button" class="vanta-b-devolver-btn" data-player="${escapedName}">↩ Devolver tudo</button><button type="button" class="vanta-b-devolver-parcial-btn">✂ Devolver parcial</button><button type="button" class="vanta-b-analise-grupo-btn">📊 Análise por Grupo</button></div></div></td>`
+              : `<td class="vanta-b-acoes"><div class="vanta-b-dropdown"><button type="button" class="vanta-b-acoes-trigger">Ações ▾</button><div class="vanta-b-dropdown-menu" hidden><button type="button" class="vanta-b-devolver-btn" data-player="${escapedName}">↩ Devolver tudo</button></div></div></td>`;
           return `<tr${name === 'Próprias' ? ' class="vanta-proprias-row"' : ''}><td class="vanta-b-player">${shownName}</td>${cells}<td>${d.pop}</td>${actionCell}</tr>`;
         })
         .join('');
@@ -297,8 +297,8 @@ registerVanta({
                             ${UNITS.map((u) => `<td class="vanta-parcial-cell"><input id="vanta-parcial-input-${u}" type="number" min="0" value="0"><span class="vanta-parcial-max" id="vanta-parcial-max-${u}">–</span></td>`).join('')}
                             <td id="vanta-parcial-pop" class="vanta-parcial-pop-cell"><input id="vanta-parcial-pop-input" type="number" min="0" value="" placeholder="Pop"><span id="vanta-parcial-pop-calc">–</span></td>
                             <td class="vanta-b-acoes" id="vanta-parcial-btns">
-                                <button id="vanta-preencher-parcial">Preencher</button>
-                                <button id="vanta-parcial-cancel">✕</button>
+                                <button type="button" id="vanta-preencher-parcial">Preencher</button>
+                                <button type="button" id="vanta-parcial-cancel">✕</button>
                             </td>
                         </tr>
                         <tr id="vanta-blindagem-resumo-row" style="display:none">
@@ -315,11 +315,11 @@ registerVanta({
                 <div id="vanta-ag-summary"></div>
                 <div id="vanta-ag-picker" style="display:none"></div>
                 <div id="vanta-ag-status"></div>
-                <div id="vanta-ag-actions"><button id="vanta-ag-analisar" disabled>Analisar</button></div>
+                <div id="vanta-ag-actions"><button type="button" id="vanta-ag-analisar" disabled>Analisar</button></div>
                 <div id="vanta-ag-results"></div>
             </div>
             <div id="vanta-blindagem-actions">
-                <button id="vanta-enviar-de-volta" disabled>Enviar de Volta</button>
+                <button type="button" id="vanta-enviar-de-volta" disabled>Enviar de Volta</button>
             </div>
         `;
 
@@ -855,7 +855,7 @@ registerVanta({
           lastAnaliseData = analiseData;
 
           const buildActionCell = (dataAttr: string): string =>
-            `<td class="vanta-ag-acoes"><div class="vanta-b-dropdown"><button class="vanta-b-acoes-trigger vanta-ag-trigger">Ações ▾</button><div class="vanta-b-dropdown-menu" hidden><button class="vanta-ag-devolver-btn" ${dataAttr}>↩ Devolver tudo</button><button class="vanta-ag-parcial-btn" ${dataAttr}>✂ Devolver parcial</button></div></div></td>`;
+            `<td class="vanta-ag-acoes"><div class="vanta-b-dropdown"><button type="button" class="vanta-b-acoes-trigger vanta-ag-trigger">Ações ▾</button><div class="vanta-b-dropdown-menu" hidden><button type="button" class="vanta-ag-devolver-btn" ${dataAttr}>↩ Devolver tudo</button><button type="button" class="vanta-ag-parcial-btn" ${dataAttr}>✂ Devolver parcial</button></div></div></td>`;
 
           const groupRows = groupEntries
             .map((g, i) => {
@@ -876,7 +876,7 @@ registerVanta({
           }).join('');
           const totalRow = `<tr class="vanta-ag-total"><td class="vanta-ag-group-name">Total</td>${totalCells2}<td>${totalPop}</td><td></td></tr>`;
 
-          const parcialRow = `<tr id="vanta-ag-parcial-tr" style="display:none"><td class="vanta-ag-group-name" style="color:#888;font-size:10px;white-space:normal;line-height:1.3">Tropas a devolver</td>${UNITS.map((u) => `<td class="vanta-ag-parcial-cell"><input id="vanta-ag-parcial-input-${u}" type="number" min="0" value="0"><span class="vanta-ag-parcial-max" id="vanta-ag-parcial-max-${u}">–</span></td>`).join('')}<td id="vanta-ag-parcial-pop" class="vanta-parcial-pop-cell"><input id="vanta-ag-parcial-pop-input" type="number" min="0" value="" placeholder="Pop"><span id="vanta-ag-parcial-pop-calc">–</span></td><td class="vanta-ag-acoes" id="vanta-ag-parcial-btns"><button id="vanta-ag-preencher-parcial">Preencher</button><button id="vanta-ag-parcial-cancel">✕</button></td></tr>`;
+          const parcialRow = `<tr id="vanta-ag-parcial-tr" style="display:none"><td class="vanta-ag-group-name" style="color:#888;font-size:10px;white-space:normal;line-height:1.3">Tropas a devolver</td>${UNITS.map((u) => `<td class="vanta-ag-parcial-cell"><input id="vanta-ag-parcial-input-${u}" type="number" min="0" value="0"><span class="vanta-ag-parcial-max" id="vanta-ag-parcial-max-${u}">–</span></td>`).join('')}<td id="vanta-ag-parcial-pop" class="vanta-parcial-pop-cell"><input id="vanta-ag-parcial-pop-input" type="number" min="0" value="" placeholder="Pop"><span id="vanta-ag-parcial-pop-calc">–</span></td><td class="vanta-ag-acoes" id="vanta-ag-parcial-btns"><button type="button" id="vanta-ag-preencher-parcial">Preencher</button><button type="button" id="vanta-ag-parcial-cancel">✕</button></td></tr>`;
 
           const resumoRow = `<tr id="vanta-ag-resumo-row" style="display:none"><td class="vanta-ag-group-name" id="vanta-ag-resumo-label"></td>${UNITS.map((u) => `<td id="vanta-ag-resumo-${u}">–</td>`).join('')}<td id="vanta-ag-resumo-pop"></td><td></td></tr>`;
 

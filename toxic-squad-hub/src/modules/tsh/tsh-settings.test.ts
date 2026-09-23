@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { isScheduleStopped, scheduleError, stopLabel, withinActiveWindow, type TshSchedule } from './tsh-settings';
+import { numberFieldIssue } from './tsh-settings-ui';
 
 const AT = new Date(2026, 8, 23, 12, 0, 0); // 23/09/2026 12:00 local
 
@@ -79,5 +80,18 @@ describe('withinActiveWindow', () => {
   });
   it('janela degenerada (início == fim) = sempre', () => {
     expect(withinActiveWindow({ activeFrom: '08:00', activeTo: '08:00' }, at(20, 0))).toBe(true);
+  });
+});
+
+describe('numberFieldIssue (Onda C — validação visível)', () => {
+  it('vazio e dentro da faixa passam', () => {
+    expect(numberFieldIssue('', { min: 1, max: 10 })).toBeNull();
+    expect(numberFieldIssue('5', { min: 1, max: 10 })).toBeNull();
+    expect(numberFieldIssue('2,5', { min: 1, max: 10 })).toBeNull();
+  });
+  it('fora da faixa e lixo viram mensagem', () => {
+    expect(numberFieldIssue('0', { min: 1 })).toBe('mínimo 1');
+    expect(numberFieldIssue('99', { max: 10 })).toBe('máximo 10');
+    expect(numberFieldIssue('abc', {})).toBe('não é um número');
   });
 });

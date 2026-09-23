@@ -403,7 +403,7 @@ registerVanta({
     widget.innerHTML = `
         <div id="vanta-previa-header">
             <span id="vanta-previa-title">Prévia de Aldeia</span>
-            <button id="vanta-previa-close" title="Fechar">×</button>
+            <button type="button" id="vanta-previa-close" title="Fechar">×</button>
         </div>
         <div id="vanta-previa-body">
             <label id="vanta-previa-toggle-row">
@@ -462,13 +462,13 @@ registerVanta({
           <div id="vanta-previa-card">
               <div id="vanta-previa-card-header">
                   <span id="vanta-previa-card-title"></span>
-                  <button id="vanta-previa-card-close" title="Fechar">×</button>
+                  <button type="button" id="vanta-previa-card-close" title="Fechar">×</button>
               </div>
               <div id="vanta-previa-card-body"></div>
               <div id="vanta-previa-card-footer">
                   <span id="vanta-previa-note"></span>
-                  <button class="vanta-previa-btn" id="vanta-previa-open">Abrir de verdade</button>
-                  <button class="vanta-previa-btn" id="vanta-previa-cancel">Fechar</button>
+                  <button type="button" class="vanta-previa-btn" id="vanta-previa-open">Abrir de verdade</button>
+                  <button type="button" class="vanta-previa-btn" id="vanta-previa-cancel">Fechar</button>
               </div>
           </div>
       `;

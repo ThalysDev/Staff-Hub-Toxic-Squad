@@ -33,3 +33,15 @@ export function gameContextFrom(data: GameData | undefined): { player: string; w
     villageId: String(data?.village?.id ?? '—'),
   };
 }
+
+/**
+ * Mundo atual para CHAVES de storage — a MESMA regra do motor de automações
+ * (subdomínio do hostname: br142.tribalwars.com.br → br142; fallback
+ * game_data.world). Onda C: a Início usava game_data.world e o motor o
+ * hostname — em mundos com nomes divergentes os números não batiam.
+ */
+export function currentWorld(): string {
+  const sub = window.location.hostname.split('.')[0];
+  if (sub !== undefined && sub !== '') return sub;
+  return pageWindow().game_data?.world ?? 'mundo';
+}

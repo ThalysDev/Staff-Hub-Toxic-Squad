@@ -55,6 +55,8 @@ interface TshModal {
    * Esc ou clique fora com alterações pede confirmação (antes perdia tudo).
    */
   markClean: (scope?: HTMLElement) => void;
+  /** Fecha PERGUNTANDO se houver alterações não salvas (botão "Fechar"). */
+  requestClose: () => void;
 }
 
 /** Pilha de diálogos abertos (Onda B: Esc fecha só o do TOPO, não todos). */
@@ -152,6 +154,8 @@ export function buildTshModal(
   opts?: { onClose?: () => void },
 ): TshModal {
   const token = Symbol('tsh-modal');
+  // A11y (revisão Onda C): o foco volta para quem abriu o diálogo ao fechar.
+  const opener = shadow.activeElement instanceof HTMLElement ? shadow.activeElement : null;
   let cleanSnapshot: string | null = null;
   let dirtyScope: HTMLElement | null = null;
   ensureTshPanelStyles(shadow);
@@ -216,6 +220,7 @@ export function buildTshModal(
     const index = modalStack.indexOf(token);
     if (index >= 0) modalStack.splice(index, 1);
     overlay.remove();
+    if (opener !== null && opener.isConnected) opener.focus();
     opts?.onClose?.();
   };
   /** X / Esc / clique fora: com alterações não salvas, pergunta antes. */
@@ -247,7 +252,15 @@ export function buildTshModal(
     dirtyScope = scope ?? body;
     cleanSnapshot = formSnapshot(dirtyScope);
   };
-  return { body, foot, close, markClean };
+  return {
+    body,
+    foot,
+    close,
+    markClean,
+    requestClose: () => {
+      void requestClose();
+    },
+  };
 }
 
 // ── Diálogo de confirmação (substitui window.confirm — P2 auditoria) ──
@@ -290,7 +303,9 @@ export function tshConfirm(
       close();
     });
     foot.append(cancelBtn, okBtn);
-    okBtn.focus(); // foco na ação (o scaffold foca o X do cabeçalho)
+    // Ação perigosa: o foco fica em Cancelar (Enter não destrói por engano).
+    if (opts?.danger === true) cancelBtn.focus();
+    else okBtn.focus();
   });
 }
 
@@ -468,6 +483,45 @@ function renderField(
   if (field.help !== undefined) appendHelp(side, field.help);
   bindings.push({ field, input, initial });
   return wrap;
+}
+
+/**
+ * Onda C — validação VISÍVEL de número (antes o Salvar corrigia em silêncio):
+ * null = ok (vazio também é ok: cai no padrão); senão a mensagem pt-BR.
+ */
+export function numberFieldIssue(raw: string, limits: { min?: number; max?: number }): string | null {
+  const trimmed = raw.trim();
+  if (trimmed === '') return null;
+  const n = Number(trimmed.replace(',', '.'));
+  if (!Number.isFinite(n)) return 'não é um número';
+  if (limits.min !== undefined && n < limits.min) return `mínimo ${limits.min}`;
+  if (limits.max !== undefined && n > limits.max) return `máximo ${limits.max}`;
+  return null;
+}
+
+/** Marca/desmarca os campos numéricos fora da faixa; devolve as mensagens. */
+function validateNumberBindings(bindings: readonly FieldBinding[]): string[] {
+  const issues: string[] = [];
+  const check = (input: HTMLInputElement, label: string, limits: { min?: number; max?: number }): void => {
+    // "1e" num campo numérico lê como '' — o navegador sinaliza badInput.
+    const issue = input.validity.badInput ? 'não é um número' : numberFieldIssue(input.value, limits);
+    input.classList.toggle('tsh-input--invalid', issue !== null);
+    input.setAttribute('aria-invalid', issue !== null ? 'true' : 'false');
+    if (issue !== null) issues.push(`${label}: ${issue}`);
+  };
+  for (const binding of bindings) {
+    const field = binding.field;
+    if (field.type === 'number' && binding.input instanceof HTMLInputElement) {
+      check(binding.input, field.label, { ...(field.min !== undefined ? { min: field.min } : {}), ...(field.max !== undefined ? { max: field.max } : {}) });
+    } else if (field.type === 'record') {
+      for (const rk of field.recordKeys ?? []) {
+        const input = binding.recordInputs?.[rk.key];
+        if (input === undefined) continue;
+        check(input, `${field.label} (${rk.label})`, { ...(rk.min !== undefined ? { min: rk.min } : {}), ...(rk.max !== undefined ? { max: rk.max } : {}) });
+      }
+    }
+  }
+  return issues;
 }
 
 /** Lê o valor do input já convertido/clampado para gravar no settings. */
@@ -716,6 +770,11 @@ export function openTshSettingsModal(
       showError(erro);
       return;
     }
+    const issues = validateNumberBindings(bindings);
+    if (issues.length > 0) {
+      showError(`Corrija os campos destacados — ${issues.join(' · ')}.`);
+      return;
+    }
     const values: Record<string, unknown> = {};
     for (const binding of bindings) collectFieldValue(binding, values);
     saveSchedule(world, automation.id, nextSchedule);
@@ -725,6 +784,12 @@ export function openTshSettingsModal(
   });
 
   foot.append(resetBtn, buttonRow(cancelBtn, saveBtn));
+  // Onda C: o destaque some assim que o valor volta para a faixa.
+  body.addEventListener('input', (event) => {
+    if (event.target instanceof HTMLInputElement && event.target.classList.contains('tsh-input--invalid')) {
+      validateNumberBindings(bindings);
+    }
+  });
   markClean(); // Onda B: fechar com alterações pede confirmação
 }
 

@@ -48,6 +48,8 @@ export interface SearchEntry {
    * este valor é rolado até a vista e destacado após a navegação.
    */
   targetId?: string;
+  /** Prepara a seção antes de navegar (ex.: tirar filtro que esconde o alvo). */
+  beforeNavigate?: () => void;
 }
 
 const searchEntries = new Map<string, SearchEntry>();
@@ -89,10 +91,32 @@ function isEditableTarget(node: EventTarget | undefined): boolean {
 function isolateKeyboard(host: HTMLElement): void {
   const stop = (event: Event): void => {
     const key = event as KeyboardEvent;
-    if (key.key === 'Escape' || key.ctrlKey || key.metaKey) return;
+    // Esc/Tab seguem (diálogos e foco preso); Ctrl/⌘ são comandos — exceto
+    // AltGr (teclado ABNT2 reporta ctrlKey no AltGr+Q = "/").
+    const comando = (key.ctrlKey || key.metaKey) && !key.getModifierState('AltGraph');
+    if (key.key === 'Escape' || key.key === 'Tab' || comando) return;
     if (isEditableTarget(event.composedPath()[0])) event.stopPropagation();
   };
   for (const type of ['keydown', 'keypress', 'keyup']) host.addEventListener(type, stop);
+}
+
+/**
+ * Onda C — alerta no botão flutuante: com texto, o escudo pulsa em latão e o
+ * rótulo acessível/tooltip dizem o motivo (ex.: cravado chegando); null limpa.
+ */
+export function setFabAlert(text: string | null): void {
+  const fab = document.getElementById('shs-in-game-host')?.shadowRoot?.querySelector<HTMLButtonElement>('.shs-fab');
+  if (fab === null || fab === undefined) return;
+  // Só escreve quando muda (leitores de tela não re-anunciam a cada segundo).
+  if ((fab.getAttribute('data-tip') ?? null) === text) return;
+  fab.classList.toggle('shs-fab--alert', text !== null);
+  if (text !== null) {
+    fab.setAttribute('data-tip', text);
+    fab.setAttribute('aria-label', `Abrir Toxic Squad Hub — ${text}`);
+  } else {
+    fab.removeAttribute('data-tip');
+    fab.setAttribute('aria-label', 'Abrir Toxic Squad Hub');
+  }
 }
 
 export function currentScreen(): string {
@@ -157,6 +181,11 @@ function styles(): string {
       box-shadow: 0 3px 10px rgba(40,24,6,.45), inset 0 1px 0 rgba(255,255,255,.12); }
     .shs-fab:hover { border-color: var(--shs-brass); color: #f5ecd0; }
     .shs-fab:focus-visible { outline: 2px solid var(--shs-brass); outline-offset: 2px; }
+    @keyframes shs-fab-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(217,165,32,.0), 0 3px 10px rgba(40,24,6,.45); }
+      50% { box-shadow: 0 0 0 6px rgba(217,165,32,.55), 0 3px 10px rgba(40,24,6,.45); } }
+    .shs-fab--alert { border-color: var(--shs-brass-bright); animation: shs-fab-pulse 1.2s ease-in-out infinite; }
+    .shs-fab[data-tip]:hover::after { left: 0; transform: none; bottom: calc(100% + 8px); }
+    .shs-fab[data-tip]:hover::before { left: 16px; transform: none; }
 
     /* ---- Painel (janela Nexus) ---- */
     .shs-panel { position: fixed; left: 10px; bottom: 62px; z-index: 2147483000;
@@ -176,6 +205,9 @@ function styles(): string {
     /* Minimizado: recolhe TUDO exceto o header (a janela encolhe com ele);
        o ⤢ de maximizar some — não faz sentido com o corpo escondido. */
     .shs-panel--min > :not(.shs-head) { display: none !important; }
+    /* Minimizado = só o cabeçalho: sem recorte, para tooltips e a lista da
+       busca não serem cortados (revisão Onda C). */
+    .shs-panel--min { overflow: visible; }
     .shs-panel--app.shs-panel--min { height: auto; }
     .shs-panel--min .shs-headbtn[data-max] { display: none; }
     /* [11] Momento autoral ÚNICO do shell: entrada do painel ao abrir (FAB ou
@@ -388,6 +420,9 @@ function styles(): string {
       transform: translateX(-50%); z-index: 2147483600;
       border: 5px solid transparent; border-top-color: var(--shs-ink-strong);
       pointer-events: none; }
+    /* P0 revisão Onda C: o [data-tip] acima (position: relative) NÃO pode
+       tirar o botão flutuante do canto quando ele ganha tooltip de alerta. */
+    .shs-fab, .shs-fab[data-tip] { position: fixed; }
 
     /* ---- Spinner (currentColor: visível em botão primário E ghost/danger) ---- */
     .shs-spinner { width: 13px; height: 13px; display: inline-block;
@@ -499,7 +534,8 @@ export function mountShell(): void {
 
   const fab = document.createElement('button');
   fab.className = 'shs-fab';
-  fab.title = 'Toxic Squad Hub';
+  fab.type = 'button';
+
   fab.setAttribute('aria-label', 'Abrir Toxic Squad Hub');
   fab.appendChild(icon('shield', 22));
   fab.addEventListener('click', () => {
@@ -647,6 +683,8 @@ export function mountShell(): void {
   const searchPop = document.createElement('div');
   searchPop.className = 'shs-searchpop';
   searchWrap.append(searchInput, searchPop);
+  // Clique na lista (inclusive na barra de rolagem) não tira o foco do campo.
+  searchPop.addEventListener('mousedown', (event) => event.preventDefault());
 
   // Seção ativa: desenha com LIMPEZA do anterior (timers ao vivo) e lembra a
   // escolha entre páginas (Onda B: antes voltava sempre para "Início").
@@ -754,8 +792,8 @@ export function mountShell(): void {
         hint.textContent = entry.hint;
         botao.appendChild(hint);
       }
-      botao.addEventListener('mousedown', (event) => event.preventDefault()); // não rouba o foco
       botao.addEventListener('click', () => {
+        entry.beforeNavigate?.();
         switchToSection(entry.sectionId, entry.targetId);
         searchInput.value = '';
         closeSearch();

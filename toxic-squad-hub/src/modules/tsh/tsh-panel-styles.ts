@@ -783,6 +783,27 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
     .tsh-input--ms { width: 72px !important; flex: none; }
     .tsh-ms-suffix { font-size: 11px; color: var(--shs-muted, #6f5e40); }
     .tsh-btn--sm { padding: 3px 8px; font-size: 11px; }
+    .tsh-history { margin-top: 10px; }
+    /* Onda C: barra de filtro/ações em massa e grupos recolhíveis. */
+    .tsh-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 2px; }
+    .tsh-seg { display: inline-flex; border: 1px solid var(--shs-border-strong, #cbb384);
+      border-radius: 8px; overflow: hidden; }
+    .tsh-seg-btn { border: none; background: transparent; padding: 4px 10px; cursor: pointer;
+      font: inherit; font-size: 11.5px; font-weight: 600; color: var(--shs-ink, #5a3a16); }
+    .tsh-seg-btn + .tsh-seg-btn { border-left: 1px solid var(--shs-border-strong, #cbb384); }
+    .tsh-seg-btn[aria-checked='true'] { background: var(--shs-action, #6d3c14); color: #f7ecd2; }
+    .tsh-seg-btn:focus-visible { outline: 2px solid var(--shs-brass, #b8860b); outline-offset: -2px; }
+    button.tsh-group-title { width: 100%; border: none; background: transparent; cursor: pointer;
+      text-align: left; font-family: inherit; padding-left: 0; padding-right: 0; }
+    button.tsh-group-title:hover { color: var(--shs-ink, #5a3a16); }
+    button.tsh-group-title:focus-visible { outline: 2px solid var(--shs-brass, #b8860b); outline-offset: 2px; }
+    .tsh-input--invalid { border-color: var(--shs-danger, #c04038) !important;
+      background: var(--shs-danger-bg, #fceaea) !important; }
+    .tsh-history > summary {
+      cursor: pointer; font-size: 11.5px; font-weight: 700; color: var(--shs-muted, #6f5e40);
+      padding: 4px 0; list-style-position: inside;
+    }
+    .tsh-history > summary:hover { color: var(--shs-ink, #5a3a16); }
   `;
   shadow.appendChild(style);
 }

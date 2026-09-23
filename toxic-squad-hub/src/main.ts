@@ -4,20 +4,23 @@
 // no Staff Hub In-Game (../userscript) — produto separado da liderança.
 
 import { gate, licenseState, activate, logout, type LicenseState } from './core/license';
-import { ensureHost, mountShell, registerSection, registerSearchEntries } from './core/shell';
-import { gameContext } from './core/shell';
+import { ensureHost, gameContext, mountShell, registerSection, registerSearchEntries, setFabAlert } from './core/shell';
 import { card, cardTitle, iconButton, spinner } from './core/ui';
 import { icon } from './core/icons';
 import { renderVantaSuite, runVantaOnLoad } from './modules/vanta';
 import { vantaLaunchers } from './modules/vanta/vanta-registry';
 import { renderTshPanel, startTshHeartbeat } from './modules/tsh';
-import { tshAutomations } from './modules/tsh/tsh-runtime';
+import { isTshEnabled, tshAutomations } from './modules/tsh/tsh-runtime';
+import { revealTshAutomation } from './modules/tsh/tsh-panel';
 import {
   isSentinelaTab,
   mountSentinelaLauncher,
   startSentinelaBadge,
 } from './modules/tsh/tsh-sentinela';
-import { renderHome } from './modules/home';
+import { nextScheduled, renderHome } from './modules/home';
+import { currentWorld } from './core/page';
+import { serverNowMs } from './core/game-clock';
+import { clockLabelMs } from './ext/core/timing/precise-fire';
 import { renderAjuda } from './modules/ajuda';
 import { createModuleScope } from './modules/vanta/vanta-lifecycle';
 
@@ -193,6 +196,32 @@ function renderActivation(onActivate: () => void): void {
   input.focus();
 }
 
+/**
+ * Onda C — aviso de cravado: com um comando agendado nos próximos 2 min, o
+ * escudo flutuante pulsa e o tooltip mostra o horário (quem está com o
+ * painel fechado sabe que NÃO deve fechar a aba agora).
+ */
+function startAimWatcher(): void {
+  window.setInterval(() => {
+    // Agendador desligado não envia nada — sem alerta enganoso.
+    if (!isTshEnabled('command-scheduler')) {
+      setFabAlert(null);
+      return;
+    }
+    const { nextAt } = nextScheduled(currentWorld());
+    if (nextAt === null) {
+      setFabAlert(null);
+      return;
+    }
+    const falta = nextAt - serverNowMs();
+    if (falta > 0 && falta <= 120_000) {
+      setFabAlert(`Comando agendado às ${clockLabelMs(nextAt)} — mantenha esta aba aberta`);
+    } else {
+      setFabAlert(null);
+    }
+  }, 1_000);
+}
+
 function main(): void {
   // Aba Sentinela (Onda 5): aba de fundo do jogo — sem shell/painel (não há UI
   // a montar fora da aba do jogador), só o heartbeat normal + o badge do
@@ -237,6 +266,7 @@ function main(): void {
       icon: 'zap' as const,
       keywords: automation.desc,
       targetId: `tsh:${automation.id}`,
+      beforeNavigate: () => revealTshAutomation(automation.id),
     })),
   );
 
@@ -247,6 +277,7 @@ function main(): void {
       runVantaOnLoad();
       startTshHeartbeat(createModuleScope('tsh-heartbeat'));
       mountSentinelaLauncher();
+      startAimWatcher();
     });
     return;
   }
@@ -255,6 +286,7 @@ function main(): void {
   runVantaOnLoad();
   startTshHeartbeat(createModuleScope('tsh-heartbeat'));
   mountSentinelaLauncher();
+  startAimWatcher();
   void logout;
   void licenseState;
 }

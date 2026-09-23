@@ -754,6 +754,33 @@ export function orderCommandRows(
   return [...alive, ...history];
 }
 
+/**
+ * Limpeza do histórico (Onda C): tira os registros ENCERRADOS (enviado,
+ * falhou, removido) e mantém os vivos e os INCERTOS (esses o operador precisa
+ * conferir no jogo antes de apagar). Puro/testável.
+ */
+export function pruneCommandHistory(records: readonly ScheduledCommandRecord[]): {
+  kept: ScheduledCommandRecord[];
+  removed: number;
+} {
+  // Revisão Onda C: só FATOS gravados contam — o "falhou" derivado pelo
+  // relógio (janela padrão) pode ser um comando que o motor ainda envia com a
+  // tolerância configurada pelo usuário.
+  const kept = records.filter((record) => {
+    const last = [...record.events]
+      .reverse()
+      .find((event) => ['enviado', 'falhou', 'removido', 'incerto'].includes(event.status));
+    return !(last !== undefined && last.status !== 'incerto');
+  });
+  return { kept, removed: records.length - kept.length };
+}
+
+/** Histórico aberto/fechado (sobrevive às atualizações da lista). */
+let historyOpen = false;
+
+/** Quantos itens do histórico a lista mostra (o resto fica resumido). */
+export const HISTORY_VISIBLE_LIMIT = 30;
+
 // ── Storage do motor (MESMA chave do command-scheduler) ──
 
 const schedulerKey = (world: string): string => `tsh-auto:${world}:command-scheduler:scheduler`;
@@ -1074,12 +1101,68 @@ function renderCommandList(
     return;
   }
   const alive = rows.filter((row) => !TERMINAL_VIEW_STATUSES.has(row.status));
+  const history = rows.filter((row) => TERMINAL_VIEW_STATUSES.has(row.status));
   const paused = alive.filter((row) => row.status === 'pausado');
   const meta = document.createElement('div');
   meta.className = 'tsh-meta-row';
-  meta.textContent = `${alive.length} ativo(s) · ${paused.length} pausado(s) · ${rows.length - alive.length} no histórico`;
+  meta.textContent = `${alive.length} ativo(s) · ${paused.length} pausado(s) · ${history.length} no histórico`;
   wrap.appendChild(meta);
-  for (const row of rows) wrap.appendChild(commandCard(row, shadow, world, rerender, refresh));
+  if (alive.length === 0) {
+    const vazio = document.createElement('div');
+    vazio.className = 'shs-empty';
+    vazio.textContent = 'Nenhum comando ativo — crie um abaixo.';
+    wrap.appendChild(vazio);
+  }
+  for (const row of alive) wrap.appendChild(commandCard(row, shadow, world, rerender, refresh));
+  if (history.length === 0) return;
+
+  // Onda C: histórico RECOLHIDO (a lista crescia sem fim) + limpar.
+  const details = document.createElement('details');
+  details.className = 'tsh-history';
+  details.open = historyOpen; // lembra aberto/fechado entre atualizações da lista
+  details.addEventListener('toggle', () => {
+    historyOpen = details.open;
+  });
+  const summary = document.createElement('summary');
+  summary.textContent = `Histórico (${history.length})`;
+  details.appendChild(summary);
+  const tools = document.createElement('div');
+  tools.className = 'tsh-actions';
+  const limpar = document.createElement('button');
+  limpar.type = 'button';
+  limpar.className = 'tsh-btn tsh-btn--ghost tsh-btn--sm';
+  limpar.appendChild(icon('trash', 12));
+  limpar.appendChild(document.createTextNode('Limpar histórico'));
+  limpar.addEventListener('click', () => {
+    void (async () => {
+      const { removed } = pruneCommandHistory(loadSchedulerState(world).commands);
+      if (removed === 0) return;
+      const ok = await tshConfirm(
+        shadow,
+        'Limpar histórico',
+        `Apagar ${removed} registro(s) encerrado(s) (enviados, falhos e removidos)? Os INCERTOS ficam — confira-os no jogo antes.`,
+        { danger: true },
+      );
+      if (!ok) return;
+      // Relê o estado DEPOIS da confirmação (o motor pode ter gravado no meio).
+      const atual = loadSchedulerState(world);
+      saveSchedulerState(world, {
+        ...atual,
+        commands: pruneCommandHistory(atual.commands).kept,
+      });
+      rerender();
+      refresh();
+    })();
+  });
+  tools.appendChild(limpar);
+  details.appendChild(tools);
+  for (const row of history.slice(0, HISTORY_VISIBLE_LIMIT)) {
+    details.appendChild(commandCard(row, shadow, world, rerender, refresh));
+  }
+  if (history.length > HISTORY_VISIBLE_LIMIT) {
+    details.appendChild(helpEl(`… e mais ${history.length - HISTORY_VISIBLE_LIMIT} registro(s) antigo(s).`));
+  }
+  wrap.appendChild(details);
 }
 
 function commandCard(
@@ -1310,7 +1393,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   // Relógio vivo (Onda A): UM interval de 250ms enquanto a tela está aberta —
   // atualiza a hora do servidor e as contagens [data-tsh-eta]; some ao fechar.
   let liveTimer: number | undefined;
-  const { body, foot, close, markClean } = buildTshModal(shadow, 'Comandos — Agendador', 'clock', {
+  const { body, foot, requestClose, markClean } = buildTshModal(shadow, 'Comandos — Agendador', 'clock', {
     onClose: () => {
       if (liveTimer !== undefined) window.clearInterval(liveTimer);
     },
@@ -1374,7 +1457,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   closeBtn.className = 'tsh-btn tsh-btn--ghost';
   closeBtn.appendChild(icon('x', 12));
   closeBtn.appendChild(document.createTextNode('Fechar'));
-  closeBtn.addEventListener('click', close);
+  closeBtn.addEventListener('click', requestClose); // pergunta se há comando meio digitado
   foot.appendChild(closeBtn);
 
   const firstVillage = villages[0];

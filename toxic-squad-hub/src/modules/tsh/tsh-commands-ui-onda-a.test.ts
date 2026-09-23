@@ -7,6 +7,7 @@ import {
   formatTimestampMs,
   parseClipboardTime,
   parseMillisInput,
+  pruneCommandHistory,
   referenceOffsetMs,
   sendToArrival,
 } from './tsh-commands-ui';
@@ -41,5 +42,32 @@ describe('Onda A — Central com milissegundos', () => {
     expect(formatEta(133_450)).toBe('em 02:13.450');
     expect(formatEta(-3_200)).toBe('passou há 3s');
     expect(formatEta(-200)).toBe('agora');
+  });
+});
+
+describe('Onda C — limpar histórico', () => {
+  const mk = (id: string, status: string | null, sendAt = '2026-09-23T12:00:00.000Z') =>
+    ({
+      id,
+      kind: 'attack',
+      sourceVillageId: '1',
+      target: { x: 1, y: 1 },
+      units: { axe: 1 },
+      timingMode: 'send',
+      sendAt,
+      paused: false,
+      createdAt: '2026-09-23T10:00:00.000Z',
+      events: [{ status: 'agendado', at: '2026-09-23T10:00:00.000Z' }, ...(status === null ? [] : [{ status, at: '2026-09-23T12:00:00.000Z' }])],
+    }) as unknown as import('../../ext/core/scheduler-state').ScheduledCommandRecord;
+  it('remove enviados/falhos e mantém vivos e incertos', () => {
+    const { kept, removed } = pruneCommandHistory([
+      mk('vivo', null),
+      mk('env', 'enviado'),
+      mk('fal', 'falhou'),
+      mk('inc', 'incerto'),
+      mk('atrasado-sem-fato', null, '2020-01-01T00:00:00.000Z'), // relógio diria "falhou": fica
+    ]);
+    expect(removed).toBe(2);
+    expect(kept.map((r) => r.id)).toEqual(['vivo', 'inc', 'atrasado-sem-fato']);
   });
 });

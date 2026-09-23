@@ -367,7 +367,7 @@ registerVanta({
     widget.innerHTML = `
         <div id="vanta-inspecao-header">
             <span id="vanta-inspecao-title">Inspeção de Aldeias</span>
-            <button id="vanta-inspecao-close" title="Fechar">×</button>
+            <button type="button" id="vanta-inspecao-close" title="Fechar">×</button>
         </div>
         <div id="vanta-inspecao-body">
             <label id="vanta-inspecao-toggle-row">
@@ -379,7 +379,7 @@ registerVanta({
                 <div id="vanta-inspecao-meta"></div>
                 <div id="vanta-inspecao-details"></div>
                 <div id="vanta-inspecao-actions">
-                    <button class="vanta-inspecao-btn" id="vanta-inspecao-detalhes" disabled>Detalhes</button>
+                    <button type="button" class="vanta-inspecao-btn" id="vanta-inspecao-detalhes" disabled>Detalhes</button>
                 </div>
             </div>
         </div>
