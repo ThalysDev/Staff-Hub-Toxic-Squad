@@ -70,7 +70,7 @@ Aba **"Automações"** do painel. TODAS nascem **desligadas** (opt-in); as que m
 | Apoio em massa | place | mutante | prévia sempre; envio 1-a-1 com ledger quando `settings.armed` + ARMAR (engines `support-planner`/`support-execution`) |
 | Gerador de OPs | qualquer | prévia | engine `op-planner` (6 critérios + 2-opt) — nenhuma |
 | Gestão de apoio | info_village | prévia | engine `planSupportWithdrawal` — nenhuma |
-| Auto Farm | qualquer | executável (Onda 4; prévia sempre disponível) | relatório `planAutoFarmPreview` — nenhuma |
+| Auto Farm | qualquer | executável (Onda 4; prévia sempre disponível) | relatório `planAutoFarmPreview` + envio real (modo executar, 1 comando/ciclo, lane humanizado) |
 | Derrubar muralhas | qualquer | prévia | `planWallDemolition` — nenhuma |
 | Preparar bárbaras | qualquer | prévia | `planBarbarianCultivation` — nenhuma |
 | Buscar bárbaras (map-farm) | qualquer | prévia | parser de /map/village.txt — nenhuma |
