@@ -69,7 +69,8 @@ export async function getGroupVillages(groupId: number, force = false): Promise<
   const cached = gm.get<GroupVillagesCache | null>(villagesKey(groupId), null);
   if (cached !== null && !force && Date.now() - cached.fetchedAt < GROUP_VILLAGES_TTL_MS) return cached.villages;
   const villages = parseVillageRows(
-    await pacedGet(overviewPath(`&group=${groupId}`), force ? { fresh: true } : undefined),
+    // page=-1: todas as páginas (conta grande pagina a tabela e perdia aldeias).
+    await pacedGet(overviewPath(`&group=${groupId}&page=-1`), force ? { fresh: true } : undefined),
   );
   if (villages.length > 0) {
     gm.set<GroupVillagesCache>(villagesKey(groupId), { villages, fetchedAt: Date.now() });

@@ -202,6 +202,24 @@ export function effectiveCooldownMs(automation: TshAutomation, schedule: TshSche
   return automation.cooldownMs ?? DEFAULT_COOLDOWN_MS;
 }
 
+/**
+ * Aplica NA HORA um novo intervalo salvo nas configurações. O `nextRunAt` é
+ * gravado quando o ciclo começa, com o intervalo da época: sem isto, baixar de
+ * 60 para 5 min só valia depois de esperar os 60 antigos ("não consigo alterar
+ * o tempo de ciclo"). Recalcula a partir do último ciclo com o intervalo novo.
+ */
+export function applyScheduleChange(id: string, world: string): void {
+  const automation = automations.get(id);
+  if (automation === undefined) return;
+  const state = gm.get<CycleState>(stateKey(id, world), {});
+  if (state.lastRunAt === undefined) {
+    if (state.nextRunAt !== undefined) gm.set<CycleState>(stateKey(id, world), {});
+    return;
+  }
+  const cooldown = effectiveCooldownMs(automation, loadSchedule(world, id));
+  gm.set<CycleState>(stateKey(id, world), { ...state, nextRunAt: state.lastRunAt + cooldown });
+}
+
 /** Próxima execução agendada (epoch ms) para contagem no painel; null = livre. */
 export function tshNextRunAt(id: string, world?: string): number | null {
   const mundo = world ?? window.location.hostname.split('.')[0] ?? 'mundo';
@@ -262,7 +280,16 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
     world: worldId,
     villageId,
     storage: {
-      get: <T,>(key: string, fallback: T): T => gm.get<T>(`tsh-auto:${worldId}:${id}:${key}`, fallback),
+      get: <T,>(key: string, fallback: T): T => {
+        const value = gm.get<T>(`tsh-auto:${worldId}:${id}:${key}`, fallback);
+        // Settings salvos PARCIAIS (versão antiga, chave nova sem campo no
+        // formulário) chegavam com chaves undefined ao ciclo: completa com os
+        // padrões do módulo — o salvo sempre vence.
+        if (key === 'settings' && automation.settingsDefaults !== undefined && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+          return { ...automation.settingsDefaults, ...(value as Record<string, unknown>) } as T;
+        }
+        return value;
+      },
       set: <T,>(key: string, value: T): void => {
         gm.set(`tsh-auto:${worldId}:${id}:${key}`, value);
       },

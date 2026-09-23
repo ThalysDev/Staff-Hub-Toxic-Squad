@@ -83,6 +83,13 @@ function isEditableTarget(node: EventTarget | undefined): boolean {
 }
 
 /**
+ * Host PRÓPRIO do Toxic Squad Hub. Antes era 'shs-in-game-host' — o MESMO id
+ * do Staff Hub In-Game: com os dois instalados, quem carregava depois achava
+ * o painel do outro, "reabria" o painel da Staff e nunca montava o seu.
+ */
+export const TSH_HOST_ID = 'tsh-hub-host';
+
+/**
  * Onda B — isolamento do teclado: fora do Shadow DOM o evento de tecla chega
  * "reapontado" para o host, então os ATALHOS DO JOGO não percebem que você
  * está digitando no painel (cada letra podia disparar um atalho). Tecla
@@ -106,7 +113,7 @@ function isolateKeyboard(host: HTMLElement): void {
  * rótulo acessível/tooltip dizem o motivo (ex.: cravado chegando); null limpa.
  */
 export function setFabAlert(text: string | null): void {
-  const fab = document.getElementById('shs-in-game-host')?.shadowRoot?.querySelector<HTMLButtonElement>('.shs-fab');
+  const fab = document.getElementById(TSH_HOST_ID)?.shadowRoot?.querySelector<HTMLButtonElement>('.shs-fab');
   if (fab === null || fab === undefined) return;
   // Só escreve quando muda (leitores de tela não re-anunciam a cada segundo).
   if ((fab.getAttribute('data-tip') ?? null) === text) return;
@@ -149,7 +156,7 @@ function styles(): string {
     ::selection { background: #e8c04066; }
 
     /* ---- FAB (botão escudo flutuante — mesmo gradiente chocolate do badge) ---- */
-    .shs-fab { position: fixed; left: 10px; bottom: 10px; z-index: 2147483000;
+    .shs-fab { position: fixed; left: 60px; bottom: 10px; z-index: 2147483000;
       width: 44px; height: 44px; border-radius: 12px; cursor: pointer;
       border: 2px solid var(--shs-action-dark, #4a2708); background: linear-gradient(180deg, var(--shs-action, #6d3c14), var(--shs-action-dark, #4a2708));
       color: var(--shs-brass-soft); font-family: var(--shs-font-display); font-size: 15px;
@@ -470,10 +477,10 @@ function styles(): string {
  *  (P0 da revisão: main.ts criava o host antes, o que fazia o mountShell
  *  retornar cedo e o shell NUNCA montar). */
 export function ensureHost(): ShadowRoot {
-  let host = document.getElementById('shs-in-game-host');
+  let host = document.getElementById(TSH_HOST_ID);
   if (host === null) {
     host = document.createElement('div');
-    host.id = 'shs-in-game-host';
+    host.id = TSH_HOST_ID;
     document.body.appendChild(host);
   }
   if (host.shadowRoot === null) {

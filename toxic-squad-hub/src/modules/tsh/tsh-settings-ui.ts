@@ -30,7 +30,7 @@ import {
   type SettingsField,
   type TshSchedule,
 } from './tsh-settings';
-import { effectiveCooldownMs, type TshAutomation } from './tsh-runtime';
+import { applyScheduleChange, effectiveCooldownMs, type TshAutomation } from './tsh-runtime';
 import { isUnitKey, unitIcon, unitLabelOrKey } from './tsh-units';
 
 /** Campo do formulário já ligado ao input (para ler os valores no Salvar). */
@@ -734,6 +734,7 @@ export function openTshSettingsModal(
     if (!ok) return;
     clearSettings(world, automation.id); // zera mesmo (saveSettings agora faz merge)
     saveSchedule(world, automation.id, {});
+    applyScheduleChange(automation.id, world);
     close();
     onSaved();
   });
@@ -779,6 +780,7 @@ export function openTshSettingsModal(
     for (const binding of bindings) collectFieldValue(binding, values);
     saveSchedule(world, automation.id, nextSchedule);
     saveSettings(world, automation.id, values);
+    applyScheduleChange(automation.id, world); // intervalo novo vale já, não após o antigo
     close();
     onSaved();
   });

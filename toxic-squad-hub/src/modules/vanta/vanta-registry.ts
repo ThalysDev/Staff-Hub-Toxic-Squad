@@ -120,11 +120,15 @@ function consumeOpenFlag(id: string): boolean {
 
 /**
  * Bootstrap da suíte (1× por carregamento de página): monta cada módulo
- * habilitado que case a tela atual OU que tenha flag de abertura pendente.
+ * habilitado SÓ na tela dele. A flag de abertura é consumida (limpa), mas não
+ * monta sozinha: antes ela montava em QUALQUER tela que carregasse depois do
+ * "Abrir" (redirecionamento do jogo, sub-tela diferente — ex.: a confirmação
+ * do cravado aparecia na Praça comum).
  */
 export function runVantaOnLoad(): void {
   for (const launcher of launchers.values()) {
+    consumeOpenFlag(launcher.id);
     if (!isVantaEnabled(launcher.id)) continue;
-    if (consumeOpenFlag(launcher.id) || launcher.match()) mountVanta(launcher.id);
+    if (launcher.match()) mountVanta(launcher.id);
   }
 }
