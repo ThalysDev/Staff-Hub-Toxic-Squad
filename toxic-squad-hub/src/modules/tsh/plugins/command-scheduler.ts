@@ -1304,7 +1304,7 @@ export const commandSchedulerAutomation: TshAutomation = {
       label: 'Compensação de latência',
       type: 'select',
       options: [
-        { value: 'auto', label: 'Automática (metade do tempo de resposta medido)' },
+        { value: 'auto', label: 'Automática (metade do tempo de resposta medido + envio do navegador)' },
         { value: 'manual', label: 'Manual (valor abaixo)' },
       ],
       help: 'O clique sai alguns ms antes do horário para o pedido CHEGAR ao servidor no horário. Automática usa a medição do relógio.',

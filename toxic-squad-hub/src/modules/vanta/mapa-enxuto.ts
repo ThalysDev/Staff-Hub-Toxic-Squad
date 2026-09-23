@@ -102,25 +102,26 @@ export function countMapaEnxutoTargets(): number {
 const WIDGET_STYLES = `
   #vanta-mapa-enxuto-ui {
     position: fixed; left: 10px; bottom: 10px; z-index: 9999;
-    width: 210px; background: #fffdf3; border: 1px solid #e0cda0;
+    width: 210px; background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border, #e0cda0);
     border-radius: 10px; overflow: hidden;
     box-shadow: 0 2px 8px rgba(60, 37, 10, .25);
-    font-family: 'Segoe UI', Arial, sans-serif; font-size: 11.5px; color: #3c250a;
+    font-family: var(--shs-font); font-size: 11.5px; color: var(--shs-ink-strong, #3c250a);
   }
   #vanta-mapa-enxuto-ui * { box-sizing: border-box; }
   #vanta-mapa-enxuto-header {
-    padding: 6px 10px; background: #efe2ba; border-bottom: 1px solid #e0cda0;
+    padding: 6px 10px; background: var(--shs-bg-head, #efe2ba); border-bottom: 1px solid var(--shs-border, #e0cda0);
     font-size: 10.5px; font-weight: 700; letter-spacing: 1.5px;
-    text-transform: uppercase; color: #3c250a;
+    text-transform: uppercase; color: var(--shs-ink-strong, #3c250a);
   }
   #vanta-mapa-enxuto-body { padding: 8px 10px 9px; }
   #vanta-mapa-enxuto-row { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-  #vanta-mapa-enxuto-status { margin-top: 6px; line-height: 1.35; color: #5a3a16; }
+  #vanta-mapa-enxuto-status { margin-top: 6px; line-height: 1.35; color: var(--shs-ink, #5a3a16); }
 `;
 
 registerVanta({
   id: 'vanta-mapa-enxuto',
   label: 'Mapa Enxuto',
+  icon: 'map',
   desc: 'Reduz ícones decorativos do mapa',
   group: 'utilidades',
   match: () => params().get('screen') === 'map',

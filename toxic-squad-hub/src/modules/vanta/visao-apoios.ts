@@ -48,6 +48,7 @@ interface DevolverScope {
 registerVanta({
   id: 'vanta-apoiovisao',
   label: 'Visão Geral Apoios',
+  icon: 'eye',
   desc: 'Resumo de apoios enviados por tribo',
   group: 'blindagem',
   match: () =>

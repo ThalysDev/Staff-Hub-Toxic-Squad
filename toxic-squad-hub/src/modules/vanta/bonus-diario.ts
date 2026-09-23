@@ -235,31 +235,31 @@ function consumeOnceCollect(): boolean {
 const STYLES = `
   #vanta-bonus-diario-ui {
     margin: 10px 0 16px;
-    background: #fffdf3;
-    border: 1px solid #e0cda0;
+    background: var(--shs-bg-card, #fffdf3);
+    border: 1px solid var(--shs-border, #e0cda0);
     border-radius: 10px;
-    font-family: 'Segoe UI', Arial, sans-serif;
+    font-family: var(--shs-font);
     overflow: hidden;
   }
   #vanta-bonus-diario-ui * { box-sizing: border-box; }
   #vanta-bonus-diario-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 9px 14px; background: #efe2ba; border-bottom: 1px solid #e0cda0;
+    padding: 9px 14px; background: var(--shs-bg-head, #efe2ba); border-bottom: 1px solid var(--shs-border, #e0cda0);
   }
   #vanta-bonus-diario-header-title {
     font-size: 12px; font-weight: 700; letter-spacing: 2px;
-    color: #3c250a; text-transform: uppercase;
+    color: var(--shs-ink-strong, #3c250a); text-transform: uppercase;
   }
   #vanta-bonus-diario-chip {
     font-size: 10px; font-weight: 600; line-height: 1;
-    padding: 4px 9px; border-radius: 999px; background: #fffdf3;
-    border: 1px solid #cbb384; color: #5a3a16; white-space: nowrap;
+    padding: 4px 9px; border-radius: 999px; background: var(--shs-bg-card, #fffdf3);
+    border: 1px solid var(--shs-border-strong, #cbb384); color: var(--shs-ink, #5a3a16); white-space: nowrap;
   }
-  #vanta-bonus-diario-body { padding: 10px 14px 12px; font-size: 12px; color: #3c250a; }
-  #vanta-bonus-diario-status { min-height: 16px; line-height: 1.35; color: #5a3a16; }
+  #vanta-bonus-diario-body { padding: 10px 14px 12px; font-size: 12px; color: var(--shs-ink-strong, #3c250a); }
+  #vanta-bonus-diario-status { min-height: 16px; line-height: 1.35; color: var(--shs-ink, #5a3a16); }
   #vanta-bonus-diario-actions { margin: 8px 0 4px; }
   #vanta-bonus-diario-coletar {
-    background: #6d3c14; color: #fff; border: 1px solid #5a3110;
+    background: var(--shs-action, #6d3c14); color: #fff; border: 1px solid var(--shs-action-deep, #5a3110);
     border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 12px; font-weight: 600;
   }
   #vanta-bonus-diario-coletar:hover { background: #7d4720; }
@@ -268,30 +268,30 @@ const STYLES = `
   }
   #vanta-bonus-diario-hist-header {
     display: flex; align-items: center; justify-content: space-between;
-    margin: 10px 0 4px; padding-top: 8px; border-top: 1px solid #e0cda0;
+    margin: 10px 0 4px; padding-top: 8px; border-top: 1px solid var(--shs-border, #e0cda0);
   }
   #vanta-bonus-diario-hist-title {
     font-size: 10.5px; font-weight: 700; letter-spacing: 1px;
-    text-transform: uppercase; color: #8a5a1e;
+    text-transform: uppercase; color: var(--shs-accent-ink, #8a5a1e);
   }
   #vanta-bonus-diario-limpar {
     background: transparent; border: none; cursor: pointer;
-    color: #6f5e40; font-size: 11px; text-decoration: underline; padding: 0;
+    color: var(--shs-muted, #6f5e40); font-size: 11px; text-decoration: underline; padding: 0;
   }
-  #vanta-bonus-diario-limpar:hover { color: #c04038; }
+  #vanta-bonus-diario-limpar:hover { color: var(--shs-danger, #c04038); }
   #vanta-bonus-diario-hist {
     list-style: none; margin: 0; padding: 0; max-height: 132px; overflow-y: auto;
   }
   #vanta-bonus-diario-hist li {
     display: flex; justify-content: space-between; gap: 8px;
-    padding: 3px 0; font-size: 11.5px; color: #5a3a16;
+    padding: 3px 0; font-size: 11.5px; color: var(--shs-ink, #5a3a16);
     border-bottom: 1px dashed #ece0c0;
   }
   #vanta-bonus-diario-hist li:last-child { border-bottom: none; }
-  #vanta-bonus-diario-hist .vbd-ok { color: #3f8f43; font-weight: 600; }
-  #vanta-bonus-diario-hist .vbd-pend { color: #8a5a1e; }
-  #vanta-bonus-diario-hist .vbd-falha { color: #c04038; font-weight: 600; }
-  #vanta-bonus-diario-hist .vbd-vazio { color: #6f5e40; font-style: italic; }
+  #vanta-bonus-diario-hist .vbd-ok { color: var(--shs-ok, #3f8f43); font-weight: 600; }
+  #vanta-bonus-diario-hist .vbd-pend { color: var(--shs-accent-ink, #8a5a1e); }
+  #vanta-bonus-diario-hist .vbd-falha { color: var(--shs-danger, #c04038); font-weight: 600; }
+  #vanta-bonus-diario-hist .vbd-vazio { color: var(--shs-muted, #6f5e40); font-style: italic; }
 `;
 
 function ensureStyles(scope: ModuleScope): void {
@@ -318,6 +318,7 @@ const OUTCOME_CLASS: Record<BonusOutcome, string> = {
 registerVanta({
   id: 'vanta-bonus-diario',
   label: 'Bônus Diário',
+  icon: 'gift',
   desc: 'Coleta o bônus diário do jogo e guarda o histórico',
   group: 'utilidades',
   match: () => isBonusScreen() || isOverviewScreen(),

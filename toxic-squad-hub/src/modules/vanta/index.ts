@@ -42,23 +42,27 @@ export { runVantaOnLoad } from './vanta-registry';
 const GROUP_ORDER: VantaGroup[] = ['defesa', 'blindagem', 'utilidades'];
 const GROUP_ICONS: Record<VantaGroup, IconName> = { defesa: 'sword', blindagem: 'shieldCheck', utilidades: 'list' };
 /** Cor do ícone do launcher por grupo (Nexus: ação / latão / info). */
-const GROUP_COLORS: Record<VantaGroup, string> = { defesa: '#6d3c14', blindagem: '#b8860b', utilidades: '#2f66c0' };
+const GROUP_COLORS: Record<VantaGroup, string> = {
+  defesa: 'var(--shs-action, #6d3c14)',
+  blindagem: 'var(--shs-brass, #b8860b)',
+  utilidades: 'var(--shs-info, #2f66c0)',
+};
 
 const VTS_STYLE_ID = 'vanta-suite-styles';
 const VTS_STYLES = `
   .vts-wrap {
-    background: #fffdf3;
-    border: 1px solid #e0cda0;
+    background: var(--shs-bg-card, #fffdf3);
+    border: 1px solid var(--shs-border, #e0cda0);
     border-radius: 10px;
     padding: 12px 14px 10px;
   }
   .vts-head { display: flex; align-items: center; gap: 8px; }
   /* [5] Padrão compartilhado: título de seção 16px/700. */
-  .vts-title { font-size: 16px; font-weight: 700; color: #3c250a; letter-spacing: .2px; }
+  .vts-title { font-size: 16px; font-weight: 700; color: var(--shs-ink-strong, #3c250a); letter-spacing: .2px; }
   .vts-count {
     font-size: 11px; font-weight: 600; line-height: 1;
     padding: 4px 9px; border-radius: 999px;
-    background: #fffdf3; border: 1px solid #cbb384; color: #5a3a16;
+    background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border-strong, #cbb384); color: var(--shs-ink, #5a3a16);
   }
   .vts-group {
     display: flex; align-items: center; gap: 6px;
@@ -69,40 +73,40 @@ const VTS_STYLES = `
   .vts-group-count {
     font-size: 10px; font-weight: 700; letter-spacing: 0; line-height: 1;
     padding: 2px 7px; border-radius: 999px;
-    background: #f4ead0; color: var(--shs-muted, #6f5e40);
+    background: var(--shs-bg-inset, #f4ead0); color: var(--shs-muted, #6f5e40);
   }
   .vts-row { display: flex; align-items: center; gap: 10px; padding: 10px 4px; }
-  .vts-row + .vts-row { border-top: 1px dashed #d9c48f; }
+  .vts-row + .vts-row { border-top: 1px dashed var(--shs-border-head, #d9c48f); }
   /* [7] Linha desligada por COR DE TEXTO dedicada — sem opacity (par com a
      esteira tsh, que bane opacity <0.7 para estado OFF). */
-  .vts-row[data-off] .vts-ic { color: #b3a27d; }
-  .vts-row[data-off] .vts-name { color: #b3a27d; }
+  .vts-row[data-off] .vts-ic { color: var(--shs-ink-disabled, #b3a27d); }
+  .vts-row[data-off] .vts-name { color: var(--shs-ink-disabled, #b3a27d); }
   /* [5] Padrão compartilhado: caixa de ícone 30px. */
   .vts-ic {
     flex: none; width: 30px; height: 30px; border-radius: 8px;
     display: flex; align-items: center; justify-content: center;
-    background: #f4ead0;
+    background: var(--shs-bg-inset, #f4ead0);
   }
   .vts-main { flex: 1; min-width: 0; }
-  .vts-name { font-size: 13px; font-weight: 600; color: #3c250a; }
+  .vts-name { font-size: 13px; font-weight: 600; color: var(--shs-ink-strong, #3c250a); }
   .vts-desc { font-size: 11.5px; color: var(--shs-muted, #6f5e40); margin-top: 1px; }
   .vts-side { flex: none; display: flex; align-items: center; gap: 8px; }
   .vts-chip {
     font-size: 10px; font-weight: 600; line-height: 1; white-space: nowrap;
     padding: 3px 8px; border-radius: 999px;
   }
-  .vts-chip--here { background: #e8f4e2; color: #3f8f43; }
-  .vts-chip--away { background: #f4ead0; color: var(--shs-muted, #6f5e40); font-weight: 500; }
+  .vts-chip--here { background: var(--shs-ok-bg, #e8f4e2); color: var(--shs-ok, #3f8f43); }
+  .vts-chip--away { background: var(--shs-bg-inset, #f4ead0); color: var(--shs-muted, #6f5e40); font-weight: 500; }
   /* [7] Estado OFF com chip dedicado (sem opacity na linha). */
-  .vts-chip--off { background: #f4ead0; color: var(--shs-muted, #6f5e40); font-weight: 500; }
+  .vts-chip--off { background: var(--shs-bg-inset, #f4ead0); color: var(--shs-muted, #6f5e40); font-weight: 500; }
   /* [6] Feedback do "Montar": pill temporária verde/vermelha na linha. */
-  .vts-chip--ok { background: #e8f4e2; color: #3f8f43; }
-  .vts-chip--err { background: #fceaea; color: #c04038; }
+  .vts-chip--ok { background: var(--shs-ok-bg, #e8f4e2); color: var(--shs-ok, #3f8f43); }
+  .vts-chip--err { background: var(--shs-danger-bg, #fceaea); color: var(--shs-danger, #c04038); }
   /* [5] Padrão compartilhado: switch 36×20 com knob de 14px. */
   .vts-switch {
     position: relative; flex: none; width: 36px; height: 20px;
     border: none; border-radius: 999px; padding: 0; cursor: pointer;
-    background: #d8cbb0; transition: background .15s ease;
+    background: var(--shs-switch-off, #d8cbb0); transition: background .15s ease;
   }
   .vts-switch::after {
     content: ''; position: absolute; top: 3px; left: 3px;
@@ -110,7 +114,7 @@ const VTS_STYLES = `
     background: #fff; box-shadow: 0 1px 2px rgba(60, 37, 10, .25);
     transition: left .15s ease;
   }
-  .vts-switch[aria-checked='true'] { background: #6d3c14; }
+  .vts-switch[aria-checked='true'] { background: var(--shs-action, #6d3c14); }
   .vts-switch[aria-checked='true']::after { left: 19px; }
   /* [5] Padrão compartilhado: play circular 28px. */
   .vts-go, .vts-open {
@@ -118,13 +122,13 @@ const VTS_STYLES = `
     display: flex; align-items: center; justify-content: center;
     border: none; cursor: pointer;
   }
-  .vts-go { border-radius: 50%; background: #3f8f43; color: #fff; }
-  .vts-go:hover:not(:disabled) { background: #357a39; }
-  .vts-go:disabled { background: #d8cbb0; cursor: not-allowed; }
+  .vts-go { border-radius: 50%; background: var(--shs-ok, #3f8f43); color: #fff; }
+  .vts-go:hover:not(:disabled) { background: var(--shs-ok-hover, #357a39); }
+  .vts-go:disabled { background: var(--shs-switch-off, #d8cbb0); cursor: not-allowed; }
   /* [6] Carregando: mantém o verde (o :disabled padrão é o cinza de OFF). */
-  .vts-go--loading:disabled { background: #357a39; cursor: progress; }
-  .vts-open { border-radius: 8px; background: transparent; color: #5a3a16; }
-  .vts-open:hover:not(:disabled) { background: #f4ead0; }
+  .vts-go--loading:disabled { background: var(--shs-ok-hover, #357a39); cursor: progress; }
+  .vts-open { border-radius: 8px; background: transparent; color: var(--shs-ink, #5a3a16); }
+  .vts-open:hover:not(:disabled) { background: var(--shs-bg-inset, #f4ead0); }
   .vts-open:disabled { color: #b3a37f; cursor: not-allowed; }
   .vts-foot { margin-top: 10px; font-size: 10.5px; color: var(--shs-muted, #6f5e40); }
   .vts-empty { padding: 10px 2px; font-size: 12px; color: var(--shs-muted, #6f5e40); }

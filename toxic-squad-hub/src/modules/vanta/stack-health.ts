@@ -104,6 +104,7 @@ function commandUnitCount(info: unknown): number {
 registerVanta({
   id: 'vanta-stackhealth',
   label: 'Saúde do Stack',
+  icon: 'activity',
   desc: 'Simula o stack contra um clear padrão e mostra OK/Checar/NOK',
   group: 'defesa',
   match: () => params().get('screen') === 'overview',

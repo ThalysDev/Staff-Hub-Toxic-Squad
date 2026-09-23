@@ -22,7 +22,14 @@ export const MAX_LATENCY_COMPENSATION_MS = 400;
 /** Carência de atraso da faixa humanizada (a do original: 60s). */
 export const HUMANIZED_LATE_GRACE_MS = 60_000;
 
-/** Compensação efetiva: manual (0..teto) ou automática (≈ metade do RTT medido). */
+/**
+ * Tempo típico entre o clique no botão e o navegador COLOCAR o pedido na rede
+ * (submissão do formulário/início da navegação) — medido no teste ponta a
+ * ponta do agendador (7–17ms no Chromium). Somado na compensação automática.
+ */
+export const BROWSER_DISPATCH_MS = 8;
+
+/** Compensação efetiva: manual (0..teto) ou automática (≈ metade do RTT medido + envio do navegador). */
 export function latencyCompensationMs(opts: {
   mode: 'auto' | 'manual';
   manualMs: number;
@@ -31,8 +38,8 @@ export function latencyCompensationMs(opts: {
   const clamp = (value: number): number =>
     Math.round(Math.min(MAX_LATENCY_COMPENSATION_MS, Math.max(0, Number.isFinite(value) ? value : 0)));
   if (opts.mode === 'manual') return clamp(opts.manualMs);
-  if (opts.rttMedianMs === null || !Number.isFinite(opts.rttMedianMs)) return 0;
-  return clamp(opts.rttMedianMs / 2);
+  if (opts.rttMedianMs === null || !Number.isFinite(opts.rttMedianMs)) return BROWSER_DISPATCH_MS;
+  return clamp(opts.rttMedianMs / 2 + BROWSER_DISPATCH_MS);
 }
 
 export type PrearmDecision =

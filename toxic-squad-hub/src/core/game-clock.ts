@@ -23,6 +23,7 @@ import {
   calibrationSchedule,
   estimateDateClock,
   frameShiftMs,
+  nextBisectionSendAt,
   type DateHeaderSample,
 } from '../ext/core/timing/http-date-clock';
 import { pickClockSource, type ClockCandidate, type ClockChoice } from '../ext/core/timing/clock-source';
@@ -47,7 +48,8 @@ export interface ClockInfo {
 
 const JOGO_UNCERTAINTY_MS = 150;
 const TELA_UNCERTAINTY_MS = 1_000;
-const CALIBRATION_SAMPLES = 8;
+const SPREAD_SAMPLES = 4;
+const BISECTION_SAMPLES = 7;
 
 function worldId(): string {
   return window.location.hostname.split('.')[0] ?? 'mundo';
@@ -186,7 +188,8 @@ async function oneDateSample(seq: number): Promise<DateHeaderSample | null> {
 }
 
 /**
- * Rajada de calibração HTTP (8 HEAD leves no favicon, ~3s). Concorrência
+ * Rajada de calibração HTTP (até 11 HEAD leves no favicon, ~6s: 4 em fases
+ * espalhadas + bissecção da virada de segundo). Concorrência
  * única (chamadas simultâneas reaproveitam a mesma rajada). Falha silenciosa:
  * sem Date legível o relógio segue nas outras fontes.
  */
@@ -195,12 +198,29 @@ export function calibrateClock(): Promise<void> {
   lastCalibrationAttemptMs = Date.now();
   calibrating = (async () => {
     const samples: DateHeaderSample[] = [];
-    const delays = calibrationSchedule(CALIBRATION_SAMPLES);
+    // Fase 1: fases espalhadas (estimativa inicial).
+    const delays = calibrationSchedule(SPREAD_SAMPLES);
     const start = Date.now();
     for (let index = 0; index < delays.length; index += 1) {
       const wait = start + (delays[index] ?? 0) - Date.now();
       if (wait > 0) await sleep(wait);
       const sample = await oneDateSample(index);
+      if (sample !== null) samples.push(sample);
+    }
+    // Fase 2: BISSECÇÃO — cada request mira a virada de segundo estimada e
+    // corta a incerteza pela metade (converge para a ordem do RTT).
+    for (let index = 0; index < BISECTION_SAMPLES; index += 1) {
+      const current = estimateDateClock(samples);
+      if (current === null) break;
+      if (current.halfWidthMs <= Math.max(3, current.rttMedianMs / 2)) break; // já no limite físico
+      const at = nextBisectionSendAt({
+        nowLocalMs: Date.now(),
+        offsetMs: current.offsetMs,
+        rttMs: current.rttMedianMs,
+      });
+      const wait = at - Date.now();
+      if (wait > 0) await sleep(wait);
+      const sample = await oneDateSample(SPREAD_SAMPLES + index);
       if (sample !== null) samples.push(sample);
     }
     const estimate = estimateDateClock(samples);

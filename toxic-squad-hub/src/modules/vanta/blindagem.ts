@@ -9,6 +9,7 @@
 // - Rede: grupos via pacedGet/vantaPostJson (fila global, sem fetch cru).
 // - P1-2: leituras numéricas do DOM via parsePtBrInt.
 
+import { iconMarkup } from '../../core/icons';
 import { registerVanta } from './vanta-registry';
 import { ensureVantaStyles } from './vanta-styles';
 import type { ModuleScope } from './vanta-lifecycle';
@@ -100,6 +101,7 @@ function extractAjaxHtml(json: Record<string, unknown>): string {
 registerVanta({
   id: 'vanta-blindagem',
   label: 'Gerenciar Blindagem',
+  icon: 'shieldCheck',
   desc: 'Visualize blindagem de aldeias',
   group: 'blindagem',
   match: () => params().get('screen') === 'info_village',
@@ -249,8 +251,8 @@ registerVanta({
           const shownName = escapeHtml(name);
           const actionCell =
             name === 'Próprias'
-              ? `<td class="vanta-b-acoes"><div class="vanta-b-dropdown"><button type="button" class="vanta-b-acoes-trigger">Ações ▾</button><div class="vanta-b-dropdown-menu" hidden><button type="button" class="vanta-b-devolver-btn" data-player="${escapedName}">↩ Devolver tudo</button><button type="button" class="vanta-b-devolver-parcial-btn">✂ Devolver parcial</button><button type="button" class="vanta-b-analise-grupo-btn">📊 Análise por Grupo</button></div></div></td>`
-              : `<td class="vanta-b-acoes"><div class="vanta-b-dropdown"><button type="button" class="vanta-b-acoes-trigger">Ações ▾</button><div class="vanta-b-dropdown-menu" hidden><button type="button" class="vanta-b-devolver-btn" data-player="${escapedName}">↩ Devolver tudo</button></div></div></td>`;
+              ? `<td class="vanta-b-acoes"><div class="vanta-b-dropdown"><button type="button" class="vanta-b-acoes-trigger">Ações ▾</button><div class="vanta-b-dropdown-menu" hidden><button type="button" class="vanta-b-devolver-btn" data-player="${escapedName}">${iconMarkup('undo', 12)} Devolver tudo</button><button type="button" class="vanta-b-devolver-parcial-btn">${iconMarkup('scissors', 12)} Devolver parcial</button><button type="button" class="vanta-b-analise-grupo-btn">${iconMarkup('chart', 12)} Análise por Grupo</button></div></div></td>`
+              : `<td class="vanta-b-acoes"><div class="vanta-b-dropdown"><button type="button" class="vanta-b-acoes-trigger">Ações ▾</button><div class="vanta-b-dropdown-menu" hidden><button type="button" class="vanta-b-devolver-btn" data-player="${escapedName}">${iconMarkup('undo', 12)} Devolver tudo</button></div></div></td>`;
           return `<tr${name === 'Próprias' ? ' class="vanta-proprias-row"' : ''}><td class="vanta-b-player">${shownName}</td>${cells}<td>${d.pop}</td>${actionCell}</tr>`;
         })
         .join('');
@@ -298,7 +300,7 @@ registerVanta({
                             <td id="vanta-parcial-pop" class="vanta-parcial-pop-cell"><input id="vanta-parcial-pop-input" type="number" min="0" value="" placeholder="Pop"><span id="vanta-parcial-pop-calc">–</span></td>
                             <td class="vanta-b-acoes" id="vanta-parcial-btns">
                                 <button type="button" id="vanta-preencher-parcial">Preencher</button>
-                                <button type="button" id="vanta-parcial-cancel">✕</button>
+                                <button type="button" id="vanta-parcial-cancel" aria-label="Cancelar">${iconMarkup('x', 12)}</button>
                             </td>
                         </tr>
                         <tr id="vanta-blindagem-resumo-row" style="display:none">
@@ -855,7 +857,7 @@ registerVanta({
           lastAnaliseData = analiseData;
 
           const buildActionCell = (dataAttr: string): string =>
-            `<td class="vanta-ag-acoes"><div class="vanta-b-dropdown"><button type="button" class="vanta-b-acoes-trigger vanta-ag-trigger">Ações ▾</button><div class="vanta-b-dropdown-menu" hidden><button type="button" class="vanta-ag-devolver-btn" ${dataAttr}>↩ Devolver tudo</button><button type="button" class="vanta-ag-parcial-btn" ${dataAttr}>✂ Devolver parcial</button></div></div></td>`;
+            `<td class="vanta-ag-acoes"><div class="vanta-b-dropdown"><button type="button" class="vanta-b-acoes-trigger vanta-ag-trigger">Ações ▾</button><div class="vanta-b-dropdown-menu" hidden><button type="button" class="vanta-ag-devolver-btn" ${dataAttr}>${iconMarkup('undo', 12)} Devolver tudo</button><button type="button" class="vanta-ag-parcial-btn" ${dataAttr}>${iconMarkup('scissors', 12)} Devolver parcial</button></div></div></td>`;
 
           const groupRows = groupEntries
             .map((g, i) => {
@@ -876,7 +878,7 @@ registerVanta({
           }).join('');
           const totalRow = `<tr class="vanta-ag-total"><td class="vanta-ag-group-name">Total</td>${totalCells2}<td>${totalPop}</td><td></td></tr>`;
 
-          const parcialRow = `<tr id="vanta-ag-parcial-tr" style="display:none"><td class="vanta-ag-group-name" style="color:#888;font-size:10px;white-space:normal;line-height:1.3">Tropas a devolver</td>${UNITS.map((u) => `<td class="vanta-ag-parcial-cell"><input id="vanta-ag-parcial-input-${u}" type="number" min="0" value="0"><span class="vanta-ag-parcial-max" id="vanta-ag-parcial-max-${u}">–</span></td>`).join('')}<td id="vanta-ag-parcial-pop" class="vanta-parcial-pop-cell"><input id="vanta-ag-parcial-pop-input" type="number" min="0" value="" placeholder="Pop"><span id="vanta-ag-parcial-pop-calc">–</span></td><td class="vanta-ag-acoes" id="vanta-ag-parcial-btns"><button type="button" id="vanta-ag-preencher-parcial">Preencher</button><button type="button" id="vanta-ag-parcial-cancel">✕</button></td></tr>`;
+          const parcialRow = `<tr id="vanta-ag-parcial-tr" style="display:none"><td class="vanta-ag-group-name" style="color:#888;font-size:10px;white-space:normal;line-height:1.3">Tropas a devolver</td>${UNITS.map((u) => `<td class="vanta-ag-parcial-cell"><input id="vanta-ag-parcial-input-${u}" type="number" min="0" value="0"><span class="vanta-ag-parcial-max" id="vanta-ag-parcial-max-${u}">–</span></td>`).join('')}<td id="vanta-ag-parcial-pop" class="vanta-parcial-pop-cell"><input id="vanta-ag-parcial-pop-input" type="number" min="0" value="" placeholder="Pop"><span id="vanta-ag-parcial-pop-calc">–</span></td><td class="vanta-ag-acoes" id="vanta-ag-parcial-btns"><button type="button" id="vanta-ag-preencher-parcial">Preencher</button><button type="button" id="vanta-ag-parcial-cancel" aria-label="Cancelar">${iconMarkup('x', 12)}</button></td></tr>`;
 
           const resumoRow = `<tr id="vanta-ag-resumo-row" style="display:none"><td class="vanta-ag-group-name" id="vanta-ag-resumo-label"></td>${UNITS.map((u) => `<td id="vanta-ag-resumo-${u}">–</td>`).join('')}<td id="vanta-ag-resumo-pop"></td><td></td></tr>`;
 

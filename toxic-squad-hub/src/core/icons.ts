@@ -69,6 +69,18 @@ const ICONS = {
 
 export type IconName = keyof typeof ICONS;
 
+/**
+ * Ícone como MARCAÇÃO estática (Onda D) — para os cascos HTML estáticos dos
+ * módulos Vanta que ainda montam via template. Só usa constantes deste
+ * arquivo (nenhum dado dinâmico): seguro dentro de innerHTML.
+ */
+export function iconMarkup(name: IconName, size = 14): string {
+  return (
+    `<svg class="shs-ic" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor"` +
+    ` stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICONS[name]}"/></svg>`
+  );
+}
+
 /** Ícone SVG inline (stroke, currentColor — herda a cor do texto ao redor). */
 export function icon(name: IconName, size = 14): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

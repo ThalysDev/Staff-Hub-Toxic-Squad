@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BROWSER_DISPATCH_MS,
   HUMANIZED_LATE_GRACE_MS,
   MAX_LATENCY_COMPENSATION_MS,
   PREARM_EVENT_DETAIL,
@@ -13,10 +14,10 @@ import {
 } from './precise-fire';
 
 describe('latencyCompensationMs', () => {
-  it('auto = metade do RTT, com teto', () => {
-    expect(latencyCompensationMs({ mode: 'auto', manualMs: 0, rttMedianMs: 80 })).toBe(40);
+  it('auto = metade do RTT + envio do navegador, com teto', () => {
+    expect(latencyCompensationMs({ mode: 'auto', manualMs: 0, rttMedianMs: 80 })).toBe(40 + BROWSER_DISPATCH_MS);
     expect(latencyCompensationMs({ mode: 'auto', manualMs: 0, rttMedianMs: 5_000 })).toBe(MAX_LATENCY_COMPENSATION_MS);
-    expect(latencyCompensationMs({ mode: 'auto', manualMs: 0, rttMedianMs: null })).toBe(0);
+    expect(latencyCompensationMs({ mode: 'auto', manualMs: 0, rttMedianMs: null })).toBe(BROWSER_DISPATCH_MS);
   });
   it('manual respeita 0..teto', () => {
     expect(latencyCompensationMs({ mode: 'manual', manualMs: 35, rttMedianMs: 999 })).toBe(35);

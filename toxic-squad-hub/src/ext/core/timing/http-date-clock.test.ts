@@ -5,6 +5,7 @@ import {
   estimateDateClock,
   frameShiftMs,
   marzullo,
+  nextBisectionSendAt,
   type DateHeaderSample,
 } from './http-date-clock';
 
@@ -87,5 +88,34 @@ describe('calibrationSchedule', () => {
       expect((delays[i] ?? 0) - (delays[i - 1] ?? 0)).toBeGreaterThanOrEqual(250);
     }
     expect(new Set(delays.map((d) => d % 1000)).size).toBe(delays.length);
+  });
+});
+
+describe('nextBisectionSendAt (bissecção da virada de segundo)', () => {
+  it('mira a próxima virada de segundo do servidor respeitando o atraso mínimo', () => {
+    const t = nextBisectionSendAt({ nowLocalMs: 10_000, offsetMs: 1_337, rttMs: 60, minDelayMs: 250 });
+    expect(t).toBeGreaterThanOrEqual(10_250);
+    // no meio do round-trip o servidor (estimado) marca um múltiplo de 1000
+    expect((t + 30 + 1_337) % 1000).toBe(0);
+  });
+  it('bissecção converge muito abaixo do RTT com poucas amostras', () => {
+    const trueOffset = 1_337.4;
+    const rtt = 40;
+    const simulate = (sentAtMs: number): DateHeaderSample => ({
+      sentAtMs,
+      receivedAtMs: sentAtMs + rtt,
+      dateHeaderMs: Math.floor((sentAtMs + rtt / 2 + trueOffset) / 1000) * 1000,
+    });
+    const samples = calibrationSchedule(4).map((d) => simulate(1_000_000 + d));
+    let now = 1_000_000 + 2_000;
+    for (let i = 0; i < 8; i += 1) {
+      const est = estimateDateClock(samples);
+      const at = nextBisectionSendAt({ nowLocalMs: now, offsetMs: est?.offsetMs ?? 0, rttMs: rtt });
+      samples.push(simulate(at));
+      now = at + rtt;
+    }
+    const final = estimateDateClock(samples);
+    expect(Math.abs((final?.offsetMs ?? 0) - trueOffset)).toBeLessThanOrEqual((final?.halfWidthMs ?? 0) + 1);
+    expect(final?.halfWidthMs ?? 999).toBeLessThanOrEqual(rtt);
   });
 });

@@ -103,6 +103,7 @@ function buildCard(relics: EquippedRelic[]): { card: HTMLElement; removeBtn: HTM
 registerVanta({
   id: 'vanta-reliquias',
   label: 'Remover Relíquias',
+  icon: 'package',
   desc: 'Remove em lote as relíquias equipadas',
   group: 'utilidades',
   match: () => params().get('screen') === 'relic_system' && params().get('mode') === 'overview',

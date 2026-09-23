@@ -6,6 +6,7 @@
 
 import { gm } from '../../core/storage';
 import type { IconName } from '../../core/icons';
+import { ensureDocumentTheme } from '../../core/theme';
 import { createModuleScope, type ModuleScope } from './vanta-lifecycle';
 
 export type VantaGroup = 'defesa' | 'blindagem' | 'utilidades';
@@ -68,6 +69,9 @@ export function mountVanta(id: string): { ok: boolean; error?: string } {
   const launcher = launchers.get(id);
   if (launcher === undefined) return { ok: false, error: 'módulo desconhecido' };
   unmountVanta(id);
+  // Onda D: o tema único (--shs-*) precisa existir no documento do jogo,
+  // onde as ferramentas Vanta são injetadas (fora do Shadow DOM).
+  ensureDocumentTheme();
   const scope = createModuleScope(id);
   scopes.set(id, scope);
   try {

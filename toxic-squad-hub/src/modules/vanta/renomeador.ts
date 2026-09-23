@@ -108,6 +108,7 @@ function mountRenomeador(scope: ModuleScope): void {
 registerVanta({
   id: 'vanta-renomeador',
   label: 'Renomeador (Overview)',
+  icon: 'edit',
   desc: 'Botões de tag em cada comando de ataque da visão geral da aldeia',
   group: 'defesa',
   match: () => params().get('screen') === 'overview',

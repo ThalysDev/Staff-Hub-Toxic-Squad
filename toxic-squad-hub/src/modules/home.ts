@@ -32,15 +32,15 @@ const HOME_CSS = `
   .home-line { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--shs-ink, #5a3a16); margin-top: 6px; }
   .home-line svg { color: var(--shs-muted, #6f5e40); flex-shrink: 0; }
   .home-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid var(--shs-border-strong, #cbb384); background: var(--shs-bg-inset, #f4ead0); color: var(--shs-ink, #5a3a16); }
-  .home-pill--ok { background: var(--shs-ok-bg, #e8f4e2); border-color: #b5d4a8; color: #2e5b2a; }
-  .home-pill--warn { background: #fdf6d8; border-color: #e8d588; color: #6b5518; }
+  .home-pill--ok { background: var(--shs-ok-bg, #e8f4e2); border-color: var(--shs-ok-border, #b5d4a8); color: var(--shs-ok-ink, #2e5b2a); }
+  .home-pill--warn { background: var(--shs-warn-soft, #fdf6d8); border-color: #e8d588; color: #6b5518; }
   .home-pill--err { background: var(--shs-danger-bg, #fceaea); border-color: var(--shs-danger, #c04038); color: var(--shs-danger, #c04038); }
   .home-stat { display: flex; align-items: baseline; justify-content: space-between; padding: 7px 0; border-bottom: 1px dashed var(--shs-border, #e0cda0); font-size: 12.5px; color: var(--shs-ink, #5a3a16); }
   .home-stat:last-child { border-bottom: none; }
   .home-stat strong { font-size: 15px; color: var(--shs-ink-strong, #3c250a); font-variant-numeric: tabular-nums; }
   .home-contact { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
-  .home-wa { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 8px; background: #6d3c14; color: #fff !important; font-size: 12.5px; font-weight: 600; text-decoration: none; border: none; cursor: pointer; }
-  .home-wa:hover { background: #834a1a; }
+  .home-wa { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 8px; background: var(--shs-action, #6d3c14); color: #fff !important; font-size: 12.5px; font-weight: 600; text-decoration: none; border: none; cursor: pointer; }
+  .home-wa:hover { background: var(--shs-action-hover, #834a1a); }
   .home-phone { font-family: var(--shs-font-mono, monospace); font-size: 14px; color: var(--shs-ink-strong, #3c250a); font-weight: 600; font-variant-numeric: tabular-nums; }
   .home-note { font-size: 11px; color: var(--shs-muted, #6f5e40); line-height: 1.5; margin-top: 8px; }
   .home-tip { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; font-size: 12px; color: var(--shs-ink, #5a3a16); }

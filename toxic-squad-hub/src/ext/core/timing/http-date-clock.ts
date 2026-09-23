@@ -137,3 +137,24 @@ export function calibrationSchedule(count: number, minGapMs = 250): number[] {
   }
   return delays;
 }
+
+/**
+ * Próximo instante de envio (relógio LOCAL) para uma amostra de BISSECÇÃO:
+ * mira o request para que, pela estimativa atual, o servidor esteja
+ * exatamente numa virada de segundo no meio do round-trip. O `Date` que
+ * voltar diz de que lado da virada o offset real está — cada amostra corta a
+ * incerteza pela metade (em vez de depender da sorte da fase).
+ */
+export function nextBisectionSendAt(opts: {
+  nowLocalMs: number;
+  offsetMs: number;
+  rttMs: number;
+  minDelayMs?: number;
+}): number {
+  const minDelay = opts.minDelayMs ?? 250;
+  const halfRtt = Math.max(0, opts.rttMs) / 2;
+  // Virada de segundo do servidor k*1000 ⇔ local t = k*1000 − offset − rtt/2.
+  const earliest = opts.nowLocalMs + minDelay;
+  const k = Math.ceil((earliest + opts.offsetMs + halfRtt) / 1000);
+  return k * 1000 - opts.offsetMs - halfRtt;
+}

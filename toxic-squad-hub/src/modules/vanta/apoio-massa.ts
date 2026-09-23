@@ -30,6 +30,7 @@
 //   vem do jogo/usuário entra por textContent (a única exceção é o texto das
 //   linhas do textarea, valor de input — nunca HTML).
 
+import { icon, iconMarkup } from '../../core/icons';
 import { registerVanta } from './vanta-registry';
 import { ensureVantaStyles } from './vanta-styles';
 import type { ModuleScope } from './vanta-lifecycle';
@@ -312,7 +313,8 @@ function openModal(scope: ModuleScope, opts: ModalOptions): void {
   const close = document.createElement('button');
   close.type = 'button';
   close.className = 'vanta-am-modal-close';
-  close.textContent = '✕';
+  close.replaceChildren(icon('x', 12));
+  close.setAttribute('aria-label', 'Fechar');
   close.setAttribute('aria-label', 'Fechar');
   head.append(title, close);
 
@@ -590,84 +592,84 @@ function appendSchedulerRecords(records: readonly ScheduledCommandRecord[]): num
 
 const PANEL_STYLES = `
   #${UI_ID} {
-    margin: 10px 0 16px; background: #fffdf3; border: 1px solid #e0cda0;
-    border-radius: 10px; font-family: 'Segoe UI', Arial, sans-serif;
-    font-size: 11.5px; color: #3c250a; overflow: hidden;
+    margin: 10px 0 16px; background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border, #e0cda0);
+    border-radius: 10px; font-family: var(--shs-font);
+    font-size: 11.5px; color: var(--shs-ink-strong, #3c250a); overflow: hidden;
   }
   #${UI_ID} * { box-sizing: border-box; }
   #vanta-am-head {
     display: flex; align-items: center; gap: 8px;
-    padding: 9px 14px; background: #efe2ba; border-bottom: 1px solid #e0cda0;
+    padding: 9px 14px; background: var(--shs-bg-head, #efe2ba); border-bottom: 1px solid var(--shs-border, #e0cda0);
   }
   #vanta-am-title {
     font-size: 12px; font-weight: 700; letter-spacing: 2px;
-    color: #3c250a; text-transform: uppercase;
+    color: var(--shs-ink-strong, #3c250a); text-transform: uppercase;
   }
-  #vanta-am-status { margin-left: auto; color: #6f5e40; max-width: 60%; }
-  #vanta-am-status.vanta-am-warn { color: #c04038; }
-  #vanta-am-status.vanta-am-ok { color: #3f8f43; }
+  #vanta-am-status { margin-left: auto; color: var(--shs-muted, #6f5e40); max-width: 60%; }
+  #vanta-am-status.vanta-am-warn { color: var(--shs-danger, #c04038); }
+  #vanta-am-status.vanta-am-ok { color: var(--shs-ok, #3f8f43); }
   #vanta-am-collapse {
-    background: none; border: 1px solid #cbb384; border-radius: 8px;
-    color: #6f5e40; cursor: pointer; font-size: 11px; padding: 2px 7px;
+    background: none; border: 1px solid var(--shs-border-strong, #cbb384); border-radius: 8px;
+    color: var(--shs-muted, #6f5e40); cursor: pointer; font-size: 11px; padding: 2px 7px;
   }
   #vanta-am-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
   #vanta-am-body[hidden] { display: none; }
   .vanta-am-section {
-    border: 1px solid #e0cda0; border-radius: 8px; background: #fdf8e6;
+    border: 1px solid var(--shs-border, #e0cda0); border-radius: 8px; background: #fdf8e6;
     padding: 8px 10px; display: flex; flex-direction: column; gap: 8px;
   }
   .vanta-am-section-title {
     font-size: 10px; font-weight: 700; letter-spacing: 1px;
-    text-transform: uppercase; color: #8a5a1e;
+    text-transform: uppercase; color: var(--shs-accent-ink, #8a5a1e);
   }
   .vanta-am-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .vanta-am-row label { display: flex; align-items: center; gap: 4px; color: #5a3a16; }
+  .vanta-am-row label { display: flex; align-items: center; gap: 4px; color: var(--shs-ink, #5a3a16); }
   .vanta-am-btn {
     padding: 5px 12px; border-radius: 8px; cursor: pointer;
-    border: 1px solid #cbb384; background: #fbf4de; color: #5a3a16;
+    border: 1px solid var(--shs-border-strong, #cbb384); background: var(--shs-bg-field, #fbf4de); color: var(--shs-ink, #5a3a16);
     font-size: 11.5px; font-weight: 600; font-family: inherit;
   }
-  .vanta-am-btn:hover:not(:disabled) { background: #efe2ba; border-color: #834a1a; color: #834a1a; }
+  .vanta-am-btn:hover:not(:disabled) { background: var(--shs-bg-head, #efe2ba); border-color: var(--shs-action-hover, #834a1a); color: var(--shs-action-hover, #834a1a); }
   .vanta-am-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .vanta-am-btn--primary { background: #6d3c14; border-color: #5a3110; color: #fff; }
-  .vanta-am-btn--primary:hover:not(:disabled) { background: #834a1a; color: #fff; }
-  .vanta-am-btn--danger { background: #fceaea; border-color: #c04038; color: #c04038; }
-  .vanta-am-btn--ok { background: #e8f4e2; border-color: #3f8f43; color: #2e5b2a; }
-  .vanta-am-btn--err { background: #fceaea; border-color: #c04038; color: #c04038; }
+  .vanta-am-btn--primary { background: var(--shs-action, #6d3c14); border-color: var(--shs-action-deep, #5a3110); color: #fff; }
+  .vanta-am-btn--primary:hover:not(:disabled) { background: var(--shs-action-hover, #834a1a); color: #fff; }
+  .vanta-am-btn--danger { background: var(--shs-danger-bg, #fceaea); border-color: var(--shs-danger, #c04038); color: var(--shs-danger, #c04038); }
+  .vanta-am-btn--ok { background: var(--shs-ok-bg, #e8f4e2); border-color: var(--shs-ok, #3f8f43); color: var(--shs-ok-ink, #2e5b2a); }
+  .vanta-am-btn--err { background: var(--shs-danger-bg, #fceaea); border-color: var(--shs-danger, #c04038); color: var(--shs-danger, #c04038); }
   #vanta-am-group {
     flex: 1; min-width: 0; max-width: 320px; padding: 4px 8px;
-    border-radius: 8px; background: #fbf4de; border: 1px solid #cbb384;
-    color: #3c250a; font-size: 12px; font-family: inherit;
+    border-radius: 8px; background: var(--shs-bg-field, #fbf4de); border: 1px solid var(--shs-border-strong, #cbb384);
+    color: var(--shs-ink-strong, #3c250a); font-size: 12px; font-family: inherit;
   }
   #vanta-am-lines {
     width: 100%; min-height: 84px; resize: vertical; padding: 6px 8px;
-    background: #fbf4de; border: 1px solid #cbb384; border-radius: 8px;
-    color: #3c250a; font-family: Consolas, monospace; font-size: 11.5px;
+    background: var(--shs-bg-field, #fbf4de); border: 1px solid var(--shs-border-strong, #cbb384); border-radius: 8px;
+    color: var(--shs-ink-strong, #3c250a); font-family: Consolas, monospace; font-size: 11.5px;
   }
-  #vanta-am-lines:focus { outline: none; border-color: #8a5a1e; }
-  #vanta-am-lines-status { color: #6f5e40; }
-  #vanta-am-lines-status.vanta-am-warn { color: #c04038; }
-  #vanta-am-lines-errors { color: #c04038; display: flex; flex-direction: column; gap: 2px; }
+  #vanta-am-lines:focus { outline: none; border-color: var(--shs-accent-ink, #8a5a1e); }
+  #vanta-am-lines-status { color: var(--shs-muted, #6f5e40); }
+  #vanta-am-lines-status.vanta-am-warn { color: var(--shs-danger, #c04038); }
+  #vanta-am-lines-errors { color: var(--shs-danger, #c04038); display: flex; flex-direction: column; gap: 2px; }
   .vanta-am-troop-table { border-collapse: collapse; width: 100%; font-size: 11px; }
   .vanta-am-troop-table th, .vanta-am-troop-table td {
-    padding: 3px 4px; text-align: center; border: 1px solid #e0cda0;
-    color: #5a3a16; white-space: nowrap;
+    padding: 3px 4px; text-align: center; border: 1px solid var(--shs-border, #e0cda0);
+    color: var(--shs-ink, #5a3a16); white-space: nowrap;
   }
-  .vanta-am-troop-table thead th { background: #efe2ba; }
+  .vanta-am-troop-table thead th { background: var(--shs-bg-head, #efe2ba); }
   .vanta-am-troop-table th.vanta-am-rowlabel, .vanta-am-troop-table td.vanta-am-rowlabel {
-    text-align: left; color: #6f5e40; font-size: 10px; text-transform: uppercase;
+    text-align: left; color: var(--shs-muted, #6f5e40); font-size: 10px; text-transform: uppercase;
     letter-spacing: 0.6px; white-space: nowrap; min-width: 132px;
   }
-  .vanta-am-troop-table td.vanta-am-zero { color: #b3a27d; }
-  .vanta-am-troop-table tbody { background: #fffdf3; }
+  .vanta-am-troop-table td.vanta-am-zero { color: var(--shs-ink-disabled, #b3a27d); }
+  .vanta-am-troop-table tbody { background: var(--shs-bg-card, #fffdf3); }
   .vanta-am-preview-table { border-collapse: collapse; width: 100%; font-size: 11px; }
   .vanta-am-preview-table th, .vanta-am-preview-table td {
-    padding: 3px 6px; border: 1px solid #e0cda0; color: #5a3a16; text-align: left;
+    padding: 3px 6px; border: 1px solid var(--shs-border, #e0cda0); color: var(--shs-ink, #5a3a16); text-align: left;
   }
-  .vanta-am-preview-table thead th { background: #efe2ba; color: #6f5e40; }
-  .vanta-am-preview-table tr.vanta-am-done td { color: #3f8f43; }
-  .vanta-am-warn-list { color: #c04038; margin: 0; padding-left: 16px; }
-  .vanta-am-note { color: #6f5e40; font-size: 10.5px; }
+  .vanta-am-preview-table thead th { background: var(--shs-bg-head, #efe2ba); color: var(--shs-muted, #6f5e40); }
+  .vanta-am-preview-table tr.vanta-am-done td { color: var(--shs-ok, #3f8f43); }
+  .vanta-am-warn-list { color: var(--shs-danger, #c04038); margin: 0; padding-left: 16px; }
+  .vanta-am-note { color: var(--shs-muted, #6f5e40); font-size: 10.5px; }
   .vanta-am-overlay {
     position: fixed; inset: 0; z-index: 100000;
     display: flex; align-items: center; justify-content: center;
@@ -675,48 +677,48 @@ const PANEL_STYLES = `
   }
   .vanta-am-modal {
     width: min(560px, calc(100vw - 32px)); max-height: 85vh;
-    display: flex; flex-direction: column; background: #fffdf3;
-    border: 1px solid #cbb384; border-radius: 12px; color: #5a3a16;
+    display: flex; flex-direction: column; background: var(--shs-bg-card, #fffdf3);
+    border: 1px solid var(--shs-border-strong, #cbb384); border-radius: 12px; color: var(--shs-ink, #5a3a16);
     box-shadow: 0 16px 48px rgba(60, 37, 10, 0.35);
-    font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px;
+    font-family: var(--shs-font); font-size: 12px;
   }
   .vanta-am-modal-head {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 9px 14px; background: #efe2ba; border-bottom: 1px solid #e0cda0;
+    padding: 9px 14px; background: var(--shs-bg-head, #efe2ba); border-bottom: 1px solid var(--shs-border, #e0cda0);
     border-radius: 12px 12px 0 0;
   }
   .vanta-am-modal-title {
     font-size: 12px; font-weight: 700; letter-spacing: 1px;
-    text-transform: uppercase; color: #8a5a1e;
+    text-transform: uppercase; color: var(--shs-accent-ink, #8a5a1e);
   }
   .vanta-am-modal-close {
-    background: none; border: none; color: #6f5e40; font-size: 15px;
+    background: none; border: none; color: var(--shs-muted, #6f5e40); font-size: 15px;
     line-height: 1; cursor: pointer; padding: 0 2px;
   }
-  .vanta-am-modal-close:hover { color: #c04038; }
+  .vanta-am-modal-close:hover { color: var(--shs-danger, #c04038); }
   .vanta-am-modal-body { padding: 12px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
   .vanta-am-modal-foot {
     display: flex; justify-content: flex-end; gap: 8px;
-    padding: 10px 14px; border-top: 1px solid #e0cda0;
+    padding: 10px 14px; border-top: 1px solid var(--shs-border, #e0cda0);
   }
   .vanta-am-field { display: flex; flex-direction: column; gap: 4px; }
   .vanta-am-field-label {
-    font-size: 10px; color: #6f5e40; text-transform: uppercase; letter-spacing: 0.8px;
+    font-size: 10px; color: var(--shs-muted, #6f5e40); text-transform: uppercase; letter-spacing: 0.8px;
   }
-  .vanta-am-field-help { font-size: 10px; color: #6f5e40; }
+  .vanta-am-field-help { font-size: 10px; color: var(--shs-muted, #6f5e40); }
   .vanta-am-field textarea, .vanta-am-field input[type="datetime-local"], .vanta-am-field input[type="number"], .vanta-am-field select {
-    padding: 4px 8px; border-radius: 8px; background: #fbf4de;
-    border: 1px solid #cbb384; color: #3c250a; font-size: 12px; font-family: inherit;
+    padding: 4px 8px; border-radius: 8px; background: var(--shs-bg-field, #fbf4de);
+    border: 1px solid var(--shs-border-strong, #cbb384); color: var(--shs-ink-strong, #3c250a); font-size: 12px; font-family: inherit;
   }
   .vanta-am-field textarea { font-family: Consolas, monospace; min-height: 64px; resize: vertical; }
   .vanta-am-unit-grid {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px;
   }
   .vanta-am-unit-cell { display: flex; align-items: center; gap: 5px; }
-  .vanta-am-unit-name { flex: 1; color: #5a3a16; font-size: 11px; }
-  .vanta-am-unit-input { width: 62px; text-align: center; background: #fbf4de; border: 1px solid #cbb384; border-radius: 8px; color: #3c250a; font-size: 11px; padding: 2px 4px; }
-  .vanta-am-check { display: flex; align-items: center; gap: 6px; color: #5a3a16; }
-  .vanta-am-check input { accent-color: #6d3c14; }
+  .vanta-am-unit-name { flex: 1; color: var(--shs-ink, #5a3a16); font-size: 11px; }
+  .vanta-am-unit-input { width: 62px; text-align: center; background: var(--shs-bg-field, #fbf4de); border: 1px solid var(--shs-border-strong, #cbb384); border-radius: 8px; color: var(--shs-ink-strong, #3c250a); font-size: 11px; padding: 2px 4px; }
+  .vanta-am-check { display: flex; align-items: center; gap: 6px; color: var(--shs-ink, #5a3a16); }
+  .vanta-am-check input { accent-color: var(--shs-action, #6d3c14); }
 `;
 
 // ── Registro do launcher ───────────────────────────────────────────────────
@@ -724,6 +726,7 @@ const PANEL_STYLES = `
 registerVanta({
   id: MODULE_ID,
   label: 'Distribuidor de Apoios',
+  icon: 'users',
   desc: 'Totais da conta, linhas de apoio em texto, distribuição por grupos e envio imediato/cravado na aba Apoio em massa',
   group: 'blindagem',
   match: () => params().get('screen') === 'place' && params().get('mode') === 'call',
@@ -755,7 +758,7 @@ registerVanta({
     panel.innerHTML = `
         <style>${PANEL_STYLES}</style>
         <div id="vanta-am-head">
-            <span id="vanta-am-title">⚔ Distribuidor de Apoios</span>
+            <span id="vanta-am-title">${iconMarkup('users', 13)} Distribuidor de Apoios</span>
             <span id="vanta-am-status"></span>
             <button type="button" id="vanta-am-collapse" title="Recolher/expandir">▾</button>
         </div>
@@ -768,7 +771,7 @@ registerVanta({
             <div class="vanta-am-row">
                 <span class="vanta-am-field-label">Grupo de envio</span>
                 <select id="vanta-am-group"><option value="0">Todas as aldeias</option></select>
-                <button type="button" id="vanta-am-group-reload" class="vanta-am-btn" title="Reler grupos e aldeias do jogo">↻ Recarregar</button>
+                <button type="button" id="vanta-am-group-reload" class="vanta-am-btn" title="Reler grupos e aldeias do jogo">${iconMarkup('refresh', 11)} Recarregar</button>
             </div>
             <div class="vanta-am-section">
                 <div class="vanta-am-section-title">Apoios a enviar</div>

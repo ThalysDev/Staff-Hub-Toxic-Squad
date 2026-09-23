@@ -18,6 +18,7 @@
 //   → pacedGet/vantaPostJson (fila global ≥200ms — o delay(200) manual entre
 //   aldeias do original foi absorvido pela fila, sem delay duplicado).
 
+import { iconMarkup } from '../../core/icons';
 import { gm } from '../../core/storage';
 import { pageWindow } from '../../core/page';
 import { registerVanta } from './vanta-registry';
@@ -312,6 +313,7 @@ function clearAllVillageFilters(): void {
 registerVanta({
   id: 'vanta-coletor',
   label: 'Coletor e Alocador',
+  icon: 'crosshair',
   desc: 'Seleção de coordenadas no mapa',
   group: 'utilidades',
   match: () => params().get('screen') === 'map',
@@ -502,7 +504,7 @@ registerVanta({
             <span class="vanta-group-swatch" style="background:${escAttr(color)}" title="Mudar cor"></span>
             <span class="vanta-group-name" title="${escAttr(g.name)}">${escapeHtml(g.name)}</span>
             <span class="vanta-group-count">${g.villages.length} aldeias</span>
-            <button type="button" class="vanta-group-edit" title="Renomear">✎</button>
+            <button type="button" class="vanta-group-edit" title="Renomear" aria-label="Renomear">${iconMarkup('edit', 12)}</button>
             <button type="button" class="vanta-group-del" title="Excluir">×</button>
         `;
 
@@ -614,7 +616,7 @@ registerVanta({
                 </div>
                 <div id="vanta-coletor-ok-row">
                     <button type="button" class="vanta-coletor-btn" id="vanta-coletor-save-ok" style="flex:1">OK</button>
-                    <button type="button" class="vanta-coletor-btn" id="vanta-coletor-save-cancel" style="flex:0 0 auto">✕</button>
+                    <button type="button" class="vanta-coletor-btn" id="vanta-coletor-save-cancel" style="flex:0 0 auto" aria-label="Cancelar">${iconMarkup('x', 12)}</button>
                 </div>
             </div>
             <div id="vanta-coletor-groups-title" style="display:none">Grupos Salvos</div>
