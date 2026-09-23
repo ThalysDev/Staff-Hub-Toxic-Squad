@@ -18,6 +18,7 @@ import {
   startSentinelaBadge,
 } from './modules/tsh/tsh-sentinela';
 import { renderHome } from './modules/home';
+import { renderAjuda } from './modules/ajuda';
 import { createModuleScope } from './modules/vanta/vanta-lifecycle';
 
 /** Diálogo de ativação (renderiza dentro do host até a licença validar). */
@@ -207,12 +208,14 @@ function main(): void {
   registerSection({ id: 'inicio', label: 'Início', icon: 'home', render: renderHome });
   registerSection({ id: 'vanta', label: 'Suite Vanta', icon: 'sword', render: renderVantaSuite });
   registerSection({ id: 'tsh', label: 'Automações', icon: 'zap', render: renderTshPanel });
+  registerSection({ id: 'ajuda', label: 'Ajuda & Sobre', icon: 'info', render: renderAjuda });
 
   // Busca rápida (Onda 6): seções + ferramentas Vanta + automações TSH.
   registerSearchEntries([
     { id: 'sec:inicio', label: 'Início', hint: 'Painel', sectionId: 'inicio', icon: 'home' },
     { id: 'sec:vanta', label: 'Suite Vanta', hint: 'Painel', sectionId: 'vanta', icon: 'sword' },
     { id: 'sec:tsh', label: 'Automações', hint: 'Painel', sectionId: 'tsh', icon: 'zap' },
+    { id: 'sec:ajuda', label: 'Ajuda & Sobre', hint: 'Painel', sectionId: 'ajuda', icon: 'info' },
   ]);
   registerSearchEntries(
     vantaLaunchers().map((launcher) => ({
