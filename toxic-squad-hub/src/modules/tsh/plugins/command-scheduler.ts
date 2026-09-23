@@ -22,20 +22,21 @@
 
 import { z } from 'zod';
 import { registerTsh, renewTshLock, type TshAutomation, type TshCycleContext } from '../tsh-runtime';
-import { isUncertainMutationError, normalizeVillageId, submitCommand2Step } from '../tsh-transport';
+import { cancelGameCommandsAtTarget, isUncertainMutationError, normalizeVillageId, submitCommand2Step } from '../tsh-transport';
 import { pacedGet } from '../../../core/net';
 import {
   activeSchedulerCommandRecords,
   deriveSchedulerCommandStatus,
-  toMotorScheduledCommand,
   type HubSchedulerState,
   type ScheduledCommandRecord,
   type ScheduledCommandStatus,
+  type SchedulerTimingStrategy,
 } from '../../../ext/core/scheduler-state';
+import { laneForSchedulerRecord } from '../../../ext/core/humanize/humanize-policy';
 import { parseServerTimeText, serverNow } from '../../../ext/core/execution/server-clock';
 import type { ScheduledCommand, UnitType } from '../../../ext/modules/shared/module-types';
 import { fnv1a64 } from '../../../ext/modules/shared/canonical-ids';
-import { openSchedulerCommands } from '../tsh-commands-ui';
+import { openSchedulerCommands, resolvePercentUnits } from '../tsh-commands-ui';
 
 // ── Fábrica de comandos (usada pela UI "Comandos"; formato EXATO do motor) ──
 
@@ -49,20 +50,36 @@ export interface NewScheduledCommandInput {
   targetPoints?: number;
   units: Partial<Record<UnitType, number>>;
   timingMode: 'arrival' | 'send';
+  /** Estratégia de envio (Onda 1); ausente = `'direto'`. */
+  timingStrategy?: SchedulerTimingStrategy;
   /** ISO 8601, hora do SERVIDOR, segundos. */
   sendAt: string;
   arrivalAt?: string;
+  // --- Onda 1 (todos opcionais: registro antigo continua idêntico) ---
+  cancelCount?: number;
+  sequentialCount?: number;
+  forced?: boolean;
+  catapultTarget?: string;
+  percentMode?: boolean;
+  unitsPercent?: Partial<Record<string, number>>;
+  /** Texto do primeiro evento (o que o plano pediu — aparece na lista/histórico). */
+  detail?: string;
 }
 
 /** Cria um ScheduledCommandRecord (id canônico cid_<fnv1a64>, pausado=false). */
 export function createScheduledCommand(input: NewScheduledCommandInput): ScheduledCommandRecord {
-  const canonical = `${input.kind}|${input.sourceVillageId}|${input.target.x}|${input.target.y}|${input.sendAt}|${JSON.stringify(input.units)}`;
+  const { detail, ...fields } = input;
+  // O percentual entra no id canônico (duas séries em % no mesmo horário não são
+  // o mesmo comando); registro sem percentual mantém o id de sempre.
+  const percentKey = input.percentMode === true ? `|${JSON.stringify(input.unitsPercent ?? {})}` : '';
+  const canonical = `${input.kind}|${input.sourceVillageId}|${input.target.x}|${input.target.y}|${input.sendAt}|${JSON.stringify(input.units)}${percentKey}`;
+  const at = new Date().toISOString();
   return {
-    ...input,
+    ...fields,
     id: `cid_${fnv1a64(canonical)}`,
     paused: false,
-    createdAt: new Date().toISOString(),
-    events: [{ status: 'agendado', at: new Date().toISOString() }],
+    createdAt: at,
+    events: [{ status: 'agendado', at, ...(detail !== undefined ? { detail } : {}) }],
   };
 }
 
@@ -278,11 +295,44 @@ function transportCommandKind(kind: ScheduledCommand['kind']): 'attack' | 'suppo
   return kind === 'support' ? 'support' : 'attack';
 }
 
+/**
+ * Tropas DISPONÍVEIS na aldeia aberta, lidas da Praça de Reunião:
+ * 1. tabela de tropas da aldeia (`#units_home .unit-item-<unit>[data-unit-count]`
+ *    — a MESMA leitura já provada pelo auto-farm);
+ * 2. fallback: contagem da própria linha do `input[name=<unit>]` (link/data-all).
+ * Nenhuma unidade legível = `undefined` (fail-closed: o percentual NUNCA vira
+ * um envio às cegas).
+ */
+function readAvailableUnits(doc: Document): Partial<Record<UnitType, number>> | undefined {
+  const units: Partial<Record<UnitType, number>> = {};
+  let readable = 0;
+  for (const unit of UNIT_TYPES) {
+    const cell = doc.querySelector<HTMLElement>(`#units_home .unit-item-${unit}[data-unit-count]`);
+    if (cell !== null) {
+      units[unit] = parseGameInteger(cell.dataset.unitCount);
+      readable += 1;
+      continue;
+    }
+    const input = doc.querySelector<HTMLInputElement>(`input[name="${unit}"]`);
+    if (input === null) continue;
+    const row = input.closest('tr') ?? input.parentElement;
+    const entry = row?.querySelector<HTMLElement>('.units-entry-all, [data-unit-count]') ?? null;
+    const count = Math.max(
+      parseGameInteger(input.getAttribute('data-all')),
+      parseGameInteger(entry?.textContent ?? null),
+    );
+    if (count <= 0) continue;
+    units[unit] = count;
+    readable += 1;
+  }
+  return readable === 0 ? undefined : units;
+}
+
 function readSchedulerState(ctx: TshCycleContext): HubSchedulerState {
   return ctx.storage.get<HubSchedulerState>(SCHEDULER_STORAGE_KEY, { commands: [], transit: [] });
 }
 
-function commandUnitsRecord(command: ScheduledCommand): Record<string, number> {
+function commandUnitsRecord(command: { units: Partial<Record<UnitType, number>> }): Record<string, number> {
   const units: Record<string, number> = {};
   // P3 (revisão Onda 6): chaves filtradas pela whitelist de unidades — o valor
   // é interpolado em seletores de input; chave inválida nunca chega lá.
@@ -295,6 +345,53 @@ function commandUnitsRecord(command: ScheduledCommand): Record<string, number> {
 
 const TERMINAL_COMMAND_STATUSES: ReadonlySet<string> = new Set(['enviado', 'incerto', 'falhou', 'removido']);
 
+/** Fato terminal persistido (enviado/incerto/falhou/removido) — nunca rederivado pelo relógio. */
+function hasTerminalEvent(record: ScheduledCommandRecord): boolean {
+  return record.events.some((event) => TERMINAL_COMMAND_STATUSES.has(event.status));
+}
+
+/**
+ * Registros que ESTE ciclo pode disparar: ativos pelo relógio (pausa e fatos
+ * terminais respeitados) MAIS os `forced` sem fato terminal — o forçado é
+ * justamente o que o relógio já marcaria como "falhou" (partida atrasada) e
+ * ainda assim deve sair.
+ */
+export function schedulableSchedulerRecords(
+  state: HubSchedulerState,
+  villageId: string,
+  now: Date,
+  window: { focusLeadMs: number; allowLateMs: number },
+): ScheduledCommandRecord[] {
+  const normalized = normalizeVillageId(villageId);
+  const active = activeSchedulerCommandRecords(state, now, window);
+  const activeIds = new Set(active.map((record) => record.id));
+  const forced = state.commands.filter(
+    (record) =>
+      record.forced === true &&
+      !record.paused &&
+      !activeIds.has(record.id) &&
+      !hasTerminalEvent(record) &&
+      normalizeVillageId(record.sourceVillageId) === normalized,
+  );
+  return [...active, ...forced].filter((record) => normalizeVillageId(record.sourceVillageId) === normalized);
+}
+
+/**
+ * Comando dentro da janela de envio. `forced` aceita ATRASO (o operador
+ * assumiu o risco ao marcar "agendar mesmo impossível"): basta o horário ter
+ * chegado — a checagem de atraso normal continua valendo para os demais.
+ */
+export function recordInSendWindow(
+  record: Pick<ScheduledCommandRecord, 'sendAt' | 'forced'>,
+  nowMs: number,
+  window: { focusLeadMs: number; allowLateMs: number },
+): boolean {
+  const sendAt = Date.parse(record.sendAt);
+  if (!Number.isFinite(sendAt)) return false;
+  if (record.forced === true) return sendAt <= nowMs + window.focusLeadMs;
+  return commandInSendWindow(record, nowMs, window);
+}
+
 /** Comando ainda disparável depois da mira (não pausado, sem status terminal). */
 function stillFirable(
   record: ScheduledCommandRecord | undefined,
@@ -302,7 +399,50 @@ function stillFirable(
   now: Date,
 ): boolean {
   if (record === undefined || record.paused) return false;
-  return !TERMINAL_COMMAND_STATUSES.has(deriveSchedulerCommandStatus(record, now, window));
+  const status = deriveSchedulerCommandStatus(record, now, window);
+  // "falhou" derivado do RELÓGIO não é fato para comando forçado: só um evento
+  // terminal (enviado/incerto/falhou/removido) aborta o disparo forçado.
+  if (status === 'falhou' && record.forced === true) return !hasTerminalEvent(record);
+  return !TERMINAL_COMMAND_STATUSES.has(status);
+}
+
+/**
+ * Unidades que o disparo vai enviar. Percentual (`percentMode`) é resolvido
+ * AGORA, contra as tropas atuais da aldeia de origem: o comando em % só dispara
+ * com a Praça da aldeia de origem aberta e com as tropas legíveis — qualquer
+ * outra situação aborta sem evento terminal (fail-closed, nada é enviado).
+ * `undefined` = abortado (o status já foi publicado).
+ */
+async function resolveFireUnits(
+  ctx: TshCycleContext,
+  record: ScheduledCommandRecord,
+): Promise<Record<string, number> | undefined> {
+  const frozen = commandUnitsRecord(record);
+  if (record.percentMode !== true) return frozen;
+  if (normalizeVillageId(record.sourceVillageId) !== normalizeVillageId(ctx.villageId)) {
+    ctx.status(
+      `Comando ${record.id} em percentual: é preciso estar na aldeia de origem (${record.sourceName ?? record.sourceVillageId}) para ler as tropas — envio abortado.`,
+      'warn',
+    );
+    return undefined;
+  }
+  const available = readAvailableUnits(document);
+  if (available === undefined) {
+    ctx.status(
+      `Comando ${record.id} em percentual: não foi possível ler as tropas disponíveis nesta tela (abra a Praça da aldeia de origem) — envio abortado.`,
+      'warn',
+    );
+    return undefined;
+  }
+  const resolved = commandUnitsRecord({ units: resolvePercentUnits(record.unitsPercent ?? {}, available) });
+  if (Object.keys(resolved).length === 0) {
+    ctx.status(
+      `Comando ${record.id} em percentual resultou em zero unidades (tropas da aldeia insuficientes?) — envio abortado.`,
+      'warn',
+    );
+    return undefined;
+  }
+  return resolved;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -314,26 +454,89 @@ function sleep(ms: number): Promise<void> {
 // não protege contra isso (mesma tab id).
 let cycleInFlight = false;
 
-async function fireCommand(ctx: TshCycleContext, command: ScheduledCommand): Promise<void> {
-  const target = `${command.target.x}|${command.target.y}`;
-  const units = commandUnitsRecord(command);
+/**
+ * Cancelamento Cronometrado (Onda 1): no instante `sendAt`, cancela até
+ * `cancelCount` comandos PRÓPRIOS com destino ao alvo. Mesma janela/mira do
+ * envio; o transporte já é faixa de PRECISÃO (sem humanização). O resumo
+ * (cancelados/falhas) vira o detalhe do evento terminal.
+ */
+async function fireCancelCommand(ctx: TshCycleContext, record: ScheduledCommandRecord, target: string): Promise<void> {
+  const count = record.cancelCount ?? 1;
   ctx.storage.set(
     SCHEDULER_STORAGE_KEY,
-    appendSchedulerEvent(readSchedulerState(ctx), command.id, 'enviando', new Date().toISOString(), `Envio iniciado para ${target}.`),
+    appendSchedulerEvent(
+      readSchedulerState(ctx),
+      record.id,
+      'enviando',
+      new Date().toISOString(),
+      `Cancelamento de até ${count} comando(s) com destino ${target} iniciado.`,
+    ),
   );
   try {
-    await submitCommand2Step(target, units, { attack: command.kind !== 'support' });
+    const result = await cancelGameCommandsAtTarget(target, count);
+    ctx.storage.set(
+      SCHEDULER_STORAGE_KEY,
+      appendSchedulerEvent(readSchedulerState(ctx), record.id, 'enviado', new Date().toISOString(), result.message),
+    );
+    ctx.status(`Cancelamento em ${target}: ${result.message}`, result.failed > 0 ? 'warn' : 'ok');
+  } catch (error) {
+    if (isUncertainMutationError(error)) {
+      ctx.storage.set(
+        SCHEDULER_STORAGE_KEY,
+        appendSchedulerEvent(
+          readSchedulerState(ctx),
+          record.id,
+          'incerto',
+          new Date().toISOString(),
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+      ctx.status(
+        `Cancelamento em ${target} INCERTO: ${error instanceof Error ? error.message : String(error)} — releia o Visão de Comandos antes de nova tentativa.`,
+        'warn',
+      );
+      return;
+    }
+    // Falha PRÉ-mutação (alvo inválido/rede): nenhum evento terminal — a janela
+    // segue aberta para o próximo ciclo (fail-closed, sem retry cego).
+    throw error;
+  }
+}
+
+async function fireCommand(
+  ctx: TshCycleContext,
+  record: ScheduledCommandRecord,
+  resolvedUnits?: Record<string, number>,
+): Promise<void> {
+  const target = `${record.target.x}|${record.target.y}`;
+  if (record.kind === 'cancel') {
+    await fireCancelCommand(ctx, record, target);
+    return;
+  }
+  const units = resolvedUnits ?? (await resolveFireUnits(ctx, record));
+  if (units === undefined) return; // percentual ilegível/inválido: nada foi enviado
+  ctx.storage.set(
+    SCHEDULER_STORAGE_KEY,
+    appendSchedulerEvent(readSchedulerState(ctx), record.id, 'enviando', new Date().toISOString(), `Envio iniciado para ${target}.`),
+  );
+  try {
+    // Regra de ouro (Onda 1): a faixa vem SEMPRE de laneForSchedulerRecord —
+    // cravado = precisão de ms; fake sai humanizado automaticamente.
+    await submitCommand2Step(target, units, {
+      attack: record.kind !== 'support',
+      lane: laneForSchedulerRecord(record),
+    });
     ctx.storage.set(
       SCHEDULER_STORAGE_KEY,
       appendSchedulerEvent(
         readSchedulerState(ctx),
-        command.id,
+        record.id,
         'enviado',
         new Date().toISOString(),
-        `Comando ${command.kind} para ${target} enviado pela Praça.`,
+        `Comando ${record.kind} para ${target} enviado pela Praça.`,
       ),
     );
-    ctx.status(`Comando ${command.id} enviado para ${target} (${command.kind}).`, 'ok');
+    ctx.status(`Comando ${record.id} enviado para ${target} (${record.kind}).`, 'ok');
   } catch (error) {
     if (isUncertainMutationError(error)) {
       // Mutação inconclusiva: registra o fato terminal — NUNCA reenvia às cegas.
@@ -341,14 +544,14 @@ async function fireCommand(ctx: TshCycleContext, command: ScheduledCommand): Pro
         SCHEDULER_STORAGE_KEY,
         appendSchedulerEvent(
           readSchedulerState(ctx),
-          command.id,
+          record.id,
           'incerto',
           new Date().toISOString(),
           error instanceof Error ? error.message : String(error),
         ),
       );
       ctx.status(
-        `Comando ${command.id} INCERTO: ${error instanceof Error ? error.message : String(error)} — releia o jogo antes de qualquer nova tentativa.`,
+        `Comando ${record.id} INCERTO: ${error instanceof Error ? error.message : String(error)} — releia o jogo antes de qualquer nova tentativa.`,
         'warn',
       );
       return;
@@ -384,9 +587,9 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
   const now = readServerNow(document);
   const windowCfg = { focusLeadMs: settings.focusLeadMs, allowLateMs: settings.allowLateMs };
   const records = activeSchedulerCommandRecords(state, now, windowCfg);
-  const own = records
-    .filter((record) => normalizeVillageId(record.sourceVillageId) === normalizeVillageId(ctx.villageId))
-    .map(toMotorScheduledCommand);
+  // Onda 1: `forced` entra mesmo já atrasado (o relógio o marcaria "falhou");
+  // o resto segue a janela normal.
+  const own = schedulableSchedulerRecords(state, ctx.villageId, now, windowCfg);
 
   // Passo 2: confirmação pendente na tela só é fechada quando CASA com um
   // comando agendado desta aldeia (janela + carência do original).
@@ -397,21 +600,25 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
       return;
     }
     const nowMs = now.getTime();
-    const hasDue = own.some((command) => {
-      const sendAt = Date.parse(command.sendAt);
+    const hasDue = own.some((record) => {
+      const sendAt = Date.parse(record.sendAt);
       return (
         Number.isFinite(sendAt) &&
         sendAt <= nowMs + settings.focusLeadMs &&
         sendAt >= nowMs - settings.allowLateMs - CONFIRM_LATE_GRACE_MS
       );
     });
-    const matching = own.find((command) =>
-      matchesPendingCommandConfirmation(pending, {
-        kind: transportCommandKind(command.kind),
-        target: command.target,
-        units: command.units,
-      }),
-    );
+    // Cancelamento não passa pela Praça e percentual não tem tropas congeladas
+    // para casar com a tela — os dois NÃO são confirmados por este caminho.
+    const matching = own
+      .filter((record) => record.kind !== 'cancel' && record.percentMode !== true)
+      .find((record) =>
+        matchesPendingCommandConfirmation(pending, {
+          kind: transportCommandKind(record.kind),
+          target: record.target,
+          units: record.units,
+        }),
+      );
     if (!hasDue || matching === undefined) {
       ctx.status(
         'Há uma confirmação de comando aberta, mas ela não corresponde a um comando agendado desta aldeia na janela atual.',
@@ -425,16 +632,14 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
 
   // Passo 1: comando dentro da janela de envio (mais antigo primeiro).
   let due = own
-    .filter((command) => commandInSendWindow(command, now.getTime(), windowCfg))
+    .filter((record) => recordInSendWindow(record, now.getTime(), windowCfg))
     .sort((left, right) => Date.parse(left.sendAt) - Date.parse(right.sendAt))[0];
   if (due === undefined) {
     const nextSendAt = own
-      .map((command) => Date.parse(command.sendAt))
+      .map((record) => Date.parse(record.sendAt))
       .filter((sendAt) => Number.isFinite(sendAt))
       .sort((left, right) => left - right)[0];
-    const anyVillageDue = records
-      .map(toMotorScheduledCommand)
-      .some((command) => commandInSendWindow(command, now.getTime(), windowCfg));
+    const anyVillageDue = records.some((record) => recordInSendWindow(record, now.getTime(), windowCfg));
     // MIRA ANTECIPADA (Onda 9): tick de 30s × janela de focusLeadMs — sem
     // isto, um tick que cai no vão entre janelas perde o comando. O próximo
     // comando desta aldeia chegando em ≤90s faz o ciclo DORMIR até a janela
@@ -454,9 +659,8 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
         renewTshLock('command-scheduler', ctx.world);
         const stateAfterWait = readSchedulerState(ctx);
         const nowAfter = readServerNow(document);
-        due = activeSchedulerCommandRecords(stateAfterWait, nowAfter, windowCfg)
-          .filter((record) => normalizeVillageId(record.sourceVillageId) === normalizeVillageId(ctx.villageId))
-          .map(toMotorScheduledCommand)
+        due = schedulableSchedulerRecords(stateAfterWait, ctx.villageId, nowAfter, windowCfg)
+          .filter((record) => recordInSendWindow(record, nowAfter.getTime(), windowCfg))
           .sort((left, right) => Date.parse(left.sendAt) - Date.parse(right.sendAt))[0];
       }
     }
@@ -475,13 +679,19 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
     }
   }
 
+  // Unidades do disparo: percentual é resolvido AGORA contra as tropas da
+  // aldeia de origem (fail-closed: sem leitura, nada é enviado).
+  const fireUnits = await resolveFireUnits(ctx, due);
+  if (fireUnits === undefined) return;
+
   // FAKE protection: ataque/fake com pontos do alvo precisa de população
   // mínima (fração do mundo via get_config; mundo sem limite = sem checagem).
+  // A conta usa as tropas REAIS (no percentual, as resolvidas acima).
   if ((due.kind === 'attack' || due.kind === 'fake') && due.targetPoints !== undefined) {
     const fraction = await worldFakeLimitFraction();
     if (fraction > 0) {
       const minimum = minimumAttackPopulation(due.targetPoints, fraction);
-      const population = commandPopulation(due.units);
+      const population = commandPopulation(fireUnits);
       if (population < minimum) {
         const percent = `${Math.round(fraction * 1000) / 10}%`;
         ctx.status(
@@ -512,7 +722,16 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
       return;
     }
   }
-  await fireCommand(ctx, due);
+  if (due.forced === true) {
+    const lateMs = readServerNow(document).getTime() - Date.parse(due.sendAt);
+    if (lateMs > settings.allowLateMs) {
+      ctx.status(
+        `Comando ${due.id} FORÇADO: ${Math.round(lateMs / 1000)}s fora da janela — enviando mesmo assim (risco assumido ao agendar).`,
+        'warn',
+      );
+    }
+  }
+  await fireCommand(ctx, due, fireUnits);
 }
 
 export const commandSchedulerAutomation: TshAutomation = {
