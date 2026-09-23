@@ -75,9 +75,10 @@ export const SCHEDULER_KIND_TO_LANE_KIND: Readonly<Record<ScheduledCommandKind, 
     support: 'apoio',
     noble: 'nobre',
     fake: 'fake',
+    cancel: 'cancelamento',
   });
 
-/** `kind` do estado do Agendador (attack/support/noble/fake) → faixa de envio. */
+/** `kind` do estado do Agendador (attack/support/noble/fake/cancel) → faixa de envio. */
 export function laneForSchedulerCommandKind(kind: ScheduledCommandKind, scheduledExact: boolean): TimingLane {
   return laneForCommand(SCHEDULER_KIND_TO_LANE_KIND[kind], scheduledExact);
 }

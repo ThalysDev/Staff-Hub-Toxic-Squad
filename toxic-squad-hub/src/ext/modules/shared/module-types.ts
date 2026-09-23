@@ -45,7 +45,7 @@ export interface VillageSnapshot {
 
 export interface ScheduledCommand {
   id: string;
-  kind: 'attack' | 'support' | 'noble' | 'fake';
+  kind: 'attack' | 'support' | 'noble' | 'fake' | 'cancel';
   sourceVillageId: string;
   target: { x: number; y: number };
   sendAt: string;
