@@ -6,9 +6,11 @@ import {
   isPauseActive,
   laneForCommand,
   laneForSchedulerCommandKind,
+  laneForSchedulerRecord,
   nextCommandAt,
   nextHumanizedCommandAt,
   normalizeHumanizePolicy,
+  routineWaitMs,
   type CommandKindForLane,
   type HumanizePolicy,
 } from './humanize-policy';
@@ -227,5 +229,43 @@ describe('persistência da política (schema e normalização)', () => {
     expect(normalized.scheduledPause).toEqual({ startHour: 23, endHour: 7 });
     expect(isPauseActive(normalized, 3)).toBe(true);
     expect(isPauseActive(normalized, 12)).toBe(false);
+  });
+});
+
+describe('routineWaitMs (porta de rotina — regra de ouro na integração)', () => {
+  const ON: HumanizePolicy = { ...DEFAULT_HUMANIZE_POLICY, enabled: true };
+  const NOW = 1_000_000;
+
+  it('faixa precisao é SEMPRE 0 — nem pausa ativa a segura', () => {
+    const comPausa: HumanizePolicy = { ...ON, scheduledPause: { startHour: 0, endHour: 23 } };
+    expect(routineWaitMs(comPausa, 'precisao', 0, NOW, 12, 0.5)).toBe(0);
+  });
+  it('política desligada → 0 nas duas faixas', () => {
+    expect(routineWaitMs(DEFAULT_HUMANIZE_POLICY, 'humanizado', 0, NOW, 12, 0.5)).toBe(0);
+  });
+  it('pausa ativa em rotina → -1 (pule o ciclo)', () => {
+    const comPausa: HumanizePolicy = { ...ON, scheduledPause: { startHour: 8, endHour: 18 } };
+    expect(routineWaitMs(comPausa, 'humanizado', 0, NOW, 12, 0.5)).toBe(-1);
+  });
+  it('sem pendências → espera = atraso humanizado do rand', () => {
+    expect(routineWaitMs(ON, 'humanizado', 0, NOW, 12, 0.5)).toBe(750); // nominal
+    expect(routineWaitMs(ON, 'humanizado', 0, NOW, 12, 0)).toBe(600); // piso -20%
+    expect(routineWaitMs(ON, 'humanizado', 0, NOW, 12, 1)).toBe(900); // teto +20%
+  });
+  it('gap de intervalo vence quando maior que o atraso', () => {
+    const apertado: HumanizePolicy = { ...ON, commandIntervalMs: 5_000, actionDelayMs: 100 };
+    // último envio há 1s → gap 4s > jitter
+    expect(routineWaitMs(apertado, 'humanizado', NOW - 1_000, NOW, 12, 0)).toBe(4_000);
+  });
+  it('cooldown vencido → só o atraso humanizado', () => {
+    expect(routineWaitMs(ON, 'humanizado', NOW - 60_000, NOW, 12, 0.5)).toBe(750);
+  });
+
+  it('laneForSchedulerRecord deriva scheduledExact=true sempre (ataque de OP nunca humaniza)', () => {
+    expect(laneForSchedulerRecord({ kind: 'attack' })).toBe('precisao');
+    expect(laneForSchedulerRecord({ kind: 'support' })).toBe('precisao');
+    expect(laneForSchedulerRecord({ kind: 'noble' })).toBe('precisao');
+    expect(laneForSchedulerRecord({ kind: 'cancel' })).toBe('precisao');
+    expect(laneForSchedulerRecord({ kind: 'fake' })).toBe('humanizado'); // exceção deliberada
   });
 });

@@ -94,6 +94,29 @@ export function laneForSchedulerRecord(record: Readonly<{ kind: ScheduledCommand
   return laneForSchedulerCommandKind(record.kind, true);
 }
 
+/**
+ * Espera integral de uma mutação de ROTINA (porta tsh-humanize): máximo entre
+ * o gap de intervalo e o atraso humanizado injetado, com sinais especiais:
+ * -1 = pausa programada ativa (pule o ciclo); 0 = pode ir agora. A faixa
+ * 'precisao' é SEMPRE 0 (regra de ouro) — nem a pausa a segura.
+ */
+export function routineWaitMs(
+  policy: HumanizePolicy,
+  lane: TimingLane,
+  lastCommandAtMs: number,
+  nowMs: number,
+  hourLocal: number,
+  jitterRand01: number,
+): number {
+  if (lane === 'precisao') return 0;
+  if (!policy.enabled) return 0;
+  if (isPauseActive(policy, hourLocal)) return -1;
+  const nextAllowed = nextCommandAt(policy, 'humanizado', lastCommandAtMs, nowMs);
+  const gap = Math.max(0, nextAllowed - nowMs);
+  const jitter = humanizedActionDelayMs(policy, jitterRand01);
+  return Math.max(gap, jitter);
+}
+
 /** Pausa diária em hora LOCAL, com janela que pode cruzar a meia-noite (ex.: 23→7). */
 export interface ScheduledPauseWindow {
   readonly startHour: number;

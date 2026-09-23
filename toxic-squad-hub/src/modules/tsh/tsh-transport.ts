@@ -19,9 +19,23 @@
 //   cadeia única e aninhá-la deadlockaria; cada toque de rede (POST da API ou
 //   submit DOM que navega) é enfileirado individualmente.
 
-import { enqueue } from '../../core/net';
+import { enqueue, pacedGet } from '../../core/net';
 import { pageWindow } from '../../core/page';
 import { currentCsrf, currentVillageId } from '../vanta/vanta-net';
+import { awaitRoutineMutation } from './tsh-humanize';
+import type { TimingLane } from '../../ext/core/humanize/humanize-policy';
+
+/**
+ * Porta de humanização para mutações de rotina (Onda 1): espera a vez FORA da
+ * fila de rede; pausa programada ativa → erro HUMANIZE_PAUSE (o ciclo pula).
+ * Mutações de PRECISÃO não passam por aqui (regra de ouro: nunca atrasadas).
+ */
+async function gateRoutine(kind: 'coleta' | 'recrutamento' | 'construcao' | 'mercado' | 'cunhagem'): Promise<void> {
+  const liberado = await awaitRoutineMutation(kind);
+  if (!liberado) {
+    throw transportError('Pausa de humanização ativa — ação de rotina pulada neste ciclo.', 'HUMANIZE_PAUSE');
+  }
+}
 
 /** Recursos do jogo (contrato zod das engines: premium-exchange/resource-balancer). */
 export type ResourceType = 'wood' | 'stone' | 'iron';
@@ -239,6 +253,7 @@ function findConfirmButton(root: ParentNode): HTMLElement | null {
 
 /** Cunhagem de moedas (origem page-transport.ts ~107-121, runtime coin-center). */
 export async function mintCoins(count: number): Promise<void> {
+  await gateRoutine('cunhagem');
   await enqueue(async () => {
     assertMutablePage(document);
     const form = document.querySelector<HTMLFormElement>('form[action*="screen=snob"][action*="action=coin"]');
@@ -266,6 +281,7 @@ export interface PremiumExchangeStep {
  * lá): a assinatura pedida preenche vários campos num único cálculo.
  */
 export async function premiumExchange(step: PremiumExchangeStep): Promise<void> {
+  await gateRoutine('mercado');
   await enqueue(async () => {
     assertMutablePage(document);
     let form: HTMLFormElement | null = null;
@@ -363,6 +379,13 @@ function matchConfirmScreen(
 
 export interface CommandOptions {
   attack: boolean;
+  /**
+   * Faixa de envio (Onda 1, REGRA DE OURO): 'precisao' (default) = o clique
+   * acontece NO milissegundo planejado, sem nenhuma humanização; 'humanizado'
+   * = fakes e envios de rotina respeitam intervalo/variação/pausa. O agendador
+   * deriva com laneForSchedulerRecord(record) — nunca chuta.
+   */
+  lane?: TimingLane;
 }
 
 /**
@@ -386,6 +409,15 @@ export async function submitCommand2Step(
   units: Record<string, number>,
   opts: CommandOptions,
 ): Promise<void> {
+  // Faixa de envio (Onda 1): precisão NUNCA espera; humanizado (fakes/rotina)
+  // respeita a política — espera fora da fila de rede.
+  const lane = opts.lane ?? 'precisao';
+  if (lane === 'humanizado') {
+    const liberado = await awaitRoutineMutation('fake');
+    if (!liberado) {
+      throw transportError('Pausa de humanização ativa — comando humanizado pulado.', 'HUMANIZE_PAUSE');
+    }
+  }
   const coords = parseCommandTarget(target);
   await enqueue(async () => {
     assertMutablePage(document);
@@ -445,6 +477,7 @@ export async function submitCommand2Step(
  * ação): o form do jogo recebe todas as unidades no mesmo submit.
  */
 export async function recruitUnits(units: Record<string, number>): Promise<void> {
+  await gateRoutine('recrutamento');
   await enqueue(async () => {
     assertMutablePage(document);
     const entries = Object.entries(units);
@@ -480,6 +513,7 @@ export async function recruitUnits(units: Record<string, number>): Promise<void>
  * releitura do Edifício Principal confirma a fila.
  */
 export async function upgradeBuilding(buildingId: string): Promise<void> {
+  await gateRoutine('construcao');
   await enqueue(async () => {
     assertMutablePage(document);
     const link = document.querySelector<HTMLAnchorElement>(
@@ -513,6 +547,7 @@ export interface SendResourcesPayload {
  * DOM: form do Mercado (mode=send/try=confirm_send) + x/y + requestSubmit.
  */
 export async function sendResources(villageId: string, payload: SendResourcesPayload): Promise<void> {
+  await gateRoutine('mercado');
   const sourceId = normalizeVillageId(villageId) || normalizeVillageId(currentVillageId());
   const receiverId = typeof payload.receiverId === 'string' ? normalizeVillageId(payload.receiverId) : '';
   if (receiverId !== '') {
@@ -578,6 +613,7 @@ function sanitizedUnitCounts(units: Record<string, number>): Record<string, numb
  * .free_send_button ("Começar") da opção — uma esquadrilha por tela.
  */
 export async function sendScavengingSquads(villageId: string, squads: ScavengeSquad[]): Promise<void> {
+  await gateRoutine('coleta');
   if (squads.length === 0) throw transportError('Nenhuma esquadrilha de coleta foi informada.', 'PLAN_INVALID');
   const normalizedVillageId = normalizeVillageId(villageId) || normalizeVillageId(currentVillageId());
   const api = await postGameApi('scavenge_api', 'send_squads', {
@@ -640,6 +676,7 @@ export async function sendScavengingSquads(villageId: string, squads: ScavengeSq
  * Fail-closed: sem os gatilhos canônicos de nível, nada é clicado.
  */
 export async function sendScavengingMass(units: Record<string, number>, duration: ScavengeDuration = 'media'): Promise<void> {
+  await gateRoutine('coleta');
   await enqueue(async () => {
     assertMutablePage(document);
     const index = scavengeDomIndex(duration);
@@ -685,6 +722,7 @@ export async function sendScavengingMass(units: Record<string, number>, duration
  * um link action= arbitrário poderia equipar item, trocar arma etc.).
  */
 export async function launchPaladinTraining(): Promise<void> {
+  await gateRoutine('recrutamento');
   await enqueue(async () => {
     assertMutablePage(document);
     const launcher = document.querySelector<HTMLAnchorElement>('a.knight_recruit_launch');
@@ -695,4 +733,96 @@ export async function launchPaladinTraining(): Promise<void> {
       );
     launcher.click();
   });
+}
+
+// ── Cancelamento Cronometrado (Onda 1) ─────────────────────────────────────
+// Mecanismo comprovado na revisão do modo=commands (br142): cada linha com
+// cancelamento possível expõe a própria URL action=cancel&id=N (com h do
+// jogo); quando a linha não expõe, o fallback é o POST ajaxaction=cancel da
+// família info_command (mesma do edit_other_comment do vanta-net). O alvo é
+// FAIXA DE PRECISÃO: nenhum delay de humanização — o cancelamento snipe
+// acontece no milissegundo planejado (regra de ouro).
+
+export interface CancelCommandsResult {
+  /** Comandos cujo POST de cancelamento respondeu OK. */
+  readonly cancelled: number;
+  /** Comandos cujo POST falhou (a lista para no primeiro erro). */
+  readonly failed: number;
+  readonly message: string;
+}
+
+interface CancelableRow {
+  readonly commandId: string;
+  readonly url: string; // URL de cancelamento pronta (com h)
+}
+
+/** Descobre linhas canceláveis cujo DESTINO é a coordenada-alvo. */
+function parseCancelableRows(html: string, target: { x: number; y: number }): CancelableRow[] {
+  const rows: CancelableRow[] = [];
+  const wanted = `${target.x}|${target.y}`;
+  for (const raw of html.split(/<tr[^>]*>/i).slice(1)) {
+    const cancelMatch = raw.match(/href="(\/game\.php[^"]*action=cancel[^"]*id=(\d+)[^"]*)"/i);
+    if (cancelMatch === null) continue;
+    // Destino = primeiro link info_village da linha (ordem do template:
+    // Destino | Origem — ver revisão do cancelamento-bloco).
+    const destMatch = raw.match(/screen=info_village&amp;id=\d+[^"]*"[^>]*>[^<]*?\((\d+\|\d+)\)/);
+    if (destMatch === null || destMatch[1] !== wanted) continue;
+    const href = cancelMatch[1]?.replace(/&amp;/g, '&');
+    const id = cancelMatch[2];
+    if (href === undefined || id === undefined) continue;
+    rows.push({ commandId: id, url: href });
+  }
+  return rows;
+}
+
+/**
+ * Cancela até `count` comandos PRÓPRIOS cujo destino é `target` ("x|y").
+ * PRECISÃO: sem gate de humanização; POSTs serializados pelo enqueue com o
+ * espaçamento mínimo da fila. Para no primeiro POST que falha (fail-closed —
+ * nunca martela o jogo) e devolve o resumo do que conseguiu.
+ */
+export async function cancelGameCommandsAtTarget(target: string, count: number): Promise<CancelCommandsResult> {
+  const coords = parseCommandTarget(target);
+  const village = currentVillageId();
+  const html = await pacedGet(`/game.php?village=${village}&screen=overview_villages&mode=commands&page=-1`, {
+    fresh: true,
+  });
+  const rows = parseCancelableRows(html, coords);
+  if (rows.length === 0) {
+    return {
+      cancelled: 0,
+      failed: 0,
+      message: `Nenhum comando cancelável com destino ${target} encontrado na Visão de Comandos.`,
+    };
+  }
+  const alvo = rows.slice(0, Math.max(1, Math.floor(count)));
+  let cancelled = 0;
+  let failed = 0;
+  let message = '';
+  for (const row of alvo) {
+    const ok = await enqueue(async () => {
+      const response = await fetch(row.url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: '',
+      });
+      return response.ok;
+    });
+    if (ok) {
+      cancelled += 1;
+    } else {
+      failed += 1;
+      message = `Cancelamento do comando ${row.commandId} falhou (HTTP não-OK) — lote interrompido.`;
+      break;
+    }
+  }
+  return {
+    cancelled,
+    failed,
+    message:
+      message !== ''
+        ? message
+        : `${cancelled} comando(s) com destino ${target} cancelado(s)${failed > 0 ? `, ${failed} falha(s)` : ''}.`,
+  };
 }
