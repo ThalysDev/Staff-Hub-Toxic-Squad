@@ -24,6 +24,36 @@ export function registerSection(section: SectionDef): void {
   sections.push(section);
 }
 
+// ── Busca rápida (Onda 6): provedores registram entradas; o shell desenha ──
+
+export interface SearchEntry {
+  /** id estável da entrada (dedupe/teclas). */
+  id: string;
+  /** Texto principal exibido. */
+  label: string;
+  /** Contexto curto (ex.: "Suite Vanta", "Automações"). */
+  hint?: string;
+  /** Seção do painel para onde o clique navega. */
+  sectionId: string;
+  icon?: IconName;
+  /** Termos extra para casar (ex.: desc da automação). */
+  keywords?: string;
+}
+
+const searchEntries = new Map<string, SearchEntry>();
+
+export function registerSearchEntries(entries: SearchEntry[]): void {
+  for (const entry of entries) searchEntries.set(entry.id, entry);
+}
+
+/** Normaliza p/ busca: minúsculas sem acentos (ç→c, ã→a…). */
+function normalizeSearch(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 let panelOpen = false;
 
 export function currentScreen(): string {
@@ -146,6 +176,27 @@ function styles(): string {
     .shs-headbtn:hover { background: #e5d5a8; }
     .shs-headbtn:focus-visible { outline: 2px solid var(--shs-brass); }
     .shs-head-spacer { margin-left: auto; }
+
+    /* Busca rápida (Onda 6): campo no header + dropdown ancorado. */
+    .shs-searchwrap { position: relative; margin-left: 8px; }
+    .shs-search { width: 180px; height: 28px; padding: 0 10px; font-size: 11.5px;
+      font-family: var(--shs-font); color: var(--shs-ink); background: #fbf5e2;
+      border: 1px solid var(--shs-border-strong); border-radius: 8px; outline: none; }
+    .shs-search:focus { border-color: var(--shs-brass); background: #fffdf3; }
+    .shs-search::placeholder { color: var(--shs-muted); }
+    .shs-searchpop { display: none; position: absolute; top: 32px; left: 0; width: 300px;
+      max-height: 320px; overflow-y: auto; background: var(--shs-bg-card);
+      border: 1px solid var(--shs-border-strong); border-radius: 10px;
+      box-shadow: var(--shs-shadow); z-index: 40; padding: 4px; }
+    .shs-searchpop--open { display: block; }
+    .shs-searchitem { display: flex; align-items: center; gap: 8px; width: 100%;
+      padding: 7px 9px; background: transparent; border: none; border-radius: 7px;
+      font-family: var(--shs-font); font-size: 12px; color: var(--shs-ink);
+      cursor: pointer; text-align: left; }
+    .shs-searchitem:hover, .shs-searchitem:focus-visible { background: #f2e6c4; outline: none; }
+    .shs-searchitem-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .shs-searchitem-hint { font-size: 10.5px; color: var(--shs-muted); flex-shrink: 0; }
+    .shs-searchempty { padding: 9px; font-size: 11.5px; color: var(--shs-muted); }
 
     /* Faixa de estado da licença em modo graça (rede caiu / revalidação 24h). */
     .shs-license { flex-shrink: 0; padding: 4px 12px; background: var(--shs-warn-bg);
@@ -526,6 +577,108 @@ export function mountShell(): void {
   head.appendChild(close);
   panel.appendChild(head);
 
+  // ===== Busca rápida (Onda 6): Ctrl+K foca; resultados navegam à seção =====
+  const searchWrap = document.createElement('div');
+  searchWrap.className = 'shs-searchwrap';
+  const searchInput = document.createElement('input');
+  searchInput.type = 'search';
+  searchInput.className = 'shs-search';
+  searchInput.placeholder = 'Buscar ferramenta… (Ctrl+K)';
+  searchInput.setAttribute('aria-label', 'Busca rápida de ferramentas');
+  const searchPop = document.createElement('div');
+  searchPop.className = 'shs-searchpop';
+  searchWrap.append(searchInput, searchPop);
+  head.appendChild(searchWrap);
+
+  const switchToSection = (sectionId: string): void => {
+    const section = sections.find((s) => s.id === sectionId);
+    if (section === undefined) return;
+    body.replaceChildren();
+    body.dataset.section = section.id;
+    for (const other of Array.from(nav.children)) {
+      (other as HTMLElement).dataset.active = 'false';
+      (other as HTMLElement).setAttribute('aria-selected', 'false');
+    }
+    const item = Array.from(nav.children).find(
+      (child) => (child as HTMLElement).dataset.sectionId === section.id,
+    );
+    if (item instanceof HTMLElement) {
+      item.dataset.active = 'true';
+      item.setAttribute('aria-selected', 'true');
+    }
+    section.render(body);
+  };
+
+  const closeSearch = (): void => {
+    searchPop.replaceChildren();
+    searchPop.classList.remove('shs-searchpop--open');
+  };
+
+  searchInput.addEventListener('input', () => {
+    const raw = searchInput.value.trim();
+    if (raw.length < 2) {
+      closeSearch();
+      return;
+    }
+    const needle = normalizeSearch(raw);
+    const matches = [...searchEntries.values()]
+      .filter((entry) => {
+        const haystack = normalizeSearch(`${entry.label} ${entry.hint ?? ''} ${entry.keywords ?? ''}`);
+        return haystack.includes(needle);
+      })
+      .slice(0, 12);
+    searchPop.replaceChildren();
+    if (matches.length === 0) {
+      const vazio = document.createElement('div');
+      vazio.className = 'shs-searchempty';
+      vazio.textContent = 'Nada encontrado.';
+      searchPop.appendChild(vazio);
+    }
+    for (const entry of matches) {
+      const botao = document.createElement('button');
+      botao.type = 'button';
+      botao.className = 'shs-searchitem';
+      if (entry.icon !== undefined) botao.appendChild(icon(entry.icon, 14));
+      const texto = document.createElement('span');
+      texto.className = 'shs-searchitem-label';
+      texto.textContent = entry.label;
+      botao.appendChild(texto);
+      if (entry.hint !== undefined && entry.hint !== '') {
+        const hint = document.createElement('span');
+        hint.className = 'shs-searchitem-hint';
+        hint.textContent = entry.hint;
+        botao.appendChild(hint);
+      }
+      botao.addEventListener('click', () => {
+        switchToSection(entry.sectionId);
+        searchInput.value = '';
+        closeSearch();
+        searchInput.blur();
+      });
+      searchPop.appendChild(botao);
+    }
+    searchPop.classList.add('shs-searchpop--open');
+  });
+  searchInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      searchInput.value = '';
+      closeSearch();
+      searchInput.blur();
+    }
+  });
+  searchInput.addEventListener('blur', () => {
+    // Fecha no próximo tick: o clique no resultado precisa acontecer antes.
+    window.setTimeout(() => closeSearch(), 150);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.ctrlKey && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      if (!panelOpen) return;
+      searchInput.focus();
+      searchInput.select();
+    }
+  });
+
   // ===== Arraste pelo header (Onda 22): posição persistida, botões excluídos =====
   head.style.cursor = 'grab';
   head.addEventListener('mousedown', (event) => {
@@ -652,19 +805,12 @@ export function mountShell(): void {
       if (section.icon !== undefined) item.appendChild(icon(section.icon, 15));
       item.appendChild(document.createTextNode(section.label));
       item.role = 'tab';
+      item.dataset.sectionId = section.id;
       const selected = String(body.dataset.section === section.id);
       item.dataset.active = selected;
       item.setAttribute('aria-selected', selected);
       item.addEventListener('click', () => {
-        body.innerHTML = '';
-        body.dataset.section = section.id;
-        for (const other of Array.from(nav.children)) {
-          (other as HTMLElement).dataset.active = 'false';
-          (other as HTMLElement).setAttribute('aria-selected', 'false');
-        }
-        item.dataset.active = 'true';
-        item.setAttribute('aria-selected', 'true');
-        section.render(body);
+        switchToSection(section.id);
       });
       nav.appendChild(item);
     }

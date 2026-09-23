@@ -4,12 +4,14 @@
 // no Staff Hub In-Game (../userscript) — produto separado da liderança.
 
 import { gate, licenseState, activate, logout, type LicenseState } from './core/license';
-import { ensureHost, mountShell, registerSection } from './core/shell';
+import { ensureHost, mountShell, registerSection, registerSearchEntries } from './core/shell';
 import { gameContext } from './core/shell';
 import { card, cardTitle, iconButton, spinner } from './core/ui';
 import { icon } from './core/icons';
 import { renderVantaSuite, runVantaOnLoad } from './modules/vanta';
+import { vantaLaunchers } from './modules/vanta/vanta-registry';
 import { renderTshPanel, startTshHeartbeat } from './modules/tsh';
+import { tshAutomations } from './modules/tsh/tsh-runtime';
 import {
   isSentinelaTab,
   mountSentinelaLauncher,
@@ -205,6 +207,31 @@ function main(): void {
   registerSection({ id: 'inicio', label: 'Início', icon: 'home', render: renderHome });
   registerSection({ id: 'vanta', label: 'Suite Vanta', icon: 'sword', render: renderVantaSuite });
   registerSection({ id: 'tsh', label: 'Automações', icon: 'zap', render: renderTshPanel });
+
+  // Busca rápida (Onda 6): seções + ferramentas Vanta + automações TSH.
+  registerSearchEntries([
+    { id: 'sec:inicio', label: 'Início', hint: 'Painel', sectionId: 'inicio', icon: 'home' },
+    { id: 'sec:vanta', label: 'Suite Vanta', hint: 'Painel', sectionId: 'vanta', icon: 'sword' },
+    { id: 'sec:tsh', label: 'Automações', hint: 'Painel', sectionId: 'tsh', icon: 'zap' },
+  ]);
+  registerSearchEntries(
+    vantaLaunchers().map((launcher) => ({
+      id: `vanta:${launcher.id}`,
+      label: launcher.label,
+      hint: 'Suite Vanta',
+      sectionId: 'vanta',
+      keywords: launcher.desc,
+    })),
+  );
+  registerSearchEntries(
+    tshAutomations().map((automation) => ({
+      id: `tsh:${automation.id}`,
+      label: automation.label,
+      hint: 'Automações',
+      sectionId: 'tsh',
+      keywords: automation.desc,
+    })),
+  );
 
   const state: LicenseState = gate();
   if (state.kind === 'ausente') {
