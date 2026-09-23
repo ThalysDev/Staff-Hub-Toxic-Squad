@@ -31,7 +31,7 @@ const header = `// ==UserScript==
 // @name         Toxic Squad Hub
 // @namespace    https://reidasmultistw.com.br/toxic-squad-hub
 // @version      ${version}
-// @description  Quartel-general da Toxic Squad dentro do jogo — conferência de comandos, tropas/defesa, planner de OP, blindagem, OD + suite Vanta (dashboard de incomings, apoio em massa, blindagem de aldeia, coletor, relíquias, etiquetador, auto-cunhar e saúde do stack)
+// @description  Arsenal da Toxic Squad dentro do jogo — Central de Agendamentos (precisão de ms, sequência de nobres, cancelamento cronometrado, agendamento em bloco, mapa de operações), Distribuidor de Apoios na aba nativa, suite Vanta (dashboard, mapa, etiquetador com alarme, notas de campo e mais), automações com humanização, Modo Sentinela e busca rápida Ctrl+K
 // @author       Toxic Squad
 // @match        *://*.tribalwars.com.br/game.php*
 // @grant        GM_setValue
