@@ -520,6 +520,11 @@ export function unmetToPreview(
       line === undefined
         ? `Linha ${entry.lineIndex + 1}`
         : `Linha ${entry.lineIndex + 1} (${line.target.x}|${line.target.y})`;
+    // Recusa por colisão de ms: `missing` vem zerado de propósito — o motivo é
+    // a informação útil (sem ele a mensagem diria "nada a enviar", que é falso).
+    if (entry.reason !== undefined && entry.reason.trim() !== '') {
+      return `${where}: recusado: ${entry.reason.trim()}`;
+    }
     const missing = formatUnitsSummary(entry.missing);
     return missing === '—' ? `${where}: nenhuma tropa pedida — nada a enviar.` : `${where}: faltou ${missing}.`;
   });

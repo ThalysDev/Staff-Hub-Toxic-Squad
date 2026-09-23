@@ -25,11 +25,13 @@ import {
   sumNativeTroopRows,
   toDatetimeLocalValue,
   unmetToPreview,
+  zeroTroops,
   type NativeTroopRow,
   type SupportRun,
 } from './apoio-massa-logic';
 import { parseSupportLines } from '../../ext/modules/features/mass-support/support-line-codec';
 import { distributeSupport } from '../../ext/modules/features/mass-support/support-distributor';
+import { parseSchedulerCommandRecord } from '../../ext/core/scheduler-state';
 
 /** 23/09/2026 12:00:00.000 — relógio fixo dos testes (referência do codec). */
 const NOW = Date.UTC(2026, 8, 23, 12, 0, 0, 0);
@@ -283,6 +285,19 @@ describe('apresentação', () => {
     // Só a 1ª linha fica descoberta: a 2ª recebe tudo o que pediu.
     expect(unmetToPreview(result.unmet, lines)).toEqual(['Linha 1 (500|500): faltou 20 lança.']);
   });
+
+  it('mostra o motivo da recusa quando o `missing` vem zerado (colisão de ms)', () => {
+    const lines = linesOf(unitsText({ spear: 30 }, '24/09-12:00:00:000'));
+    const reason =
+      'colisão de milissegundo com outro envio agendado: não há partida livre a 300ms da âncora — assignment recusado (a chegada não pode atrasar).';
+    expect(unmetToPreview([{ lineIndex: 0, missing: zeroTroops(), reason }], lines)).toEqual([
+      `Linha 1 (500|500): recusado: ${reason}`,
+    ]);
+    // Sem motivo, o texto antigo continua valendo (linha vazia: nada a enviar).
+    expect(unmetToPreview([{ lineIndex: 0, missing: zeroTroops() }], lines)).toEqual([
+      'Linha 1 (500|500): nenhuma tropa pedida — nada a enviar.',
+    ]);
+  });
 });
 
 describe('fila de execução e registros do Agendador', () => {
@@ -348,6 +363,22 @@ describe('fila de execução e registros do Agendador', () => {
       expect.stringContaining('linha sem data'),
       expect.stringContaining('sem coordenada'),
     ]);
+  });
+
+  it('os rascunhos passam pelo contrato canônico do Agendador (parse do upsert)', () => {
+    const futureRun: SupportRun = {
+      createdAtMs: NOW,
+      entries: [{ ...run.entries[0]!, departAtMs: NOW + 60_000, arrivalAtMs: NOW + 200_000 }],
+    };
+    const { records } = buildSchedulerSupportRecords(futureRun, NOW);
+    const parsed = parseSchedulerCommandRecord(records[0]);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.record.id).toBe(records[0]!.id);
+    expect(parsed.record.kind).toBe('support');
+    expect(parsed.record.source).toEqual({ x: 10, y: 10 });
+    expect(parsed.record.timingMode).toBe('send');
+    expect(parsed.record.events[0]?.status).toBe('agendado');
   });
 
   it('normaliza config salva e mantém os defaults do produto', () => {

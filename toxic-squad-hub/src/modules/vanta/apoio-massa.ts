@@ -41,6 +41,7 @@ import { parsePtBrInt } from './vanta-utils';
 import { unitIcon, UNIT_LABELS } from '../tsh/tsh-units';
 import { getGroupOptions, getGroupVillages } from '../tsh/tsh-groups';
 import { unitSpeedsMinutesPerField, worldSpeeds } from '../tsh/tsh-game-data';
+import { isTshEnabled } from '../tsh/tsh-runtime';
 import {
   SUPPORT_LINE_UNITS,
   formatSupportLine,
@@ -48,6 +49,7 @@ import {
   type SupportLine,
 } from '../../ext/modules/features/mass-support/support-line-codec';
 import { distributeSupport, type DistributorInput } from '../../ext/modules/features/mass-support/support-distributor';
+import { parseSchedulerCommandRecord, type ScheduledCommandRecord } from '../../ext/core/scheduler-state';
 import {
   TROOP_UNITS,
   TROOP_UNIT_LABELS,
@@ -543,8 +545,27 @@ async function sendImmediateEntry(
 
 // ── Registros do Agendador (modo Cravado) ─────────────────────────────────
 
-/** Anexa registros ao estado do motor, pulando ids já presentes (idempotente). */
-function appendSchedulerRecords(drafts: readonly SchedulerSupportDraft[]): number {
+/**
+ * Parse canônico dos rascunhos ANTES de qualquer gravação (mesmo contrato do
+ * `hub:scheduler-upsert-command`): registro inválido é recusado com a mensagem
+ * pt-BR do schema — nada sujo entra no storage do motor.
+ */
+function parseSchedulerDrafts(drafts: readonly SchedulerSupportDraft[]): {
+  records: ScheduledCommandRecord[];
+  rejected: string[];
+} {
+  const records: ScheduledCommandRecord[] = [];
+  const rejected: string[] = [];
+  for (const draft of drafts) {
+    const parsed = parseSchedulerCommandRecord(draft);
+    if (parsed.ok) records.push(parsed.record);
+    else rejected.push(parsed.message);
+  }
+  return { records, rejected };
+}
+
+/** Anexa registros JÁ validados, pulando ids já presentes (idempotente). */
+function appendSchedulerRecords(records: readonly ScheduledCommandRecord[]): number {
   const raw = readSchedulerState();
   const state = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
   const commands = Array.isArray(state['commands']) ? (state['commands'] as unknown[]) : [];
@@ -555,7 +576,7 @@ function appendSchedulerRecords(drafts: readonly SchedulerSupportDraft[]): numbe
       if (typeof id === 'string') known.add(id);
     }
   }
-  const fresh = drafts.filter((draft) => !known.has(draft.id));
+  const fresh = records.filter((record) => !known.has(record.id));
   if (fresh.length === 0) return 0;
   gm.set(schedulerKey(), {
     ...state,
@@ -1181,27 +1202,46 @@ registerVanta({
         if (plan.mode === 'cravado') {
           const referenceMs = referenceNowMs();
           const { records, skipped } = buildSchedulerSupportRecords(plan.run, referenceMs);
-          if (records.length === 0) {
-            const reasons = skipped.map((entry) => entry.reason).join(' ');
-            savePlan({ ...plan, warnings: skipped.map((entry) => entry.reason) });
+          const { records: valid, rejected } = parseSchedulerDrafts(records);
+          if (valid.length === 0) {
+            const warnings = [
+              ...skipped.map((entry) => entry.reason),
+              ...rejected.map((message) => `recusado pelo contrato do Agendador: ${message}`),
+            ];
+            savePlan({ ...plan, warnings });
             renderPreview();
-            setStatus(`Nada agendado: ${reasons}`, 'warn');
+            setStatus(
+              warnings.length === 0 ? 'Nada a agendar: o plano não tem entrada cravável.' : `Nada agendado: ${warnings.join(' ')}`,
+              'warn',
+            );
             return;
           }
+          // Agendador DESLIGADO: os registros ficariam dormentes em silêncio —
+          // o operador confirma ciente (recusar aborta; aceitar grava com aviso).
+          const schedulerOff = !isTshEnabled('command-scheduler');
+          const validIds = new Set(valid.map((record) => record.id));
           const ok = await vantaConfirm(scope, {
-            title: 'Distribuidor de Apoios — Cravado',
-            message: `Criar ${records.length} registro(s) de apoio no Agendador do Hub?`,
+            title: schedulerOff ? 'Distribuidor de Apoios — Agendador DESLIGADO' : 'Distribuidor de Apoios — Cravado',
+            message: schedulerOff
+              ? 'A automação Agendador de Comandos está DESLIGADA — os registros ficarão parados até você ligá-la. Gravar mesmo assim?'
+              : `Criar ${valid.length} registro(s) de apoio no Agendador do Hub?`,
             details: [
-              ...records.slice(0, 8).map(
-                (record) =>
-                  `${record.source.x}|${record.source.y} → ${record.target.x}|${record.target.y} · ${formatUnitsSummary(record.units)}`,
-              ),
+              ...records
+                .filter((record) => validIds.has(record.id))
+                .slice(0, 8)
+                .map(
+                  (record) =>
+                    `${record.source.x}|${record.source.y} → ${record.target.x}|${record.target.y} · ${formatUnitsSummary(record.units)}`,
+                ),
               ...skipped.slice(0, 6).map((entry) => `Ignorado: ${entry.reason}`),
+              ...rejected.slice(0, 6).map((message) => `Recusado: ${message}`),
             ],
-            confirmLabel: 'Agendar',
+            confirmLabel: schedulerOff ? 'Gravar mesmo assim' : 'Agendar',
+            ...(schedulerOff ? { danger: true } : {}),
           });
           if (!ok) return;
-          const created = appendSchedulerRecords(records);
+          const created = appendSchedulerRecords(valid);
+          const duplicated = valid.length - created;
           const referenceIso = formatReferenceMs(referenceMs);
           const done: SupportRun = {
             ...plan.run,
@@ -1212,17 +1252,19 @@ registerVanta({
           savePlan({
             ...plan,
             run: done,
-            warnings:
-              skipped.length > 0
-                ? skipped.map((entry) => `${coordLabel(entry.entry.target)}: ${entry.reason}`)
-                : [],
+            warnings: [
+              ...skipped.map((entry) => `${coordLabel(entry.entry.target)}: ${entry.reason}`),
+              ...rejected.map((message) => `recusado pelo contrato do Agendador: ${message}`),
+            ],
           });
           renderPreview();
           setStatus(
             `${created} registro(s) criado(s) no Agendador (partidas a partir de ${referenceIso})` +
-              `${records.length - created > 0 ? ` · ${records.length - created} já existia(m)` : ''}` +
-              `${skipped.length > 0 ? ` · ${skipped.length} impossível(is), veja a prévia` : ''}.`,
-            skipped.length > 0 ? 'warn' : 'ok',
+              `${duplicated > 0 ? ` · ${duplicated} já existia(m)` : ''}` +
+              `${skipped.length > 0 ? ` · ${skipped.length} impossível(is), veja a prévia` : ''}` +
+              `${rejected.length > 0 ? ` · ${rejected.length} recusado(s) pelo contrato do Agendador` : ''}` +
+              `${schedulerOff ? ' · Agendador DESLIGADO — os registros ficarão parados até você ligá-lo' : ''}.`,
+            schedulerOff || skipped.length > 0 || rejected.length > 0 ? 'warn' : 'ok',
           );
           return;
         }
