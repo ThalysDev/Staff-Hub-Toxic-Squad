@@ -393,7 +393,7 @@ export function recordInSendWindow(
 }
 
 /** Comando ainda disparável depois da mira (não pausado, sem status terminal). */
-function stillFirable(
+export function stillFirable(
   record: ScheduledCommandRecord | undefined,
   window: { focusLeadMs: number; allowLateMs: number },
   now: Date,
@@ -404,6 +404,86 @@ function stillFirable(
   // terminal (enviado/incerto/falhou/removido) aborta o disparo forçado.
   if (status === 'falhou' && record.forced === true) return !hasTerminalEvent(record);
   return !TERMINAL_COMMAND_STATUSES.has(status);
+}
+
+// ---------------------------------------------------------------------------
+// P1-1 (revisão de marco): Envio automático DESLIGADO segura o disparo.
+// ---------------------------------------------------------------------------
+
+export type AutoSendHoldDecision = 'fire' | 'hold' | 'expired';
+
+/**
+ * O que o Envio automático desligado faz com um comando que SERIA disparado
+ * agora: `fire` = autoSend ligado (segue o fluxo normal), `hold` = nada é
+ * enviado e o comando continua vivo (reavaliado a cada heartbeat), `expired` =
+ * a janela de atraso venceu com o comando segurado — o relógio já o mostraria
+ * "falhou" e o hold só pode terminar assim (nunca dispara depois do vencimento).
+ * `forced` aceita atraso por definição (risco assumido ao agendar): não vence.
+ */
+export function shouldHoldForAutoSend(
+  settings: { autoSend: boolean },
+  record: Pick<ScheduledCommandRecord, 'sendAt' | 'forced'>,
+  nowMs: number,
+  window: { focusLeadMs: number; allowLateMs: number },
+): AutoSendHoldDecision {
+  if (settings.autoSend) return 'fire';
+  const sendAt = Date.parse(record.sendAt);
+  // sendAt ilegível: o gate de janela já falha fechado — não há o que segurar.
+  if (!Number.isFinite(sendAt)) return 'fire';
+  if (record.forced === true) return 'hold';
+  return nowMs > sendAt + window.allowLateMs ? 'expired' : 'hold';
+}
+
+/** Prefixo do evento de hold (status 'janela', não-terminal) — reconhece o segurado em ciclos posteriores. */
+export const AUTO_SEND_HOLD_DETAIL = 'Envio automático desligado — comando segurado';
+
+/** Registro já segurado pelo Envio automático desligado (evento de hold presente). */
+function wasHeldForAutoSend(record: ScheduledCommandRecord): boolean {
+  return record.events.some(
+    (event) => event.status === 'janela' && (event.detail ?? '').startsWith(AUTO_SEND_HOLD_DETAIL),
+  );
+}
+
+/**
+ * Comandos desta aldeia que ficaram SEGURADOS pelo Envio automático desligado e
+ * cuja janela de atraso venceu: viram fato terminal 'falhou' (motivo autoSend)
+ * — o hold nunca dispara depois do vencimento, nem ao religar o Envio
+ * automático. Sem evento de hold o registro não entra: um comando que o módulo
+ * nunca viu devido não ganha um motivo que não é dele.
+ */
+export function autoSendExpiredHeldRecords(
+  state: HubSchedulerState,
+  villageId: string,
+  nowMs: number,
+  window: { focusLeadMs: number; allowLateMs: number },
+): ScheduledCommandRecord[] {
+  const normalized = normalizeVillageId(villageId);
+  return state.commands.filter(
+    (record) =>
+      normalizeVillageId(record.sourceVillageId) === normalized &&
+      !record.paused &&
+      !hasTerminalEvent(record) &&
+      wasHeldForAutoSend(record) &&
+      // A decisão é a MESMA do caminho principal, avaliada como "autoSend off".
+      shouldHoldForAutoSend({ autoSend: false }, record, nowMs, window) === 'expired',
+  );
+}
+
+/** Horário do sendAt (HH:MM:SS do relógio do servidor) para mensagens. */
+function sendAtClockLabel(record: Pick<ScheduledCommandRecord, 'sendAt'>): string {
+  const sendAt = Date.parse(record.sendAt);
+  return Number.isFinite(sendAt) ? new Date(sendAt).toISOString().slice(11, 19) : '?';
+}
+
+/** Comando devido mais antigo (menor sendAt) entre os disparáveis desta aldeia. */
+function earliestDueRecord(
+  own: readonly ScheduledCommandRecord[],
+  nowMs: number,
+  window: { focusLeadMs: number; allowLateMs: number },
+): ScheduledCommandRecord | undefined {
+  return own
+    .filter((record) => recordInSendWindow(record, nowMs, window))
+    .sort((left, right) => Date.parse(left.sendAt) - Date.parse(right.sendAt))[0];
 }
 
 /**
@@ -522,9 +602,12 @@ async function fireCommand(
   try {
     // Regra de ouro (Onda 1): a faixa vem SEMPRE de laneForSchedulerRecord —
     // cravado = precisão de ms; fake sai humanizado automaticamente.
+    // P1-2 (revisão): o alvo da catapulta do registro vai junto — sem ele a
+    // catapulta bateria no alvo PADRÃO do jogo enquanto o operador mira outro.
     await submitCommand2Step(target, units, {
       attack: record.kind !== 'support',
       lane: laneForSchedulerRecord(record),
+      ...(record.catapultTarget !== undefined ? { catapultTarget: record.catapultTarget } : {}),
     });
     ctx.storage.set(
       SCHEDULER_STORAGE_KEY,
@@ -562,6 +645,78 @@ async function fireCommand(
   }
 }
 
+/**
+ * P1-1 (revisão de marco): Envio automático DESLIGADO — nada é enviado no
+ * caminho principal (antes o gate só existia no ramo da confirmação pendente e
+ * a mira disparava assim mesmo, contradizendo a ajuda do painel).
+ *
+ * Semântica: o comando devido PERMANECE segurado, sem evento terminal, e é
+ * reavaliado a cada heartbeat — religar o Envio automático dentro da janela o
+ * dispara; a janela vencida (fora do allowLateMs; `forced` não vence) vira o
+ * fato 'falhou' com o motivo. O hold é gravado UMA vez por comando (evento
+ * 'janela', não-terminal — não há status novo) e o status do ciclo repete a
+ * instrução para o operador.
+ */
+function holdSchedulerCommands(
+  ctx: TshCycleContext,
+  state: HubSchedulerState,
+  own: readonly ScheduledCommandRecord[],
+  pending: PendingCommandConfirmation | undefined,
+  now: Date,
+  window: { focusLeadMs: number; allowLateMs: number },
+): void {
+  const nowMs = now.getTime();
+  for (const record of autoSendExpiredHeldRecords(state, ctx.villageId, nowMs, window)) {
+    ctx.storage.set(
+      SCHEDULER_STORAGE_KEY,
+      appendSchedulerEvent(
+        readSchedulerState(ctx),
+        record.id,
+        'falhou',
+        new Date().toISOString(),
+        `${AUTO_SEND_HOLD_DETAIL} e a janela de envio venceu — nada foi enviado.`,
+      ),
+    );
+    ctx.status(
+      `Comando ${record.id} segurado pelo Envio automático desligado e a janela (${sendAtClockLabel(record)}) venceu — marcado como falhou, nada foi enviado.`,
+      'warn',
+    );
+  }
+
+  const held = own.filter(
+    (record) =>
+      recordInSendWindow(record, nowMs, window) &&
+      shouldHoldForAutoSend({ autoSend: false }, record, nowMs, window) === 'hold',
+  );
+  if (held.length === 0) {
+    ctx.status(
+      pending !== undefined
+        ? 'Envio automático desativado: confirme o comando manualmente na tela aberta.'
+        : 'Envio automático desativado — nada é enviado enquanto estiver desligado.',
+      'info',
+    );
+    return;
+  }
+  for (const record of held) {
+    if (!wasHeldForAutoSend(record)) {
+      ctx.storage.set(
+        SCHEDULER_STORAGE_KEY,
+        appendSchedulerEvent(
+          readSchedulerState(ctx),
+          record.id,
+          'janela',
+          new Date().toISOString(),
+          `${AUTO_SEND_HOLD_DETAIL} no horário ${sendAtClockLabel(record)}; ligue o Envio automático para enviar.`,
+        ),
+      );
+    }
+    ctx.status(
+      `Envio automático desligado — comando ${record.id} segurado no horário ${sendAtClockLabel(record)}; ligue o Envio automático para enviar.`,
+      'warn',
+    );
+  }
+}
+
 async function runCycle(ctx: TshCycleContext): Promise<void> {
   if (cycleInFlight) return; // mira em andamento: não empilha ciclo
   cycleInFlight = true;
@@ -590,15 +745,25 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
   // Onda 1: `forced` entra mesmo já atrasado (o relógio o marcaria "falhou");
   // o resto segue a janela normal.
   const own = schedulableSchedulerRecords(state, ctx.villageId, now, windowCfg);
+  const pending = readPendingCommandConfirmation(document);
+
+  // P1-1 (revisão): Envio automático desligado SEGURA o disparo — o caminho
+  // principal nunca envia com o toggle desligado (o hold/vencimento é o único
+  // efeito do ciclo).
+  if (!settings.autoSend) {
+    holdSchedulerCommands(ctx, state, own, pending, now, windowCfg);
+    return;
+  }
+
+  // P3 (revisão): o comando devido é escolhido ANTES do early-return da
+  // confirmação pendente — o cancelamento cronometrado NÃO usa a Praça e não
+  // pode esperar 30s por uma confirmação aberta de outro comando.
+  const dueAtRead = earliestDueRecord(own, now.getTime(), windowCfg);
 
   // Passo 2: confirmação pendente na tela só é fechada quando CASA com um
-  // comando agendado desta aldeia (janela + carência do original).
-  const pending = readPendingCommandConfirmation(document);
-  if (pending !== undefined) {
-    if (!settings.autoSend) {
-      ctx.status('Envio automático desativado: confirme o comando manualmente na tela aberta.', 'info');
-      return;
-    }
+  // comando agendado desta aldeia (janela + carência do original). Um cancel
+  // devido passa direto (segue para o disparo abaixo).
+  if (pending !== undefined && dueAtRead?.kind !== 'cancel') {
     const nowMs = now.getTime();
     const hasDue = own.some((record) => {
       const sendAt = Date.parse(record.sendAt);
@@ -631,9 +796,7 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
   }
 
   // Passo 1: comando dentro da janela de envio (mais antigo primeiro).
-  let due = own
-    .filter((record) => recordInSendWindow(record, now.getTime(), windowCfg))
-    .sort((left, right) => Date.parse(left.sendAt) - Date.parse(right.sendAt))[0];
+  let due = dueAtRead;
   if (due === undefined) {
     const nextSendAt = own
       .map((record) => Date.parse(record.sendAt))
@@ -780,7 +943,7 @@ export const commandSchedulerAutomation: TshAutomation = {
       key: 'autoSend',
       label: 'Envio automático',
       type: 'boolean',
-      help: 'Desligado: nada é enviado; a confirmação aberta fica para você confirmar à mão.',
+      help: 'Desligado: nada é enviado. O comando devido fica SEGURADO e é reavaliado a cada ciclo — religar dentro da tolerância de atraso o dispara; passada a tolerância, ele é marcado como falhou (sem envio). A confirmação aberta fica para você confirmar à mão.',
     },
   ],
   runCycle,
