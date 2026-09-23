@@ -24,6 +24,7 @@ import './blindagem';
 import './coletor';
 import './dashboard';
 import './etiquetador';
+import './overview-agenda';
 import './reliquias';
 import './renomeador';
 import './stack-health';
