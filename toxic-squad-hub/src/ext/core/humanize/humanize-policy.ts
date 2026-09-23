@@ -83,6 +83,17 @@ export function laneForSchedulerCommandKind(kind: ScheduledCommandKind, schedule
   return laneForCommand(SCHEDULER_KIND_TO_LANE_KIND[kind], scheduledExact);
 }
 
+/**
+ * Faixa de um REGISTRO do Agendador (recomendação #4 da revisão Onda 0): todo
+ * registro agendado tem `sendAt` exato por construção — o integrador NUNCA
+ * precisa decidir o flag sozinho (passar `false` aqui humanizaria um ataque
+ * real de OP). Cancelamentos/nobres/snipes são sempre precisão; fake é sempre
+ * humanizado.
+ */
+export function laneForSchedulerRecord(record: Readonly<{ kind: ScheduledCommandKind }>): TimingLane {
+  return laneForSchedulerCommandKind(record.kind, true);
+}
+
 /** Pausa diária em hora LOCAL, com janela que pode cruzar a meia-noite (ex.: 23→7). */
 export interface ScheduledPauseWindow {
   readonly startHour: number;
@@ -123,9 +134,13 @@ function clamp(value: number, min: number, max: number): number {
  */
 export function humanizedActionDelayMs(policy: HumanizePolicy, rand01: number): number {
   const rand = clamp(Number.isFinite(rand01) ? rand01 : 0, 0, 1);
-  const variation = clamp(policy.variationPct, 0, 100) / 100;
+  // P2-3 (revisão Onda 0): política montada à mão com campo não finito não pode
+  // virar sleep de NaN (NaN passa reto em setTimeout) — sanitation dura aqui.
+  const actionDelayMs = Number.isFinite(policy.actionDelayMs) ? policy.actionDelayMs : DEFAULT_HUMANIZE_POLICY.actionDelayMs;
+  const variationPct = Number.isFinite(policy.variationPct) ? policy.variationPct : DEFAULT_HUMANIZE_POLICY.variationPct;
+  const variation = clamp(variationPct, 0, 100) / 100;
   const factor = 1 + (rand * 2 - 1) * variation;
-  return Math.max(0, Math.round(policy.actionDelayMs * factor));
+  return Math.max(0, Math.round(actionDelayMs * factor));
 }
 
 /**

@@ -187,8 +187,9 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
     return;
   }
   const screen = currentScreen();
-  if (automation.screen !== null && screen !== automation.screen) return; // não é a tela dele
-  // Agenda do usuário: fora da janela ativa o ciclo NÃO roda (status claro).
+  // Parada programada ANTES do gate de tela (P2-2 revisão Onda 0): o status de
+  // "parado" precisa ser escrito mesmo com o jogador em outra tela — é o único
+  // escritor da mensagem que o painel de Automações mostra.
   const schedule = loadSchedule(worldId, id);
   if (isScheduleStopped(schedule)) {
     gm.set<CycleStatus>(statusKey(id, worldId), {
@@ -198,6 +199,8 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
     });
     return;
   }
+  if (automation.screen !== null && screen !== automation.screen) return; // não é a tela dele
+  // Agenda do usuário: fora da janela ativa o ciclo NÃO roda (status claro).
   if (!withinActiveWindow(schedule)) {
     gm.set<CycleStatus>(statusKey(id, worldId), {
       message: `Fora da janela ativa (${schedule.activeFrom ?? ''}–${schedule.activeTo ?? ''}) — ciclos pausados.`,

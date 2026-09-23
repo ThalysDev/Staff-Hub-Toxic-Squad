@@ -115,8 +115,11 @@ export function scheduleError(schedule: TshSchedule): string | null {
   if (schedule.activeTo !== undefined && schedule.activeTo !== '' && !HH_MM.test(schedule.activeTo)) {
     return 'Fim da janela ativa deve ser HH:MM (ex.: 23:00).';
   }
-  if (schedule.stopAt !== undefined && schedule.stopAt !== '' && !STOP_AT.test(schedule.stopAt)) {
-    return 'Parada programada deve ser data e hora válidas.';
+  if (schedule.stopAt !== undefined && schedule.stopAt !== '') {
+    if (!STOP_AT.test(schedule.stopAt)) return 'Parada programada deve ser data e hora válidas.';
+    // P2-1 (revisão Onda 0): regex aceita "9999-99-99T99:99" — valida também o
+    // parse real, senão storage corrompido parava o módulo com rótulo estranho.
+    if (!Number.isFinite(Date.parse(schedule.stopAt))) return 'Parada programada deve ser uma data real.';
   }
   return null;
 }
