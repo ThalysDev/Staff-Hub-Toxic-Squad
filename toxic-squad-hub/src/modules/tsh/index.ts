@@ -27,3 +27,8 @@ import './plugins/auto-farm';
 import './plugins/wall-demolition';
 import './plugins/barbarian-cultivator';
 import './plugins/map-farm';
+
+// ── Onda 5: fundo (Sentinela registra os 5 dela em tsh-sentinela.ts) ──
+import './plugins/conquista-livres';
+import './plugins/producao-nobres';
+import './plugins/doador-prestigio';
