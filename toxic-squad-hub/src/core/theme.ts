@@ -47,6 +47,10 @@ export const THEME_TOKENS = {
   warn: '#8a6d1f',
   'warn-bg': '#f5ecd0',
   'warn-soft': '#fdf6d8',
+  // Texto SOBRE fundo escuro/ação (mesmo tom de superfícies claras, mas com
+  // SIGNIFICADO próprio — mudar warn-bg não recolore esses textos).
+  'on-dark': '#f5ecd0',
+  'on-action': '#f7ecd2',
 } as const;
 
 export type ThemeToken = keyof typeof THEME_TOKENS;
@@ -71,6 +75,7 @@ export function themeDeclarations(): string {
 export function tokenForHex(hex: string): ThemeToken | null {
   const wanted = hex.toLowerCase();
   for (const [name, value] of Object.entries(THEME_TOKENS)) {
+    if (name.startsWith('on-')) continue; // aliases de texto: escolhidos à mão, nunca por valor
     if (value === wanted) return name as ThemeToken;
   }
   return null;

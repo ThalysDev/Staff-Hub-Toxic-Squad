@@ -69,7 +69,7 @@ function ensureStyles(): void {
             display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
             margin: 8px 0; padding: 8px 10px;
             background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border, #e0cda0); border-radius: 10px;
-            font-family: var(--shs-font); font-size: 12px; color: var(--shs-ink, #5a3a16);
+            font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; color: var(--shs-ink, #5a3a16);
         }
         #vanta-cb-ui * { box-sizing: border-box; }
         #vanta-cb-ui .vanta-cb-title {
@@ -96,7 +96,7 @@ function ensureStyles(): void {
             position: fixed; inset: 0; z-index: 100002;
             background: rgba(60,37,10,0.42);
             display: flex; align-items: center; justify-content: center;
-            font-family: var(--shs-font);
+            font-family: var(--shs-font, Verdana, sans-serif);
         }
         .vanta-ccb-modal {
             width: min(520px, calc(100vw - 32px)); max-height: 80vh;

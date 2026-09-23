@@ -1365,7 +1365,7 @@ function clockBarEl(onCalibrated: () => void): { bar: HTMLDivElement; tick: () =
   calibrarTxt.className = 'tsh-btn-txt';
   calibrarTxt.textContent = 'Calibrar relógio';
   calibrar.appendChild(calibrarTxt);
-  calibrar.title = 'Mede o relógio do servidor agora (até 11 consultas leves, ~6s).';
+  calibrar.title = 'Mede o relógio do servidor agora (até 11 consultas leves, alguns segundos).';
   calibrar.addEventListener('click', () => {
     calibrar.disabled = true;
     calibrarTxt.textContent = 'Calibrando…';

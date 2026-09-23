@@ -105,7 +105,7 @@ const WIDGET_STYLES = `
     width: 210px; background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border, #e0cda0);
     border-radius: 10px; overflow: hidden;
     box-shadow: 0 2px 8px rgba(60, 37, 10, .25);
-    font-family: var(--shs-font); font-size: 11.5px; color: var(--shs-ink-strong, #3c250a);
+    font-family: var(--shs-font, Verdana, sans-serif); font-size: 11.5px; color: var(--shs-ink-strong, #3c250a);
   }
   #vanta-mapa-enxuto-ui * { box-sizing: border-box; }
   #vanta-mapa-enxuto-header {

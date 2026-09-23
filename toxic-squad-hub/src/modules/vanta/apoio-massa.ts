@@ -593,7 +593,7 @@ function appendSchedulerRecords(records: readonly ScheduledCommandRecord[]): num
 const PANEL_STYLES = `
   #${UI_ID} {
     margin: 10px 0 16px; background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border, #e0cda0);
-    border-radius: 10px; font-family: var(--shs-font);
+    border-radius: 10px; font-family: var(--shs-font, Verdana, sans-serif);
     font-size: 11.5px; color: var(--shs-ink-strong, #3c250a); overflow: hidden;
   }
   #${UI_ID} * { box-sizing: border-box; }
@@ -680,7 +680,7 @@ const PANEL_STYLES = `
     display: flex; flex-direction: column; background: var(--shs-bg-card, #fffdf3);
     border: 1px solid var(--shs-border-strong, #cbb384); border-radius: 12px; color: var(--shs-ink, #5a3a16);
     box-shadow: 0 16px 48px rgba(60, 37, 10, 0.35);
-    font-family: var(--shs-font); font-size: 12px;
+    font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px;
   }
   .vanta-am-modal-head {
     display: flex; align-items: center; justify-content: space-between;

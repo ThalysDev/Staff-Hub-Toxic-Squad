@@ -632,7 +632,7 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
       transform: translateX(-50%);
       z-index: 2147483600;
       background: var(--shs-ink-strong, #3c250a);
-      color: var(--shs-warn-bg, #f5ecd0);
+      color: var(--shs-on-dark, #f5ecd0);
       border: 1px solid var(--shs-brass, #b8860b);
       padding: 5px 8px;
       border-radius: 6px;
@@ -791,7 +791,7 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
     .tsh-seg-btn { border: none; background: transparent; padding: 4px 10px; cursor: pointer;
       font: inherit; font-size: 11.5px; font-weight: 600; color: var(--shs-ink, #5a3a16); }
     .tsh-seg-btn + .tsh-seg-btn { border-left: 1px solid var(--shs-border-strong, #cbb384); }
-    .tsh-seg-btn[aria-checked='true'] { background: var(--shs-action, #6d3c14); color: var(--shs-bg-active, #f7ecd2); }
+    .tsh-seg-btn[aria-checked='true'] { background: var(--shs-action, #6d3c14); color: var(--shs-on-action, #f7ecd2); }
     .tsh-seg-btn:focus-visible { outline: 2px solid var(--shs-brass, #b8860b); outline-offset: -2px; }
     button.tsh-group-title { width: 100%; border: none; background: transparent; cursor: pointer;
       text-align: left; font-family: inherit; padding-left: 0; padding-right: 0; }

@@ -138,7 +138,7 @@ function styles(): string {
     :host {
       ${themeDeclarations()}
       all: initial;
-      font-family: var(--shs-font);
+      font-family: var(--shs-font, Verdana, sans-serif);
       font-size: 12px;
       color: var(--shs-ink);
     }
@@ -155,7 +155,7 @@ function styles(): string {
       color: var(--shs-brass-soft); font-family: var(--shs-font-display); font-size: 15px;
       font-weight: 700; letter-spacing: .5px;
       box-shadow: 0 3px 10px rgba(40,24,6,.45), inset 0 1px 0 rgba(255,255,255,.12); }
-    .shs-fab:hover { border-color: var(--shs-brass); color: var(--shs-warn-bg, #f5ecd0); }
+    .shs-fab:hover { border-color: var(--shs-brass); color: var(--shs-on-dark, #f5ecd0); }
     .shs-fab:focus-visible { outline: 2px solid var(--shs-brass); outline-offset: 2px; }
     @keyframes shs-fab-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(217,165,32,.0), 0 3px 10px rgba(40,24,6,.45); }
       50% { box-shadow: 0 0 0 6px rgba(217,165,32,.55), 0 3px 10px rgba(40,24,6,.45); } }
@@ -169,7 +169,7 @@ function styles(): string {
       background: var(--shs-bg); color: var(--shs-ink);
       border: 1px solid var(--shs-border-strong); border-radius: var(--shs-radius);
       box-shadow: var(--shs-shadow);
-      font-family: var(--shs-font); font-size: 12px; line-height: 1.45;
+      font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; line-height: 1.45;
       transition: width .18s ease, height .18s ease, max-height .18s ease,
         left .18s ease, bottom .18s ease, transform .18s ease; }
     /* Painel do hub (o diálogo de ativação reutiliza .shs-panel sem altura fixa). */
@@ -208,7 +208,7 @@ function styles(): string {
       color: var(--shs-brass-soft);
       box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 1px 2px rgba(40,24,6,.25); }
     .shs-head-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-    .shs-head strong { font-family: var(--shs-font); font-size: 15px; font-weight: 700;
+    .shs-head strong { font-family: var(--shs-font, Verdana, sans-serif); font-size: 15px; font-weight: 700;
       letter-spacing: 2.5px; line-height: 1.2; color: var(--shs-ink-strong);
       white-space: nowrap; }
     .shs-head-sub { display: inline-flex; align-items: center; gap: 5px;
@@ -240,7 +240,7 @@ function styles(): string {
     /* Busca rápida (Onda 6): campo no header + dropdown ancorado. */
     .shs-searchwrap { position: relative; margin-left: 8px; }
     .shs-search { width: 180px; height: 28px; padding: 0 10px; font-size: 11.5px;
-      font-family: var(--shs-font); color: var(--shs-ink); background: #fbf5e2;
+      font-family: var(--shs-font, Verdana, sans-serif); color: var(--shs-ink); background: #fbf5e2;
       border: 1px solid var(--shs-border-strong); border-radius: 8px; outline: none; }
     .shs-search:focus { border-color: var(--shs-brass); background: var(--shs-bg-card, #fffdf3); }
     .shs-search::placeholder { color: var(--shs-muted); }
@@ -251,7 +251,7 @@ function styles(): string {
     .shs-searchpop--open { display: block; }
     .shs-searchitem { display: flex; align-items: center; gap: 8px; width: 100%;
       padding: 7px 9px; background: transparent; border: none; border-radius: 7px;
-      font-family: var(--shs-font); font-size: 12px; color: var(--shs-ink);
+      font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; color: var(--shs-ink);
       cursor: pointer; text-align: left; }
     .shs-searchitem:hover, .shs-searchitem:focus-visible,
     .shs-searchitem[data-active='true'] { background: var(--shs-bg-hover, #f2e6c4); outline: none; }
@@ -279,7 +279,7 @@ function styles(): string {
     .shs-navitem { display: flex; align-items: center; gap: 8px; height: 40px;
       flex-shrink: 0; margin-right: 6px; padding: 0 12px; border: none;
       border-radius: 0 8px 8px 0; background: transparent; color: var(--shs-ink);
-      cursor: pointer; font-family: var(--shs-font); font-size: 12.5px;
+      cursor: pointer; font-family: var(--shs-font, Verdana, sans-serif); font-size: 12.5px;
       font-weight: 600; text-align: left; }
     .shs-navitem:hover { background: var(--shs-bg-hover, #f2e6c4); }
     /* Ativo: fundo claro + barra vertical 3px vermelho-escuro colada na borda
@@ -354,10 +354,10 @@ function styles(): string {
     .shs-input, .shs-body select, .shs-body textarea { padding: 5px 8px;
       border: 1px solid var(--shs-border-strong); border-radius: 5px;
       background: var(--shs-bg-card); color: var(--shs-ink-strong);
-      font-family: var(--shs-font); font-size: 12px; width: 100%;
+      font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; width: 100%;
       box-sizing: border-box; caret-color: var(--shs-action); }
     .shs-body textarea { resize: vertical; min-height: 56px;
-      font-family: var(--shs-font); line-height: 1.4; }
+      font-family: var(--shs-font, Verdana, sans-serif); line-height: 1.4; }
     .shs-input:focus, .shs-body select:focus, .shs-body textarea:focus {
       outline: 2px solid var(--shs-brass); outline-offset: -1px; }
     /* [2] Placeholder com contraste ≥4.5:1 sobre var(--shs-bg-card, #fffdf3) (era #b3a17c ≈2,5:1). */
@@ -366,8 +366,8 @@ function styles(): string {
     /* ---- Botões ---- */
     .shs-btn { display: inline-flex; align-items: center; gap: 6px;
       padding: 5px 12px; border: 1px solid var(--shs-action-dark, #4a2708); border-radius: 6px;
-      background: var(--shs-action); color: var(--shs-bg-active, #f7ecd2); cursor: pointer;
-      font-family: var(--shs-font); font-size: 12px; font-weight: 600; }
+      background: var(--shs-action); color: var(--shs-on-action, #f7ecd2); cursor: pointer;
+      font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; font-weight: 600; }
     .shs-btn:hover:not([disabled]) { background: var(--shs-action-hover); }
     .shs-btn[disabled] { opacity: .55; cursor: default; }
     .shs-btn:focus-visible { outline: 2px solid var(--shs-brass); outline-offset: 1px; }
@@ -385,10 +385,10 @@ function styles(): string {
     [data-tip]:hover::after, [data-tip]:focus-visible::after {
       content: attr(data-tip); position: absolute; bottom: calc(100% + 7px);
       left: 50%; transform: translateX(-50%); z-index: 2147483600;
-      background: var(--shs-ink-strong); color: var(--shs-warn-bg, #f5ecd0);
+      background: var(--shs-ink-strong); color: var(--shs-on-dark, #f5ecd0);
       border: 1px solid var(--shs-brass);
       padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 400;
-      font-family: var(--shs-font); line-height: 1.35;
+      font-family: var(--shs-font, Verdana, sans-serif); line-height: 1.35;
       white-space: normal; max-width: min(260px, 90vw); text-align: center;
       pointer-events: none; box-shadow: 0 3px 10px rgba(40,24,6,.35); }
     [data-tip]:hover::before, [data-tip]:focus-visible::before {
@@ -415,7 +415,7 @@ function styles(): string {
     .shs-activate .shs-brand { display: flex; align-items: center; gap: 12px;
       padding: 14px 16px; }
     .shs-activate .shs-brand-txt { display: flex; flex-direction: column; gap: 2px; }
-    .shs-activate .shs-brand-txt strong { font-family: var(--shs-font);
+    .shs-activate .shs-brand-txt strong { font-family: var(--shs-font, Verdana, sans-serif);
       font-size: 15px; letter-spacing: 2px; color: var(--shs-ink-strong); }
     .shs-activate .shs-brand-txt span { font-size: 11px; color: var(--shs-muted); }
     .shs-input--key { font-family: ui-monospace, Consolas, 'Courier New', monospace;

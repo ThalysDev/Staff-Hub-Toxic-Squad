@@ -238,7 +238,7 @@ const STYLES = `
     background: var(--shs-bg-card, #fffdf3);
     border: 1px solid var(--shs-border, #e0cda0);
     border-radius: 10px;
-    font-family: var(--shs-font);
+    font-family: var(--shs-font, Verdana, sans-serif);
     overflow: hidden;
   }
   #vanta-bonus-diario-ui * { box-sizing: border-box; }

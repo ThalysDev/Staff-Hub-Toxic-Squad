@@ -276,7 +276,7 @@ const BAR_STYLES = `
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
     margin: 0 0 6px; padding: 8px 10px;
     background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border, #e0cda0); border-radius: 10px;
-    font-family: var(--shs-font); font-size: 11.5px; color: var(--shs-ink-strong, #3c250a);
+    font-family: var(--shs-font, Verdana, sans-serif); font-size: 11.5px; color: var(--shs-ink-strong, #3c250a);
   }
   #${UI_ID} * { box-sizing: border-box; }
   #vanta-agenda-head { display: flex; align-items: center; gap: 8px; margin-right: auto; }

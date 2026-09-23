@@ -343,7 +343,7 @@ function ensureStyles(): void {
         #vanta-gio-ui {
             margin: 10px 0; background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border, #e0cda0);
             border-radius: 10px; overflow: hidden;
-            font-family: var(--shs-font); font-size: 12px; color: var(--shs-ink, #5a3a16);
+            font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; color: var(--shs-ink, #5a3a16);
         }
         #vanta-gio-ui * { box-sizing: border-box; }
         #vanta-gio-header {

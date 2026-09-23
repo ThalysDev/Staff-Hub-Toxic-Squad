@@ -12,8 +12,11 @@ describe('tema único (Onda D)', () => {
     expect(tokenForHex('#6D3C14')).toBe('action');
     expect(tokenForHex('#123456')).toBeNull();
   });
-  it('não há duas variáveis com a mesma cor (mapeamento reverso sem ambiguidade)', () => {
-    const values = Object.values(THEME_TOKENS);
+  it('fora os aliases de texto (on-*), não há duas variáveis com a mesma cor', () => {
+    const values = Object.entries(THEME_TOKENS)
+      .filter(([name]) => !name.startsWith('on-'))
+      .map(([, value]) => value);
     expect(new Set(values).size).toBe(values.length);
+    expect(tokenForHex('#f5ecd0')).toBe('warn-bg');
   });
 });

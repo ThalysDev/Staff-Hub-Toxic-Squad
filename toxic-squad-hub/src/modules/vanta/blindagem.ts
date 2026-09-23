@@ -37,8 +37,8 @@ export function showModuleError(scope: ModuleScope, anchorEl: HTMLElement, msg: 
   el.textContent = msg;
   el.style.cssText = `
             position: fixed; z-index: 100001;
-            background: #fceaea; border: 1px solid #c04038; border-radius: 8px;
-            color: #c04038; font-size: 11px; font-family: 'Segoe UI', Arial, sans-serif;
+            background: var(--shs-danger-bg, #fceaea); border: 1px solid var(--shs-danger, #c04038); border-radius: 8px;
+            color: var(--shs-danger, #c04038); font-size: 11px; font-family: var(--shs-font, Verdana, sans-serif);
             padding: 7px 12px; pointer-events: none;
             box-shadow: 0 4px 16px rgba(60,37,10,0.25);
         `;

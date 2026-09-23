@@ -188,7 +188,7 @@ async function oneDateSample(seq: number): Promise<DateHeaderSample | null> {
 }
 
 /**
- * Rajada de calibração HTTP (até 11 HEAD leves no favicon, ~6s: 4 em fases
+ * Rajada de calibração HTTP (até 11 HEAD leves no favicon, até ~10s: 4 em fases
  * espalhadas + bissecção da virada de segundo). Concorrência
  * única (chamadas simultâneas reaproveitam a mesma rajada). Falha silenciosa:
  * sem Date legível o relógio segue nas outras fontes.
@@ -212,7 +212,8 @@ export function calibrateClock(): Promise<void> {
     for (let index = 0; index < BISECTION_SAMPLES; index += 1) {
       const current = estimateDateClock(samples);
       if (current === null) break;
-      if (current.halfWidthMs <= Math.max(3, current.rttMedianMs / 2)) break; // já no limite físico
+      // Limite físico ≈ RTT/2 (a bissecção só se aproxima dele): margem de 10%.
+      if (current.halfWidthMs <= current.rttMedianMs / 2 + Math.max(3, current.rttMedianMs * 0.1)) break;
       const at = nextBisectionSendAt({
         nowLocalMs: Date.now(),
         offsetMs: current.offsetMs,

@@ -109,7 +109,7 @@ function ensureFabStyle(): void {
       border: 1px solid var(--shs-action-dark, #4a2708); background: rgba(74,39,8,.92); color: #e6d6ae;
       font: 600 11px/1 system-ui, -apple-system, Segoe UI, sans-serif;
       letter-spacing: .3px; box-shadow: 0 2px 8px rgba(40,24,6,.35); }
-    #${FAB_ID}:hover { opacity: 1; border-color: #b8933f; color: var(--shs-warn-bg, #f5ecd0); }
+    #${FAB_ID}:hover { opacity: 1; border-color: #b8933f; color: var(--shs-on-dark, #f5ecd0); }
     #${FAB_ID}:focus-visible { outline: 2px solid #b8933f; outline-offset: 2px; opacity: 1; }
   `;
   document.head.appendChild(style);
