@@ -2,8 +2,9 @@
 // cunhagem, regras por grupo e reservas por unidade da coleta, estratégia da
 // Troca Premium, modelos por grupo e auto-pesquisa do recrutamento, alvos por
 // coordenada do balanceador, visão Horas/PP/quests do construtor, agendamento
-// do nobre da conquista, snapshot do plano unificado (Produção de Nobres) e a
-// tela de doação do Doador de Prestígio.
+// do nobre da conquista, dedupe da agenda do Agendador de Itens, snapshot do
+// plano unificado (Produção de Nobres) e a tela de doação do Doador de
+// Prestígio.
 import { describe, expect, it } from 'vitest';
 import { decideMintWithPercent, normalizeKeepPercent, type CoinSettings } from './coin-center';
 import { applyUnitReserves, parseGroupRules, ruleForGroup } from './collection';
@@ -27,6 +28,7 @@ import {
   normalizeQuestLabel,
 } from './mega-builder';
 import { candidateFromVillage, conquestTargetLabel, hasActiveNobleFor } from './conquista-livres';
+import { syncScheduledActivation, type AtivadorItensSettings } from './ativador-itens';
 import {
   biggestDonor,
   nobleMintHint,
@@ -142,15 +144,16 @@ describe('parseGroupRules (regras de coleta por grupo)', () => {
 });
 
 describe('applyUnitReserves (reservas por unidade da coleta)', () => {
-  it('desconta a reserva e omite o que não sobra', () => {
+  it('desconta a reserva e mantém em 0 a unidade consumida por inteiro', () => {
     expect(applyUnitReserves({ spear: 300, sword: 100, spy: 5 }, { spear: 100, spy: 10 })).toEqual({
       spear: 200,
       sword: 100,
+      spy: 0,
     });
   });
 
   it('reserva maior que o disponível zera (nunca negativo) e sem reservas nada muda', () => {
-    expect(applyUnitReserves({ spear: 50 }, { spear: 500 })).toEqual({});
+    expect(applyUnitReserves({ spear: 50 }, { spear: 500 })).toEqual({ spear: 0 });
     expect(applyUnitReserves({ spear: 50 }, {})).toEqual({ spear: 50 });
   });
 });
@@ -535,6 +538,35 @@ describe('conquista-livres (helpers do agendamento do nobre)', () => {
       commands: [{ ...base, events: [...base.events, { status: 'enviado', at: '2026-09-23T10:00:01.000Z' }] }],
     };
     expect(hasActiveNobleFor(sent, { x: 512, y: 478 })).toBeUndefined();
+  });
+});
+
+describe('ativador-itens (ordem do dedupe no sync da agenda)', () => {
+  const settings: AtivadorItensSettings = { itemId: '4711', itemNome: 'Pacote', quando: '2026-09-23T20:30' };
+
+  it('registro já criado é dedupe silencioso mesmo com o horário já vencido', () => {
+    const primeiro = syncScheduledActivation([], settings, '42', Date.parse('2026-09-23T10:00'));
+    expect(primeiro.criado).not.toBeNull();
+
+    // Relógio depois do horário agendado: o par (item, horário) já existe, então
+    // o ciclo não pode devolver "já passou" (mascararia o agendamento real).
+    const depois = syncScheduledActivation(primeiro.agenda, settings, '42', Date.parse('2026-09-23T21:00'));
+
+    expect(depois.criado).toBeNull();
+    expect(depois.erro).toBeNull();
+    expect(depois.agenda).toEqual(primeiro.agenda);
+  });
+
+  it('horário passado SEM registro criado continua recusado', () => {
+    const recusado = syncScheduledActivation(
+      [],
+      { itemId: '1', itemNome: '', quando: '2026-09-23T09:00' },
+      '42',
+      Date.parse('2026-09-23T10:00'),
+    );
+
+    expect(recusado.criado).toBeNull();
+    expect(recusado.erro).toContain('já passou');
   });
 });
 

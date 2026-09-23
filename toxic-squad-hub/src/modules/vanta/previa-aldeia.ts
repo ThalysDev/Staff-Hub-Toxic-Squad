@@ -44,7 +44,13 @@ interface TWMapMap {
   _handleClick?: TWMapHandleClick | undefined;
 }
 
-type TWMapHandleClick = (this: TWMapMap, e: unknown) => boolean | void;
+/** Handler do mapa; wrappers da suíte se marcam com `__tshWrapped`. */
+type TWMapHandleClick = ((this: TWMapMap, e: unknown) => boolean | void) & { __tshWrapped?: boolean };
+
+/** O handler é wrapper de algum módulo da suíte (não é o original do jogo)? */
+function isWrapped(handler: TWMapHandleClick | undefined): boolean {
+  return handler !== undefined && handler.__tshWrapped === true;
+}
 
 interface TWMapApi {
   map?: TWMapMap;
@@ -353,6 +359,8 @@ function handleClickWrapper(this: TWMapMap, e: unknown): boolean {
   handleMapClick(String(village.id), x, y);
   return false; // suprime o popup/navegação nativos
 }
+// Marca de wrapper: outro módulo (o Coletor) distingue original de wrapper.
+handleClickWrapper.__tshWrapped = true;
 
 /** Ponte para o handler do mount atual (o wrapper é global, o mount é por escopo). */
 let handleMapClick: ((villageId: string, x: number, y: number) => void) | null = null;
@@ -556,9 +564,15 @@ registerVanta({
       if (!hooksInstalled) {
         // Nunca capturar o PRÓPRIO wrapper como original (o restore de outro
         // módulo pode devolvê-lo ao mapa): a auto-referência recursaria no
-        // clique. Com original vivo de um install anterior, ele é preservado.
+        // clique. Reinstall sobre o wrapper de OUTRO módulo também não troca o
+        // original — o primeiro original conhecido fica (capturar o wrapper
+        // alheio criaria cadeia cruzada meu wrapper → alheio → meu wrapper).
+        // Sem original conhecido, captura: wrapper com original nulo engoliria
+        // todo clique do mapa.
         const current = tw.map._handleClick;
-        if (current !== handleClickWrapper) savedHandleClick = current ?? null;
+        if (current !== handleClickWrapper && (!isWrapped(current) || savedHandleClick === null)) {
+          savedHandleClick = current ?? null;
+        }
         tw.map._handleClick = handleClickWrapper;
         hooksInstalled = true;
       }

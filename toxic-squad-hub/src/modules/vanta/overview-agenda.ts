@@ -178,8 +178,11 @@ function findVillageTable(): VillageTable | null {
 // ── Storage do Agendador (mesma chave do motor) ─────────────────────────────
 
 function worldName(): string {
+  // Mesma convenção do runtime (`game_data.world`; fallback do hostname): sem o
+  // fallback, `game_data` ausente lia o balde errado (agenda sempre vazia).
   const world = pageWindow().game_data?.world;
-  return typeof world === 'string' ? world : '';
+  if (typeof world === 'string' && world !== '') return world;
+  return window.location.hostname.split('.')[0] ?? '';
 }
 
 function readSchedulerRecords(world: string): CommandRecordLike[] {

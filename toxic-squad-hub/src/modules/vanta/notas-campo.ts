@@ -153,3 +153,17 @@ export function mountMapNotesMarker(scope: ModuleScope): void {
   decorate();
   scope.every(decorate, 2000);
 }
+
+// Launcher próprio do marcador: sem ele o mount acima ficaria órfão (o painel
+// só monta módulos registrados). O Bloco de Campo continua na tela da aldeia.
+registerVanta({
+  id: 'vanta-notas-mapa',
+  label: 'Notas no Mapa',
+  desc: 'Marca com ● as aldeias que têm nota no Bloco de Campo.',
+  group: 'utilidades',
+  match: () => params().get('screen') === 'map',
+  url: () => '/game.php?screen=map',
+  mount(scope: ModuleScope): void {
+    mountMapNotesMarker(scope);
+  },
+});

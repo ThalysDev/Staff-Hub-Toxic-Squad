@@ -672,8 +672,8 @@ export function mountShell(): void {
   });
   document.addEventListener('keydown', (event) => {
     if (event.ctrlKey && event.key.toLowerCase() === 'k') {
-      event.preventDefault();
       if (!panelOpen) return;
+      event.preventDefault();
       searchInput.focus();
       searchInput.select();
     }

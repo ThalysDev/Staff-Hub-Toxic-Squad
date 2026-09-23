@@ -12,7 +12,9 @@
 //
 // Regras de honestidade:
 //   - horário no passado NÃO vira disparo imediato (isso surpreenderia o
-//     jogador): o ciclo avisa e não cria o registro;
+//     jogador): o ciclo avisa e não cria o registro — o aviso vale só para
+//     registro NOVO: par (item, horário) já agendado é dedupe silencioso
+//     (reportar "já passou" mascararia o agendamento que existe);
 //   - a agenda é por ALDEIA — item guardado na aldeia A não é usado com a
 //     aldeia B aberta (a tela de inventário é da aldeia);
 //   - LACUNA REGISTRADA: a ação de uso não foi confirmada contra fixture real
@@ -118,6 +120,9 @@ export interface SyncScheduleResult {
  * Sincroniza o storage 'agenda' com as configurações: cria UM registro quando
  * o jogador informou item + horário futuro, sem duplicar o mesmo par
  * (item, horário) já registrado. Agenda antiga é preservada (só o teto corta).
+ * O dedupe vem ANTES do teste de horário passado: com o registro já criado, o
+ * ciclo não pode devolver "já passou" — isso mascararia o agendamento real a
+ * cada ciclo depois do vencimento.
  */
 export function syncScheduledActivation(
   agenda: readonly ScheduledItemActivation[],
@@ -136,15 +141,15 @@ export function syncScheduledActivation(
       erro: 'Horário inválido — use data e hora no formato AAAA-MM-DDTHH:MM (ex.: 2026-09-23T20:30).',
     };
   }
+  if (agenda.some((registro) => registro.itemId === itemId && registro.at === at)) {
+    return { agenda: [...agenda], criado: null, erro: null };
+  }
   if (at <= now) {
     return {
       agenda: [...agenda],
       criado: null,
       erro: `O horário ${quando.replace('T', ' ')} já passou — escolha um horário no futuro (nada foi agendado).`,
     };
-  }
-  if (agenda.some((registro) => registro.itemId === itemId && registro.at === at)) {
-    return { agenda: [...agenda], criado: null, erro: null };
   }
   const criado: ScheduledItemActivation = {
     id: agendaId(at, itemId, villageId),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { UnitType } from '../../../ext/modules/shared/module-types';
-import { DEFAULT_SETTINGS, decideCollectionLot } from './collection';
+import { DEFAULT_SETTINGS, applyUnitReserves, decideCollectionLot } from './collection';
 
 const AVAILABLE: Partial<Record<UnitType, number>> = { spear: 300, sword: 150, axe: 80, spy: 5 };
 
@@ -74,5 +74,50 @@ describe('decisão do lote da Coleta (modo "fixo")', () => {
 describe('settings da Coleta', () => {
   it('default é modo fixo (compatibilidade: não muda o comportamento atual)', () => {
     expect(DEFAULT_SETTINGS.lotMode).toBe('fixo');
+  });
+});
+
+describe('reserva por unidade x lote fixo (P1 revisão: reserva total = cap 0)', () => {
+  it('reserva que consome tudo vira cap 0 e a unidade NÃO entra no lote', () => {
+    const usable = applyUnitReserves({ spear: 500 }, { spear: 500 });
+    expect(usable).toEqual({ spear: 0 });
+
+    const decision = decideCollectionLot(usable, { spear: 200 }, { lotMode: 'fixo', minUnits: 10 });
+
+    expect(decision).toEqual({ kind: 'skip', reason: 'Tropas insuficientes para o mínimo configurado.' });
+  });
+
+  it('unidade reservada não é enviada nem quando OUTRA unidade atinge o mínimo', () => {
+    const usable = applyUnitReserves({ spear: 500, sword: 300 }, { spear: 500 });
+
+    expect(decideCollectionLot(usable, { spear: 200, sword: 300 }, { lotMode: 'fixo', minUnits: 10 })).toEqual({
+      kind: 'send',
+      units: { sword: 300 },
+    });
+  });
+
+  it('reserva parcial limita o lote ao excedente (nunca ao configurado inteiro)', () => {
+    const usable = applyUnitReserves({ spear: 500, sword: 300 }, { spear: 450 });
+
+    expect(decideCollectionLot(usable, { spear: 200, sword: 300 }, { lotMode: 'fixo', minUnits: 10 })).toEqual({
+      kind: 'send',
+      units: { spear: 50, sword: 300 },
+    });
+  });
+
+  it('modo tudo também ignora a unidade zerada pela reserva', () => {
+    const usable = applyUnitReserves({ spear: 500, sword: 300 }, { spear: 500 });
+
+    expect(decideCollectionLot(usable, {}, { lotMode: 'tudo', minUnits: 10 })).toEqual({
+      kind: 'send',
+      units: { sword: 300 },
+    });
+  });
+
+  it('chave ausente (leitura ilegível) segue enviando o configurado — exceção preservada', () => {
+    expect(decideCollectionLot({}, { spear: 200 }, { lotMode: 'fixo', minUnits: 10 })).toEqual({
+      kind: 'send',
+      units: { spear: 200 },
+    });
   });
 });

@@ -134,6 +134,23 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** TTL do lock de aba no runtime = 2min: renovar a cada ≤60s nunca o deixa vencer. */
+const LOCK_RENEW_CHUNK_MS = 60_000;
+
+/**
+ * Sono longo sob o lock do módulo: dorme em chunks de ≤60s renovando
+ * `renewTshLock` ANTES do primeiro sono e ao fim de cada chunk. O atraso
+ * configurado chega a 600s (10× o TTL de 2min do lock): um sono único deixaria
+ * outra aba assumir o módulo no meio e abrir o pacote duas vezes.
+ */
+async function sleepRenewingLock(totalMs: number, world: string): Promise<void> {
+  renewTshLock('abrir-pacotes', world);
+  for (let restante = totalMs; restante > 0; restante -= LOCK_RENEW_CHUNK_MS) {
+    await sleep(Math.min(LOCK_RENEW_CHUNK_MS, restante));
+    renewTshLock('abrir-pacotes', world);
+  }
+}
+
 registerTsh({
   id: 'abrir-pacotes',
   label: 'Abertura de Pacotes',
@@ -177,13 +194,13 @@ registerTsh({
       return;
     }
 
-    // 3) Escalonamento (ordem documentada + atraso real). O atraso pode
-    //    ultrapassar o TTL do lock de aba (2min): renova na saída do sleep —
-    //    senão outra aba assume o módulo e o pacote abriria duas vezes.
+    // 3) Escalonamento (ordem documentada + atraso real). O atraso pode chegar
+    //    a 600s, muito acima do TTL de 2min do lock de aba: dorme em chunks de
+    //    ≤60s renovando o lock a cada chunk — senão outra aba assume o módulo
+    //    no meio do sono e o pacote abriria duas vezes.
     if (settings.delaySegundos > 0) {
       ctx.status(`Aguardando ${settings.delaySegundos}s (${orderLabel(settings.ordem)}) antes de abrir o pacote…`, 'info');
-      await sleep(Math.min(600, Math.max(0, settings.delaySegundos)) * 1000);
-      renewTshLock('abrir-pacotes', ctx.world);
+      await sleepRenewingLock(Math.min(600, Math.max(0, settings.delaySegundos)) * 1000, ctx.world);
     }
 
     // 4) Inventário fresco pelo parser puro; só abre o que a página marcou.

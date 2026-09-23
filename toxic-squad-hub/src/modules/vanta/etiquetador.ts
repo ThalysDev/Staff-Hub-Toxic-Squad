@@ -82,7 +82,7 @@ registerVanta({
             <div id="vanta-etiquetador-body">
                 <label>
                     Intervalo (minutos):
-                    <input type="number" id="vanta-etiquetador-interval" min="1" max="60" value="${savedInterval}">
+                    <input type="number" id="vanta-etiquetador-interval" min="1" max="60">
                 </label>
                 <label>
                     Ativar etiquetador automático:
@@ -135,6 +135,9 @@ registerVanta({
     const sound: HTMLSelectElement = soundEl;
     const volume: HTMLInputElement = volumeEl;
     const testBtn: HTMLElement = testBtnEl;
+
+    // Valor por propriedade (não por interpolação no innerHTML do casco).
+    intervalInput.value = String(savedInterval);
 
     // Preenche os selects de alarme com os catálogos do módulo de som.
     for (const [value, label] of Object.entries(ALARM_TRIGGER_LABELS)) {

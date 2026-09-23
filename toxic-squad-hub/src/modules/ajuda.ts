@@ -69,7 +69,7 @@ export function renderAjuda(container: HTMLElement): void {
 
   const comecando = card('Começando', 'play');
   item(comecando.body, '**Abra o painel** pelo escudo flutuante. A busca rápida atende **Ctrl+K** — ache qualquer ferramenta pelo nome.');
-  item(comecando.body, '**Tudo nasce desligado.** Cada automação precisa ser ativada no switch; as que agem no jogo ainda pedem **Armar** (autorização de 30 minutos).');
+  item(comecando.body, '**Tudo nasce desligado.** Cada automação precisa ser ativada no switch; as que agem no jogo ainda pedem **Armar** (autorização de 30 minutos) — o **Agendador de Comandos** é exceção: agendar já é a autorização.');
   item(comecando.body, 'O intervalo entre ciclos, a janela de horário e a **parada programada** ficam no botão Configurar de cada automação.');
   grid.appendChild(comecando.box);
 

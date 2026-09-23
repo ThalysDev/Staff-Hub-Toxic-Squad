@@ -52,7 +52,7 @@ interface TWMapMap {
   _handleClick?: TWMapHandleClick;
 }
 
-type TWMapHandleClick = (this: TWMapMap, e: unknown) => boolean | void;
+type TWMapHandleClick = ((this: TWMapMap, e: unknown) => boolean | void) & { __tshWrapped?: boolean };
 type TWMapSpawnSector = (this: TWMapHandler, data: TWMapSectorData, sector: TWMapSector) => void;
 
 interface TWMapHandler {
@@ -129,6 +129,8 @@ function loadGroups(): ColetorGroup[] {
 
 let savedHandleClick: TWMapHandleClick | null = null;
 let savedSpawnSector: TWMapSpawnSector | null = null;
+/** Wrapper de clique que EU instalei (o handler do TWMap é global; o wrapper é por mount). */
+let installedHandleClick: TWMapHandleClick | null = null;
 let hooksInstalled = false;
 // Widget aberto? O retry de instalação dos hooks (TWMap pode carregar tarde)
 // e os wrappers checam esta flag para NUNCA interceptar cliques com o widget
@@ -139,11 +141,18 @@ function restoreHooks(): void {
   if (!hooksInstalled) return;
   const tw = twMap();
   if (tw !== null) {
-    if (tw.map !== undefined && savedHandleClick !== null) tw.map._handleClick = savedHandleClick;
+    // Restore CONDICIONAL: se outro módulo (a Prévia também hooka o mesmo
+    // método) instalou o wrapper dele por cima do meu, não piso nele nem
+    // restauro por baixo — o meu wrapper pode estar na cadeia dele, então o
+    // original salvo fica VIVO (com original nulo eu engoliria o clique).
+    if (tw.map !== undefined && tw.map._handleClick === installedHandleClick && savedHandleClick !== null) {
+      tw.map._handleClick = savedHandleClick;
+      savedHandleClick = null;
+    }
     if (tw.mapHandler !== undefined && savedSpawnSector !== null) tw.mapHandler.spawnSector = savedSpawnSector;
   }
-  savedHandleClick = null;
   savedSpawnSector = null;
+  installedHandleClick = null;
   hooksInstalled = false;
 }
 
@@ -442,6 +451,9 @@ registerVanta({
       }
       return false;
     }
+    // Marca de wrapper: outros módulos (a Prévia hooka o mesmo método)
+    // distinguem original de wrapper para não capturar um ao outro.
+    handleClickWrapper.__tshWrapped = true;
 
     /** Salva os originais UMA vez e instala os wrappers; false se o TWMap ainda não existe. */
     function installHooks(): boolean {
@@ -452,6 +464,7 @@ registerVanta({
         savedHandleClick = tw.map._handleClick ?? null;
         savedSpawnSector = tw.mapHandler.spawnSector ?? null;
         tw.map._handleClick = handleClickWrapper;
+        installedHandleClick = handleClickWrapper;
         tw.mapHandler.spawnSector = spawnSectorWrapper;
         hooksInstalled = true;
         // Aplica highlights pendentes (auto-highlight na abertura).

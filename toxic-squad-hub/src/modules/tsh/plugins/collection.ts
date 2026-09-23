@@ -18,7 +18,9 @@
 //   resolução do grupo vem do helper exportado pelo recruitment). Sem regra
 //   para a aldeia (ou grupo não lido) = settings atuais, com aviso. RESERVAS
 //   POR UNIDADE (settings.reserveByUnit): tropas reservadas nunca entram no
-//   lote (o excedente sobre a reserva é o disponível real da coleta).
+//   lote (o excedente sobre a reserva é o disponível real da coleta) — reserva
+//   que consome TUDO vira teto 0 da unidade (não confundir com leitura
+//   ilegível: chave ausente, que o modo fixo envia o configurado).
 
 import { z } from 'zod';
 import { registerTsh, type TshAutomation, type TshCycleContext } from '../tsh-runtime';
@@ -149,7 +151,10 @@ export function ruleForGroup(rules: CollectionGroupRule[], groupId: number | nul
 /**
  * Disponíveis da tela MENOS as reservas por unidade (PURA): unidade reservada
  * nunca entra no lote (fail-closed: reserva maior que o disponível zera a
- * unidade em vez de mandar negativo).
+ * unidade em vez de mandar negativo). A unidade zerada CONTINUA no resultado
+ * com 0 — é o que diferencia "a reserva consumiu tudo" (cap 0: não entra no
+ * lote) de "leitura ilegível" (chave AUSENTE, que o modo fixo trata como teto
+ * desconhecido).
  */
 export function applyUnitReserves(
   available: Partial<Record<UnitType, number>>,
@@ -158,8 +163,7 @@ export function applyUnitReserves(
   const effective: Partial<Record<UnitType, number>> = {};
   for (const [unit, amount] of Object.entries(available)) {
     const reserve = reserves[unit] ?? 0;
-    const usable = Math.max(0, (amount ?? 0) - Math.max(0, reserve));
-    if (usable > 0) effective[unit as UnitType] = usable;
+    effective[unit as UnitType] = Math.max(0, (amount ?? 0) - Math.max(0, reserve));
   }
   return effective;
 }
@@ -179,8 +183,11 @@ export type CollectionLotDecision =
  * - modo 'fixo': unidades configuradas (>0) limitadas pelas disponíveis; sem
  *   configuração, cai para todas as disponíveis (comportamento de hoje).
  * Fail-closed com UMA exceção documentada (P3 revisão Onda 11-19): no modo
- * 'fixo' com o teto da tela ilegível, o lote configurado vai INTEIRO (o
- * servidor satura no disponível — nunca além); leitura AUSENTE zera a tropa.
+ * 'fixo' com o teto da tela ILEGÍVEL (chave AUSENTE do mapa de disponíveis), o
+ * lote configurado vai INTEIRO (o servidor satura no disponível — nunca além);
+ * chave PRESENTE valendo 0 (ex.: reserva por unidade consumiu tudo, ver
+ * applyUnitReserves) é teto ZERO: a unidade não entra no lote. No modo 'tudo',
+ * leitura ausente/zerada simplesmente não entra.
  * O envio só acontece se algum tipo do lote atinge o mínimo configurado.
  */
 export function decideCollectionLot(
@@ -195,8 +202,10 @@ export function decideCollectionLot(
   if (options.lotMode === 'fixo' && configured.length > 0) {
     for (const [unit, amount] of configured) {
       const cap = available[unit as UnitType];
-      // Cap ilegível na tela = envia o configurado (o jogo satura no servidor).
-      units[unit] = cap === undefined ? amount : Math.min(amount, cap);
+      // Cap ilegível (ausente) = envia o configurado (o jogo satura no
+      // servidor); cap 0 (reserva total) = unidade fora do lote.
+      const effectiveAmount = cap === undefined ? amount : Math.min(amount, cap);
+      if (effectiveAmount > 0) units[unit] = effectiveAmount;
     }
   } else {
     for (const [unit, amount] of Object.entries(available)) {

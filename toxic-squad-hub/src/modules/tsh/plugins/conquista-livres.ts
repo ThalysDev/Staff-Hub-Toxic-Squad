@@ -11,11 +11,15 @@
 //   janela de 15s). A chegada é calculada com o tempo de viagem real do nobre
 //   (tsh-game-data) e o "quando" digitado é a CHEGADA (timingMode 'arrival').
 // - Fail-closed em cadeia: sem origem conhecida, sem tempo de viagem, com o
-//   Agendador desligado/desarmado, com nobre já agendado para o alvo ou com
-//   registro inválido, NADA é gravado — o status explica o porquê.
+//   Agendador desligado, com nobre já agendado para o alvo ou com registro
+//   inválido, NADA é gravado — o status explica o porquê. O Agendador é
+//   `armExempt` (não tem botão Armar): o gate é o TOGGLE dele.
+// - A gravação relê o estado do Agendador IMEDIATAMENTE antes do `set` (o
+//   storage do GM não é atômico e a leitura original é anterior ao
+//   `travelMinutes`, que é rede): a janela ler→gravar é síncrona/mínima.
 
 import { z } from 'zod';
-import { registerTsh, isTshEnabled, tshArmedUntil, type TshAutomation, type TshCycleContext } from '../tsh-runtime';
+import { registerTsh, isTshEnabled, type TshAutomation, type TshCycleContext } from '../tsh-runtime';
 import type { SettingsField } from '../tsh-settings';
 import { gm } from '../../../core/storage';
 import { allVillages, ownVillages, travelMinutes } from '../tsh-game-data';
@@ -67,7 +71,7 @@ const SETTINGS_FORM: SettingsField[] = [
       { value: 'preview', label: 'Prévia (nada é agendado)' },
       { value: 'executar', label: 'Executar (agenda o nobre no Agendador)' },
     ],
-    help: 'Prévia: só relata o alvo do plano. Executar: grava um comando de nobre no Agendador de Comandos (que precisa estar ligado e armado para enviar).',
+    help: 'Prévia: só relata o alvo do plano. Executar: grava um comando de nobre no Agendador de Comandos (que precisa estar LIGADO — aba Automações — para enviar).',
   },
   {
     key: 'maxPoints',
@@ -149,6 +153,11 @@ export function conquestTargetLabel(target: ConquestTargetPlan): string {
   return `${target.name !== '' ? target.name : 'aldeia livre'} (${target.x}|${target.y})`;
 }
 
+/** Status do dedupe (mesma mensagem antes da viagem e na releitura da gravação). */
+function nobleAlreadyScheduled(target: ConquestTargetPlan, commandId: string): string {
+  return `Já existe um nobre agendado para ${conquestTargetLabel(target)} (comando ${commandId}) — nada foi duplicado.`;
+}
+
 /** Agenda o nobre do alvo no storage do Agendador (fail-closed em cada passo). */
 async function scheduleNoble(
   ctx: TshCycleContext,
@@ -159,16 +168,15 @@ async function scheduleNoble(
   if (origin === null) {
     return 'Não foi possível identificar as coordenadas desta aldeia no mapa — nada foi agendado (o nobre precisa da origem para calcular a chegada).';
   }
+  // O Agendador é `armExempt` (não existe botão Armar para ele): o opt-in é o
+  // toggle do módulo — sem ele, nada seria enviado na janela.
   if (!isTshEnabled('command-scheduler')) {
-    return 'O Agendador de Comandos está DESLIGADO — o nobre não seria enviado. Ligue o módulo (aba Automações) e rode de novo; nada foi agendado.';
-  }
-  if (Date.now() >= tshArmedUntil('command-scheduler')) {
-    return 'O Agendador de Comandos não está ARMADO — sem armação ele não envia o nobre na janela. Arme o Agendador e rode de novo; nada foi agendado.';
+    return 'O Agendador de Comandos está DESLIGADO — o nobre não seria enviado. Ligue a automação Agendador de Comandos (aba Automações): é ela quem dispara os nobres; nada foi agendado.';
   }
   const state = readSchedulerState(ctx.world);
   const existing = hasActiveNobleFor(state, target);
   if (existing !== undefined) {
-    return `Já existe um nobre agendado para ${conquestTargetLabel(target)} (comando ${existing.id}) — nada foi duplicado.`;
+    return nobleAlreadyScheduled(target, existing.id);
   }
   const travel = await travelMinutes(origin, target, { snob: 1 });
   if (travel === null || !Number.isFinite(travel) || travel <= 0) {
@@ -194,10 +202,20 @@ async function scheduleNoble(
   });
   const parsed = parseSchedulerCommandRecord(record);
   if (!parsed.ok) return `${parsed.message} Nada foi agendado.`;
-  if (state.commands.some((command) => command.id === parsed.record.id)) {
+  // P2 (revisão): o storage do GM NÃO tem atomicidade e a leitura acima é
+  // anterior ao `travelMinutes` (rede). Relê AGORA e monta o payload sobre a
+  // cópia fresca: comandos/eventos gravados por outra aba no intervalo não são
+  // apagados pela cópia velha. Sobra só a janela síncrona entre esta leitura e
+  // o `set` logo abaixo (sem await no meio) — o mínimo possível sem transação.
+  const fresh = readSchedulerState(ctx.world);
+  const concurrent = hasActiveNobleFor(fresh, target);
+  if (concurrent !== undefined) {
+    return nobleAlreadyScheduled(target, concurrent.id);
+  }
+  if (fresh.commands.some((command) => command.id === parsed.record.id)) {
     return `O nobre para ${conquestTargetLabel(target)} já está agendado neste horário (comando ${parsed.record.id}) — nada foi duplicado.`;
   }
-  gm.set(schedulerStorageKey(ctx.world), { ...state, commands: [...state.commands, parsed.record] });
+  gm.set(schedulerStorageKey(ctx.world), { ...fresh, commands: [...fresh.commands, parsed.record] });
   return `Nobre agendado para ${conquestTargetLabel(target)}: chegada ${arrival.toLocaleString('pt-BR')} (envio ${sendAt.toLocaleString('pt-BR')}, viagem ${travel.toFixed(1)} min). O Agendador dispara na janela.`;
 }
 
