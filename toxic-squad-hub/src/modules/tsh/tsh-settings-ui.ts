@@ -554,6 +554,26 @@ export function openTshSettingsModal(
   toField.append(toSide, toInput);
   agenda.body.appendChild(toField);
 
+  // Parada programada universal: freio de mão com data e hora.
+  const stopField = document.createElement('div');
+  stopField.className = 'tsh-field';
+  const stopSide = document.createElement('div');
+  stopSide.className = 'tsh-field-side';
+  const stopToggle = document.createElement('input');
+  stopToggle.type = 'checkbox';
+  stopToggle.className = 'tsh-check';
+  stopToggle.checked = schedule.stopEnabled === true;
+  const stopInput = document.createElement('input');
+  stopInput.type = 'datetime-local';
+  stopInput.className = 'tsh-input tsh-input--num';
+  if (schedule.stopAt !== undefined && schedule.stopAt !== '') stopInput.value = schedule.stopAt;
+  const stopHelp =
+    'Quando ligada e o horário passar, esta automação para de rodar até você desligar a parada aqui.';
+  stopSide.appendChild(fieldLabel('Parada programada', stopHelp));
+  appendHelp(stopSide, stopHelp);
+  stopField.append(stopToggle, stopSide, stopInput);
+  agenda.body.appendChild(stopField);
+
   // ── Parâmetros (seção-caixa) ──
   if (form.length > 0) {
     const params = sectionBox('Parâmetros', 'list');
@@ -612,6 +632,13 @@ export function openTshSettingsModal(
     const toRaw = toInput.value.trim();
     if (fromRaw !== '') nextSchedule.activeFrom = fromRaw;
     if (toRaw !== '') nextSchedule.activeTo = toRaw;
+    const stopRaw = stopInput.value.trim();
+    if (stopToggle.checked && stopRaw === '') {
+      showError('Parada programada ligada exige data e hora.');
+      return;
+    }
+    if (stopToggle.checked) nextSchedule.stopEnabled = true;
+    if (stopRaw !== '') nextSchedule.stopAt = stopRaw;
     const erro = scheduleError(nextSchedule);
     if (erro !== null) {
       showError(erro);

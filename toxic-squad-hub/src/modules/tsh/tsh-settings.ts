@@ -40,6 +40,14 @@ export interface TshSchedule {
   /** Janela ativa "HH:MM" local; vazio/ausente = sempre. Suporta virar a meia-noite (22:00→06:00). */
   activeFrom?: string;
   activeTo?: string;
+  /**
+   * Parada programada universal: quando ligada e o instante `stopAt` passa, o
+   * módulo NÃO roda mais (status claro no painel) até o usuário desligar —
+   * funciona como freio de mão para longas sessões de automação.
+   */
+  stopEnabled?: boolean;
+  /** Instante da parada no formato datetime-local "YYYY-MM-DDTHH:MM" (fuso do jogador). */
+  stopAt?: string;
 }
 
 const settingsKey = (world: string, id: string): string => `tsh-auto:${world}:${id}:settings`;
@@ -107,7 +115,35 @@ export function scheduleError(schedule: TshSchedule): string | null {
   if (schedule.activeTo !== undefined && schedule.activeTo !== '' && !HH_MM.test(schedule.activeTo)) {
     return 'Fim da janela ativa deve ser HH:MM (ex.: 23:00).';
   }
+  if (schedule.stopAt !== undefined && schedule.stopAt !== '' && !STOP_AT.test(schedule.stopAt)) {
+    return 'Parada programada deve ser data e hora válidas.';
+  }
   return null;
+}
+
+const STOP_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+/**
+ * Parada programada ATIVA? (stopEnabled ligado + stopAt válido já passado.)
+ * Retorna true também quando o formato é inválido e stopEnabled está ligado
+ * com valor presente — fail-closed: data ruim não pode virar "nunca para".
+ */
+export function isScheduleStopped(schedule: TshSchedule, at: Date = new Date()): boolean {
+  if (schedule.stopEnabled !== true) return false;
+  const raw = schedule.stopAt ?? '';
+  if (raw === '') return false;
+  const ts = Date.parse(raw);
+  if (!Number.isFinite(ts)) return true;
+  return at.getTime() >= ts;
+}
+
+/** Rótulo curto da parada p/ status do painel ("em 23/09 18:00" / "atingida"). */
+export function stopLabel(schedule: TshSchedule, at: Date = new Date()): string {
+  const raw = schedule.stopAt ?? '';
+  const ts = Date.parse(raw);
+  if (!Number.isFinite(ts)) return 'parada programada (data inválida)';
+  if (at.getTime() >= ts) return `parada programada atingida (${raw.replace('T', ' ')})`;
+  return `para em ${raw.replace('T', ' ')}`;
 }
 
 function hmToMinutes(hhmm: string): number {

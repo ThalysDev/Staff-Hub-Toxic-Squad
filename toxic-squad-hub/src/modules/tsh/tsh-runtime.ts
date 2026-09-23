@@ -14,7 +14,7 @@
 import { gm } from '../../core/storage';
 import { licenseState } from '../../core/license';
 import type { ModuleScope } from '../vanta/vanta-lifecycle';
-import { loadSchedule, withinActiveWindow, type SettingsField, type TshSchedule } from './tsh-settings';
+import { loadSchedule, withinActiveWindow, isScheduleStopped, stopLabel, type SettingsField, type TshSchedule } from './tsh-settings';
 
 export interface TshCycleContext {
   world: string;
@@ -190,6 +190,14 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
   if (automation.screen !== null && screen !== automation.screen) return; // não é a tela dele
   // Agenda do usuário: fora da janela ativa o ciclo NÃO roda (status claro).
   const schedule = loadSchedule(worldId, id);
+  if (isScheduleStopped(schedule)) {
+    gm.set<CycleStatus>(statusKey(id, worldId), {
+      message: `${stopLabel(schedule)} — ciclos pausados até a parada ser desligada nas configurações.`,
+      kind: 'warn',
+      at: Date.now(),
+    });
+    return;
+  }
   if (!withinActiveWindow(schedule)) {
     gm.set<CycleStatus>(statusKey(id, worldId), {
       message: `Fora da janela ativa (${schedule.activeFrom ?? ''}–${schedule.activeTo ?? ''}) — ciclos pausados.`,

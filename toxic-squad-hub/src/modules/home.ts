@@ -9,7 +9,8 @@ import { licenseState } from '../core/license';
 import { pageWindow } from '../core/page';
 import { gameContext } from '../core/shell';
 import { isVantaEnabled, vantaLaunchers } from './vanta/vanta-registry';
-import { isTshEnabled, tshArmedUntil, tshAutomations } from './tsh/tsh-runtime';
+import { isTshEnabled, tshArmedUntil, tshAutomations, tshNextRunAt, tshStatus } from './tsh/tsh-runtime';
+import { loadSchedule, isScheduleStopped } from './tsh/tsh-settings';
 
 export const SUPPORT_PHONE = '+55 81 99413-1872';
 const SUPPORT_WA = 'https://wa.me/5581994131872';
@@ -41,6 +42,13 @@ const HOME_CSS = `
   .home-note { font-size: 11px; color: var(--shs-muted, #6f5e40); line-height: 1.5; margin-top: 8px; }
   .home-tip { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; font-size: 12px; color: var(--shs-ink, #5a3a16); }
   .home-tip svg { flex-shrink: 0; margin-top: 1px; color: var(--shs-brass, #b8860b); }
+  .home-act { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--shs-border, #e0cda0); font-size: 12px; }
+  .home-act:last-child { border-bottom: none; }
+  .home-act-name { font-weight: 600; color: var(--shs-ink-strong, #3c250a); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-act-msg { font-size: 11px; color: var(--shs-muted, #6f5e40); max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-act-next { font-size: 11px; color: var(--shs-ink, #5a3a16); font-variant-numeric: tabular-nums; }
+  .home-pill--run { background: #eaf3fb; border-color: #a9c9e6; color: #24537f; }
+  .home-pill--idle { background: var(--shs-bg-inset, #f4ead0); color: var(--shs-muted, #6f5e40); }
 `;
 
 function ensureHomeStyles(container: HTMLElement): void {
@@ -206,6 +214,64 @@ export function renderHome(container: HTMLElement): void {
     ),
   );
   grid.appendChild(panorama.box);
+
+  // ── Painel de Atividades (status ao vivo das automações) ──
+  const atividades = card('Painel de Atividades', 'activity', true);
+  const ativos = autos.filter((a) => isTshEnabled(a.id));
+  const resumo = document.createElement('div');
+  resumo.className = 'home-note';
+  resumo.style.marginBottom = '6px';
+  resumo.textContent =
+    ativos.length === 0
+      ? 'Nenhuma automação ativa — ative módulos na aba Automações para acompanhá-los aqui.'
+      : `${ativos.length} de ${autos.length} automações ativas neste mundo. Mensagens do último ciclo aparecem ao lado de cada uma.`;
+  atividades.body.appendChild(resumo);
+  const fmtHora = (epoch: number): string => {
+    const d = new Date(epoch);
+    const p = (n: number): string => String(n).padStart(2, '0');
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  };
+  for (const auto of ativos) {
+    const row = document.createElement('div');
+    row.className = 'home-act';
+    const name = document.createElement('span');
+    name.className = 'home-act-name';
+    name.textContent = auto.label;
+    row.appendChild(name);
+    const schedule = loadSchedule(ctx.world, auto.id);
+    const status = tshStatus(auto.id, ctx.world);
+    const pill = document.createElement('span');
+    if (isScheduleStopped(schedule)) {
+      pill.className = 'home-pill home-pill--warn';
+      pill.textContent = 'Parada';
+    } else if (status !== null && status.kind === 'warn') {
+      pill.className = 'home-pill home-pill--err';
+      pill.textContent = 'Atenção';
+    } else if (status !== null && status.kind === 'ok') {
+      pill.className = 'home-pill home-pill--ok';
+      pill.textContent = 'OK';
+    } else {
+      pill.className = 'home-pill home-pill--run';
+      pill.textContent = 'Em giro';
+    }
+    row.appendChild(pill);
+    if (status !== null && status.message !== '') {
+      const msg = document.createElement('span');
+      msg.className = 'home-act-msg';
+      msg.title = `${fmtHora(status.at)} — ${status.message}`;
+      msg.textContent = status.message;
+      row.appendChild(msg);
+    }
+    const nextAt = tshNextRunAt(auto.id, ctx.world);
+    if (nextAt !== null && nextAt > Date.now()) {
+      const next = document.createElement('span');
+      next.className = 'home-act-next';
+      next.textContent = `próx. ${fmtHora(nextAt)}`;
+      row.appendChild(next);
+    }
+    atividades.body.appendChild(row);
+  }
+  grid.appendChild(atividades.box);
 
   // ── Contato / suporte ──
   const contato = card('Contato & suporte', 'phone');
