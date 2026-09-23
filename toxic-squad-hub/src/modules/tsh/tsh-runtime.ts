@@ -138,11 +138,15 @@ function acquireLock(id: string, world: string): boolean {
   const lock = gm.get<{ tab: string; at: number } | null>(key, null);
   const now = Date.now();
   if (lock !== null && lock.tab !== TAB_ID && now - lock.at < LOCK_TTL_MS) return false;
+  handedOff.delete(id); // novo ciclo desta aba: volta a ser dona do lock
   gm.set(key, { tab: TAB_ID, at: now });
   return true;
 }
 
 function renewLock(id: string, world: string): void {
+  // Lock entregue à página seguinte (clique/submit que navega): o `finally`
+  // do ciclo roda ANTES da navegação e não pode retomá-lo (Onda E).
+  if (handedOff.has(id)) return;
   gm.set(lockKey(id, world), { tab: TAB_ID, at: Date.now() });
 }
 
@@ -151,7 +155,11 @@ function renewLock(id: string, world: string): void {
  * ação que NAVEGA de propósito (pré-arme do cravado) — a página nova recebe
  * um id de aba novo e, sem isto, ficaria até 2min sem conseguir o lock.
  */
+/** Módulos que ENTREGARAM o lock à próxima página (o finally não o retoma). */
+const handedOff = new Set<string>();
+
 export function releaseTshLock(id: string, world: string): void {
+  handedOff.add(id);
   const key = lockKey(id, world);
   const lock = gm.get<{ tab: string; at: number } | null>(key, null);
   if (lock !== null && lock.tab === TAB_ID) gm.set(key, { tab: TAB_ID, at: 0 });
@@ -163,6 +171,7 @@ export function releaseTshLock(id: string, world: string): void {
  * TTL de 2min sem renovação, senão outra aba assume e duplica a ação).
  */
 export function renewTshLock(id: string, world: string): void {
+  handedOff.delete(id); // renovação explícita = a aba segue dona (ex.: o clique falhou)
   renewLock(id, world);
 }
 

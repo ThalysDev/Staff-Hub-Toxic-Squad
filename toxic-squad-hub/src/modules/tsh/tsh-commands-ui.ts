@@ -37,6 +37,8 @@ import {
   SCHEDULER_CANCEL_COUNTS,
   SCHEDULER_DEFAULT_WINDOW,
   SCHEDULER_TIMING_STRATEGIES,
+  SCHEDULER_NATIVE_TRAIN_MAX_EXTRA,
+  NATIVE_TRAIN_ARRIVAL_STEP_MS,
   type HubSchedulerState,
   type ScheduledCommandRecord,
   type ScheduledCommandViewStatus,
@@ -449,6 +451,86 @@ export function buildNobleTrainRecords(input: NobleTrainRecordInput): BuildRecor
   return { ok: true, records };
 }
 
+/**
+ * Onda E — TREM NATIVO do jogo: 2–5 ataques COM NOBRE saindo num ÚNICO clique
+ * da tela de confirmação ("Adicionar ataque adicional"); o próprio jogo espaça
+ * as chegadas em 100 ms. Cada linha leva ≥1 nobre (todas na velocidade do
+ * nobre — sem isso as chegadas não ficariam a 100 ms); os nobres extras vão
+ * para as ÚLTIMAS linhas; a escolta se repete em todas. Vira UM registro
+ * (`units` = ataque #1, `trainUnits` = #2..#N) ancorado na chegada do #1.
+ */
+export function buildNativeNobleTrainRecord(input: {
+  readonly sourceVillageId: string;
+  readonly sourceName?: string;
+  readonly source?: { x: number; y: number };
+  readonly target: { x: number; y: number };
+  readonly targetName?: string;
+  readonly targetPoints?: number;
+  readonly firstArrivalMs: number;
+  readonly trainSize: number;
+  readonly noblesAvailable: number;
+  readonly escort: Partial<Record<UnitType, number>>;
+  /** Viagem em MINUTOS do ataque #1 (escolta + nobre); null = indisponível. */
+  readonly travelMinutes: number | null;
+  readonly catapultTarget?: string;
+  readonly forced?: boolean;
+}): BuildRecordsResult {
+  const size = Math.floor(input.trainSize);
+  if (!Number.isInteger(size) || size < 2 || size > SCHEDULER_NATIVE_TRAIN_MAX_EXTRA + 1) {
+    return { ok: false, message: `O trem nativo do jogo aceita de 2 a ${SCHEDULER_NATIVE_TRAIN_MAX_EXTRA + 1} ataques.` };
+  }
+  if (input.noblesAvailable < size) {
+    return {
+      ok: false,
+      message: `Trem nativo de ${size} precisa de ${size} nobres na grade (1 por ataque) — há ${input.noblesAvailable}.`,
+    };
+  }
+  if (input.travelMinutes === null || !Number.isFinite(input.travelMinutes) || input.travelMinutes <= 0) {
+    return { ok: false, message: 'Tempo de viagem indisponível — confira as unidades e as velocidades do mundo.' };
+  }
+  const temEscolta = Object.entries(input.escort).some(([unit, amount]) => unit !== 'snob' && unit !== 'spy' && (amount ?? 0) > 0);
+  if (!temEscolta) {
+    return { ok: false, message: 'Trem nativo precisa de escolta (o jogo recusa nobre sem proteção) — informe as tropas que acompanham cada nobre.' };
+  }
+  const nobles = new Array<number>(size).fill(1);
+  for (let extra = 0; extra < input.noblesAvailable - size; extra += 1) {
+    const index = size - 1 - (extra % size);
+    nobles[index] = (nobles[index] ?? 1) + 1;
+  }
+  const rows = nobles.map((snob) => {
+    const units: Partial<Record<UnitType, number>> = {};
+    for (const [unit, amount] of Object.entries(input.escort)) {
+      if (unit !== 'snob' && (amount ?? 0) > 0) units[unit as UnitType] = amount;
+    }
+    units.snob = snob;
+    return units;
+  });
+  const [first, ...extras] = rows;
+  if (first === undefined) return { ok: false, message: 'Trem vazio.' };
+  const hasCatapult = (first.catapult ?? 0) > 0;
+  const arrivalIso = new Date(input.firstArrivalMs).toISOString();
+  const record = createScheduledCommand({
+    kind: 'noble',
+    sourceVillageId: input.sourceVillageId,
+    ...(input.sourceName !== undefined ? { sourceName: input.sourceName } : {}),
+    ...(input.source !== undefined ? { source: input.source } : {}),
+    target: input.target,
+    ...(input.targetName !== undefined ? { targetName: input.targetName } : {}),
+    ...(input.targetPoints !== undefined ? { targetPoints: input.targetPoints } : {}),
+    units: first,
+    trainUnits: extras,
+    timingMode: 'arrival',
+    sendAt: new Date(input.firstArrivalMs - travelDurationMs(input.travelMinutes)).toISOString(),
+    arrivalAt: arrivalIso,
+    ...(hasCatapult && input.catapultTarget !== undefined && input.catapultTarget !== ''
+      ? { catapultTarget: input.catapultTarget }
+      : {}),
+    ...(input.forced === true ? { forced: true } : {}),
+    detail: `Trem nativo de ${size} ataques (chegadas a cada ${NATIVE_TRAIN_ARRIVAL_STEP_MS} ms, pelo jogo).`,
+  });
+  return { ok: true, records: [record] };
+}
+
 // ── Agendamento em Bloco (Onda 1, C) ─────────────────────────────────────────
 
 export type BlockTiming =
@@ -785,7 +867,7 @@ export const HISTORY_VISIBLE_LIMIT = 30;
 
 const schedulerKey = (world: string): string => `tsh-auto:${world}:command-scheduler:scheduler`;
 
-function loadSchedulerState(world: string): HubSchedulerState {
+export function loadSchedulerState(world: string): HubSchedulerState {
   const stored = gm.get<Partial<HubSchedulerState>>(schedulerKey(world), {});
   return {
     commands: Array.isArray(stored.commands) ? stored.commands : [],
@@ -793,7 +875,7 @@ function loadSchedulerState(world: string): HubSchedulerState {
   };
 }
 
-function saveSchedulerState(world: string, state: HubSchedulerState): void {
+export function saveSchedulerState(world: string, state: HubSchedulerState): void {
   gm.set(schedulerKey(world), state);
 }
 
@@ -806,7 +888,7 @@ function setCommandPaused(world: string, id: string, paused: boolean): void {
 }
 
 /** Anexa registros ao estado do motor, com ids únicos (nada sobrescreve comando). */
-function appendSchedulerRecords(world: string, records: readonly ScheduledCommandRecord[]): ScheduledCommandRecord[] {
+export function appendSchedulerRecords(world: string, records: readonly ScheduledCommandRecord[]): ScheduledCommandRecord[] {
   const state = loadSchedulerState(world);
   const unique = dedupeRecordIds(records, state.commands.map((command) => command.id));
   saveSchedulerState(world, { ...state, commands: [...state.commands, ...unique] });
@@ -1245,6 +1327,11 @@ function commandCard(
     extras.push(`catapulta: ${CATAPULT_TARGETS[record.catapultTarget as keyof typeof CATAPULT_TARGETS] ?? record.catapultTarget}`);
   }
   if (record.forced === true) extras.push('FORÇADO (mesmo impossível)');
+  if (record.trainUnits !== undefined && record.trainUnits.length > 0) {
+    extras.push(
+      `trem do jogo: +${record.trainUnits.length} ataque(s) — ${record.trainUnits.map((row, i) => `#${i + 2} ${summarizeUnits(row)}`).join(' · ')}`,
+    );
+  }
   if (extras.length > 0) {
     const line3 = document.createElement('div');
     line3.className = 'tsh-card-desc';
@@ -1381,7 +1468,15 @@ function clockBarEl(onCalibrated: () => void): { bar: HTMLDivElement; tick: () =
     now.textContent = `Servidor ${clockLabelMs(serverNowMs())}`;
     const fonte = info.source === 'nenhuma' ? 'sem fonte' : clockSourceLabel(info.source);
     const rtt = info.rttMedianMs !== null ? ` · resposta ~${info.rttMedianMs} ms` : '';
-    meta.textContent = `${fonte} · precisão ±${info.uncertaintyMs} ms${rtt}`;
+    const aprendido =
+      info.learnedCompensationMs !== null
+        ? ` · autoajuste ${info.learnedCompensationMs} ms (${info.feedbackCount} envio(s)${
+            info.lastArrivalErrorMs !== null ? `, último ${info.lastArrivalErrorMs >= 0 ? '+' : ''}${info.lastArrivalErrorMs} ms` : ''
+          })`
+        : info.feedbackCount > 0 && info.lastArrivalErrorMs !== null
+          ? ` · último envio ${info.lastArrivalErrorMs >= 0 ? '+' : ''}${info.lastArrivalErrorMs} ms`
+          : '';
+    meta.textContent = `${fonte} · precisão ±${info.uncertaintyMs} ms${rtt}${aprendido}`;
     bar.dataset.quality = info.uncertaintyMs <= 60 ? 'ok' : info.uncertaintyMs <= 300 ? 'warn' : 'bad';
   };
   tick();
@@ -1625,6 +1720,12 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   );
   const trainSizeSelect = selectEl(NOBLE_TRAIN_SIZES.map((size) => ({ value: String(size), label: `${size} chegadas` })));
   trainSizeSelect.value = '2';
+  // Onda E: modo do trem — nativo do jogo (1 clique, 100 ms) ou comandos separados.
+  const trainModeSelect = selectEl([
+    { value: 'nativo', label: 'Trem do jogo — 1 envio, chegadas a cada 100 ms (recomendado)' },
+    { value: 'separado', label: 'Comandos separados — gap livre (um envio por ataque)' },
+  ]);
+  trainModeSelect.value = 'nativo';
   const trainGapInput = numberInputEl(String(NOBLE_TRAIN_DEFAULT_GAP_MS), 100, 60_000, 50);
   const trainGapRow = document.createElement('div');
   trainGapRow.className = 'tsh-field';
@@ -1633,7 +1734,21 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
     'Nobre solitário',
     'Autoriza o trem incompleto quando faltam nobres (as primeiras chegadas levam os nobres disponíveis).',
   );
-  trainField.append(trainLabel, trainCheck.row, trainSizeSelect, trainGapRow, loneSnobCheck.row);
+  const trainModeHelp = helpEl('');
+  trainField.append(trainLabel, trainCheck.row, trainModeSelect, trainSizeSelect, trainGapRow, loneSnobCheck.row, trainModeHelp);
+  const applyTrainMode = (): void => {
+    const nativo = trainModeSelect.value === 'nativo';
+    trainGapRow.style.display = nativo ? 'none' : '';
+    loneSnobCheck.row.style.display = nativo ? 'none' : '';
+    trainModeHelp.textContent = nativo
+      ? 'Todos os ataques levam nobre e saem num ÚNICO clique na confirmação; o jogo espaça as chegadas em 100 ms. O horário é a chegada do 1º. Precisa de 1 nobre por ataque na grade.'
+      : 'Um comando por ataque, cada um com sua própria confirmação — o gap é livre, mas cada envio precisa de alguns segundos entre si.';
+  };
+  trainModeSelect.addEventListener('change', () => {
+    applyTrainMode();
+    updateSummary();
+  });
+  applyTrainMode();
   trainField.appendChild(
     helpEl(
       'Os nobres da grade são distribuídos entre os slots; o excedente pinga nas ÚLTIMAS chegadas. Repetição sequencial fica desligada no trem.',
@@ -1848,7 +1963,11 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
       if (total > 0) parts.push(usePercentMode() ? `${formatInt(total)}% de tropa` : `${formatInt(total)} tropa(s)`);
       if (strategy !== 'direto') parts.push(strategy === 'dodge' ? 'dodge' : 'snipe');
       if (kindSelect.value === 'noble' && trainCheck.input.checked) {
-        parts.push(`trem de ${trainSizeSelect.value} (gap ${trainGapInput.value} ms)`);
+        parts.push(
+          trainModeSelect.value === 'nativo'
+            ? `trem do jogo de ${trainSizeSelect.value} (chegadas a cada ${NATIVE_TRAIN_ARRIVAL_STEP_MS} ms)`
+            : `trem de ${trainSizeSelect.value} (gap ${trainGapInput.value} ms)`,
+        );
       }
     }
     if (forcedCheck.input.checked) parts.push('FORÇADO');
@@ -2156,32 +2275,55 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
       const noblesAvailable = absolute.snob ?? 0;
       const escort: Partial<Record<UnitType, number>> = { ...absolute };
       delete escort.snob;
-      const travelEscort = await travelMinutes(origin, to, escort);
-      const travelWithNobles = await travelMinutes(origin, to, { ...escort, snob: 1 });
-      const result = buildNobleTrainRecords({
-        sourceVillageId: origin.id,
-        sourceName: origin.name,
-        source: { x: origin.x, y: origin.y },
-        target: to,
-        ...(targetName !== undefined ? { targetName } : {}),
-        ...(targetPoints !== undefined ? { targetPoints } : {}),
-        firstArrivalMs: Date.parse(arrivalIso),
-        trainSize,
-        gapMs,
-        noblesAvailable,
-        allowLoneSnob: loneSnobCheck.input.checked,
-        autoSplitExtraNobles: true,
-        escort,
-        travelMinutesFor: (slotUnits) => ((slotUnits.snob ?? 0) > 0 ? travelWithNobles : travelEscort),
-        ...(catapultTargetValue !== '' ? { catapultTarget: catapultTargetValue } : {}),
-        ...(forced ? { forced: true } : {}),
-        detail: `Trem de ${trainSize} chegadas (gap ${gapMs} ms).`,
-      });
-      if (!result.ok) {
-        showError(result.message);
-        return;
+      if (trainModeSelect.value === 'nativo') {
+        const nativo = buildNativeNobleTrainRecord({
+          sourceVillageId: origin.id,
+          sourceName: origin.name,
+          source: { x: origin.x, y: origin.y },
+          target: to,
+          ...(targetName !== undefined ? { targetName } : {}),
+          ...(targetPoints !== undefined ? { targetPoints } : {}),
+          firstArrivalMs: Date.parse(arrivalIso),
+          trainSize,
+          noblesAvailable,
+          escort,
+          travelMinutes: await travelMinutes(origin, to, { ...escort, snob: 1 }),
+          ...(catapultTargetValue !== '' ? { catapultTarget: catapultTargetValue } : {}),
+          ...(forced ? { forced: true } : {}),
+        });
+        if (!nativo.ok) {
+          showError(nativo.message);
+          return;
+        }
+        records = nativo.records;
+      } else {
+        const travelEscort = await travelMinutes(origin, to, escort);
+        const travelWithNobles = await travelMinutes(origin, to, { ...escort, snob: 1 });
+        const result = buildNobleTrainRecords({
+          sourceVillageId: origin.id,
+          sourceName: origin.name,
+          source: { x: origin.x, y: origin.y },
+          target: to,
+          ...(targetName !== undefined ? { targetName } : {}),
+          ...(targetPoints !== undefined ? { targetPoints } : {}),
+          firstArrivalMs: Date.parse(arrivalIso),
+          trainSize,
+          gapMs,
+          noblesAvailable,
+          allowLoneSnob: loneSnobCheck.input.checked,
+          autoSplitExtraNobles: true,
+          escort,
+          travelMinutesFor: (slotUnits) => ((slotUnits.snob ?? 0) > 0 ? travelWithNobles : travelEscort),
+          ...(catapultTargetValue !== '' ? { catapultTarget: catapultTargetValue } : {}),
+          ...(forced ? { forced: true } : {}),
+          detail: `Trem de ${trainSize} chegadas (gap ${gapMs} ms).`,
+        });
+        if (!result.ok) {
+          showError(result.message);
+          return;
+        }
+        records = result.records;
       }
-      records = result.records;
     } else {
       const inputs = replicateCommandInput(baseInput(sendAtIso, arrivalIso), repeatCount, repeatInterval);
       records = inputs.map((input) => createScheduledCommand(input));

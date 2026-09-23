@@ -34,10 +34,13 @@ export function latencyCompensationMs(opts: {
   mode: 'auto' | 'manual';
   manualMs: number;
   rttMedianMs: number | null;
+  /** Onda E: compensação APRENDIDA pelas chegadas reais (null = ainda sem amostras). */
+  learnedMs?: number | null;
 }): number {
   const clamp = (value: number): number =>
     Math.round(Math.min(MAX_LATENCY_COMPENSATION_MS, Math.max(0, Number.isFinite(value) ? value : 0)));
   if (opts.mode === 'manual') return clamp(opts.manualMs);
+  if (opts.learnedMs !== undefined && opts.learnedMs !== null && Number.isFinite(opts.learnedMs)) return clamp(opts.learnedMs);
   if (opts.rttMedianMs === null || !Number.isFinite(opts.rttMedianMs)) return BROWSER_DISPATCH_MS;
   return clamp(opts.rttMedianMs / 2 + BROWSER_DISPATCH_MS);
 }

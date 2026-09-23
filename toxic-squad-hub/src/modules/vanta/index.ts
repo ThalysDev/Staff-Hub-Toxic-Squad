@@ -24,6 +24,7 @@ import './blindagem';
 import './bonus-diario';
 import './cancelamento-bloco';
 import './coletor';
+import './cravar-confirmacao';
 import './dashboard';
 import './etiquetador';
 import './grupos-io';

@@ -19,6 +19,11 @@ describe('latencyCompensationMs', () => {
     expect(latencyCompensationMs({ mode: 'auto', manualMs: 0, rttMedianMs: 5_000 })).toBe(MAX_LATENCY_COMPENSATION_MS);
     expect(latencyCompensationMs({ mode: 'auto', manualMs: 0, rttMedianMs: null })).toBe(BROWSER_DISPATCH_MS);
   });
+  it('auto usa a compensação aprendida quando existe (Onda E)', () => {
+    expect(latencyCompensationMs({ mode: 'auto', manualMs: 0, rttMedianMs: 80, learnedMs: 37 })).toBe(37);
+    expect(latencyCompensationMs({ mode: 'auto', manualMs: 0, rttMedianMs: 80, learnedMs: null })).toBe(40 + BROWSER_DISPATCH_MS);
+    expect(latencyCompensationMs({ mode: 'manual', manualMs: 5, rttMedianMs: 80, learnedMs: 37 })).toBe(5);
+  });
   it('manual respeita 0..teto', () => {
     expect(latencyCompensationMs({ mode: 'manual', manualMs: 35, rttMedianMs: 999 })).toBe(35);
     expect(latencyCompensationMs({ mode: 'manual', manualMs: -5, rttMedianMs: null })).toBe(0);

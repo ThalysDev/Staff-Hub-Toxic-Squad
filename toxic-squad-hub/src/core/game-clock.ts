@@ -27,7 +27,37 @@ import {
   type DateHeaderSample,
 } from '../ext/core/timing/http-date-clock';
 import { pickClockSource, type ClockCandidate, type ClockChoice } from '../ext/core/timing/clock-source';
-import { spinBudgetMs } from '../ext/core/timing/precise-fire';
+import { MAX_LATENCY_COMPENSATION_MS, spinBudgetMs } from '../ext/core/timing/precise-fire';
+import { learnedCompensationMs, type FeedbackSample } from '../ext/core/timing/arrival-feedback';
+
+// ── Onda E: autocalibração pelas chegadas reais ────────────────────────────
+
+function feedbackKey(): string {
+  return `tsh-clock-learn:${worldId()}`;
+}
+
+/** Amostras de chegada real (mais antiga → mais recente). */
+export function arrivalFeedback(): FeedbackSample[] {
+  const raw = gm.get<unknown>(feedbackKey(), []);
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (item): item is FeedbackSample =>
+      typeof item === 'object' &&
+      item !== null &&
+      Number.isFinite((item as FeedbackSample).errorMs) &&
+      Number.isFinite((item as FeedbackSample).compensationMs),
+  );
+}
+
+/** Guarda uma chegada conferida (mantém as 20 mais recentes). */
+export function recordArrivalFeedback(sample: FeedbackSample): void {
+  gm.set(feedbackKey(), [...arrivalFeedback(), sample].slice(-20));
+}
+
+/** Zera o aprendizado (ex.: mudou de internet/computador). */
+export function resetArrivalFeedback(): void {
+  gm.set(feedbackKey(), []);
+}
 
 interface PersistedHttpClock {
   offsetMs: number;
@@ -38,6 +68,12 @@ interface PersistedHttpClock {
 }
 
 export interface ClockInfo {
+  /** Onda E: compensação aprendida pelas chegadas reais (null = sem amostras suficientes). */
+  learnedCompensationMs: number | null;
+  /** Último erro medido (chegada real − planejada), ms. */
+  lastArrivalErrorMs: number | null;
+  /** Quantos envios já foram conferidos. */
+  feedbackCount: number;
   source: ClockChoice['kind'] | 'nenhuma';
   offsetMs: number;
   uncertaintyMs: number;
@@ -149,7 +185,11 @@ export function serverNowMs(): number {
 export function clockInfo(): ClockInfo {
   const choice = currentChoice();
   const http = loadHttpClock();
+  const feedback = arrivalFeedback();
   return {
+    learnedCompensationMs: learnedCompensationMs(feedback, MAX_LATENCY_COMPENSATION_MS),
+    lastArrivalErrorMs: feedback.at(-1)?.errorMs ?? null,
+    feedbackCount: feedback.length,
     source: choice?.kind ?? 'nenhuma',
     offsetMs: choice?.offsetMs ?? 0,
     uncertaintyMs: choice?.effectiveUncertaintyMs ?? TELA_UNCERTAINTY_MS,
@@ -249,6 +289,15 @@ export function calibrateClock(): Promise<void> {
  * devolve a incerteza resultante (ms).
  */
 export async function ensureClockCalibrated(maxAgeMs = 10 * 60_000): Promise<number> {
+  // Calibração já em andamento (ex.: disparada pelo ciclo): espera o resultado.
+  if (calibrating !== null) {
+    try {
+      await calibrating;
+    } catch {
+      /* segue nas outras fontes */
+    }
+    return clockInfo().uncertaintyMs;
+  }
   const http = loadHttpClock();
   const stale = http === null || Date.now() - http.measuredAtMs > maxAgeMs || http.halfWidthMs > 120;
   // P2 (revisão Onda A): rede instável não pode virar rajada a cada heartbeat.

@@ -32,7 +32,10 @@ import {
   commandConfirmScreenState,
   isUncertainMutationError,
   normalizeVillageId,
+  nativeTrainMatches,
   prearmCommandStep1,
+  prepareNativeTrain,
+  readNativeTrainFromScreen,
 } from '../tsh-transport';
 import { pacedGet } from '../../../core/net';
 import {
@@ -44,7 +47,15 @@ import {
   type SchedulerTimingStrategy,
 } from '../../../ext/core/scheduler-state';
 import { laneForSchedulerRecord } from '../../../ext/core/humanize/humanize-policy';
-import { clockInfo, ensureClockCalibrated, serverNowMs, waitUntilServerMs } from '../../../core/game-clock';
+import {
+  clockInfo,
+  ensureClockCalibrated,
+  recordArrivalFeedback,
+  serverNowMs,
+  waitUntilServerMs,
+} from '../../../core/game-clock';
+import { matchArrival, parseArrivalText, plausibleLatency, type ArrivalRow } from '../../../ext/core/timing/arrival-feedback';
+import { pageWindow } from '../../../core/page';
 import {
   MAX_PREARM_ATTEMPTS,
   PREARM_EVENT_DETAIL,
@@ -82,6 +93,8 @@ export interface NewScheduledCommandInput {
   catapultTarget?: string;
   percentMode?: boolean;
   unitsPercent?: Partial<Record<string, number>>;
+  /** Onda E: ataques adicionais do trem nativo (#2..#5). */
+  trainUnits?: ReadonlyArray<Partial<Record<UnitType, number>>>;
   /** Texto do primeiro evento (o que o plano pediu — aparece na lista/histórico). */
   detail?: string;
 }
@@ -92,7 +105,9 @@ export function createScheduledCommand(input: NewScheduledCommandInput): Schedul
   // O percentual entra no id canônico (duas séries em % no mesmo horário não são
   // o mesmo comando); registro sem percentual mantém o id de sempre.
   const percentKey = input.percentMode === true ? `|${JSON.stringify(input.unitsPercent ?? {})}` : '';
-  const canonical = `${input.kind}|${input.sourceVillageId}|${input.target.x}|${input.target.y}|${input.sendAt}|${JSON.stringify(input.units)}${percentKey}`;
+  // Trem nativo entra no id (mesmo #1 com adicionais diferentes = outro comando).
+  const trainKey = input.trainUnits !== undefined ? `|train${JSON.stringify(input.trainUnits)}` : '';
+  const canonical = `${input.kind}|${input.sourceVillageId}|${input.target.x}|${input.target.y}|${input.sendAt}|${JSON.stringify(input.units)}${percentKey}${trainKey}`;
   const at = new Date().toISOString();
   return {
     ...fields,
@@ -772,6 +787,8 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
   if (nextOwnSendAt !== undefined && nextOwnSendAt - now.getTime() <= 30 * 60_000) {
     void ensureClockCalibrated();
   }
+  // Onda E: confere chegadas reais de envios anteriores (autocalibração).
+  if (pending === undefined) await verifyArrivals(ctx, nextOwnSendAt);
 
   // Passo 2 (tela de confirmação aberta — normalmente pelo PRÉ-ARME): só
   // confirma quando CASA com um comando agendado desta aldeia; a MIRA de
@@ -861,7 +878,7 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
   // Cancelamento cronometrado: não usa a Praça — mira de precisão até o ms
   // planejado (menos a compensação de latência) e dispara os POSTs.
   if (due.kind === 'cancel') {
-    const compensation = currentCompensationMs(settings);
+    const compensation = currentCompensationMs(settings, true);
     const fireAt = Date.parse(due.sendAt) - compensation;
     const deltaMs = fireAt - serverNowMs();
     if (deltaMs > AIM_MAX_WAIT_MS) {
@@ -993,6 +1010,7 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
   };
   const reachedHere = await prearmCommandStep1(target, fireUnits, opts, beforeSubmit);
   if (!reachedHere) {
+    renewTshLock('command-scheduler', ctx.world); // não navegou: a aba retoma o lock
     throw new Error(
       'O passo 1 foi enviado, mas a tela de confirmação não apareceu neste contexto — o agendador tenta de novo no próximo ciclo (nenhuma tropa foi enviada).',
     );
@@ -1064,6 +1082,7 @@ async function handlePendingConfirmation(
     normalizeVillageId(prearmed.sourceVillageId) === normalizeVillageId(ctx.villageId);
   const candidates =
     prearmedOk && !own.some((record) => record.id === prearmed.id) ? [...own, prearmed] : [...own];
+  const screenTrain = readNativeTrainFromScreen();
   const unitsFor = (record: ScheduledCommandRecord): Record<string, number> | null =>
     record.percentMode === true ? (prearm?.id === record.id ? prearm.units : null) : commandUnitsRecord(record);
   const matching = pickConfirmCandidate(
@@ -1073,6 +1092,11 @@ async function handlePendingConfirmation(
     (record) => {
       const units = unitsFor(record);
       if (units === null) return false; // percentual sem pré-arme: tropas não casáveis
+      // Revisão Onda E: o trem da tela precisa bater com o do registro —
+      // sem trem = nenhum adicional preenchido; com trem = o mesmo ou nenhum
+      // ainda (o motor monta).
+      const train = record.trainUnits ?? [];
+      if (screenTrain.length > 0 && (train.length === 0 || !nativeTrainMatches(train))) return false;
       return matchesPendingCommandConfirmation(pending, {
         kind: transportCommandKind(record.kind),
         target: record.target,
@@ -1106,16 +1130,164 @@ function commandOptionsFor(record: ScheduledCommandRecord): {
   };
 }
 
-function currentCompensationMs(settings: SchedulerSettings): number {
+function currentCompensationMs(settings: SchedulerSettings, forCancel = false): number {
+  const info = clockInfo();
   return latencyCompensationMs({
     mode: settings.latencyMode,
     manualMs: settings.latencyManualMs,
-    rttMedianMs: clockInfo().rttMedianMs,
+    rttMedianMs: info.rttMedianMs,
+    // O aprendido vem de cliques na Praça; o cancelamento é outro caminho.
+    learnedMs: forCancel ? null : info.learnedCompensationMs,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Onda E — autocalibração pela CHEGADA REAL (o jogo mostra a chegada com ms).
+// ---------------------------------------------------------------------------
+
+interface ArrivalCheck {
+  id: string;
+  kind: 'attack' | 'support';
+  target: { x: number; y: number };
+  origin?: { x: number; y: number };
+  train: boolean;
+  /** Chegada planejada (sendAt + duração da viagem), quadro do jogo. */
+  expectedArrivalMs: number;
+  /** Antecedência EFETIVA do clique (sendAt − instante do clique), ms. */
+  leadMs: number;
+  queuedAt: number;
+  attempts: number;
+}
+
+const VERIFY_STORAGE_KEY = 'arrival-checks';
+const VERIFY_MAX_AGE_MS = 15 * 60_000;
+const VERIFY_MAX_ATTEMPTS = 3;
+
+/** Origem do registro: a gravada ou, na aldeia aberta, a do game_data. */
+function recordOrigin(record: ScheduledCommandRecord, villageId: string): { x: number; y: number } | undefined {
+  if (record.source !== undefined) return record.source;
+  if (normalizeVillageId(record.sourceVillageId) !== normalizeVillageId(villageId)) return undefined;
+  const village = (pageWindow().game_data as { village?: { x?: unknown; y?: unknown } } | undefined)?.village;
+  return typeof village?.x === 'number' && typeof village.y === 'number' ? { x: village.x, y: village.y } : undefined;
+}
+
+/**
+ * Enfileira a conferência da chegada real (revisão Onda E): SÓ cravados
+ * (faixa de precisão) que saíram pela MIRA, não forçados — fake humanizado,
+ * envio atrasado e forçado não ensinam latência (poluiriam o autoajuste).
+ */
+function queueArrivalCheck(ctx: TshCycleContext, record: ScheduledCommandRecord, leadMs: number): void {
+  if (record.arrivalAt === undefined || record.forced === true || record.kind === 'cancel') return;
+  const expected = Date.parse(record.arrivalAt);
+  if (!Number.isFinite(expected)) return;
+  const checks = ctx.storage.get<ArrivalCheck[]>(VERIFY_STORAGE_KEY, []);
+  const origin = recordOrigin(record, ctx.villageId);
+  const next: ArrivalCheck = {
+    id: record.id,
+    kind: record.kind === 'support' ? 'support' : 'attack',
+    target: record.target,
+    ...(origin !== undefined ? { origin } : {}),
+    train: record.trainUnits !== undefined && record.trainUnits.length > 0,
+    expectedArrivalMs: expected,
+    leadMs,
+    queuedAt: Date.now(),
+    attempts: 0,
+  };
+  ctx.storage.set(VERIFY_STORAGE_KEY, [...checks.filter((check) => check.id !== record.id), next].slice(-10));
+}
+
+/**
+ * Confere UMA leva de chegadas reais por ciclo (1 leitura da Visão de
+ * Comandos, fila normal) — nunca com um cravado a menos de 2 min, para não
+ * disputar a rede com a mira. Resultado: amostra de autocalibração + evento
+ * informativo no registro ("chegada real … (+X ms)").
+ */
+async function verifyArrivals(ctx: TshCycleContext, nextOwnSendAt: number | undefined): Promise<void> {
+  const nowLocal = Date.now();
+  const checks = ctx.storage
+    .get<ArrivalCheck[]>(VERIFY_STORAGE_KEY, [])
+    .filter((check) => nowLocal - check.queuedAt < VERIFY_MAX_AGE_MS && check.attempts < VERIFY_MAX_ATTEMPTS);
+  if (checks.length === 0) return;
+  if (nextOwnSendAt !== undefined && nextOwnSendAt - serverNowMs() < 120_000) return;
+  const ready = checks.filter((check) => nowLocal - check.queuedAt > 3_000);
+  if (ready.length === 0) return;
+  const kind = ready[0]?.kind ?? 'attack';
+  let html: string;
+  try {
+    html = await pacedGet(
+      `/game.php?village=${normalizeVillageId(ctx.villageId)}&screen=overview_villages&mode=commands&type=${kind}&page=-1`,
+      { fresh: true },
+    );
+  } catch {
+    return; // leitura é otimização — tenta no próximo ciclo
+  }
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const nowFrame = serverNowMs();
+  // Colunas pelo CABEÇALHO (Comando / Aldeia de origem / Chegada), não por posição fixa.
+  const header = Array.from(doc.querySelectorAll('#commands_table tr:first-child th, #commands_table tr:first-child td')).map(
+    (cell) => (cell.textContent ?? '').trim().toLowerCase(),
+  );
+  const colArrival = header.findIndex((text) => text.startsWith('chegada'));
+  const colOrigin = header.findIndex((text) => text.includes('origem'));
+  const arrivalCol = colArrival >= 0 ? colArrival : 2;
+  const coordOf = (text: string): { x: number; y: number } | undefined => {
+    const match = /\((\d{1,3})\|(\d{1,3})\)[^(]*$/.exec(text);
+    return match === null ? undefined : { x: Number(match[1]), y: Number(match[2]) };
+  };
+  const rows: ArrivalRow[] = [];
+  for (const tr of Array.from(doc.querySelectorAll('#commands_table tr.nowrap'))) {
+    const cells = tr.children;
+    const target = coordOf(cells[0]?.textContent ?? '');
+    const origin = colOrigin >= 0 ? coordOf(cells[colOrigin]?.textContent ?? '') : undefined;
+    const arrival = parseArrivalText(cells[arrivalCol]?.textContent ?? '', nowFrame);
+    if (target === undefined || arrival === null) continue;
+    rows.push({ target, ...(origin !== undefined ? { origin } : {}), arrivalMs: arrival });
+  }
+  const remaining: ArrivalCheck[] = [];
+  for (const check of checks) {
+    if (check.kind !== kind || !ready.includes(check)) {
+      remaining.push(check);
+      continue;
+    }
+    if (!aliveOrSent(readSchedulerState(ctx).commands.find((command) => command.id === check.id))) continue;
+    const real = matchArrival(rows, {
+      target: check.target,
+      ...(check.origin !== undefined ? { origin: check.origin } : {}),
+      expectedMs: check.expectedArrivalMs,
+      train: check.train,
+    });
+    if (real === null) {
+      remaining.push({ ...check, attempts: check.attempts + 1 });
+      continue;
+    }
+    const errorMs = real - check.expectedArrivalMs;
+    // Amostra = latência REAL do clique (antecedência efetiva + erro): imune a
+    // atrasos e ao arredondamento do plano. Implausível = descartada.
+    if (plausibleLatency(check.leadMs + errorMs)) {
+      recordArrivalFeedback({ errorMs, compensationMs: check.leadMs, at: Date.now() });
+    }
+    ctx.storage.set(
+      SCHEDULER_STORAGE_KEY,
+      appendSchedulerEvent(
+        readSchedulerState(ctx),
+        check.id,
+        'enviado',
+        new Date().toISOString(),
+        `Chegada real ${clockLabelMs(real)} (planejada ${clockLabelMs(check.expectedArrivalMs)}; ${errorMs >= 0 ? '+' : ''}${errorMs} ms).`,
+      ),
+    );
+    ctx.status(`Chegada conferida: ${errorMs >= 0 ? '+' : ''}${errorMs} ms do planejado.`, 'ok');
+  }
+  ctx.storage.set(VERIFY_STORAGE_KEY, remaining);
 }
 
 function hiddenTabNote(): string {
   return document.hidden ? ' — aba em 2º plano: mantenha o computador acordado' : '';
+}
+
+/** Registro existente e não removido (conferência de chegada). */
+function aliveOrSent(record: ScheduledCommandRecord | undefined): boolean {
+  return record !== undefined && !record.events.some((event) => event.status === 'removido');
 }
 
 /** Registro vivo (não pausado, sem fato terminal persistido). */
@@ -1147,6 +1319,25 @@ async function aimAndConfirm(
     );
     return;
   }
+  // Onda E: relógio ainda impreciso (página nova, sem medição) e tempo de
+  // sobra → mede ANTES de mirar (a calibração leva alguns segundos).
+  if (clockInfo().uncertaintyMs > 60 && sendAtMs - serverNowMs() > 12_000) {
+    ctx.status(`Comando ${record.id}: medindo o relógio do servidor antes da mira…`, 'info');
+    const limite = Math.max(0, sendAtMs - serverNowMs() - 5_000);
+    await Promise.race([ensureClockCalibrated(), new Promise((resolve) => setTimeout(resolve, limite))]);
+  }
+  // Onda E: trem nativo montado ANTES da mira (nunca no instante do clique).
+  if (record.trainUnits !== undefined && record.trainUnits.length > 0) {
+    try {
+      await prepareNativeTrain(record.trainUnits);
+    } catch (error) {
+      ctx.status(
+        `Comando ${record.id}: trem não montado — ${error instanceof Error ? error.message : String(error)}`,
+        'warn',
+      );
+      return;
+    }
+  }
   const decision = decideConfirmAction({
     sendAtMs,
     nowServerMs: serverNowMs(),
@@ -1171,6 +1362,7 @@ async function aimAndConfirm(
     alert('comando_falhou', `Comando ${record.id} para ${target}: janela perdida por ${decision.lateMs} ms — nada foi enviado.`);
     return;
   }
+  const aimed = decision.kind === 'aim';
   if (decision.kind === 'aim') {
     if (decision.waitMs > AIM_MAX_WAIT_MS) {
       ctx.status(
@@ -1206,8 +1398,14 @@ async function aimAndConfirm(
   // ── Disparo: NADA entre o fim da espera e o clique ──
   const clickedAtServer = serverNowMs();
   try {
-    clickCommandConfirmNow(target, units, opts);
+    // O clique NAVEGA: libera o lock desta aba para a página seguinte (id de
+    // aba novo) seguir o agendador na hora — sem isto ela ficava até 2 min
+    // travada e o próximo cravado da mesma aldeia podia ser perdido (Onda E).
+    // Se o clique falhar, o `finally` do runtime renova o lock.
+    releaseTshLock('command-scheduler', ctx.world);
+    clickCommandConfirmNow(target, units, opts, record.trainUnits ?? []);
   } catch (error) {
+    renewTshLock('command-scheduler', ctx.world); // nada navegou: a aba retoma o lock
     if (isUncertainMutationError(error)) {
       ctx.storage.set(
         SCHEDULER_STORAGE_KEY,
@@ -1229,6 +1427,7 @@ async function aimAndConfirm(
   }
   const info = clockInfo();
   clearPrearm(ctx, record.id);
+  if (opts.lane === 'precisao' && aimed) queueArrivalCheck(ctx, record, sendAtMs - clickedAtServer);
   ctx.storage.set(
     SCHEDULER_STORAGE_KEY,
     appendSchedulerEvent(
@@ -1236,7 +1435,7 @@ async function aimAndConfirm(
       record.id,
       'enviado',
       new Date().toISOString(),
-      `Comando ${record.kind} para ${target} confirmado às ${clockLabelMs(clickedAtServer)} (alvo ${clockLabelMs(sendAtMs)}; compensação ${compensation} ms; relógio ±${info.uncertaintyMs} ms, fonte ${info.source}).`,
+      `Comando ${record.kind}${record.trainUnits !== undefined ? ` (trem de ${record.trainUnits.length + 1})` : ''} para ${target} confirmado às ${clockLabelMs(clickedAtServer)} (alvo ${clockLabelMs(sendAtMs)}; compensação ${compensation} ms; relógio ±${info.uncertaintyMs} ms, fonte ${info.source}).`,
     ),
   );
   ctx.status(`Comando ${record.id} enviado para ${target} às ${clockLabelMs(clickedAtServer)} (${record.kind}).`, 'ok');
