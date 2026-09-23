@@ -14,12 +14,14 @@
 // - Esperas por elemento usam setTimeout DENTRO da promise da chamada, sempre
 //   com teto (poll + deadline). O transporte é efêmero e stateless por
 //   chamada: nenhum timer sobrevive à promise que o criou.
-// - TODA rede passa pelo enqueue do core (serial, ≥200ms entre chamadas).
+// - TODA rede passa pelo core (serial, ≥200ms entre chamadas), em DUAS cadeias
+//   (P1-3 da revisão): a NORMAL (leituras e rotina) e a URGENTE (precisão —
+//   submit de comando e cancelamento cronometrado), que nunca espera a normal.
 //   Funções API-first NÃO envolvem o fluxo inteiro em enqueue — a fila é uma
 //   cadeia única e aninhá-la deadlockaria; cada toque de rede (POST da API ou
 //   submit DOM que navega) é enfileirado individualmente.
 
-import { enqueue, pacedGet } from '../../core/net';
+import { enqueue, enqueueUrgent, pacedGet } from '../../core/net';
 import { pageWindow } from '../../core/page';
 import { currentCsrf, currentVillageId } from '../vanta/vanta-net';
 import { awaitRoutineMutation } from './tsh-humanize';
@@ -348,16 +350,50 @@ function clickConfirmSend(form: HTMLFormElement): void {
 type ConfirmMatch = 'match' | 'mismatch' | 'unknown';
 
 /**
+ * P1-2 da revisão: o alvo de edifício da Praça é `select[name="building"]`
+ * (valores = chaves de CATAPULT_TARGETS). Fail-closed: alvo pedido com
+ * catapultas no conjunto e SEM o select canônico = erro explícito — nunca
+ * confirmar em silêncio com o alvo padrão do jogo. Sem catapultas o alvo é
+ * inócuo (o jogo ignora) e a ausência do campo não é erro.
+ */
+function requireCatapultTargetSelect(
+  form: HTMLFormElement,
+  catapultTarget: string | undefined,
+  units: Record<string, number>,
+): HTMLSelectElement | null {
+  if (catapultTarget === undefined || catapultTarget === '') return null;
+  const select = form.querySelector<HTMLSelectElement>('select[name="building"]');
+  if (select !== null) return select;
+  if (integerAmount(units.catapult) > 0) {
+    throw transportError('Alvo de catapulta não aplicável nesta tela.', 'CATAPULT_TARGET_UNAVAILABLE');
+  }
+  return null;
+}
+
+/** Aplica o alvo pedido; opção inexistente no select também é fail-closed. */
+function setCatapultTarget(select: HTMLSelectElement, wanted: string): void {
+  select.value = wanted;
+  if (select.value !== wanted) {
+    throw transportError(
+      `O alvo de catapulta "${wanted}" não existe no formulário desta tela.`,
+      'CATAPULT_TARGET_UNAVAILABLE',
+    );
+  }
+}
+
+/**
  * Conferência defensiva da tela de confirmação (semântica do matcher da
  * extensão, doc vivo 20/08/2026): hidden `support` presente → apoio, ausente →
- * ataque; x/y/unidades são lidos do próprio form quando expostos. Tela sem
- * dados legíveis = "unknown" — o chamador decide falhar-fechado.
+ * ataque; x/y/unidades são lidos do próprio form quando expostos. Quando a tela
+ * expõe o alvo de catapulta (`building`), ele também precisa casar — o campo
+ * ausente é tela sem o dado (não vira "unknown" por isso). Tela sem dados
+ * legíveis = "unknown" — o chamador decide falhar-fechado.
  */
 function matchConfirmScreen(
   form: HTMLFormElement,
   coords: { x: number; y: number },
   units: Record<string, number>,
-  opts: { attack: boolean },
+  opts: { attack: boolean; catapultTarget?: string },
 ): ConfirmMatch {
   const screenIsSupport = form.querySelector('input[name="support"]') !== null;
   if (screenIsSupport === opts.attack) return 'mismatch';
@@ -374,6 +410,13 @@ function matchConfirmScreen(
     known = true;
     if (Number(input.value) !== integerAmount(amount)) return 'mismatch';
   }
+  const catapultTarget = opts.catapultTarget ?? '';
+  if (catapultTarget !== '') {
+    const building = form.querySelector<HTMLSelectElement | HTMLInputElement>(
+      'select[name="building"], input[name="building"]',
+    );
+    if (building !== null && building.value !== catapultTarget) return 'mismatch';
+  }
   return known ? 'match' : 'unknown';
 }
 
@@ -386,6 +429,13 @@ export interface CommandOptions {
    * deriva com laneForSchedulerRecord(record) — nunca chuta.
    */
   lane?: TimingLane;
+  /**
+   * Alvo das catapultas (Onda 1, P1-2 da revisão): chave de CATAPULT_TARGETS
+   * (ex.: 'wall'). Quando preenchido, o alvo de edifício do formulário da
+   * Praça recebe este valor antes do submit — sem isto a catapulta bate no
+   * alvo padrão do jogo enquanto o operador acha que mirou outro edifício.
+   */
+  catapultTarget?: string;
 }
 
 /**
@@ -394,6 +444,11 @@ export interface CommandOptions {
  * tipo pedido (#target_attack / #target_support — o kind decide o botão; o
  * botão ausente falha fechado, nunca adivinha). Passo 2: input[name=
  * submit_confirm] da tela de confirmação.
+ *
+ * P1-3 da revisão (regra de ouro): os DOIS passos vão pela fila URGENTE — um
+ * cravado não pode entrar atrás de leituras penduradas na fila normal. A
+ * espera da tela de confirmação (poll no DOM, não é rede) fica FORA da fila:
+ * só o clique final do passo 2 passa pela urgente, no instante planejado.
  *
  * Desvio estrutural do userscript: o passo 1 NAVEGA (contexto atual morre).
  * A função cobre os dois cenários reais:
@@ -419,54 +474,88 @@ export async function submitCommand2Step(
     }
   }
   const coords = parseCommandTarget(target);
-  await enqueue(async () => {
-    assertMutablePage(document);
-    const existing = findCommandConfirmForm();
-    if (existing !== null) {
-      const match = matchConfirmScreen(existing, coords, units, opts);
+  // Já na tela de confirmação: só o passo 2, pela fila urgente, com o matcher
+  // fail-closed DENTRO do slot (a tela é re-lida ali — nunca clica numa tela
+  // que mudou entre a leitura e o clique).
+  if (findCommandConfirmForm() !== null) {
+    await enqueueUrgent(async () => {
+      assertMutablePage(document);
+      const current = findCommandConfirmForm();
+      if (current === null)
+        throw transportError(
+          'A tela de confirmação do comando desapareceu antes do clique final — nada foi confirmado.',
+          'CONFIRM_SCREEN_NOT_REACHED',
+        );
+      const match = matchConfirmScreen(current, coords, units, opts);
       if (match !== 'match')
         throw transportError(
           'A tela de confirmação atual não corresponde ao comando pedido (tipo, alvo ou tropas) — nada foi confirmado.',
           'RESULT_UNCERTAIN',
         );
-      clickConfirmSend(existing);
-      return;
-    }
-    const form = document.querySelector<HTMLFormElement>(
-      '#command-data-form, form[action*="screen=place"][action*="try=confirm"]',
+      clickConfirmSend(current);
+    });
+    return;
+  }
+  const form = document.querySelector<HTMLFormElement>(
+    '#command-data-form, form[action*="screen=place"][action*="try=confirm"]',
+  );
+  if (form === null)
+    throw transportError('O formulário canônico da Praça de Reunião não foi encontrado.', 'PAGE_SELECTOR_CHANGED');
+  const submitter = form.querySelector<HTMLElement>(
+    opts.attack ? 'input[name="attack"], input#target_attack' : 'input[name="support"], input#target_support',
+  );
+  if (submitter === null) {
+    throw transportError(
+      `O botão canônico de ${opts.attack ? 'ataque' : 'apoio'} (#target_${opts.attack ? 'attack' : 'support'}) não foi encontrado na Praça de Reunião.`,
+      'PAGE_SELECTOR_CHANGED',
     );
-    if (form === null)
-      throw transportError('O formulário canônico da Praça de Reunião não foi encontrado.', 'PAGE_SELECTOR_CHANGED');
-    const submitter = form.querySelector<HTMLElement>(
-      opts.attack ? 'input[name="attack"], input#target_attack' : 'input[name="support"], input#target_support',
-    );
-    if (submitter === null) {
-      throw transportError(
-        `O botão canônico de ${opts.attack ? 'ataque' : 'apoio'} (#target_${opts.attack ? 'attack' : 'support'}) não foi encontrado na Praça de Reunião.`,
-        'PAGE_SELECTOR_CHANGED',
-      );
-    }
-    const fields: Record<string, number> = { x: coords.x, y: coords.y };
-    for (const [unit, amount] of Object.entries(units)) fields[unit] = integerAmount(amount);
+  }
+  const fields: Record<string, number> = { x: coords.x, y: coords.y };
+  for (const [unit, amount] of Object.entries(units)) fields[unit] = integerAmount(amount);
+  // P1-2: alvo de catapulta resolvido ANTES do submit — fail-closed explícito
+  // (nada foi submetido ainda quando isto lança).
+  const catapultSelect = requireCatapultTargetSelect(form, opts.catapultTarget, units);
+  const catapultTarget = opts.catapultTarget ?? '';
+  // Passo 1 (urgente): preencher e submeter. Nenhuma mutação aconteceu ainda:
+  // o envio real é o passo 2 (submit_confirm) — mas a tela de confirmação
+  // precisa estar pronta no ms planejado.
+  await enqueueUrgent(async () => {
+    assertMutablePage(document);
+    if (catapultSelect !== null) setCatapultTarget(catapultSelect, catapultTarget);
     fillFormFields(form, fields);
-    // Nenhuma mutação aconteceu ainda: o envio real é o passo 2 (submit_confirm).
     form.requestSubmit(submitter);
-    const confirmForm = await pollUntil(findCommandConfirmForm, COMMAND_CONFIRM_TIMEOUT_MS);
-    if (confirmForm === null)
+  });
+  // Espera da tela de confirmação FORA da fila (P1-3): poll no DOM não é rede
+  // e um poll de até 10s dentro do enqueue segurava a fila inteira. O probe
+  // devolve null enquanto a tela não existe (pollUntil devolve o próprio valor
+  // da sonda quando ele não é null).
+  const reached = await pollUntil(
+    () => (findCommandConfirmForm() === null ? null : true),
+    COMMAND_CONFIRM_TIMEOUT_MS,
+  );
+  if (reached !== true)
+    throw transportError(
+      'O passo 1 foi enviado, mas a tela de confirmação não apareceu neste contexto — execute o passo 2 nela (nenhuma tropa foi enviada ainda).',
+      'CONFIRM_SCREEN_NOT_REACHED',
+    );
+  // Passo 2 (urgente): re-lê a tela no slot da fila e passa o matcher
+  // fail-closed antes do clique — confirmação nunca às cegas.
+  await enqueueUrgent(async () => {
+    assertMutablePage(document);
+    const current = findCommandConfirmForm();
+    if (current === null)
       throw transportError(
-        'O passo 1 foi enviado, mas a tela de confirmação não apareceu neste contexto — execute o passo 2 nela (nenhuma tropa foi enviada ainda).',
+        'A tela de confirmação do comando desapareceu antes do clique final — nada foi confirmado.',
         'CONFIRM_SCREEN_NOT_REACHED',
       );
-    // Hardening (P3 revisão Onda 6): a tela encontrada pelo poll também passa
-    // pelo matcher fail-closed antes do clique — confirmação nunca às cegas.
-    const postMatch = matchConfirmScreen(confirmForm, coords, units, opts);
+    const postMatch = matchConfirmScreen(current, coords, units, opts);
     if (postMatch !== 'match') {
       throw transportError(
         'A tela de confirmação que apareceu não corresponde ao comando pedido (tipo, alvo ou tropas) — nada foi confirmado.',
         'RESULT_UNCERTAIN',
       );
     }
-    clickConfirmSend(confirmForm);
+    clickConfirmSend(current);
   });
 }
 
@@ -751,42 +840,57 @@ export interface CancelCommandsResult {
   readonly message: string;
 }
 
-interface CancelableRow {
+export interface CancelableRow {
   readonly commandId: string;
   readonly url: string; // URL de cancelamento pronta (com h)
 }
 
-/** Descobre linhas canceláveis cujo DESTINO é a coordenada-alvo. */
-function parseCancelableRows(html: string, target: { x: number; y: number }): CancelableRow[] {
+/**
+ * Descobre linhas canceláveis cujo DESTINO é a coordenada-alvo. Pura (recebe o
+ * HTML): o agendador pode pré-ler a página ANTES do instante sendAt e passar o
+ * corpo pronto. O href de cancelamento casa com `id=` ANTES ou DEPOIS de
+ * `action=cancel` (a ordem não é contrato do template).
+ */
+export function parseCancelableRows(html: string, target: { x: number; y: number }): CancelableRow[] {
   const rows: CancelableRow[] = [];
   const wanted = `${target.x}|${target.y}`;
   for (const raw of html.split(/<tr[^>]*>/i).slice(1)) {
-    const cancelMatch = raw.match(/href="(\/game\.php[^"]*action=cancel[^"]*id=(\d+)[^"]*)"/i);
-    if (cancelMatch === null) continue;
+    const hrefMatch = raw.match(/href="([^"]*action=cancel[^"]*)"/i);
+    if (hrefMatch === null) continue;
+    const rawHref = hrefMatch[1];
+    if (rawHref === undefined) continue;
+    const href = rawHref.replace(/&amp;/g, '&');
+    if (!/\/game\.php/i.test(href)) continue;
+    const idMatch = href.match(/[?&]id=(\d+)/);
+    if (idMatch === null || idMatch[1] === undefined) continue;
     // Destino = primeiro link info_village da linha (ordem do template:
     // Destino | Origem — ver revisão do cancelamento-bloco).
     const destMatch = raw.match(/screen=info_village&amp;id=\d+[^"]*"[^>]*>[^<]*?\((\d+\|\d+)\)/);
     if (destMatch === null || destMatch[1] !== wanted) continue;
-    const href = cancelMatch[1]?.replace(/&amp;/g, '&');
-    const id = cancelMatch[2];
-    if (href === undefined || id === undefined) continue;
-    rows.push({ commandId: id, url: href });
+    rows.push({ commandId: idMatch[1], url: href });
   }
   return rows;
 }
 
 /**
  * Cancela até `count` comandos PRÓPRIOS cujo destino é `target` ("x|y").
- * PRECISÃO: sem gate de humanização; POSTs serializados pelo enqueue com o
- * espaçamento mínimo da fila. Para no primeiro POST que falha (fail-closed —
+ * PRECISÃO: sem gate de humanização; os POSTs vão pela fila URGENTE (nunca
+ * atrás de leituras penduradas, e serializados entre si com o gap da fila).
+ * `preparsedHtml` (P2-2 da revisão): HTML da Visão de Comandos lido ANTES do
+ * instante sendAt pelo chamador — quando ausente, a leitura acontece aqui
+ * (comportamento anterior). Para no primeiro POST que falha (fail-closed —
  * nunca martela o jogo) e devolve o resumo do que conseguiu.
  */
-export async function cancelGameCommandsAtTarget(target: string, count: number): Promise<CancelCommandsResult> {
+export async function cancelGameCommandsAtTarget(
+  target: string,
+  count: number,
+  preparsedHtml?: string,
+): Promise<CancelCommandsResult> {
   const coords = parseCommandTarget(target);
   const village = currentVillageId();
-  const html = await pacedGet(`/game.php?village=${village}&screen=overview_villages&mode=commands&page=-1`, {
-    fresh: true,
-  });
+  const html =
+    preparsedHtml ??
+    (await pacedGet(`/game.php?village=${village}&screen=overview_villages&mode=commands&page=-1`, { fresh: true }));
   const rows = parseCancelableRows(html, coords);
   if (rows.length === 0) {
     return {
@@ -800,7 +904,7 @@ export async function cancelGameCommandsAtTarget(target: string, count: number):
   let failed = 0;
   let message = '';
   for (const row of alvo) {
-    const ok = await enqueue(async () => {
+    const ok = await enqueueUrgent(async () => {
       const response = await fetch(row.url, {
         method: 'POST',
         credentials: 'same-origin',
