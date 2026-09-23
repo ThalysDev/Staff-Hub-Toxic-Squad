@@ -29,6 +29,7 @@ import './etiquetador';
 import './grupos-io';
 import './inspecao-mapa';
 import './mapa-enxuto';
+import './notas-campo';
 import './overview-agenda';
 import './previa-aldeia';
 import './reliquias';
