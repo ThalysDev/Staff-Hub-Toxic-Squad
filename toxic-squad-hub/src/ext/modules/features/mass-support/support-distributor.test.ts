@@ -197,7 +197,7 @@ describe('support-distributor', () => {
     expect(result.unmet).toEqual([{ lineIndex: 0, missing: units({ spear: 40 }) }]);
   });
 
-  it('avoidMsConflicts espaça as partidas agendadas em 300ms', () => {
+  it('avoidMsConflicts adianta a partida em 300ms (chegada nunca depois do alvo)', () => {
     const lines = [line({ sword: 20 }, '24/09-21:30:00:000'), line({ sword: 30 }, '24/09-21:30:00:000')];
     const origins = [origin(1, 200, { sword: 100 })];
     const spaced = distributeSupport(input(origins, lines, { avoidMsConflicts: true }), NOW);
@@ -207,7 +207,59 @@ describe('support-distributor', () => {
     expect(free.assignments[0]!.departAtMs).toBe(arrivalMs - 300 * 60_000);
     expect(free.assignments[1]!.departAtMs).toBe(arrivalMs - 300 * 60_000);
     expect(spaced.assignments[0]!.departAtMs).toBe(arrivalMs - 300 * 60_000);
-    expect(spaced.assignments[1]!.departAtMs! - spaced.assignments[0]!.departAtMs!).toBe(SUPPORT_SEND_GAP_MS);
+    // O espaçamento ADIANTA a segunda partida — a chegada não pode atrasar.
+    expect(spaced.assignments[0]!.departAtMs! - spaced.assignments[1]!.departAtMs!).toBe(SUPPORT_SEND_GAP_MS);
+    expect(spaced.assignments.every((entry) => entry.departAtMs! + 300 * 60_000 <= arrivalMs)).toBe(true);
+    expect(spaced.unmet).toEqual([]);
+  });
+
+  it('avoidMsConflicts com chegada cravada adianta a partida da mesma linha', () => {
+    const lines = [line({ sword: 100 }, '24/09-21:30:00:000')];
+    const origins = [origin(1, 200, { sword: 60 }), origin(2, 300, { sword: 40 })];
+    const result = distributeSupport(
+      input(origins, lines, { avoidMsConflicts: true, travelMinutes: () => 60 }),
+      NOW,
+    );
+    const arrivalMs = Date.UTC(2026, 8, 24, 21, 30, 0, 0);
+    expect(result.assignments).toHaveLength(2);
+    const departures = result.assignments.map((entry) => entry.departAtMs!);
+    expect(departures[0]).toBe(arrivalMs - 60 * 60_000);
+    expect(departures[0]! - departures[1]!).toBe(SUPPORT_SEND_GAP_MS);
+    for (const departure of departures) expect(departure + 60 * 60_000).toBeLessThanOrEqual(arrivalMs);
+    expect(result.unmet).toEqual([]);
+  });
+
+  it('janela apertada demais para adiantar recusa o assignment com reason (missing vazio)', () => {
+    // Janela de 100ms: adiantar 300ms faria a chegada antes do início.
+    const lines = [line({ sword: 100 }, 'i24/09-21:29:59:900 24/09-21:30:00:000')];
+    const origins = [origin(1, 200, { sword: 60 }), origin(2, 300, { sword: 40 })];
+    const result = distributeSupport(
+      input(origins, lines, { avoidMsConflicts: true, travelMinutes: () => 60 }),
+      NOW,
+    );
+    expect(result.assignments).toHaveLength(1);
+    expect(result.unmet).toHaveLength(1);
+    expect(result.unmet[0]!.lineIndex).toBe(0);
+    // missing vazio: nada FALTOU — a recusa é de segurança (âncora de chegada).
+    expect(result.unmet[0]!.missing).toEqual(units());
+    expect(result.unmet[0]!.reason).toMatch(/colisão de milissegundo/);
+    expect(result.unmet[0]!.reason).toMatch(/janela/);
+  });
+
+  it('linha imediata segue sem partida agendada e não consome o espaçamento', () => {
+    const lines = [
+      line({ sword: 10 }, '24/09-21:30:00:000'),
+      line({ sword: 10 }),
+      line({ sword: 10 }, '24/09-21:30:00:000'),
+    ];
+    const result = distributeSupport(
+      input([origin(1, 200, { sword: 100 })], lines, { avoidMsConflicts: true, travelMinutes: () => 60 }),
+      NOW,
+    );
+    const arrivalMs = Date.UTC(2026, 8, 24, 21, 30, 0, 0);
+    expect(result.assignments[1]!.departAtMs).toBeNull();
+    expect(result.assignments[0]!.departAtMs).toBe(arrivalMs - 60 * 60_000);
+    expect(result.assignments[0]!.departAtMs! - result.assignments[2]!.departAtMs!).toBe(SUPPORT_SEND_GAP_MS);
   });
 
   it('includeSlowerUnits completa a cota com unidade mais lenta', () => {

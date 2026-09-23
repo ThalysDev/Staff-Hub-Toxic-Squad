@@ -8,7 +8,11 @@
 // Hook: mesmo caminho do Coletor (TWMap.map.coordByEvent → xy = x*1000+y em
 // TWMap.villages), com save/restore do handler. O restore é CONDICIONAL
 // (`_handleClick === wrapper`): o Coletor também hooka o mesmo método e um
-// restore cego devolveria o wrapper morto dele por cima do meu.
+// restore cego devolveria o wrapper morto dele por cima do meu. A referência
+// ao original só é zerada DEPOIS de restaurar (restore-then-null) e, quando o
+// restore não acontece (wrapper de outro módulo por cima), ela fica viva: o
+// meu wrapper segue na cadeia dele e NUNCA pode ficar instalado sem original
+// (devolveria false para todo clique e mataria o mapa).
 //
 // Render da prévia: clone sanitizado (allowlist de tags/atributos, createElement
 // + textContent — nada de innerHTML de conteúdo do jogo) do miolo de
@@ -190,16 +194,36 @@ let widgetOpen = false;
 /** Toggle do widget: só com a prévia armada o clique é capturado. */
 let armed = false;
 
+/**
+ * Restaura o handler do mapa. Ordem obrigatória: RESTAURA e só então zera a
+ * referência ao original (restore-then-null). Quando o restore não pode
+ * acontecer — outro módulo (o Coletor também hooka `_handleClick`) instalou um
+ * wrapper por cima do meu — a referência ao original fica VIVA: o meu wrapper
+ * segue na cadeia do outro e um wrapper instalado com original nulo engoliria
+ * todo clique do mapa (o restore do outro módulo pode devolvê-lo ao mapa).
+ */
 function restoreHook(): void {
   if (!hooksInstalled) return;
-  const tw = twMap();
-  // Restore CONDICIONAL: se outro módulo instalou um wrapper depois do meu
-  // (o Coletor também hooka _handleClick), não piso nele.
-  if (tw !== null && tw.map !== undefined && tw.map._handleClick === handleClickWrapper) {
-    if (savedHandleClick !== null) tw.map._handleClick = savedHandleClick;
-    else delete tw.map._handleClick;
+  const map = twMap()?.map;
+  if (map === undefined || map._handleClick !== handleClickWrapper) {
+    // Restore CONDICIONAL: não piso no wrapper de outro módulo (nem posso
+    // restaurar por baixo dele) — só deixo de me considerar instalado.
+    hooksInstalled = false;
+    return;
   }
-  savedHandleClick = null;
+  const original = savedHandleClick;
+  if (original !== null) map._handleClick = original;
+  else delete map._handleClick;
+  savedHandleClick = null; // zerado DEPOIS de restaurar (nunca antes)
+  hooksInstalled = false;
+}
+
+/** Sai da cadeia do mapa (só quando o wrapper é o handler atual). */
+function detachWrapper(): void {
+  const tw = twMap();
+  if (tw !== null && tw.map !== undefined && tw.map._handleClick === handleClickWrapper) {
+    delete tw.map._handleClick;
+  }
   hooksInstalled = false;
 }
 
@@ -282,28 +306,49 @@ const PREVIA_STYLES = `
 
 // ── Wrapper do clique (nível de módulo: precisa ser estável p/ comparação) ──
 
-function handleClickWrapper(this: TWMapMap, e: unknown): boolean {
-  const delegate = (): boolean => {
-    const orig = savedHandleClick;
-    if (orig === null) return false;
+/**
+ * Profundidade da delegação: uma cadeia circular (outro módulo pode ter salvo
+ * o MEU wrapper como original dele e me chamar de volta) recursaria sem fim —
+ * o corte devolve o clique ao jogo em vez de estourar a pilha.
+ */
+let delegating = false;
+
+/**
+ * Clique é do jogo: chama o original salvo. Sem original vivo, o wrapper NUNCA
+ * fica instalado engolindo cliques — sai da cadeia e devolve `true` (deixa
+ * passar para o comportamento nativo).
+ */
+function delegateToOriginal(this: TWMapMap, e: unknown): boolean {
+  const orig = savedHandleClick;
+  if (orig === null) {
+    detachWrapper();
+    return true;
+  }
+  if (delegating) return true;
+  delegating = true;
+  try {
     const result = orig.call(this, e);
     return typeof result === 'boolean' ? result : false;
-  };
+  } finally {
+    delegating = false;
+  }
+}
 
+function handleClickWrapper(this: TWMapMap, e: unknown): boolean {
   // Desarmada/fechada: clique é do jogo (delega ao handler original).
-  if (!armed || !widgetOpen) return delegate();
+  if (!armed || !widgetOpen) return delegateToOriginal.call(this, e);
 
   const tw = twMap();
   const map = tw?.map;
-  if (tw === null || map === undefined) return delegate();
+  if (tw === null || map === undefined) return delegateToOriginal.call(this, e);
   const pos = map.coordByEvent(e);
   const x = pos[0];
   const y = pos[1];
-  if (typeof x !== 'number' || typeof y !== 'number') return delegate();
+  if (typeof x !== 'number' || typeof y !== 'number') return delegateToOriginal.call(this, e);
   const village = tw.villages?.[x * 1000 + y];
-  if (village === undefined || !village.id) return delegate(); // clique fora de aldeia
+  if (village === undefined || !village.id) return delegateToOriginal.call(this, e); // clique fora de aldeia
   // Handler do mount atual; sem ele (mount tardio) o clique segue sendo do jogo.
-  if (handleMapClick === null) return delegate();
+  if (handleMapClick === null) return delegateToOriginal.call(this, e);
 
   handleMapClick(String(village.id), x, y);
   return false; // suprime o popup/navegação nativos
@@ -509,7 +554,11 @@ registerVanta({
       const tw = twMap();
       if (tw === null || tw.map === undefined) return false;
       if (!hooksInstalled) {
-        savedHandleClick = tw.map._handleClick ?? null;
+        // Nunca capturar o PRÓPRIO wrapper como original (o restore de outro
+        // módulo pode devolvê-lo ao mapa): a auto-referência recursaria no
+        // clique. Com original vivo de um install anterior, ele é preservado.
+        const current = tw.map._handleClick;
+        if (current !== handleClickWrapper) savedHandleClick = current ?? null;
         tw.map._handleClick = handleClickWrapper;
         hooksInstalled = true;
       }

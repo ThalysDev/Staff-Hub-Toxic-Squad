@@ -11,10 +11,15 @@
 //   settings.armed = true E armação no painel (dupla confirmação);
 // - execução (F2: 1 mutação por ciclo): selectNextSupportCommand escolhe o
 //   próximo comando da aldeia da aba, dedupe pelo livro-razão ('ledger') e
-//   submitCommand2Step(..., attack:false) — o fluxo de 2 passos da Praça.
+//   submitCommand2Step(..., attack:false, lane) — o fluxo de 2 passos da Praça.
 //   O passo 1 navega: o comando fica rastreado em 'pending-command' e o
 //   heartbeat completa a CONFIRMAÇÃO (passo 2) no ciclo seguinte, com o
 //   matcher fail-closed do transporte (tela que não bate → nada confirmado);
+// - FAIXA DE ENVIO (Onda 1): apoio imediato é ROTINA → lane 'humanizado'
+//   (delays/intervalo/pausa da política), nunca 'precisao'. O apoio de defesa
+//   CRONOMETRADO não passa pelo disparo direto: o plano vira registro no
+//   Agendador (`kind: 'support'`, `sendAt` = chegada − viagem) e é o motor
+//   dele que envia na janela, na faixa 'precisao' derivada do registro;
 // - velocidades do mundo: interface.php?func=get_config público (porta do
 //   worldGameConfigFor/game-data), fallback br142 (1.5/0.75) → 1/1;
 // - desvio documentado: o modo defesa nasce com targetVillages: [] (o
@@ -28,12 +33,21 @@
 //   ruim vira nota no status e é ignorada — nunca inventa alvo.
 
 import { z } from 'zod';
-import { registerTsh, type TshCycleContext } from '../tsh-runtime';
+import { registerTsh, isTshEnabled, type TshCycleContext } from '../tsh-runtime';
 import { isUncertainMutationError, normalizeVillageId, submitCommand2Step } from '../tsh-transport';
+import { gm } from '../../../core/storage';
+import type { TimingLane } from '../../../ext/core/humanize/humanize-policy';
+import {
+  parseSchedulerCommandRecord,
+  type HubSchedulerState,
+  type ScheduledCommandRecord,
+} from '../../../ext/core/scheduler-state';
+import { createScheduledCommand } from './command-scheduler';
 import { pacedDoc } from '../../vanta/vanta-net';
 import { pacedGet } from '../../../core/net';
 import { pageWindow } from '../../../core/page';
 import { parseGameInteger, serverNowIso, coordinateLinesNote, parseCoordinateLines } from './op-generator';
+import { SCHEDULE_MIN_LEAD_MS } from '../../vanta/apoio-massa-logic';
 import {
   SUPPORT_UNITS,
   planSupportAllocation,
@@ -455,6 +469,13 @@ function executedCommandIds(storage: CycleStorage, worldId: string): readonly st
 
 // ── Rastreio do fluxo de 2 passos entre ciclos (ctx.storage 'pending-command') ──
 
+/**
+ * Faixa do apoio IMEDIATO (rotina): humanizada. O apoio cravado não usa o
+ * disparo direto — o modo defesa cronometrado registra no Agendador, cuja
+ * faixa ('precisao') é derivada do próprio registro pelo motor.
+ */
+const ROUTINE_LANE: TimingLane = 'humanizado';
+
 interface PendingSupportCommand {
   commandId: string;
   sourceCoordinate: string;
@@ -463,6 +484,12 @@ interface PendingSupportCommand {
   /** step1 = passo 1 submetido (nada enviado); confirm-issued = clique de confirmação disparado. */
   phase: 'step1' | 'confirm-issued';
   savedAt: string;
+  /**
+   * Faixa de envio do disparo direto (Onda 1). Ausente em registro gravado
+   * antes desta revisão: a confirmação cai em `ROUTINE_LANE` — o disparo
+   * direto do plugin SEMPRE foi a rotina do apoio imediato.
+   */
+  lane?: TimingLane;
 }
 
 /** Mesmo seletor canônico do transporte para a tela de confirmação do comando. */
@@ -506,7 +533,12 @@ async function reconcilePendingConfirm(
   }
   ctx.storage.set('pending-command', { ...pending, phase: 'confirm-issued' });
   try {
-    await submitCommand2Step(pending.targetCoordinate, pending.units, { attack: false });
+    // Passo 2 do apoio imediato: ROTINA → faixa humanizada (a mesma do passo 1
+    // gravado no rastreio; registro antigo sem lane cai na rotina).
+    await submitCommand2Step(pending.targetCoordinate, pending.units, {
+      attack: false,
+      lane: pending.lane ?? ROUTINE_LANE,
+    });
     recordExecuted(ctx.storage, ctx.world, pending.commandId);
     ctx.storage.set('pending-command', null);
     ctx.status(
@@ -534,6 +566,144 @@ async function reconcilePendingConfirm(
       'warn',
     );
   }
+}
+
+// ── Agendador: defesa CRONOMETRADA registra em vez de disparar direto ──────
+
+/** Chave do storage do Agendador de Comandos (a MESMA do módulo do motor). */
+const schedulerStorageKey = (world: string): string => `tsh-auto:${world}:command-scheduler:scheduler`;
+
+function readSchedulerState(world: string): HubSchedulerState {
+  return gm.get<HubSchedulerState>(schedulerStorageKey(world), { commands: [], transit: [] });
+}
+
+/** "x|y" do planner → coordenada; null fora do domínio (fail-closed). */
+function parseCoordinatePair(raw: string): { x: number; y: number } | null {
+  const [rawX, rawY] = raw.split('|');
+  const x = Number(rawX);
+  const y = Number(rawY);
+  if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x > 999 || y > 999) return null;
+  return { x, y };
+}
+
+export interface SupportSchedulerDraft {
+  readonly records: readonly ScheduledCommandRecord[];
+  /** Comandos impossíveis de agendar, com o motivo em pt-BR (nada é inventado). */
+  readonly skipped: readonly { readonly command: PlannedSupportCommand; readonly reason: string }[];
+}
+
+/**
+ * Comandos planejados da defesa AGENDADA → registros do Agendador (`kind:
+ * 'support'`, `timingMode: 'send'`, `sendAt` = chegada − viagem; o motor
+ * deriva a faixa 'precisao' do próprio registro). Comando sem coordenada, sem
+ * chegada/duração legível, com partida já passada (ou a menos de
+ * `SCHEDULE_MIN_LEAD_MS` do agora) ou sem unidades é RECUSADO com motivo —
+ * nunca um envio imediato disfarçado de agendado.
+ */
+export function buildSupportSchedulerRecords(
+  commands: readonly PlannedSupportCommand[],
+  nowMs: number,
+): SupportSchedulerDraft {
+  const records: ScheduledCommandRecord[] = [];
+  const skipped: { command: PlannedSupportCommand; reason: string }[] = [];
+  for (const command of commands) {
+    const source = parseCoordinatePair(command.sourceCoordinate);
+    const target = parseCoordinatePair(command.targetCoordinate);
+    if (source === null || target === null) {
+      skipped.push({ command, reason: `Comando ${command.id} com coordenada ilegível — não foi agendado.` });
+      continue;
+    }
+    const arrivalMs = Date.parse(command.arrivalAt);
+    if (!Number.isFinite(arrivalMs) || !Number.isFinite(command.durationSeconds)) {
+      skipped.push({ command, reason: `Comando ${command.id} sem chegada/duração legível — não foi agendado.` });
+      continue;
+    }
+    const sendAtMs = arrivalMs - command.durationSeconds * 1000;
+    if (sendAtMs - nowMs < SCHEDULE_MIN_LEAD_MS) {
+      skipped.push({
+        command,
+        reason: `Comando ${command.id}: partida já passou ou está a menos de ${Math.round(
+          SCHEDULE_MIN_LEAD_MS / 1000,
+        )}s do agora — janela impossível para o Agendador; não foi agendado.`,
+      });
+      continue;
+    }
+    const units: Record<string, number> = {};
+    for (const unit of SUPPORT_UNITS) {
+      const amount = Math.max(0, Math.floor(command.units[unit] ?? 0));
+      if (amount > 0) units[unit] = amount;
+    }
+    if (Object.keys(units).length === 0) {
+      skipped.push({ command, reason: `Comando ${command.id} sem unidades — não foi agendado.` });
+      continue;
+    }
+    records.push(
+      createScheduledCommand({
+        kind: 'support',
+        sourceVillageId: command.sourceVillageId,
+        source,
+        target,
+        units,
+        timingMode: 'send',
+        sendAt: new Date(sendAtMs).toISOString(),
+        arrivalAt: new Date(arrivalMs).toISOString(),
+        detail: 'Apoio de defesa agendado pelo Apoio em Massa — o Agendador dispara na janela.',
+      }),
+    );
+  }
+  return { records, skipped };
+}
+
+/**
+ * Grava o plano da defesa agendada no storage do Agendador (id canônico →
+ * replanejar a mesma entrada gera o mesmo id: dedupe natural contra reenvio).
+ * Fail-closed: Agendador DESLIGADO (o toggle é o opt-in; armar não vale para
+ * ele — `armExempt`), registro inválido ou id já existente → NADA é gravado.
+ */
+function scheduleDefensePlan(
+  ctx: TshCycleContext,
+  commands: readonly PlannedSupportCommand[],
+  withNotes: (message: string) => string,
+  nowMs: number,
+): void {
+  if (!isTshEnabled('command-scheduler')) {
+    ctx.status(
+      withNotes(
+        'O Agendador de Comandos está DESLIGADO — o plano de defesa não foi agendado (nada foi enviado). Ligue o módulo (aba Automações) e rode de novo.',
+      ),
+      'warn',
+    );
+    return;
+  }
+  const draft = buildSupportSchedulerRecords(commands, nowMs);
+  const state = readSchedulerState(ctx.world);
+  const existingIds = new Set(state.commands.map((command) => command.id));
+  const created: ScheduledCommandRecord[] = [];
+  let duplicated = 0;
+  let rejected = 0;
+  for (const record of draft.records) {
+    if (existingIds.has(record.id)) {
+      duplicated += 1;
+      continue;
+    }
+    const parsed = parseSchedulerCommandRecord(record);
+    if (!parsed.ok) {
+      rejected += 1;
+      continue;
+    }
+    created.push(parsed.record);
+  }
+  if (created.length > 0) {
+    gm.set(schedulerStorageKey(ctx.world), { ...state, commands: [...state.commands, ...created] });
+  }
+  const parts = [`${created.length} apoio(s) agendado(s) — o Agendador dispara`];
+  if (duplicated > 0) parts.push(`${duplicated} já estava(m) agendado(s) no mesmo horário (nada duplicado)`);
+  if (rejected > 0) parts.push(`${rejected} recusado(s) pelo contrato do Agendador`);
+  if (draft.skipped.length > 0) parts.push(draft.skipped.map((entry) => entry.reason).join(' '));
+  ctx.status(
+    withNotes(`${parts.join(' · ')}.`),
+    created.length > 0 ? 'ok' : duplicated > 0 ? 'info' : 'warn',
+  );
 }
 
 // ── Plugin ─────────────────────────────────────────────────────────────────
@@ -730,6 +900,14 @@ registerTsh({
       return;
     }
 
+    // Defesa CRONOMETRADA: sem disparo direto (o apoio cravado perderia a mira
+    // no fluxo de 2 passos) — o plano inteiro vira registro no Agendador, que
+    // dispara na janela, na faixa 'precisao' derivada do registro.
+    if (computed.mode === 'defense' && settings.executionMode === 'scheduled') {
+      scheduleDefensePlan(ctx, computed.plan.commands, withNotes, Date.parse(planningAt));
+      return;
+    }
+
     // Execução (o runtime já exigiu armação): 1 comando por ciclo (F2).
     const currentVillage = normalizeVillageId(ctx.villageId);
     if (currentVillage === '') {
@@ -758,9 +936,12 @@ registerTsh({
       units: transport.units,
       phase: 'step1',
       savedAt: planningAt,
+      lane: ROUTINE_LANE,
     });
     try {
-      await submitCommand2Step(transport.target, transport.units, { attack: false });
+      // Apoio imediato = ROTINA: lane 'humanizado' (nunca a faixa de precisão,
+      // que é de nobre/snipe/dodge/cancelamento e do apoio CRAVADO).
+      await submitCommand2Step(transport.target, transport.units, { attack: false, lane: ROUTINE_LANE });
       recordExecuted(ctx.storage, ctx.world, command.id);
       ctx.storage.set('pending-command', null);
       ctx.status(

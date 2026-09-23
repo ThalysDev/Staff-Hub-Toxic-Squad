@@ -172,9 +172,14 @@ describe('buildDistributorInput', () => {
     // Partida = chegada − viagem escalada (spear 18/22 da viagem de referência).
     const nearDepart = Math.round(arrival - Math.round(Math.hypot(495, 500) * (18 / 22) * 60_000));
     expect(result.assignments[0]?.departAtMs).toBe(nearDepart);
-    // Partidas seguintes empurradas pelo espaçamento mínimo de 300ms.
-    expect(result.assignments[1]?.departAtMs).toBe(nearDepart + 300);
-    expect(result.assignments[2]?.departAtMs).toBe(nearDepart + 600);
+    // Contrato novo (P2-4): as partidas ADIANTAM para preservar a chegada — a
+    // 2ª partida colidindo sai 300ms ANTES (nunca depois); janela apertada
+    // demais para adiantar vira `unmet` com motivo, em vez de atrasar a chegada.
+    expect(result.assignments[1]?.departAtMs).toBe(nearDepart - 300);
+    // A 2ª origem (0|0) tem viagem própria e não colide: partida natural.
+    expect(result.assignments[2]?.departAtMs).toBe(
+      Math.round(arrival - Math.round(Math.hypot(500, 500) * (18 / 22) * 60_000)),
+    );
   });
 });
 
