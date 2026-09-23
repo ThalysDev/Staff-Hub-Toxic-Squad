@@ -66,7 +66,6 @@ import {
   nextPendingIndex,
   normalizeDistributorSettings,
   parsePastedTimeMs,
-  referenceMsFromServerClock,
   scheduledCommittedUnits,
   scheduledUnitsByVillage,
   sumLineUnits,
@@ -78,6 +77,7 @@ import {
   type SchedulerSupportDraft,
   type SupportRun,
 } from './apoio-massa-logic';
+import { serverNowMs } from '../../core/game-clock';
 
 function params(): URLSearchParams {
   return new URLSearchParams(window.location.search);
@@ -744,12 +744,10 @@ registerVanta({
     let parsedErrors: { raw: string; error: string }[] = [];
     let busy = false;
 
-    const referenceNowMs = (): number =>
-      referenceMsFromServerClock(
-        document.getElementById('serverDate')?.textContent ?? '',
-        document.getElementById('serverTime')?.textContent ?? '',
-        localReferenceMs(),
-      );
+    // Onda A: "agora" do servidor pelo relógio de precisão (core/game-clock).
+    // (P0 revisão: a lógica do Distribuidor usa a convenção "dígitos do
+    // servidor em UTC" — converte o quadro do relógio para ela.)
+    const referenceNowMs = (): number => localReferenceMs(new Date(serverNowMs()));
 
     // ── Casco (estático: nenhum dado dinâmico em innerHTML) ──
     const panel = document.createElement('div');

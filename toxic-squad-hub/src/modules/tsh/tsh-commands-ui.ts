@@ -23,9 +23,10 @@
 // export/import JSON). As engines puras vivem em ext/ (noble-train,
 // block-scheduler, ops-viewer) — aqui é só fiação de DOM e storage.
 // Regras da casa: zero innerHTML com dado dinâmico (tudo textContent), pt-BR,
-// horários interpretados no relógio do SEU COMPUTADOR (nota de ajuda; o motor
-// mira o sendAt pelo relógio do servidor lido na tela) e nenhum timer além do
-// debounce do lookup do alvo. Partes puras exportadas para testes em
+// horários com MILISSEGUNDOS na referência escolhida (Hora do servidor, padrão,
+// ou do computador — convertida pelo relógio medido) e poucos timers: o
+// debounce do lookup do alvo e o relógio vivo da tela (1 interval, some ao
+// fechar). Partes puras exportadas para testes em
 // tsh-commands-ui.test.ts.
 
 import { icon, type IconName } from '../../core/icons';
@@ -73,7 +74,9 @@ import {
   type ViewerStatusFilter,
 } from '../../ext/modules/features/ops-viewer/ops-viewer';
 import type { UnitType } from '../../ext/modules/shared/module-types';
-import { serverClockOffset } from '../../ext/core/execution/server-clock';
+import { calibrateClock, clockInfo, serverNowMs, serverOffsetMs } from '../../core/game-clock';
+import { clockSourceLabel } from '../../ext/core/timing/clock-source';
+import { clockLabelMs, travelDurationMs } from '../../ext/core/timing/precise-fire';
 import { createScheduledCommand, UNIT_POPULATION, type NewScheduledCommandInput } from './plugins/command-scheduler';
 import { getGroupOptions, getGroupVillages, type GroupVillageRow } from './tsh-groups';
 import { ownVillages, travelMinutes, villageAt, type OwnVillage } from './tsh-game-data';
@@ -102,14 +105,29 @@ export function fieldsDistance(from: { x: number; y: number }, to: { x: number; 
   return Math.hypot(to.x - from.x, to.y - from.y);
 }
 
-/** Conversão do modo "Chegar às": envio = chegada − tempo de viagem (min). */
+/**
+ * Conversão do modo "Chegar às": envio = chegada − tempo de viagem. Onda A: a
+ * viagem é arredondada ao SEGUNDO, como o jogo faz (sem isso o cravado por
+ * chegada errava até ±500ms).
+ */
 export function arrivalToSendAt(arrival: Date, travelMinutesValue: number): Date {
-  return new Date(arrival.getTime() - Math.max(0, travelMinutesValue) * 60_000);
+  return new Date(arrival.getTime() - travelDurationMs(travelMinutesValue));
 }
 
-/** Chegada derivada do modo "Enviar às" (simétrico — só exibição). */
+/** Chegada derivada do modo "Enviar às" (simétrico). */
 export function sendToArrival(send: Date, travelMinutesValue: number): Date {
-  return new Date(send.getTime() + Math.max(0, travelMinutesValue) * 60_000);
+  return new Date(send.getTime() + travelDurationMs(travelMinutesValue));
+}
+
+/** "dd/mm HH:MM:SS.mmm" — exibição de precisão (cravados). */
+export function formatTimestampMs(date: Date): string {
+  return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)} ${clockLabelMs(date.getTime())}`;
+}
+
+/** Milissegundos digitados (0–999; vazio/lixo = 0). */
+export function parseMillisInput(raw: string): number {
+  const n = Math.floor(Number(raw.trim().replace(',', '.')));
+  return Number.isFinite(n) ? Math.min(999, Math.max(0, n)) : 0;
 }
 
 /** "dd/mm HH:MM:SS" no relógio local. */
@@ -142,12 +160,36 @@ export function parseDatetimeLocal(value: string): Date | null {
 // (em hora de servidor) precisa ser T + offset — P1 da revisão: o sinal era
 // o inverso e o disparo saía 2×offset fora da hora.
 
-/** Offset atual (ms) lido da página; 0 quando indisponível. */
+// Onda A: o operador escolhe em que relógio DIGITA os horários. Padrão =
+// Hora do SERVIDOR (é o que o jogo mostra e o que se copia das chegadas);
+// "Meu computador" converte pelo offset MEDIDO (core/game-clock).
+export type TimeReference = 'servidor' | 'local';
+const TIME_REF_KEY = 'tsh-ui:time-ref';
+
+export function timeReference(): TimeReference {
+  return gm.get<TimeReference>(TIME_REF_KEY, 'servidor') === 'local' ? 'local' : 'servidor';
+}
+
+export function setTimeReference(ref: TimeReference): void {
+  gm.set(TIME_REF_KEY, ref);
+}
+
+/** Offset puro entre as referências: 0 se os horários já são do servidor. */
+export function referenceOffsetMs(ref: TimeReference, measuredOffsetMs: number): number {
+  return ref === 'servidor' ? 0 : measuredOffsetMs;
+}
+
+/**
+ * Offset (ms) entre o relógio em que o operador DIGITA/LÊ e o relógio do
+ * servidor: 0 na referência "servidor"; o offset medido na "local".
+ */
 export function currentServerOffsetMs(): number {
-  const timeText = document.getElementById('serverTime')?.textContent ?? null;
-  const dateText = document.getElementById('serverDate')?.textContent ?? null;
-  const offset = serverClockOffset(`${dateText ?? ''} ${timeText ?? ''}`.trim() || null);
-  return offset ?? 0;
+  return referenceOffsetMs(timeReference(), serverOffsetMs());
+}
+
+/** "Agora" na referência em que o operador digita (servidor ou computador). */
+export function referenceNow(): Date {
+  return new Date(serverNowMs() - currentServerOffsetMs());
 }
 
 /** Horário LOCAL escolhido → epoch no RELÓGIO DO SERVIDOR (gravação do sendAt). */
@@ -1023,7 +1065,7 @@ function renderCommandList(
   refresh: () => void,
 ): void {
   wrap.replaceChildren();
-  const rows = orderCommandRows(loadSchedulerState(world).commands, new Date());
+  const rows = orderCommandRows(loadSchedulerState(world).commands, new Date(serverNowMs()));
   if (rows.length === 0) {
     // P3 (auditoria impeccable): empty state no padrão do shell (.shs-empty —
     // padding generoso, centralizado, muted; definido no <style> do core).
@@ -1087,8 +1129,8 @@ function commandCard(
   const sendDate = serverToLocal(record.sendAt, offset);
   const timing =
     Number.isFinite(sendDate.getTime())
-      ? `Envio ${formatTimestamp(sendDate)}` +
-        (record.arrivalAt !== undefined ? ` · Chegada ${formatTimestamp(serverToLocal(record.arrivalAt, offset))}` : '')
+      ? `Envio ${formatTimestampMs(sendDate)}` +
+        (record.arrivalAt !== undefined ? ` · Chegada ${formatTimestampMs(serverToLocal(record.arrivalAt, offset))}` : '')
       : `Envio: ${record.sendAt} (horário ilegível)`;
   const line2 = document.createElement('div');
   line2.className = 'tsh-card-desc';
@@ -1100,6 +1142,16 @@ function commandCard(
         : `Tropas: ${summarizeUnits(record.units)}`;
   line2.textContent = `${timing} · ${troopText}`;
   card.appendChild(line2);
+  if (!TERMINAL_VIEW_STATUSES.has(status) && status !== 'pausado') {
+    const sendAtServer = Date.parse(record.sendAt);
+    if (Number.isFinite(sendAtServer)) {
+      const eta = document.createElement('span');
+      eta.className = 'tsh-eta';
+      eta.dataset.tshEta = String(sendAtServer);
+      eta.textContent = formatEta(sendAtServer - serverNowMs());
+      head.insertBefore(eta, head.lastChild);
+    }
+  }
 
   // Detalhes da Onda 1 que mudam a leitura do comando (estratégia, forçar,
   // trem, repetição, catapulta) — linha curta só quando algum está presente.
@@ -1164,7 +1216,7 @@ async function removeCommandWithConfirm(
   rerender: () => void,
   refresh: () => void,
 ): Promise<void> {
-  const status = deriveSchedulerCommandStatus(record, new Date(), SCHEDULER_DEFAULT_WINDOW);
+  const status = deriveSchedulerCommandStatus(record, new Date(serverNowMs()), SCHEDULER_DEFAULT_WINDOW);
   const label = `${commandKindLabel(record.kind)} → ${record.target.x}|${record.target.y}`;
   const message =
     status === 'incerto'
@@ -1197,8 +1249,74 @@ async function removeCommandWithConfirm(
 
 // ── Tela principal ──
 
+/** "em 1h02m", "em 02:13.450" ou "vencido há 3s" — contagem do cravado. */
+export function formatEta(deltaMs: number): string {
+  if (!Number.isFinite(deltaMs)) return '';
+  if (deltaMs < 0) {
+    const late = Math.round(-deltaMs / 1000);
+    return late < 1 ? 'agora' : `passou há ${late}s`;
+  }
+  if (deltaMs >= 3_600_000) {
+    const h = Math.floor(deltaMs / 3_600_000);
+    const m = Math.floor((deltaMs % 3_600_000) / 60_000);
+    return `em ${h}h${pad2(m)}m`;
+  }
+  const totalMs = Math.floor(deltaMs);
+  const mm = Math.floor(totalMs / 60_000);
+  const ss = Math.floor((totalMs % 60_000) / 1000);
+  const ms = totalMs % 1000;
+  return `em ${pad2(mm)}:${pad2(ss)}.${String(ms).padStart(3, '0')}`;
+}
+
+/** Barra do relógio de precisão (fonte, incerteza, hora do servidor viva, Calibrar). */
+function clockBarEl(onCalibrated: () => void): { bar: HTMLDivElement; tick: () => void } {
+  const bar = document.createElement('div');
+  bar.className = 'tsh-clockbar';
+  const now = document.createElement('span');
+  now.className = 'tsh-clockbar-now';
+  const meta = document.createElement('span');
+  meta.className = 'tsh-clockbar-meta';
+  const calibrar = document.createElement('button');
+  calibrar.type = 'button';
+  calibrar.className = 'tsh-btn tsh-btn--ghost tsh-btn--sm';
+  calibrar.appendChild(icon('clock', 12));
+  const calibrarTxt = document.createElement('span');
+  calibrarTxt.className = 'tsh-btn-txt';
+  calibrarTxt.textContent = 'Calibrar relógio';
+  calibrar.appendChild(calibrarTxt);
+  calibrar.title = 'Mede o relógio do servidor agora (8 consultas leves, ~3s).';
+  calibrar.addEventListener('click', () => {
+    calibrar.disabled = true;
+    calibrarTxt.textContent = 'Calibrando…';
+    void calibrateClock().finally(() => {
+      calibrar.disabled = false;
+      calibrarTxt.textContent = 'Calibrar relógio';
+      tick();
+      onCalibrated();
+    });
+  });
+  const tick = (): void => {
+    const info = clockInfo();
+    now.textContent = `Servidor ${clockLabelMs(serverNowMs())}`;
+    const fonte = info.source === 'nenhuma' ? 'sem fonte' : clockSourceLabel(info.source);
+    const rtt = info.rttMedianMs !== null ? ` · resposta ~${info.rttMedianMs} ms` : '';
+    meta.textContent = `${fonte} · precisão ±${info.uncertaintyMs} ms${rtt}`;
+    bar.dataset.quality = info.uncertaintyMs <= 60 ? 'ok' : info.uncertaintyMs <= 300 ? 'warn' : 'bad';
+  };
+  tick();
+  bar.append(icon('clock', 13), now, meta, calibrar);
+  return { bar, tick };
+}
+
 export async function openSchedulerCommands(shadow: ShadowRoot, world: string, rerender: () => void): Promise<void> {
-  const { body, foot, close } = buildTshModal(shadow, 'Comandos — Agendador', 'clock');
+  // Relógio vivo (Onda A): UM interval de 250ms enquanto a tela está aberta —
+  // atualiza a hora do servidor e as contagens [data-tsh-eta]; some ao fechar.
+  let liveTimer: number | undefined;
+  const { body, foot, close } = buildTshModal(shadow, 'Comandos — Agendador', 'clock', {
+    onClose: () => {
+      if (liveTimer !== undefined) window.clearInterval(liveTimer);
+    },
+  });
   const modalEl = body.parentElement; // modal é o pai do body no scaffold
   if (modalEl !== null) {
     // Modal grande (lista + grade de 12 unidades) — o scaffold padrão é 720px.
@@ -1210,6 +1328,21 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   body.appendChild(
     tshNoteBanner('Comandos disparam sozinhos pela Praça da aldeia de origem, no horário marcado.'),
   );
+
+  // ── Relógio de precisão ──
+  const clock = clockBarEl(() => refreshList());
+  body.appendChild(clock.bar);
+  const tickLive = (): void => {
+    clock.tick();
+    const nowServer = serverNowMs();
+    for (const el of body.querySelectorAll<HTMLElement>('[data-tsh-eta]')) {
+      const at = Number(el.dataset.tshEta);
+      el.textContent = formatEta(at - nowServer);
+    }
+  };
+  liveTimer = window.setInterval(tickLive, 250);
+  // Calibra ao abrir quando a medição está velha/ausente (não bloqueia a tela).
+  if (clockInfo().source !== 'http') void calibrateClock().then(() => clock.tick());
 
   // ── Lista (estado atual do motor) ──
   const listSection = sectionBoxEl('Comandos agendados', 'send');
@@ -1477,20 +1610,52 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   timeInput.step = '1';
   timeInput.className = 'tsh-input';
   // Conforto: pré-preenchido com daqui a 10 minutos (relógio local).
-  timeInput.value = toDatetimeLocalValue(new Date(Date.now() + 10 * 60_000));
+  timeInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 10 * 60_000));
+  const msInput = document.createElement('input');
+  msInput.type = 'number';
+  msInput.min = '0';
+  msInput.max = '999';
+  msInput.step = '1';
+  msInput.value = '0';
+  msInput.className = 'tsh-input tsh-input--ms';
+  msInput.title = 'Milissegundos (0–999)';
+  msInput.setAttribute('aria-label', 'Milissegundos');
+  const msSuffix = document.createElement('span');
+  msSuffix.className = 'tsh-ms-suffix';
+  msSuffix.textContent = 'ms';
   const timeRow = document.createElement('div');
   timeRow.style.display = 'flex';
   timeRow.style.gap = '6px';
   timeRow.style.alignItems = 'center';
+  timeRow.style.flexWrap = 'wrap';
   const pasteBtn = document.createElement('button');
   pasteBtn.type = 'button';
   pasteBtn.className = 'tsh-btn tsh-btn--ghost';
   pasteBtn.appendChild(icon('copy', 12));
   pasteBtn.appendChild(document.createTextNode('Colar horário'));
   pasteBtn.title = 'Lê a área de transferência (HH:mm:ss ou HH:mm:ss:ms) e preenche HOJE nesse horário — amanhã se já passou.';
-  timeRow.append(timeInput, pasteBtn);
+  timeRow.append(timeInput, msInput, msSuffix, pasteBtn);
+  // Referência do horário digitado (Onda A) — persistida.
+  const refRow = document.createElement('div');
+  refRow.className = 'tsh-check-row';
+  refRow.style.gap = '14px';
+  const refServer = document.createElement('input');
+  refServer.type = 'radio';
+  refServer.name = 'tsh-cmd-timeref';
+  const refLocal = document.createElement('input');
+  refLocal.type = 'radio';
+  refLocal.name = 'tsh-cmd-timeref';
+  refServer.checked = timeReference() === 'servidor';
+  refLocal.checked = !refServer.checked;
+  const refServerLabel = document.createElement('label');
+  refServerLabel.className = 'tsh-check-row';
+  refServerLabel.append(refServer, document.createTextNode('Hora do servidor'));
+  const refLocalLabel = document.createElement('label');
+  refLocalLabel.className = 'tsh-check-row';
+  refLocalLabel.append(refLocal, document.createTextNode('Hora do meu computador'));
+  refRow.append(refServerLabel, refLocalLabel);
   const timingHelp = helpEl('');
-  timingField.append(timingLabel, sendRow, arrivalRow, timeRow, timingHelp);
+  timingField.append(timingLabel, sendRow, arrivalRow, timeRow, refRow, timingHelp);
   form.appendChild(timingField);
 
   // ── Forçar (agendar mesmo impossível) ──
@@ -1539,7 +1704,9 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
         ? strategy === 'dodge'
           ? 'Dodge: o horário é a CHEGADA-alvo; as tropas saem ANTES do impacto e voltam depois — a partida sai pela unidade mais lenta.'
           : 'Snipe: o horário é a CHEGADA-alvo (cruzamento com o ataque que chega); a partida sai pela unidade mais lenta.'
-        : 'Horário no relógio do SEU COMPUTADOR — confira com a "Hora do servidor" do jogo antes de agendar (o motor dispara pelo relógio do servidor).';
+        : timeReference() === 'servidor'
+          ? 'Horário na HORA DO SERVIDOR (a do rodapé do jogo), com milissegundos. "Colar horário" aceita HH:mm:ss:ms.'
+          : 'Horário no relógio do SEU COMPUTADOR — o agendador converte para o servidor pelo relógio medido.';
   };
 
   // ── Campos condicionais do tipo/modo (cancelar esconde tropas; nobre mostra o trem) ──
@@ -1563,6 +1730,13 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
       : 'A soma das tropas deve ser maior que zero. A viagem vale a MAIS LENTA unidade do conjunto.';
   };
 
+  /** Data+hora do campo + milissegundos (null = incompleto). */
+  const readWhen = (): Date | null => {
+    const base = parseDatetimeLocal(timeInput.value);
+    if (base === null) return null;
+    return new Date(base.getTime() + parseMillisInput(msInput.value));
+  };
+
   // ── Resumo vivo ──
   const summaryRow = statusRowEl('Preencha alvo, tropas e horário — o resumo aparece aqui.');
   form.appendChild(summaryRow);
@@ -1573,19 +1747,19 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
 
   const updateSummary = (): void => {
     const parts: string[] = [];
-    const when = parseDatetimeLocal(timeInput.value);
+    const when = readWhen();
     const isCancel = kindSelect.value === 'cancel';
     const strategy = strategySelect.value as SchedulerTimingStrategy;
     const needsArrival = strategy === 'snipe' || strategy === 'dodge';
     const mode: 'arrival' | 'send' = needsArrival || arrivalRadio.checked ? 'arrival' : 'send';
     if (when !== null && travelMin !== null && !isCancel) {
       if (mode === 'arrival') {
-        parts.push(`Enviar ${formatTimestamp(arrivalToSendAt(when, travelMin))}`, `Chegar ${formatTimestamp(when)}`);
+        parts.push(`Enviar ${formatTimestampMs(arrivalToSendAt(when, travelMin))}`, `Chegar ${formatTimestampMs(when)}`);
       } else {
-        parts.push(`Enviar ${formatTimestamp(when)}`, `Chegar ${formatTimestamp(sendToArrival(when, travelMin))}`);
+        parts.push(`Enviar ${formatTimestampMs(when)}`, `Chegar ${formatTimestampMs(sendToArrival(when, travelMin))}`);
       }
     } else if (when !== null) {
-      parts.push(`${isCancel ? 'Cancelar' : mode === 'arrival' ? 'Chegar' : 'Enviar'} ${formatTimestamp(when)}`);
+      parts.push(`${isCancel ? 'Cancelar' : mode === 'arrival' ? 'Chegar' : 'Enviar'} ${formatTimestampMs(when)}`);
     }
     if (target !== null) parts.push(`dist ${formatDecimalPtBr(fieldsDistance(origin, target))} campos`);
     if (isCancel) {
@@ -1629,12 +1803,13 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
 
   // ── Colar horário (clipboard + fallback do evento paste) ──
   const applyPastedTime = (text: string): void => {
-    const parsed = parseClipboardTime(text, new Date());
+    const parsed = parseClipboardTime(text, referenceNow());
     if (parsed === null) {
       showError(`Horário colado ilegível: "${text.trim()}". Use HH:mm:ss ou HH:mm:ss:ms.`);
       return;
     }
     timeInput.value = toDatetimeLocalValue(parsed);
+    msInput.value = String(parsed.getMilliseconds());
     clearError();
     updateSummary();
   };
@@ -1709,10 +1884,20 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
       updateSummary();
     });
   }
-  timeInput.addEventListener('input', () => {
-    clearError();
-    updateSummary();
-  });
+  for (const input of [timeInput, msInput]) {
+    input.addEventListener('input', () => {
+      clearError();
+      updateSummary();
+    });
+  }
+  for (const radio of [refServer, refLocal]) {
+    radio.addEventListener('change', () => {
+      setTimeReference(refServer.checked ? 'servidor' : 'local');
+      applyTravelAvailability();
+      refreshList();
+      updateSummary();
+    });
+  }
   kindSelect.addEventListener('change', () => {
     clearError();
     updateConditionalFields();
@@ -1788,7 +1973,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
       showError('Alvo inválido — use o formato x|y (coordenadas de 0 a 999).');
       return;
     }
-    const when = parseDatetimeLocal(timeInput.value);
+    const when = readWhen();
     if (when === null) {
       showError('Informe o horário (data e hora, com segundos).');
       return;
@@ -1838,7 +2023,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
       sendDate = when;
       if (travelMin !== null) arrivalDate = sendToArrival(when, travelMin);
     }
-    if (sendDate.getTime() <= Date.now() + 5_000 && !forced) {
+    if (sendDate.getTime() <= referenceNow().getTime() + 5_000 && !forced) {
       showError(
         'O horário de envio precisa ser no FUTURO (pelo menos 5 segundos a partir de agora) — marque "Agendar mesmo impossível" para forçar.',
       );
@@ -1936,7 +2121,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
     targetInfo.textContent = 'Coordenadas de 0 a 999. O nome e os pontos são buscados no mapa automaticamente.';
     targetInfo.style.color = '';
     unitsGridHandle.reset();
-    timeInput.value = toDatetimeLocalValue(new Date(Date.now() + 10 * 60_000));
+    timeInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 10 * 60_000));
     travelMin = null;
     applyTravelAvailability();
     updateConditionalFields();
@@ -2136,18 +2321,26 @@ function appendBlockSection(parent: HTMLElement, ctx: SchedulerUiContext): void 
   arrivalInput.type = 'datetime-local';
   arrivalInput.step = '1';
   arrivalInput.className = 'tsh-input';
-  arrivalInput.value = toDatetimeLocalValue(new Date(Date.now() + 30 * 60_000));
+  arrivalInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 30 * 60_000));
   const windowFromInput = document.createElement('input');
   windowFromInput.type = 'datetime-local';
   windowFromInput.step = '1';
   windowFromInput.className = 'tsh-input';
-  windowFromInput.value = toDatetimeLocalValue(new Date(Date.now() + 30 * 60_000));
+  windowFromInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 30 * 60_000));
   const windowToInput = document.createElement('input');
   windowToInput.type = 'datetime-local';
   windowToInput.step = '1';
   windowToInput.className = 'tsh-input';
-  windowToInput.value = toDatetimeLocalValue(new Date(Date.now() + 60 * 60_000));
-  const arrivalField = fieldEl(labelEl('Chegada única'), arrivalInput);
+  windowToInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 60 * 60_000));
+  const arrivalMsInput = document.createElement('input');
+  arrivalMsInput.type = 'number';
+  arrivalMsInput.min = '0';
+  arrivalMsInput.max = '999';
+  arrivalMsInput.value = '0';
+  arrivalMsInput.className = 'tsh-input tsh-input--ms';
+  arrivalMsInput.title = 'Milissegundos da chegada (0–999)';
+  arrivalMsInput.setAttribute('aria-label', 'Milissegundos da chegada');
+  const arrivalField = fieldEl(labelEl('Chegada única (+ ms)'), arrivalInput, arrivalMsInput);
   const windowField = fieldEl(labelEl('Janela (início e fim)'), windowFromInput, windowToInput);
   const asapHint = helpEl('O quanto antes: as partidas saem já (com 5s de folga) e o espaçamento por origem continua valendo.');
   const applyBlockTimingVisibility = (): void => {
@@ -2220,7 +2413,7 @@ function appendBlockSection(parent: HTMLElement, ctx: SchedulerUiContext): void 
     const from = parseDatetimeLocal(windowRadio.checked ? windowFromInput.value : arrivalInput.value);
     if (from === null) return { ok: false, message: 'Informe o horário do bloco (data e hora, com segundos).' };
     if (!windowRadio.checked) {
-      const arrivalMs = localToServerEpoch(from, offsetMs);
+      const arrivalMs = localToServerEpoch(from, offsetMs) + parseMillisInput(arrivalMsInput.value);
       return { ok: true, timing: { mode: 'arrival', arrivalMs }, engine: { arrivalMs } };
     }
     const to = parseDatetimeLocal(windowToInput.value);
@@ -2242,7 +2435,7 @@ function appendBlockSection(parent: HTMLElement, ctx: SchedulerUiContext): void 
       const row = document.createElement('div');
       row.className = 'tsh-card-desc';
       const originText = record.source !== undefined ? `${record.source.x}|${record.source.y}` : record.sourceVillageId;
-      row.textContent = `${originText} → ${record.target.x}|${record.target.y} · partida ${formatTimestamp(serverToLocal(record.sendAt, offset))} · ${summarizeUnits(record.units)}`;
+      row.textContent = `${originText} → ${record.target.x}|${record.target.y} · partida ${formatTimestampMs(serverToLocal(record.sendAt, offset))} · ${summarizeUnits(record.units)}`;
       previewWrap.appendChild(row);
     }
     if (records.length > BLOCK_PREVIEW_ROWS) {
@@ -2366,7 +2559,7 @@ function appendBlockSection(parent: HTMLElement, ctx: SchedulerUiContext): void 
       percentMode: usePercent,
       unitsPercent: percent,
       timing: timingRead.timing,
-      nowMs: Date.now() + offset,
+      nowMs: serverNowMs(),
       avoidMsConflicts: avoidMsCheck.input.checked,
       forceLate: forceLateCheck.input.checked,
       ...(catapultValue !== '' ? { catapultTarget: catapultValue } : {}),
@@ -2555,7 +2748,15 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
   bulkTimeInput.type = 'datetime-local';
   bulkTimeInput.step = '1';
   bulkTimeInput.className = 'tsh-input';
-  bulkTimeInput.value = toDatetimeLocalValue(new Date(Date.now() + 30 * 60_000));
+  bulkTimeInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 30 * 60_000));
+  const bulkMsInput = document.createElement('input');
+  bulkMsInput.type = 'number';
+  bulkMsInput.min = '0';
+  bulkMsInput.max = '999';
+  bulkMsInput.value = '0';
+  bulkMsInput.className = 'tsh-input tsh-input--ms';
+  bulkMsInput.title = 'Milissegundos (0–999)';
+  bulkMsInput.setAttribute('aria-label', 'Milissegundos');
   const bulkBtn = document.createElement('button');
   bulkBtn.type = 'button';
   bulkBtn.className = 'tsh-btn';
@@ -2572,7 +2773,7 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
       return;
     }
     const field = bulkFieldSelect.value as ViewerDateField;
-    const newTimeMs = localToServerEpoch(when, currentServerOffsetMs());
+    const newTimeMs = localToServerEpoch(when, currentServerOffsetMs()) + parseMillisInput(bulkMsInput.value);
     const edited = applyBulkTimeEdit(currentCommands(), [...selectedIds], field, newTimeMs);
     const times = new Map<string, { sendAt: string; arrivalAt: string }>();
     for (const command of edited) {
@@ -2593,7 +2794,7 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
   bulkRow.className = 'tsh-check-row';
   bulkRow.style.flexWrap = 'wrap';
   bulkRow.style.gap = '8px';
-  bulkRow.append(bulkFieldSelect, bulkTimeInput, bulkBtn);
+  bulkRow.append(bulkFieldSelect, bulkTimeInput, bulkMsInput, bulkBtn);
   body.appendChild(fieldEl(labelEl('Edição em massa'), bulkRow));
 
   // ── Ações ──
@@ -2754,7 +2955,7 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
     for (const record of records) {
       if (record.targetPoints !== undefined) targetPointsById.set(record.id, record.targetPoints);
     }
-    currentSet = toViewerCommands(records, new Date(), SCHEDULER_DEFAULT_WINDOW, (villageId) =>
+    currentSet = toViewerCommands(records, new Date(serverNowMs()), SCHEDULER_DEFAULT_WINDOW, (villageId) =>
       groupVillageIds !== null && activeGroupId !== undefined && groupVillageIds.has(normalizeVillageId(villageId))
         ? activeGroupId
         : undefined,
@@ -2804,8 +3005,8 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
     desc.className = 'tsh-card-desc';
     const conflict = conflicts.has(command.id);
     desc.textContent =
-      `Partida ${formatTimestamp(serverToLocal(new Date(command.departureMs).toISOString(), offset))}` +
-      ` · Chegada ${formatTimestamp(serverToLocal(new Date(command.arrivalMs).toISOString(), offset))}` +
+      `Partida ${formatTimestampMs(serverToLocal(new Date(command.departureMs).toISOString(), offset))}` +
+      ` · Chegada ${formatTimestampMs(serverToLocal(new Date(command.arrivalMs).toISOString(), offset))}` +
       (conflict ? ' · CONFLITO de ms' : '');
     if (conflict) desc.style.color = 'var(--shs-danger)';
     row.appendChild(desc);

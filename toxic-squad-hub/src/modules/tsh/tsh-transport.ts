@@ -349,7 +349,7 @@ function clickConfirmSend(form: HTMLFormElement): void {
   send.click();
 }
 
-type ConfirmMatch = 'match' | 'mismatch' | 'unknown';
+export type ConfirmMatch = 'match' | 'mismatch' | 'unknown';
 
 /**
  * P1-2 da revisão: o alvo de edifício da Praça é `select[name="building"]`
@@ -559,6 +559,96 @@ export async function submitCommand2Step(
     }
     clickConfirmSend(current);
   });
+}
+
+/**
+ * PRÉ-ARME do cravado (Onda A — regra de ouro): executa SÓ o passo 1 (preencher
+ * e submeter a Praça — nenhuma tropa sai) alguns segundos ANTES do horário,
+ * para que o clique final (passo 2) aconteça no ms planejado na tela de
+ * confirmação. Fluxo normal do jogo: a submissão NAVEGA e este contexto morre
+ * — a página nova (tela de confirmação) retoma pelo ciclo de boot do agendador.
+ * Se a confirmação aparecer NESTE contexto (variante AJAX), devolve true e o
+ * chamador mira/clica aqui mesmo. Tela da Praça ausente/alterada → erro
+ * PAGE_SELECTOR_CHANGED (nada foi submetido).
+ */
+export async function prearmCommandStep1(
+  target: string,
+  units: Record<string, number>,
+  opts: CommandOptions,
+  /** Chamado DENTRO do slot urgente, imediatamente antes do submit (marcadores/lock). */
+  beforeSubmit?: () => void,
+): Promise<boolean> {
+  // Regra de ouro: fakes (faixa humanizada) respeitam a política ANTES do
+  // passo 1; cravados (precisão) nunca esperam.
+  if ((opts.lane ?? 'precisao') === 'humanizado') {
+    const liberado = await awaitRoutineMutation('fake');
+    if (!liberado) {
+      throw transportError('Pausa de humanização ativa — comando humanizado pulado.', 'HUMANIZE_PAUSE');
+    }
+  }
+  const coords = parseCommandTarget(target);
+  if (findCommandConfirmForm() !== null) return true; // já na confirmação
+  const form = document.querySelector<HTMLFormElement>(
+    '#command-data-form, form[action*="screen=place"][action*="try=confirm"]',
+  );
+  if (form === null)
+    throw transportError('O formulário canônico da Praça de Reunião não foi encontrado.', 'PAGE_SELECTOR_CHANGED');
+  const submitter = form.querySelector<HTMLElement>(
+    opts.attack ? 'input[name="attack"], input#target_attack' : 'input[name="support"], input#target_support',
+  );
+  if (submitter === null) {
+    throw transportError(
+      `O botão canônico de ${opts.attack ? 'ataque' : 'apoio'} (#target_${opts.attack ? 'attack' : 'support'}) não foi encontrado na Praça de Reunião.`,
+      'PAGE_SELECTOR_CHANGED',
+    );
+  }
+  const fields: Record<string, number> = { x: coords.x, y: coords.y };
+  for (const [unit, amount] of Object.entries(units)) fields[unit] = integerAmount(amount);
+  const catapultSelect = requireCatapultTargetSelect(form, opts.catapultTarget, units);
+  const catapultTarget = opts.catapultTarget ?? '';
+  // Passo 1 pela fila urgente (faixa de precisão — nunca espera a normal).
+  await enqueueUrgent(async () => {
+    assertMutablePage(document);
+    if (catapultSelect !== null) setCatapultTarget(catapultSelect, catapultTarget);
+    fillFormFields(form, fields);
+    beforeSubmit?.();
+    form.requestSubmit(submitter);
+  });
+  const reached = await pollUntil(() => (findCommandConfirmForm() === null ? null : true), COMMAND_CONFIRM_TIMEOUT_MS);
+  return reached === true;
+}
+
+/** A tela de confirmação aberta casa com o comando? 'absent' = não há confirmação nesta página. */
+export function commandConfirmScreenState(
+  target: string,
+  units: Record<string, number>,
+  opts: CommandOptions,
+): ConfirmMatch | 'absent' {
+  const form = findCommandConfirmForm();
+  if (form === null) return 'absent';
+  return matchConfirmScreen(form, parseCommandTarget(target), units, opts);
+}
+
+/**
+ * Clique FINAL do cravado (passo 2), SÍNCRONO — chamado no instante exato pela
+ * mira de precisão. Sem fila nem await: nada entre o fim da espera e o clique.
+ * Fail-closed: re-lê a tela e passa o matcher (tipo/alvo/tropas/catapulta)
+ * imediatamente antes; qualquer divergência lança SEM clicar.
+ */
+export function clickCommandConfirmNow(target: string, units: Record<string, number>, opts: CommandOptions): void {
+  assertMutablePage(document);
+  const current = findCommandConfirmForm();
+  if (current === null)
+    throw transportError(
+      'A tela de confirmação do comando desapareceu antes do clique final — nada foi confirmado.',
+      'CONFIRM_SCREEN_NOT_REACHED',
+    );
+  if (matchConfirmScreen(current, parseCommandTarget(target), units, opts) !== 'match')
+    throw transportError(
+      'A tela de confirmação atual não corresponde ao comando pedido (tipo, alvo ou tropas) — nada foi confirmado.',
+      'RESULT_UNCERTAIN',
+    );
+  clickConfirmSend(current);
 }
 
 /**

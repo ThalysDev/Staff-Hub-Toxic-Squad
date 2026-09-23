@@ -54,6 +54,13 @@ export interface TshAutomation {
   settingsDefaults?: Record<string, unknown>;
   /** Ações extras no cartão do painel (ex.: "Comandos" do agendador). */
   extraActions?: TshExtraAction[];
+  /**
+   * Roda um ciclo LOGO após o carregamento da página (Onda A), sem esperar o
+   * 1º heartbeat de 30s — ex.: o agendador precisa mirar na tela de
+   * confirmação recém-aberta pelo pré-arme. Cooldown ignorado só neste boot;
+   * lock/armação/tela/janela seguem valendo.
+   */
+  bootOnLoad?: boolean;
   /** Um ciclo: ler → planejar → NO MÁXIMO 1 mutação (F2). */
   runCycle(ctx: TshCycleContext): Promise<void>;
 }
@@ -71,6 +78,11 @@ interface CycleStatus {
 
 const automations = new Map<string, TshAutomation>();
 const TAB_ID = `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+/** Id desta carga de página (aba) — reivindicações entre abas (Onda A). */
+export function tshTabId(): string {
+  return TAB_ID;
+}
 const LOCK_TTL_MS = 2 * 60 * 1000;
 const ARM_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
@@ -127,6 +139,17 @@ function acquireLock(id: string, world: string): boolean {
 
 function renewLock(id: string, world: string): void {
   gm.set(lockKey(id, world), { tab: TAB_ID, at: Date.now() });
+}
+
+/**
+ * Libera o lock do módulo SE for desta aba (Onda A): chamado logo antes de uma
+ * ação que NAVEGA de propósito (pré-arme do cravado) — a página nova recebe
+ * um id de aba novo e, sem isto, ficaria até 2min sem conseguir o lock.
+ */
+export function releaseTshLock(id: string, world: string): void {
+  const key = lockKey(id, world);
+  const lock = gm.get<{ tab: string; at: number } | null>(key, null);
+  if (lock !== null && lock.tab === TAB_ID) gm.set(key, { tab: TAB_ID, at: 0 });
 }
 
 /**
@@ -258,6 +281,12 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
  * normal executarem o mesmo módulo ao mesmo tempo.
  */
 export function startTshHeartbeat(scope: ModuleScope): void {
+  // Boot (Onda A): módulos que pedem ciclo imediato rodam ~0,4s após o load.
+  scope.after(() => {
+    for (const automation of automations.values()) {
+      if (automation.bootOnLoad === true) void runTshCycle(automation.id, { ignoreCooldown: true });
+    }
+  }, 400);
   scope.every(() => {
     for (const automation of automations.values()) {
       void runTshCycle(automation.id);

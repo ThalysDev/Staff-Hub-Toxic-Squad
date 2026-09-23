@@ -759,6 +759,30 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
       color: var(--shs-ink, #5a3a16);
       overflow-wrap: anywhere;
     }
+
+    /* ── Onda A: relógio de precisão, contagem e ms ── */
+    .tsh-clockbar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin: 0 0 12px; padding: 7px 10px; border-radius: 8px;
+      background: var(--shs-bg-inset, #f4ead0); border: 1px solid var(--shs-border, #e0cda0);
+      font-size: 11.5px; color: var(--shs-ink, #5a3a16);
+    }
+    .tsh-clockbar[data-quality='ok'] { border-color: var(--shs-ok, #3f8f43); }
+    .tsh-clockbar[data-quality='warn'] { border-color: var(--shs-warn, #8a6d1f); }
+    .tsh-clockbar[data-quality='bad'] { border-color: var(--shs-danger, #c04038); }
+    .tsh-clockbar-now {
+      font-family: var(--shs-font-mono, ui-monospace, Consolas, monospace);
+      font-weight: 700; color: var(--shs-ink-strong, #3c250a); font-variant-numeric: tabular-nums;
+    }
+    .tsh-clockbar-meta { color: var(--shs-muted, #6f5e40); flex: 1; min-width: 160px; }
+    .tsh-eta {
+      font-family: var(--shs-font-mono, ui-monospace, Consolas, monospace);
+      font-size: 11px; font-weight: 600; color: var(--shs-info, #2f66c0);
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .tsh-input--ms { width: 72px !important; flex: none; }
+    .tsh-ms-suffix { font-size: 11px; color: var(--shs-muted, #6f5e40); }
+    .tsh-btn--sm { padding: 3px 8px; font-size: 11px; }
   `;
   shadow.appendChild(style);
 }
