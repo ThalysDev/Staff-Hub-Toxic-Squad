@@ -81,3 +81,22 @@ pnpm typecheck && pnpm test && pnpm build
    sempre está replicado — na v0.35 eram 5 canais ungated, não 1).
 3. Sub-agentes: paralelo só em arquivos novos; integração serial; revisão antes de fechar
    fase.
+
+## toxic-squad-hub/ (userscript unificado, desde 21/09/2026)
+- **Produto do JOGADOR** (automação do jogo individual): suite **TW Vanta** portada e
+  corrigida + funcionalidades da **extensão Toxic Squad Hub** (repo separado
+  `ThalysDev/toxic-squad-hub`, v0.4.0 WXT). Gestão de tribo/OPs NÃO mora aqui — é do
+  Staff Hub (app + `userscript/`, que segue intacto como produto/rollback distinto).
+- Nome do produto: **Toxic Squad Hub**, versão própria em `toxic-squad-hub/version.json`.
+  Acesso por chave SHS (mesmo sistema/endpoint do Staff Hub In-Game, storage
+  `shs-in-game:*` compartilhado — quem tem chave ativa não reativa).
+- Build próprio: `node toxic-squad-hub/build.mjs` (bundle esbuild + **ofuscação**
+  determinística + `node --check` + meta.js). O build NÃO publica — upload do `dist/` no
+  canal é do dono.
+- Suite Vanta (`src/modules/vanta/`): 11 launchers autorregistrados; injeções de página com
+  escopo rastreado (`vanta-lifecycle`), rede pela fila global (`vanta-net`/`core/net`),
+  storage `tsh-vanta:*`. Contratos do scaffold (utils/net/lifecycle/registry/forms/styles/
+  tw-sim) são compartilhados — mudou um, os módulos todos dependem.
+- Regras herdadas que valem AQUI também: zero fetch/timer cru nos módulos (tudo via
+  ModuleScope/fila), escape de todo texto de terceiro em HTML (`escapeHtml`/`escAttr`),
+  números do DOM via `parsePtBrInt`, confirmação antes de mutação em lote.
