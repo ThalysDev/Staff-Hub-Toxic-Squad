@@ -1,6 +1,6 @@
 // Porta de humanização em runtime (Onda 1): carrega a política persistida e
-// decide QUANTO esperar antes de uma mutação — sem nunca dormir dentro da fila
-// serializada de rede (`enqueue`), que comandos de precisão compartilham.
+// decide QUANTO esperar antes de uma mutação — sem nunca dormir dentro das
+// filas de rede (`enqueue` normal / `enqueueUrgent` de precisão).
 //
 // REGRA DE OURO (decisão do dono): faixa 'precisao' (cravados — nobre, snipe,
 // dodge, cancelamento, ataque/apoio agendados) NUNCA espera; 'humanizado'

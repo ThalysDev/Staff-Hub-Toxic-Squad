@@ -539,7 +539,38 @@ let cycleInFlight = false;
  * `cancelCount` comandos PRÓPRIOS com destino ao alvo. Mesma janela/mira do
  * envio; o transporte já é faixa de PRECISÃO (sem humanização). O resumo
  * (cancelados/falhas) vira o detalhe do evento terminal.
+ *
+ * P2-2 (revisão): a Visão de Comandos é PRÉ-LIDA durante a mira (leitura na
+ * fila normal) e o disparo recebe o HTML pronto — no instante sendAt só os
+ * POSTs de cancelamento ocupam a fila urgente.
  */
+interface CancelPreread {
+  readonly target: string;
+  readonly html: string;
+  readonly at: number;
+}
+
+let cancelPreread: CancelPreread | null = null;
+const CANCEL_PREREAD_TTL_MS = 45_000;
+
+function freshCancelPreread(target: string, nowMs: number): string | undefined {
+  if (cancelPreread === null || cancelPreread.target !== target) return undefined;
+  return nowMs - cancelPreread.at <= CANCEL_PREREAD_TTL_MS ? cancelPreread.html : undefined;
+}
+
+/** Pré-leitura otimista: falha silenciosa — o transporte busca no disparo. */
+async function prereadCancelPage(ctx: TshCycleContext, target: string): Promise<void> {
+  try {
+    const html = await pacedGet(
+      `/game.php?village=${normalizeVillageId(ctx.villageId)}&screen=overview_villages&mode=commands&page=-1`,
+      { fresh: true },
+    );
+    cancelPreread = { target, html, at: Date.now() };
+  } catch {
+    // otimização: sem pré-leitura o disparo segue buscando (comportamento original)
+  }
+}
+
 async function fireCancelCommand(ctx: TshCycleContext, record: ScheduledCommandRecord, target: string): Promise<void> {
   const count = record.cancelCount ?? 1;
   ctx.storage.set(
@@ -553,7 +584,8 @@ async function fireCancelCommand(ctx: TshCycleContext, record: ScheduledCommandR
     ),
   );
   try {
-    const result = await cancelGameCommandsAtTarget(target, count);
+    const preparsedHtml = freshCancelPreread(target, Date.now());
+    const result = await cancelGameCommandsAtTarget(target, count, preparsedHtml);
     ctx.storage.set(
       SCHEDULER_STORAGE_KEY,
       appendSchedulerEvent(readSchedulerState(ctx), record.id, 'enviado', new Date().toISOString(), result.message),
@@ -816,6 +848,14 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
           `Próximo comando desta aldeia em ${Math.max(0, Math.round((nextSendAt - now.getTime()) / 1000))}s — aguardando a janela…`,
           'info',
         );
+        // P2-2 (revisão): cancelamento chegando — pré-lê a Visão de Comandos
+        // AGORA (fila normal) para que no sendAt só os POSTs urgentes corram.
+        const proximo = own
+          .filter((record) => Number.isFinite(Date.parse(record.sendAt)) && Date.parse(record.sendAt) === nextSendAt)
+          .find((record) => record.kind === 'cancel');
+        if (proximo !== undefined) {
+          await prereadCancelPage(ctx, `${proximo.target.x}|${proximo.target.y}`);
+        }
         await sleep(Math.min(waitMs, 90_000));
         // P2 (revisão Onda 9): renova o lock após o sono longo — a mira final
         // (≤60s) some ao early-aim e podia estourar o TTL de 2min do lock.
