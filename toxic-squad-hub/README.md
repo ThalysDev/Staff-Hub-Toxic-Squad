@@ -4,11 +4,35 @@ Automação do **jogo individual** do jogador no Tribal Wars BR — fusão da **
 
 > Escopo: ferramenta do JOGADOR. Gestão de tribo/OPs é papel do **Staff Hub Toxic Squad** (app + userscript In-Game `../userscript`) — produto separado, que segue intacto.
 
-- **Versão:** 2.0.0 (ver `version.json` — o header TM precisa bater, o build valida)
+- **Versão:** 3.0.0 "Arsenal Completo" (ver `version.json` — o header TM precisa bater, o build valida)
 - **Canal:** `http://74.0.5.75/staffhub/scripts/toxic-squad-hub.user.js` (+ `.meta.js` para update check)
 - **Artefato:** `dist/toxic-squad-hub.user.js` — **ofuscado** (o header TM fica limpo; o corpo passa por `javascript-obfuscator` determinístico, seed fixa)
 
-## O que tem dentro
+## v3.0.0 — Arsenal Completo (23/09/2026)
+
+Porta completa da auditoria do concorrente (ver `../NEXUS_RECON_COMPLETO.md`) com identidade própria:
+
+### Regra de ouro de envio
+Comandos **cravados** (ataques de OP, nobres, snipes, dodge, cancelamentos, apoios cravados) saem no **milissegundo planejado** — nenhuma humanização os atrasa. **Fakes e rotinas** (farm, coleta, recrutamento, construção, mercado, cunhagem) passam pela **Humanização de Envios**: intervalo entre comandos, variação %, pausa programada e respeito ao fake limit.
+
+### Central de Agendamentos
+Percentual de tropas, colar horário (HH:mm[:ss[:ms]]), alvo de catapulta, **Sequência de Nobres 2-5** com gap calibrado e auto-split, **Cancelamento Cronometrado** (1-20 comandos no alvo), snipe/dodge, forçar impossíveis, **Agendamento em Bloco** (origens por grupo, cotas "2;1", janela de chegada, otimizado 2-opt) e **Mapa de Operações** (filtros, conflitos de ms, edição em massa, import/export).
+
+### Distribuidor de Apoios (aba nativa `place&mode=call`)
+Totais da conta ao vivo, origens por grupo, formato de linha `x|y u/…/u [i]janela`, popup Inserir por coordenadas, distribuição mínimo/máximo/pacotes com guardas e tropas reservadas, imediato/cravado e export BBCode para o fórum.
+
+### Ferramentas de página (Suite Vanta +)
+Inspeção de Aldeias e Prévia de Aldeia no mapa, Cancelamento em Bloco, Import/Export de Grupos, Bônus Diário, Mapa Enxuto, **alarme sonoro** (4 sons) no etiquetador, **Bloco de Campo** (notas locais + marcador no mapa) e coluna de Agenda das Aldeias no overview.
+
+### Automações turbinadas + Modo Sentinela
+Auto Farm **executável** (Template C dinâmico, mapeador de bárbaras, ledgers), recrutamento por **modelos de tropa** por grupo, cunhagem percentual, regras de coleta por grupo, estratégia de mercado, balanceador por coordenadas-alvo, construtor com visão Horas, **Conquista de Aldeias Livres**, **Produção de Nobres** (unified-balancer), renomeador de aldeias com tokens, agendador de itens, gerenciador do paladino, abertura de pacotes, cunhagem nativa e doador de prestígio. O **Modo Sentinela** mantém tudo ciclando numa aba de fundo.
+
+### Infra
+Painel de Atividades na home, **parada programada universal**, busca rápida **Ctrl+K**, seção Ajuda & Sobre, canais de alerta (som local; webhooks ficam stub desligado — nada sai do navegador). Relógio adaptativo (mediana aparada, responsivo/estável) por baixo de todo o timing.
+
+---
+
+## O que tem dentro (herdado da v2)
 
 ### Suite Vanta (portada do TW Vanta v0.5.6 COM as correções da auditoria de 21/09)
 Painel → aba **Suite Vanta** (launchers por grupo) + injeção automática na tela certa.
