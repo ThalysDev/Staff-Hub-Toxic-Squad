@@ -5,6 +5,7 @@
 // via flag de navegação, como o "Abrir" do Vanta fazia).
 
 import { gm } from '../../core/storage';
+import type { IconName } from '../../core/icons';
 import { createModuleScope, type ModuleScope } from './vanta-lifecycle';
 
 export type VantaGroup = 'defesa' | 'blindagem' | 'utilidades';
@@ -14,6 +15,8 @@ export interface VantaLauncher {
   label: string;
   desc: string;
   group: VantaGroup;
+  /** Ícone próprio da ferramenta (Onda C/D); ausente = ícone do grupo. */
+  icon?: IconName;
   /** Injeção da UI na página atual. Deve ser idempotente (chamada 2× = 1 UI). */
   mount(scope: ModuleScope): void;
   /** Esta URL (relativa ao jogo) exibe a tela do módulo? null = qualquer tela. */
@@ -61,18 +64,21 @@ export function unmountVanta(id: string): void {
 }
 
 /** Monta um módulo: descarta o escopo anterior e cria um novo (remount limpo). */
-export function mountVanta(id: string): void {
+export function mountVanta(id: string): { ok: boolean; error?: string } {
   const launcher = launchers.get(id);
-  if (launcher === undefined) return;
+  if (launcher === undefined) return { ok: false, error: 'módulo desconhecido' };
   unmountVanta(id);
   const scope = createModuleScope(id);
   scopes.set(id, scope);
   try {
     launcher.mount(scope);
+    return { ok: true };
   } catch (error) {
     scope.dispose();
     scopes.delete(id);
     console.warn(`[toxic-squad-hub] falha ao montar módulo ${id}:`, error);
+    // Onda C: o motivo chega à linha do painel (antes só no console).
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 

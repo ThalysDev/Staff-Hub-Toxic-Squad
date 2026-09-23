@@ -4,13 +4,13 @@
 // ações à direita (chip de status, pills fantasma, armar 30min para mutantes,
 // engrenagem configurar, play circular rodar agora, switch Ativo).
 //
-// TIMERS — exatamente UM no módulo: setInterval de 1s (countdown vivo,
-// criado na 1ª render com guard por flag). A cada tick ele atualiza SOMENTE
-// textContent: [data-tsh-next] ("em MM:SS" / "agora"), o texto dos chips
-// [data-tsh-armed] (minutos restantes; esconde quando a armação vence) e o
-// rótulo dos botões [data-tsh-armed-btn] (destrava quando a armação vence) —
-// nunca re-renderiza o painel. Nenhum outro timer nasce aqui (heartbeat dos
-// ciclos fica no runtime; os modais em tsh-settings-ui não têm timers).
+// TIMERS — exatamente UM por seção aberta: setInterval de 1s criado pelo
+// renderTshPanel e DEVOLVIDO como limpeza ao shell (Onda B — antes era um
+// interval global eterno). A cada tick ele atualiza textContent de
+// [data-tsh-next] / [data-tsh-armed] / [data-tsh-armed-btn] e, quando a
+// ASSINATURA do estado muda (status/ligado/armado/próximo ciclo — um ciclo
+// terminou no heartbeat, por exemplo), redesenha o painel: status ao vivo.
+// Não redesenha com um diálogo aberto nem com o ponteiro pressionado.
 //
 // Segurança: zero innerHTML com dado dinâmico — mensagem de status, labels e
 // JSON de prévia entram sempre por textContent/createTextNode.
@@ -57,9 +57,7 @@ function nextLabel(next: number, now: number): string {
   return rest <= 0 ? 'agora' : `em ${fmtMmSs(rest)}`;
 }
 
-// ── Countdown vivo (ÚNICO timer do módulo — ver cabeçalho) ──
-
-let countdownTimer: ReturnType<typeof setInterval> | null = null;
+// ── Countdown vivo (ver cabeçalho) ──
 
 /** Chips/botões com ícone guardam o rótulo num span — atualiza só o texto. */
 function labelOf(host: HTMLElement, selector: string): HTMLElement {
@@ -96,9 +94,25 @@ function tickCountdown(shadow: ShadowRoot): void {
   }
 }
 
-function ensureCountdown(shadow: ShadowRoot): void {
-  if (countdownTimer !== null) return; // guard: um único interval para o módulo
-  countdownTimer = setInterval(() => tickCountdown(shadow), 1000);
+/**
+ * Assinatura do que o painel mostra (Onda B): muda quando um ciclo publica
+ * status, quando algo liga/desliga/arma, ou quando o próximo ciclo é
+ * reagendado — só então o painel é redesenhado.
+ */
+export function tshPanelSignature(world: string): string {
+  return tshAutomations()
+    .map((a) => {
+      const status = tshStatus(a.id, world);
+      return [
+        a.id,
+        isTshEnabled(a.id) ? 1 : 0,
+        tshArmedUntil(a.id) > Date.now() ? 1 : 0,
+        tshNextRunAt(a.id, world) ?? '',
+        status?.at ?? '',
+        status?.kind ?? '',
+      ].join(':');
+    })
+    .join('|');
 }
 
 // ── Grupos (ordem fixa; category ausente → último grupo) ──
@@ -173,6 +187,7 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   const enabled = isTshEnabled(automation.id);
   const rowEl = document.createElement('div');
   rowEl.className = enabled ? 'tsh-row' : 'tsh-row tsh-row--off';
+  rowEl.dataset.searchId = `tsh:${automation.id}`; // alvo da busca rápida (Onda C)
 
   // ── coluna esquerda: título + badges + descrição + meta + status ──
   const main = document.createElement('div');
@@ -317,9 +332,9 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
     armar.disabled = armed;
     // P2 (revisão Onda 8): o tick de 1s destrava o botão quando a armação vence.
     armar.dataset.tshArmedBtn = String(until);
-    armar.title = 'Autorizar ações no jogo por 30 minutos';
-    armar.classList.add('tsh-tip'); // tooltip CSS além do title nativo
-    armar.setAttribute('data-tip', armar.title);
+    // Onda B: só o tooltip do painel (title nativo duplicava).
+    armar.classList.add('tsh-tip');
+    armar.setAttribute('data-tip', 'Autorizar ações no jogo por 30 minutos');
     // P2 (auditoria impeccable): window.confirm → diálogo Nexus (tshConfirm).
     armar.addEventListener('click', async () => {
       const ok = await tshConfirm(
@@ -338,8 +353,7 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   const configurar = document.createElement('button');
   configurar.type = 'button';
   configurar.className = 'tsh-icbtn';
-  configurar.title = 'Configurar';
-  configurar.classList.add('tsh-tip'); // tooltip CSS além do title nativo
+  configurar.classList.add('tsh-tip');
   configurar.setAttribute('data-tip', 'Configurar');
   configurar.setAttribute('aria-label', 'Configurar');
   configurar.appendChild(icon('settings', 15));
@@ -349,9 +363,8 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   const rodar = document.createElement('button');
   rodar.type = 'button';
   rodar.className = 'tsh-runbtn';
-  rodar.title = 'Rodar agora — executa um ciclo agora (ignora cooldown; armação e lock continuam valendo)';
-  rodar.classList.add('tsh-tip'); // tooltip CSS além do title nativo
-  rodar.setAttribute('data-tip', rodar.title);
+  rodar.classList.add('tsh-tip');
+  rodar.setAttribute('data-tip', 'Rodar agora — executa um ciclo agora (ignora o intervalo; armação e lock continuam valendo)');
   rodar.setAttribute('aria-label', 'Rodar agora');
   rodar.appendChild(icon('play', 12));
   rodar.disabled = !enabled;
@@ -438,22 +451,50 @@ function panelHeader(all: readonly TshAutomation[]): HTMLElement {
   return head;
 }
 
-/** Seção "Automações" do painel. */
-export function renderTshPanel(container: HTMLElement): void {
+/** Seção "Automações" do painel — devolve a limpeza do timer vivo (Onda B). */
+export function renderTshPanel(container: HTMLElement): () => void {
+  const shadow = ensureHost();
+  const world = window.location.hostname.split('.')[0] ?? 'mundo';
+  let signature = tshPanelSignature(world);
+  let pointerDown = false;
+  const onDown = (): void => {
+    pointerDown = true;
+  };
+  const onUp = (): void => {
+    pointerDown = false;
+  };
+  container.addEventListener('pointerdown', onDown);
+  window.addEventListener('pointerup', onUp);
+  const redraw = (): void => {
+    const scroller = container.closest('.shs-body');
+    const top = scroller?.scrollTop ?? 0;
+    container.replaceChildren();
+    drawTshPanel(container, redraw);
+    if (scroller !== null) scroller.scrollTop = top;
+    signature = tshPanelSignature(world);
+  };
+  drawTshPanel(container, redraw);
+  const timer = window.setInterval(() => {
+    tickCountdown(shadow);
+    if (pointerDown || shadow.querySelector('.tsh-overlay') !== null) return;
+    if (tshPanelSignature(world) !== signature) redraw();
+  }, 1000);
+  return () => {
+    window.clearInterval(timer);
+    container.removeEventListener('pointerdown', onDown);
+    window.removeEventListener('pointerup', onUp);
+  };
+}
+
+function drawTshPanel(container: HTMLElement, rerender: () => void): void {
   const shadow = ensureHost();
   ensureTshPanelStyles(shadow);
-  ensureCountdown(shadow);
 
   const world = window.location.hostname.split('.')[0] ?? 'mundo';
   const all = tshAutomations();
 
   const cardEl = document.createElement('div');
   cardEl.className = 'shs-card';
-
-  const rerender = (): void => {
-    container.replaceChildren();
-    renderTshPanel(container);
-  };
 
   cardEl.appendChild(panelHeader(all));
   const desc = document.createElement('div');

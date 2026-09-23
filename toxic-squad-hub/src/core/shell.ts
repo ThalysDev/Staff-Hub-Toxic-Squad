@@ -15,7 +15,12 @@ export interface SectionDef {
   icon?: IconName;
   /** Só ativa nesta screen do jogo (undefined = todas). */
   matchScreen?: string;
-  render: (container: HTMLElement) => void;
+  /**
+   * Desenha a seção. Pode devolver uma função de LIMPEZA (timers de
+   * atualização ao vivo etc.) — o shell a chama ao trocar de seção, ao
+   * re-renderizar e ao fechar o painel (Onda B: nada de timer órfão).
+   */
+  render: (container: HTMLElement) => void | (() => void);
 }
 
 const sections: SectionDef[] = [];
@@ -38,6 +43,11 @@ export interface SearchEntry {
   icon?: IconName;
   /** Termos extra para casar (ex.: desc da automação). */
   keywords?: string;
+  /**
+   * Alvo dentro da seção (Onda C): elemento com `data-search-id` igual a
+   * este valor é rolado até a vista e destacado após a navegação.
+   */
+  targetId?: string;
 }
 
 const searchEntries = new Map<string, SearchEntry>();
@@ -55,6 +65,35 @@ function normalizeSearch(text: string): string {
 }
 
 let panelOpen = false;
+const PANEL_OPEN_KEY = 'shs-in-game:panel-open';
+const LAST_SECTION_KEY = 'shs-in-game:last-section';
+
+/** Alvo de digitação (campo de texto/número, select, textarea, contenteditable)? */
+function isEditableTarget(node: EventTarget | undefined): boolean {
+  if (!(node instanceof HTMLElement)) return false;
+  if (node.isContentEditable) return true;
+  if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) return true;
+  if (node instanceof HTMLInputElement) {
+    return !['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file'].includes(node.type);
+  }
+  return false;
+}
+
+/**
+ * Onda B — isolamento do teclado: fora do Shadow DOM o evento de tecla chega
+ * "reapontado" para o host, então os ATALHOS DO JOGO não percebem que você
+ * está digitando no painel (cada letra podia disparar um atalho). Tecla
+ * digitada num campo do painel para no host; Esc e combinações com Ctrl/⌘
+ * seguem (fechar diálogos, Ctrl+K).
+ */
+function isolateKeyboard(host: HTMLElement): void {
+  const stop = (event: Event): void => {
+    const key = event as KeyboardEvent;
+    if (key.key === 'Escape' || key.ctrlKey || key.metaKey) return;
+    if (isEditableTarget(event.composedPath()[0])) event.stopPropagation();
+  };
+  for (const type of ['keydown', 'keypress', 'keyup']) host.addEventListener(type, stop);
+}
 
 export function currentScreen(): string {
   const params = new URLSearchParams(window.location.search);
@@ -176,6 +215,19 @@ function styles(): string {
     .shs-headbtn:hover { background: #e5d5a8; }
     .shs-headbtn:focus-visible { outline: 2px solid var(--shs-brass); }
     .shs-head-spacer { margin-left: auto; }
+    /* Onda B: tooltips do cabeçalho abrem PARA BAIXO (para cima eram cortados
+       pela borda do painel). */
+    .shs-head [data-tip]:hover::after, .shs-head [data-tip]:focus-visible::after {
+      bottom: auto; top: calc(100% + 7px); }
+    .shs-head [data-tip]:hover::before, .shs-head [data-tip]:focus-visible::before {
+      bottom: auto; top: calc(100% + 2px); border-top-color: transparent;
+      border-bottom-color: var(--shs-ink-strong); }
+    .shs-head [data-tip]:last-child:hover::after, .shs-head [data-tip]:last-child:focus-visible::after {
+      left: auto; right: 0; transform: none; }
+    /* Onda C: destaque do item encontrado pela busca. */
+    @keyframes shs-flash { 0%, 100% { box-shadow: 0 0 0 0 rgba(217,165,32,0); }
+      30% { box-shadow: 0 0 0 3px rgba(217,165,32,.75); } }
+    .shs-flash { animation: shs-flash 1.6s ease-in-out 2; border-radius: 8px; }
 
     /* Busca rápida (Onda 6): campo no header + dropdown ancorado. */
     .shs-searchwrap { position: relative; margin-left: 8px; }
@@ -193,7 +245,8 @@ function styles(): string {
       padding: 7px 9px; background: transparent; border: none; border-radius: 7px;
       font-family: var(--shs-font); font-size: 12px; color: var(--shs-ink);
       cursor: pointer; text-align: left; }
-    .shs-searchitem:hover, .shs-searchitem:focus-visible { background: #f2e6c4; outline: none; }
+    .shs-searchitem:hover, .shs-searchitem:focus-visible,
+    .shs-searchitem[data-active='true'] { background: #f2e6c4; outline: none; }
     .shs-searchitem-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .shs-searchitem-hint { font-size: 10.5px; color: var(--shs-muted); flex-shrink: 0; }
     .shs-searchempty { padding: 9px; font-size: 11.5px; color: var(--shs-muted); }
@@ -413,6 +466,7 @@ export function ensureHost(): ShadowRoot {
     document.body.appendChild(host);
   }
   if (host.shadowRoot === null) {
+    isolateKeyboard(host);
     const shadow = host.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
     style.textContent = styles();
@@ -449,14 +503,7 @@ export function mountShell(): void {
   fab.setAttribute('aria-label', 'Abrir Toxic Squad Hub');
   fab.appendChild(icon('shield', 22));
   fab.addEventListener('click', () => {
-    panelOpen = !panelOpen;
-    panel.style.display = panelOpen ? 'flex' : 'none';
-    if (panelOpen) {
-      // Reabrir pelo FAB volta do estado minimizado (mesmo contrato do fechar).
-      defineMin(false);
-      renderNav();
-      animarAbertura(panel);
-    }
+    setPanelOpen(!panelOpen);
   });
   shadow.appendChild(fab);
 
@@ -466,28 +513,41 @@ export function mountShell(): void {
   panel.className = 'shs-panel shs-panel--app';
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-label', 'Toxic Squad Hub');
-  panel.style.display = 'flex';
-  // Nasce aberto: sincronizar o estado, senão o 1º clique no FAB é no-op.
-  panelOpen = true;
+  // Onda B: o painel LEMBRA se estava aberto ou fechado (antes reabria sobre o
+  // jogo a cada troca de página). 1º uso = aberto.
+  panelOpen = gm.get<boolean>(PANEL_OPEN_KEY, true);
+  panel.style.display = panelOpen ? 'flex' : 'none';
   // [11] Entrada animada no 1º mount (e a classe se remove sozinha ao terminar).
   panel.addEventListener('animationend', (event) => {
     if (event.target === panel && event.animationName === 'shs-open') panel.classList.remove('shs-open');
     if (event.target === panel && event.animationName === 'shs-open-max') panel.classList.remove('shs-open');
   });
-  animarAbertura(panel);
+  if (panelOpen) animarAbertura(panel);
   // Preferência de tamanho persistida (maximizado entre sessões).
   const maximizarPref = gm.get<boolean>('shs-in-game:panel-max', false);
   if (maximizarPref) panel.classList.add('shs-panel--max');
   // Posição arrastada persistida (restaurada no tamanho normal).
   const POS_KEY = 'shs-in-game:panel-pos';
+  /** Mantém a posição dentro da janela (Onda C: monitor/janela menor escondia o painel). */
+  const clampPos = (left: number, top: number): { l: number; t: number } => {
+    const width = panel.offsetWidth || Math.min(1060, window.innerWidth - 24);
+    return {
+      l: Math.min(Math.max(4, left), Math.max(4, window.innerWidth - width - 4)),
+      t: Math.min(Math.max(4, top), Math.max(4, window.innerHeight - 60)),
+    };
+  };
   const restorePanelPos = (): void => {
     const pos = gm.get<{ l: number; t: number } | null>(POS_KEY, null);
-    if (pos === null) return;
+    if (pos === null || !Number.isFinite(pos.l) || !Number.isFinite(pos.t)) return;
+    const safe = clampPos(pos.l, pos.t);
     panel.style.right = 'auto';
     panel.style.bottom = 'auto';
-    panel.style.left = `${pos.l}px`;
-    panel.style.top = `${pos.t}px`;
+    panel.style.left = `${safe.l}px`;
+    panel.style.top = `${safe.t}px`;
   };
+  window.addEventListener('resize', () => {
+    if (!panel.classList.contains('shs-panel--max') && panel.style.top !== '') restorePanelPos();
+  });
   restorePanelPos();
   shadow.appendChild(panel);
 
@@ -510,6 +570,10 @@ export function mountShell(): void {
   sub.appendChild(document.createTextNode(ctx.world));
   headTxt.append(strong, sub);
   head.append(badge, headTxt);
+  // Busca rápida logo após a marca (Onda B: antes ficava à direita do X).
+  const searchWrap = document.createElement('div');
+  searchWrap.className = 'shs-searchwrap';
+  head.appendChild(searchWrap);
   const spacer = document.createElement('span');
   spacer.className = 'shs-head-spacer';
   head.appendChild(spacer);
@@ -531,9 +595,10 @@ export function mountShell(): void {
       restorePanelPos();
     }
     maximize.replaceChildren(icon(max ? 'compress' : 'maximize', 14));
-    maximize.title = max ? 'Restaurar tamanho' : 'Maximizar painel';
-    maximize.setAttribute('aria-label', maximize.title);
-    maximize.setAttribute('data-tip', maximize.title);
+    // Onda B: só o tooltip do painel (o title nativo gerava DOIS tooltips).
+    const rotulo = max ? 'Restaurar tamanho' : 'Maximizar painel';
+    maximize.setAttribute('aria-label', rotulo);
+    maximize.setAttribute('data-tip', rotulo);
     gm.set('shs-in-game:panel-max', max);
   };
   maximize.addEventListener('click', () => {
@@ -551,9 +616,9 @@ export function mountShell(): void {
   const defineMin = (min: boolean): void => {
     panel.classList.toggle('shs-panel--min', min);
     minimize.replaceChildren(icon(min ? 'maximize' : 'minus', 14));
-    minimize.title = min ? 'Restaurar painel' : 'Minimizar painel';
-    minimize.setAttribute('aria-label', minimize.title);
-    minimize.setAttribute('data-tip', minimize.title);
+    const rotulo = min ? 'Restaurar painel' : 'Minimizar painel';
+    minimize.setAttribute('aria-label', rotulo);
+    minimize.setAttribute('data-tip', rotulo);
   };
   minimize.addEventListener('click', () => {
     defineMin(!panel.classList.contains('shs-panel--min'));
@@ -565,21 +630,15 @@ export function mountShell(): void {
   close.className = 'shs-headbtn';
   close.type = 'button';
   close.appendChild(icon('x', 14));
-  close.title = 'Fechar painel';
   close.setAttribute('aria-label', 'Fechar painel');
   close.setAttribute('data-tip', 'Fechar painel');
   close.addEventListener('click', () => {
-    panelOpen = false;
-    panel.style.display = 'none';
-    // Reabrir pelo FAB volta do estado minimizado para o painel completo.
-    defineMin(false);
+    setPanelOpen(false);
   });
   head.appendChild(close);
   panel.appendChild(head);
 
   // ===== Busca rápida (Onda 6): Ctrl+K foca; resultados navegam à seção =====
-  const searchWrap = document.createElement('div');
-  searchWrap.className = 'shs-searchwrap';
   const searchInput = document.createElement('input');
   searchInput.type = 'search';
   searchInput.className = 'shs-search';
@@ -588,13 +647,30 @@ export function mountShell(): void {
   const searchPop = document.createElement('div');
   searchPop.className = 'shs-searchpop';
   searchWrap.append(searchInput, searchPop);
-  head.appendChild(searchWrap);
 
-  const switchToSection = (sectionId: string): void => {
+  // Seção ativa: desenha com LIMPEZA do anterior (timers ao vivo) e lembra a
+  // escolha entre páginas (Onda B: antes voltava sempre para "Início").
+  let sectionCleanup: (() => void) | null = null;
+  const disposeSection = (): void => {
+    const cleanup = sectionCleanup;
+    sectionCleanup = null;
+    try {
+      cleanup?.();
+    } catch {
+      /* limpeza nunca derruba o painel */
+    }
+  };
+  const drawSection = (section: SectionDef): void => {
+    disposeSection();
+    body.replaceChildren();
+    const cleanup = section.render(body);
+    sectionCleanup = typeof cleanup === 'function' ? cleanup : null;
+  };
+  const switchToSection = (sectionId: string, targetId?: string): void => {
     const section = sections.find((s) => s.id === sectionId);
     if (section === undefined) return;
-    body.replaceChildren();
     body.dataset.section = section.id;
+    gm.set(LAST_SECTION_KEY, section.id);
     for (const other of Array.from(nav.children)) {
       (other as HTMLElement).dataset.active = 'false';
       (other as HTMLElement).setAttribute('aria-selected', 'false');
@@ -606,7 +682,36 @@ export function mountShell(): void {
       item.dataset.active = 'true';
       item.setAttribute('aria-selected', 'true');
     }
-    section.render(body);
+    drawSection(section);
+    body.scrollTop = 0;
+    if (targetId !== undefined) highlightTarget(targetId);
+  };
+  /** Rola até o item da busca e pisca o destaque (Onda C). */
+  const highlightTarget = (targetId: string): void => {
+    const alvo = Array.from(body.querySelectorAll<HTMLElement>('[data-search-id]')).find(
+      (el) => el.dataset.searchId === targetId,
+    );
+    if (alvo === undefined) return;
+    alvo.scrollIntoView({ block: 'center' });
+    alvo.classList.remove('shs-flash');
+    void alvo.offsetWidth;
+    alvo.classList.add('shs-flash');
+    window.setTimeout(() => alvo.classList.remove('shs-flash'), 3_400);
+  };
+
+  const setPanelOpen = (open: boolean): void => {
+    panelOpen = open;
+    gm.set(PANEL_OPEN_KEY, open);
+    panel.style.display = open ? 'flex' : 'none';
+    // Reabrir volta do estado minimizado para o painel completo.
+    defineMin(false);
+    if (open) {
+      renderedScreen = null; // redesenha a seção ativa (dados frescos)
+      renderNav();
+      animarAbertura(panel);
+    } else {
+      disposeSection(); // painel fechado: nenhum timer de seção fica rodando
+    }
   };
 
   const closeSearch = (): void => {
@@ -649,8 +754,9 @@ export function mountShell(): void {
         hint.textContent = entry.hint;
         botao.appendChild(hint);
       }
+      botao.addEventListener('mousedown', (event) => event.preventDefault()); // não rouba o foco
       botao.addEventListener('click', () => {
-        switchToSection(entry.sectionId);
+        switchToSection(entry.sectionId, entry.targetId);
         searchInput.value = '';
         closeSearch();
         searchInput.blur();
@@ -659,31 +765,74 @@ export function mountShell(): void {
     }
     searchPop.classList.add('shs-searchpop--open');
   });
+  // Onda C: ↑/↓ percorrem os resultados, Enter abre o destacado (ou o 1º).
+  let activeIndex = -1;
+  const resultButtons = (): HTMLButtonElement[] =>
+    Array.from(searchPop.querySelectorAll<HTMLButtonElement>('.shs-searchitem'));
+  const markActive = (index: number): void => {
+    const buttons = resultButtons();
+    if (buttons.length === 0) return;
+    activeIndex = (index + buttons.length) % buttons.length;
+    buttons.forEach((button, i) => {
+      button.dataset.active = String(i === activeIndex);
+    });
+    buttons[activeIndex]?.scrollIntoView({ block: 'nearest' });
+  };
+  searchInput.addEventListener('input', () => {
+    activeIndex = -1;
+  });
   searchInput.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
+      event.stopPropagation();
       searchInput.value = '';
       closeSearch();
       searchInput.blur();
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      markActive(activeIndex + 1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      markActive(activeIndex - 1);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const buttons = resultButtons();
+      buttons[activeIndex >= 0 ? activeIndex : 0]?.click();
     }
   });
   searchInput.addEventListener('blur', () => {
-    // Fecha no próximo tick: o clique no resultado precisa acontecer antes.
-    window.setTimeout(() => closeSearch(), 150);
+    closeSearch();
   });
   document.addEventListener('keydown', (event) => {
-    if (event.ctrlKey && event.key.toLowerCase() === 'k') {
-      if (!panelOpen) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault();
+      // Onda B: Ctrl+K também ABRE o painel fechado/minimizado.
+      if (!panelOpen) setPanelOpen(true);
+      if (panel.classList.contains('shs-panel--min')) defineMin(false);
       searchInput.focus();
       searchInput.select();
     }
+  });
+
+  // Onda C: Esc fecha o painel quando o foco está nele (e não há diálogo
+  // aberto nem campo sendo editado — Esc no campo só sai do campo).
+  panel.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !panelOpen) return;
+    if (shadow.querySelector('.tsh-overlay') !== null) return;
+    if (isEditableTarget(event.composedPath()[0])) {
+      (event.composedPath()[0] as HTMLElement).blur();
+      return;
+    }
+    setPanelOpen(false);
+    fab.focus();
   });
 
   // ===== Arraste pelo header (Onda 22): posição persistida, botões excluídos =====
   head.style.cursor = 'grab';
   head.addEventListener('mousedown', (event) => {
     if (!(event.target instanceof Element)) return;
-    if (event.target.closest('.shs-headbtn') !== null) return; // botões não arrastam
+    // Onda B: botões E a busca não arrastam (o mousedown com preventDefault
+    // impedia clicar no campo de busca).
+    if (event.target.closest('.shs-headbtn, .shs-searchwrap, input, button, select, textarea') !== null) return;
     if (panel.classList.contains('shs-panel--max')) return; // maximizado é fixo
     if (event.button !== 0) return;
     const rect = panel.getBoundingClientRect();
@@ -703,7 +852,7 @@ export function mountShell(): void {
       document.removeEventListener('mouseup', onUp);
       head.style.cursor = 'grab';
       const final = panel.getBoundingClientRect();
-      gm.set(POS_KEY, { l: Math.round(final.left), t: Math.round(final.top) });
+      gm.set(POS_KEY, clampPos(Math.round(final.left), Math.round(final.top)));
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
@@ -712,20 +861,15 @@ export function mountShell(): void {
   // Duplo clique no header alterna maximizar (como janelas de desktop).
   head.addEventListener('dblclick', (event) => {
     if (!(event.target instanceof Element)) return;
-    if (event.target.closest('.shs-headbtn') !== null) return;
+    if (event.target.closest('.shs-headbtn, .shs-searchwrap, input, button') !== null) return;
     defineMax(!panel.classList.contains('shs-panel--max'));
   });
 
   // Faixa de estado da licença em modo graça (rede caiu / revalidação 24h) —
   // entre o header e o layout.
+  // (Onda C: a faixa de modo offline no topo repetia o rodapé — o aviso agora
+  //  vive só no rodapé, com o horário da revalidação.)
   const license = licenseState();
-  if (license.kind === 'graca') {
-    const faixa = document.createElement('div');
-    faixa.className = 'shs-license';
-    const ate = new Date(license.offlineAte).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    faixa.textContent = `Modo offline — a licença será revalidada no próximo carregamento da página (a partir das ${ate}).`;
-    panel.appendChild(faixa);
-  }
 
   // ===== Layout em colunas: sidebar de navegação + conteúdo =====
   const layout = document.createElement('div');
@@ -768,7 +912,10 @@ export function mountShell(): void {
         : 'ativa';
     selo.appendChild(validade);
   } else if (license.kind === 'graca') {
-    selo.appendChild(document.createTextNode('Modo offline — licença temporariamente inacessível'));
+    const ate = new Date(license.offlineAte).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    selo.appendChild(
+      document.createTextNode(`Modo offline — a licença revalida no próximo carregamento da página (a partir das ${ate})`),
+    );
   } else {
     selo.className = 'shs-selo shs-selo--warn';
     selo.appendChild(document.createTextNode('Licença inativa'));
@@ -795,8 +942,10 @@ export function mountShell(): void {
     // ou se a selecionada não está disponível nesta tela → a primeira disponível.
     const atualValida = available.some((section) => section.id === body.dataset.section);
     if (body.dataset.section === '' || body.dataset.section === undefined || !atualValida) {
-      const primeira = available[0];
-      if (primeira !== undefined) body.dataset.section = primeira.id;
+      // Onda B: volta para a última seção usada (se disponível nesta tela).
+      const lembrada = gm.get<string>(LAST_SECTION_KEY, '');
+      const escolhida = available.find((section) => section.id === lembrada) ?? available[0];
+      if (escolhida !== undefined) body.dataset.section = escolhida.id;
     }
     for (const section of available) {
       const item = document.createElement('button');
@@ -816,14 +965,13 @@ export function mountShell(): void {
     }
     // Re-render a seção ativa SÓ quando a screen do jogo mudou (troca de
     // página); no 1º render renderedScreen é null, então renderiza.
-    if (screen !== renderedScreen) {
+    if (screen !== renderedScreen && panelOpen) {
       renderedScreen = screen;
       const active = sections.find((section) => section.id === body.dataset.section);
       if (active !== undefined && available.includes(active)) {
         // P1 (revisão Nexus): limpa ANTES de renderizar — as seções só fazem
         // appendChild; sem isto, navegar in-game duplicava a seção inteira.
-        body.replaceChildren();
-        active.render(body);
+        drawSection(active);
       }
     }
   }

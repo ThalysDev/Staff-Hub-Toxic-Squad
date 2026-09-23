@@ -843,10 +843,9 @@ function labelEl(text: string, help?: string): HTMLSpanElement {
   el.className = 'tsh-field-label';
   el.appendChild(document.createTextNode(text));
   if (help !== undefined) {
-    // ⓘ com tooltip CSS (data-tip, à direita) + title nativo de fallback.
+    // ⓘ com tooltip CSS (data-tip, à direita). Onda B: sem title nativo (duplicava).
     const tip = document.createElement('span');
     tip.className = 'tsh-field-info tsh-tip tsh-tip--right';
-    tip.title = help;
     tip.setAttribute('data-tip', help);
     tip.setAttribute('aria-label', help);
     tip.appendChild(icon('info', 11));
@@ -940,7 +939,6 @@ function checkboxEl(label: string, help?: string): { row: HTMLDivElement; input:
   if (help !== undefined) {
     const tip = document.createElement('span');
     tip.className = 'tsh-field-info tsh-tip tsh-tip--right';
-    tip.title = help;
     tip.setAttribute('data-tip', help);
     tip.setAttribute('aria-label', help);
     tip.appendChild(icon('info', 11));
@@ -1312,7 +1310,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   // Relógio vivo (Onda A): UM interval de 250ms enquanto a tela está aberta —
   // atualiza a hora do servidor e as contagens [data-tsh-eta]; some ao fechar.
   let liveTimer: number | undefined;
-  const { body, foot, close } = buildTshModal(shadow, 'Comandos — Agendador', 'clock', {
+  const { body, foot, close, markClean } = buildTshModal(shadow, 'Comandos — Agendador', 'clock', {
     onClose: () => {
       if (liveTimer !== undefined) window.clearInterval(liveTimer);
     },
@@ -1415,10 +1413,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   // ── Origem ──
   const originField = document.createElement('div');
   originField.className = 'tsh-field tsh-field--block';
-  const originLabel = labelEl(
-    'Origem',
-    'Suas aldeias, lidas do próprio jogo. A coordenada da origem é usada para converter chegada→envio.',
-  );
+  const originLabel = labelEl('Origem');
   const originSelect = document.createElement('select');
   originSelect.className = 'tsh-select';
   for (const village of villages) {
@@ -1444,7 +1439,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   // ── Alvo ──
   const targetField = document.createElement('div');
   targetField.className = 'tsh-field tsh-field--block';
-  const targetLabel = labelEl('Alvo (x|y)', 'Coordenadas de 0 a 999. O nome e os pontos são buscados no mapa automaticamente.');
+  const targetLabel = labelEl('Alvo (x|y)');
   const targetInput = document.createElement('input');
   targetInput.type = 'text';
   targetInput.className = 'tsh-input';
@@ -2122,10 +2117,12 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
     targetInfo.style.color = '';
     unitsGridHandle.reset();
     timeInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 10 * 60_000));
+    msInput.value = '0';
     travelMin = null;
     applyTravelAvailability();
     updateConditionalFields();
     updateSummary();
+    markClean(form);
   };
   addBtn.addEventListener('click', () => {
     void handleAdd();
@@ -2143,6 +2140,8 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   };
   appendBlockSection(body, uiContext);
   appendMapSection(body, uiContext);
+  // Onda B: fechar com um comando meio digitado pede confirmação.
+  markClean(form);
 }
 
 // ── Agendamento em Bloco (Onda 1, C) ─────────────────────────────────────────

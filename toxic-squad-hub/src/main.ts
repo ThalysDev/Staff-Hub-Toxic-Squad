@@ -223,7 +223,9 @@ function main(): void {
       label: launcher.label,
       hint: 'Suite Vanta',
       sectionId: 'vanta',
+      icon: launcher.icon ?? 'sword',
       keywords: launcher.desc,
+      targetId: `vanta:${launcher.id}`,
     })),
   );
   registerSearchEntries(
@@ -232,7 +234,9 @@ function main(): void {
       label: automation.label,
       hint: 'Automações',
       sectionId: 'tsh',
+      icon: 'zap' as const,
       keywords: automation.desc,
+      targetId: `tsh:${automation.id}`,
     })),
   );
 

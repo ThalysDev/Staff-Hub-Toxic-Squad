@@ -149,6 +149,7 @@ function launcherRow(launcher: VantaLauncher, rerender: () => void): HTMLElement
 
   const row = document.createElement('div');
   row.className = 'vts-row';
+  row.dataset.searchId = `vanta:${launcher.id}`; // alvo da busca rápida (Onda C)
   // Gate visual: módulo desligado fica esmaecido e a ação fica inerte.
   if (!enabled) row.dataset.off = '1';
 
@@ -157,7 +158,7 @@ function launcherRow(launcher: VantaLauncher, rerender: () => void): HTMLElement
   // [7] Cor do grupo só quando ligado — desligado usa a cor dedicada do CSS
   // (inline venceria a regra de .vts-row[data-off]).
   if (enabled) badge.style.color = GROUP_COLORS[launcher.group];
-  badge.appendChild(icon(GROUP_ICONS[launcher.group], 15));
+  badge.appendChild(icon(launcher.icon ?? GROUP_ICONS[launcher.group], 15));
   row.appendChild(badge);
 
   const main = document.createElement('div');
@@ -193,6 +194,7 @@ function launcherRow(launcher: VantaLauncher, rerender: () => void): HTMLElement
   toggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
   toggle.title = enabled ? 'Desativar módulo' : 'Ativar módulo';
   toggle.setAttribute('aria-label', toggle.title);
+  toggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
   toggle.addEventListener('click', () => {
     setVantaEnabled(launcher.id, !isVantaEnabled(launcher.id));
     rerender();
@@ -216,19 +218,23 @@ function launcherRow(launcher: VantaLauncher, rerender: () => void): HTMLElement
     go.disabled = true;
     go.classList.add('vts-go--loading');
     go.replaceChildren(spinner());
-    mountVanta(launcher.id); // síncrono — o DOM já assentou na volta
-    const montou = Array.from(document.querySelectorAll('[id^="vanta-"]')).some(
-      (el) => antes.get(el.id) !== el,
-    );
+    const resultadoMount = mountVanta(launcher.id); // síncrono — o DOM já assentou na volta
+    const montou =
+      resultadoMount.ok &&
+      Array.from(document.querySelectorAll('[id^="vanta-"]')).some((el) => antes.get(el.id) !== el);
     go.classList.remove('vts-go--loading');
     go.disabled = false;
     go.replaceChildren(icon('play', 12));
     side.querySelector('.vts-result')?.remove();
     const resultado = document.createElement('span');
     resultado.className = montou ? 'vts-chip vts-chip--ok vts-result' : 'vts-chip vts-chip--err vts-result';
-    resultado.textContent = montou ? 'montado' : 'não foi possível montar nesta tela';
+    resultado.textContent = montou
+      ? 'montado'
+      : resultadoMount.error !== undefined
+        ? `erro: ${resultadoMount.error}`
+        : 'nada para montar nesta tela';
     side.appendChild(resultado);
-    window.setTimeout(() => resultado.remove(), montou ? 2000 : 3000);
+    window.setTimeout(() => resultado.remove(), montou ? 2000 : 5000);
   });
   if (here) {
     go.className = 'vts-go';
@@ -293,7 +299,9 @@ export function renderVantaSuite(container: HTMLElement): void {
     gcount.textContent = String(items.length);
     ghead.append(glabel, gcount);
     wrap.appendChild(ghead);
-    items.forEach((launcher) => wrap.appendChild(launcherRow(launcher, rerender)));
+    // Onda C: as ferramentas desta página primeiro (o resto mantém a ordem).
+    const ordenados = [...items].sort((a, b) => Number(b.match()) - Number(a.match()));
+    ordenados.forEach((launcher) => wrap.appendChild(launcherRow(launcher, rerender)));
   });
 
   const foot = document.createElement('div');

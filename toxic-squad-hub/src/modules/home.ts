@@ -11,6 +11,9 @@ import { gameContext } from '../core/shell';
 import { isVantaEnabled, vantaLaunchers } from './vanta/vanta-registry';
 import { isTshEnabled, tshArmedUntil, tshAutomations, tshNextRunAt, tshStatus } from './tsh/tsh-runtime';
 import { loadSchedule, isScheduleStopped } from './tsh/tsh-settings';
+import { tshPanelSignature } from './tsh/tsh-panel';
+import { serverNowMs } from '../core/game-clock';
+import { clockLabelMs } from '../ext/core/timing/precise-fire';
 
 export const SUPPORT_PHONE = '+55 81 99413-1872';
 const SUPPORT_WA = 'https://wa.me/5581994131872';
@@ -122,15 +125,46 @@ function nextScheduled(world: string): { count: number; nextAt: number | null } 
     const ultimo = events.at(-1);
     return !(ultimo !== undefined && typeof ultimo.status === 'string' && EVENTOS_TERMINAIS.has(ultimo.status));
   });
+  // Onda C: sendAt está no relógio do SERVIDOR — compara com o "agora" dele.
+  const agora = serverNowMs();
   const future = vivos
     .map((c) => Date.parse(typeof c.sendAt === 'string' ? c.sendAt : ''))
-    .filter((t) => Number.isFinite(t) && t > Date.now())
+    .filter((t) => Number.isFinite(t) && t > agora)
     .sort((a, b) => a - b);
   return { count: vivos.length, nextAt: future[0] ?? null };
 }
 
-/** Seção "Início" — registrada em main.ts como primeira entrada da sidebar. */
-export function renderHome(container: HTMLElement): void {
+/** Assinatura do que a Início mostra (muda → redesenha; Onda B "ao vivo"). */
+function homeSignature(world: string): string {
+  const sched = nextScheduled(world);
+  const vanta = vantaLaunchers()
+    .map((l) => (isVantaEnabled(l.id) ? 1 : 0))
+    .join('');
+  return `${tshPanelSignature(world)}#${vanta}#${sched.count}:${sched.nextAt ?? ''}`;
+}
+
+/**
+ * Seção "Início" — registrada em main.ts como primeira entrada da sidebar.
+ * Onda B: o Painel de Atividades é AO VIVO (verifica a cada 3s e redesenha
+ * quando algo muda); devolve a limpeza do timer ao shell.
+ */
+export function renderHome(container: HTMLElement): () => void {
+  const world = gameContext().world;
+  drawHome(container);
+  let signature = homeSignature(world);
+  const timer = window.setInterval(() => {
+    const now = homeSignature(world);
+    if (now === signature) return;
+    signature = now;
+    const scroller = container.closest('.shs-body');
+    const top = scroller?.scrollTop ?? 0;
+    drawHome(container);
+    if (scroller !== null) scroller.scrollTop = top;
+  }, 3_000);
+  return () => window.clearInterval(timer);
+}
+
+function drawHome(container: HTMLElement): void {
   ensureHomeStyles(container);
   container.replaceChildren();
   const grid = document.createElement('div');
@@ -210,7 +244,11 @@ export function renderHome(container: HTMLElement): void {
   panorama.body.appendChild(
     stat(
       'Comandos agendados',
-      sched.count === 0 ? '0' : sched.nextAt !== null ? `${sched.count} · próximo ${fmtDate(sched.nextAt)} ${new Date(sched.nextAt).toLocaleTimeString('pt-BR')}` : String(sched.count),
+      sched.count === 0
+        ? '0'
+        : sched.nextAt !== null
+          ? `${sched.count} · próximo ${fmtDate(sched.nextAt)} ${clockLabelMs(sched.nextAt)}`
+          : String(sched.count),
     ),
   );
   grid.appendChild(panorama.box);
@@ -304,9 +342,10 @@ export function renderHome(container: HTMLElement): void {
     row.appendChild(document.createTextNode(text));
     dicas.body.appendChild(row);
   };
-  tip('clock', 'A janela do painel pode ser arrastada pelo cabeçalho — e duplo clique nele maximiza/restaura.');
+  tip('search', 'Ctrl+K abre a busca rápida de qualquer tela do jogo — digite o nome da ferramenta e tecle Enter.');
+  tip('maximize', 'A janela do painel pode ser arrastada pelo cabeçalho — e duplo clique nele maximiza/restaura. Esc fecha.');
   tip('check', 'Na aba Automações, cada módulo nasce desligado: ative, configure o intervalo em minutos e "arme" os que agem no jogo.');
-  tip('info', 'Cada módulo da Suite Vanta injeta na própria tela do jogo (incomings, mapa, academia…) — abra a tela e clique em "Montar".');
+  tip('info', 'As ferramentas da Suite Vanta aparecem sozinhas na tela certa do jogo (incomings, mapa, praça…). Use "Abrir" para ir até ela.');
   grid.appendChild(dicas.box);
 
   container.appendChild(grid);
