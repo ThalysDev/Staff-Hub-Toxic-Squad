@@ -16,6 +16,11 @@
 // - F2: no máximo 1 mutação por ciclo — mintCoins(count). O submit navega; o
 //   ciclo seguinte reconcilia o saldo de moedas antes de qualquer nova
 //   cunhagem.
+// - Onda 5b: modo PERCENTUAL (settings.keepPercent 0..90) — com > 0 o ciclo
+//   mantém X% do disponível de cada recurso no armazém em vez das reservas
+//   fixas: mint = min(teto por ciclo, máximo da página, floor(disponível ×
+//   (1 − X%) / custo) por recurso). 0 (default) = comportamento de sempre
+//   (reservas fixas por recurso).
 
 import { registerTsh } from '../tsh-runtime';
 import type { SettingsField } from '../tsh-settings';
@@ -34,6 +39,12 @@ export type CoinSettings = {
   reserveWood: number;
   reserveStone: number;
   reserveIron: number;
+  /**
+   * Modo percentual (Onda 5b): percentual do DISPONÍVEL de cada recurso que
+   * fica no armazém (0..90). 0/ausente = modo de reservas fixas (comportamento
+   * de sempre); > 0 substitui as reservas fixas.
+   */
+  keepPercent?: number;
   coinCost: Record<CoinResource, number>;
 };
 
@@ -42,6 +53,7 @@ export const DEFAULT_SETTINGS: CoinSettings = {
   reserveWood: 0,
   reserveStone: 0,
   reserveIron: 0,
+  keepPercent: 0,
   coinCost: { wood: 28_000, stone: 30_000, iron: 25_000 },
 };
 
@@ -81,6 +93,15 @@ const SETTINGS_FORM: SettingsField[] = [
     max: 10_000_000,
     step: 1_000,
     help: 'Ferro que fica guardado no armazém: só o excedente sobre esta reserva é usado para cunhar.',
+  },
+  {
+    key: 'keepPercent',
+    label: 'Manter % dos recursos (modo percentual)',
+    type: 'number',
+    min: 0,
+    max: 90,
+    step: 5,
+    help: 'Acima de 0, o ciclo cunha mantendo este percentual do DISPONÍVEL de cada recurso (as reservas fixas acima são ignoradas). 0 = modo de reservas fixas (comportamento de sempre).',
   },
   {
     key: 'coinCost',
@@ -174,10 +195,57 @@ export function planCoinMint(
   return planCoinMintDetails(resources, settings, pageMax).count;
 }
 
+/** Plano de cunhagem com o percentual efetivamente usado no ciclo. */
+export interface PercentMintPlan extends CoinMintPlan {
+  /** 0 = modo de reservas fixas (o comportamento de sempre). */
+  keepPercent: number;
+}
+
+/** Percentual de retenção higienizado (fora de 0..90 = 0 = modo reservas). */
+export function normalizeKeepPercent(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return 0;
+  const percent = Math.floor(value);
+  if (percent <= 0) return 0;
+  return Math.min(90, percent);
+}
+
+/**
+ * Decisão de cunhagem do ciclo (PURA, Onda 5b): keepPercent 0 = modo de
+ * reservas fixas (delega ao planCoinMintDetails de sempre — nenhum teste
+ * existente muda); keepPercent > 0 = mantém X% do DISPONÍVEL de cada recurso
+ * no armazém e cunha com o restante:
+ *   possible = min por recurso de floor(disponível × (1 − X%) / custo);
+ *   count    = min(teto por ciclo, possible, máximo da página quando informado).
+ * Gate affordable da origem (recursos cobrem 1 moeda) vale nos dois modos.
+ */
+export function decideMintWithPercent(
+  resources: Record<CoinResource, number>,
+  settings: CoinSettings,
+  pageMax?: number,
+): PercentMintPlan {
+  const keepPercent = normalizeKeepPercent(settings.keepPercent);
+  if (keepPercent === 0) return { ...planCoinMintDetails(resources, settings, pageMax), keepPercent: 0 };
+  const cost = settings.coinCost;
+  if (!RESOURCES.every((resource) => resources[resource] >= (cost[resource] ?? 0))) {
+    return { count: 0, possible: 0, keepPercent };
+  }
+  const usableFactor = 1 - keepPercent / 100;
+  const possible = Math.min(
+    ...RESOURCES.map((resource) => {
+      const resourceCost = cost[resource] ?? 0;
+      if (resourceCost <= 0) return 0;
+      return Math.floor((resources[resource] * usableFactor) / resourceCost);
+    }),
+  );
+  const capped = Math.min(settings.maxCoinsPerCycle, possible);
+  const count = pageMax !== undefined ? Math.min(capped, Math.max(0, pageMax)) : capped;
+  return { count: Math.max(0, count), possible: Math.max(0, possible), keepPercent };
+}
+
 registerTsh({
   id: 'coin-center',
   label: 'Cunhagem de moedas',
-  desc: 'Cunha moedas na Academia respeitando as reservas por recurso (máx. 1 cunhagem por ciclo).',
+  desc: 'Cunha moedas na Academia respeitando as reservas por recurso ou o percentual retido (máx. 1 cunhagem por ciclo).',
   category: 'economia',
   screen: 'snob',
   mutating: true,
@@ -191,20 +259,26 @@ registerTsh({
       stone: readPageResource('stone', document),
       iron: readPageResource('iron', document),
     };
-    const { count, possible } = planCoinMintDetails(resources, settings, readMintMax(document));
+    const { count, possible, keepPercent } = decideMintWithPercent(resources, settings, readMintMax(document));
     if (count < 1) {
       // Página informando 0 moedas (limite do jogo) com reservas sobrando é
       // bloqueio do jogo — status didático separado do "sem recursos".
       ctx.status(
         possible >= 1
-          ? `Cunhagem bloqueada pela página: 0 moedas disponíveis agora (as reservas permitiriam ${possible}).`
-          : 'Recursos insuficientes para cunhar dentro das reservas.',
+          ? `Cunhagem bloqueada pela página: 0 moedas disponíveis agora (${keepPercent > 0 ? `o modo percentual permitiria ${possible}` : `as reservas permitiriam ${possible}`}).`
+          : keepPercent > 0
+            ? `Recursos insuficientes para cunhar mantendo ${keepPercent}% de cada recurso no armazém.`
+            : 'Recursos insuficientes para cunhar dentro das reservas.',
         'info',
       );
       return;
     }
     ctx.status(
-      `Prévia: cunhar ${count} de ${possible} moeda${possible !== 1 ? 's' : ''} possível${possible !== 1 ? 'is' : ''}; ficam reservas ${reserveLabel(settings)} (custo ${costLabel(settings)} por moeda).`,
+      `Prévia: cunhar ${count} de ${possible} moeda${possible !== 1 ? 's' : ''} possível${possible !== 1 ? 'is' : ''}; ${
+        keepPercent > 0
+          ? `mantendo ${keepPercent}% de cada recurso no armazém`
+          : `ficam reservas ${reserveLabel(settings)}`
+      } (custo ${costLabel(settings)} por moeda).`,
       'info',
     );
     await mintCoins(count);

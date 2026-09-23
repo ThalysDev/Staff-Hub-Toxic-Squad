@@ -12,6 +12,13 @@
 // - F2: UM envio por ciclo — tela individual: sendScavengingSquads (API
 //   scavenge_api/send_squads com o villageId do ctx, fallback DOM do
 //   transporte); tela em massa: sendScavengingMass (gatilhos de nível).
+// - Onda 5b: REGRAS MÚLTIPLAS POR GRUPO (settings.groupRules, textarea
+//   "grupoId:duração:lote:min" por linha, parse puro fail-closed) — a aldeia
+//   atual usa a regra do grupo a que pertence (getGroupVillages em cache; a
+//   resolução do grupo vem do helper exportado pelo recruitment). Sem regra
+//   para a aldeia (ou grupo não lido) = settings atuais, com aviso. RESERVAS
+//   POR UNIDADE (settings.reserveByUnit): tropas reservadas nunca entram no
+//   lote (o excedente sobre a reserva é o disponível real da coleta).
 
 import { z } from 'zod';
 import { registerTsh, type TshAutomation, type TshCycleContext } from '../tsh-runtime';
@@ -22,6 +29,7 @@ import {
   sendScavengingSquads,
   type ScavengeDuration,
 } from '../tsh-transport';
+import { groupIdForVillage } from './recruitment';
 import type { UnitType } from '../../../ext/modules/shared/module-types';
 
 const UNIT_TYPES: readonly UnitType[] = [
@@ -46,6 +54,10 @@ const collectionSettings = z.object({
   lotMode: z.enum(['fixo', 'tudo']).default('fixo'),
   units: z.record(z.string(), z.number().int().nonnegative()).default({}),
   autoUnlock: z.boolean().default(false),
+  /** Regras por grupo: "grupoId:duração:lote:min" por linha (Onda 5b). */
+  groupRules: z.string().default(''),
+  /** Reservas por unidade (0..12 chaves): tropas que NUNCA entram no lote. */
+  reserveByUnit: z.record(z.string(), z.number().int().nonnegative()).default({}),
 });
 
 type CollectionSettings = z.infer<typeof collectionSettings>;
@@ -57,7 +69,100 @@ export const DEFAULT_SETTINGS: CollectionSettings = {
   lotMode: 'fixo',
   units: {},
   autoUnlock: false,
+  groupRules: '',
+  reserveByUnit: {},
 };
+
+// ── Regras por grupo (puras — testáveis) ────────────────────────────────────
+
+/** Lote da regra: número fixo por unidade ou 'tudo' (todas as disponíveis). */
+export type GroupRuleLot = number | 'tudo';
+
+export interface CollectionGroupRule {
+  groupId: number;
+  duration: ScavengeDuration;
+  lot: GroupRuleLot;
+  minUnits: number;
+}
+
+const DURATION_ALIASES: Readonly<Record<string, ScavengeDuration>> = {
+  pequena: 'pequena',
+  media: 'media',
+  média: 'media',
+  grande: 'grande',
+  extrema: 'extrema',
+};
+
+/**
+ * Parser PURO das regras por grupo (Onda 5b): uma regra por linha, no formato
+ * "grupoId:duração:lote:min" (ex.: "182608:grande:200:50" ou
+ * "182608:media:tudo:10"). Duração aceita pequena/média/grande/extrema
+ * (acento opcional); lote é inteiro ≥ 1 (quantidade FIXA por unidade) ou a
+ * palavra 'tudo'; min é inteiro ≥ 1. Linhas vazias são ignoradas; grupo
+ * repetido é inválido (a última regra venceria em silêncio). Qualquer linha
+ * ruim derruba o parse INTEIRO com o motivo da primeira — o chamador segue
+ * com os settings atuais (fail-closed: uma regra malformada não pode rotear a
+ * aldeia errada para uma coleta diferente).
+ */
+export function parseGroupRules(
+  text: string,
+): { ok: true; rules: CollectionGroupRule[] } | { ok: false; reason: string } {
+  const rules: CollectionGroupRule[] = [];
+  const seen = new Set<number>();
+  for (const [index, rawLine] of text.split(/\r?\n/).entries()) {
+    const line = rawLine.trim();
+    if (line === '') continue;
+    const parts = line.split(':').map((part) => part.trim());
+    const bad = (detail: string): { ok: false; reason: string } => ({
+      ok: false,
+      reason: `linha ${index + 1} ("${line}") ${detail} — use "grupoId:duração:lote:min" (ex.: 182608:grande:200:50).`,
+    });
+    if (parts.length !== 4) return bad('não tem os 4 campos');
+    const [rawGroup, rawDuration, rawLot, rawMin] = parts;
+    const groupId = Number(rawGroup);
+    if (!Number.isInteger(groupId) || groupId <= 0) return bad('tem grupo inválido');
+    const duration = DURATION_ALIASES[(rawDuration ?? '').toLowerCase()];
+    if (duration === undefined) return bad('tem duração inválida (pequena/média/grande/extrema)');
+    let lot: GroupRuleLot;
+    if ((rawLot ?? '').toLowerCase() === 'tudo') {
+      lot = 'tudo';
+    } else {
+      const parsedLot = Number(rawLot);
+      if (!Number.isInteger(parsedLot) || parsedLot < 1) return bad("tem lote inválido (inteiro ≥ 1 ou 'tudo')");
+      lot = parsedLot;
+    }
+    const minUnits = Number(rawMin);
+    if (!Number.isInteger(minUnits) || minUnits < 1) return bad('tem mínimo inválido (inteiro ≥ 1)');
+    if (seen.has(groupId)) return bad(`repete o grupo ${groupId}`);
+    seen.add(groupId);
+    rules.push({ groupId, duration, lot, minUnits });
+  }
+  return { ok: true, rules };
+}
+
+/** Regra do grupo da aldeia (null = nenhuma regra para ela). */
+export function ruleForGroup(rules: CollectionGroupRule[], groupId: number | null): CollectionGroupRule | null {
+  if (groupId === null) return null;
+  return rules.find((rule) => rule.groupId === groupId) ?? null;
+}
+
+/**
+ * Disponíveis da tela MENOS as reservas por unidade (PURA): unidade reservada
+ * nunca entra no lote (fail-closed: reserva maior que o disponível zera a
+ * unidade em vez de mandar negativo).
+ */
+export function applyUnitReserves(
+  available: Partial<Record<UnitType, number>>,
+  reserves: Record<string, number>,
+): Partial<Record<UnitType, number>> {
+  const effective: Partial<Record<UnitType, number>> = {};
+  for (const [unit, amount] of Object.entries(available)) {
+    const reserve = reserves[unit] ?? 0;
+    const usable = Math.max(0, (amount ?? 0) - Math.max(0, reserve));
+    if (usable > 0) effective[unit as UnitType] = usable;
+  }
+  return effective;
+}
 
 // ── Decisão do lote (pura — testável) ───────────────────────────────────────
 
@@ -151,6 +256,33 @@ const SETTINGS_FORM: SettingsField[] = [
       { key: 'marcher', label: 'Arq. Cavalo', min: 0, step: 100 },
       { key: 'heavy', label: 'Cav. Pesada', min: 0, step: 100 },
     ],
+  },
+  {
+    key: 'reserveByUnit',
+    label: 'Reservas por unidade (nunca entram no lote)',
+    type: 'record',
+    help: 'Quantidade de cada unidade que FICA na aldeia: o lote usa só o excedente sobre a reserva (em qualquer modo). 0 = sem reserva.',
+    recordKeys: [
+      { key: 'spear', label: 'Lança', min: 0, step: 100 },
+      { key: 'sword', label: 'Espada', min: 0, step: 100 },
+      { key: 'axe', label: 'Machado', min: 0, step: 100 },
+      { key: 'archer', label: 'Arqueiro', min: 0, step: 100 },
+      { key: 'spy', label: 'Explorador', min: 0, step: 10 },
+      { key: 'light', label: 'Cav. Leve', min: 0, step: 100 },
+      { key: 'marcher', label: 'Arq. Cavalo', min: 0, step: 100 },
+      { key: 'heavy', label: 'Cav. Pesada', min: 0, step: 100 },
+      { key: 'ram', label: 'Aríete', min: 0, step: 10 },
+      { key: 'catapult', label: 'Catapulta', min: 0, step: 10 },
+      { key: 'knight', label: 'Paladino', min: 0, step: 1 },
+      { key: 'snob', label: 'Nobre', min: 0, step: 1 },
+    ],
+  },
+  {
+    key: 'groupRules',
+    label: 'Regras por grupo (uma por linha)',
+    type: 'textarea',
+    placeholder: '182608:grande:200:50\n182622:media:tudo:10',
+    help: 'Formato "grupoId:duração:lote:min" (ex.: 182608:grande:200:50). Duração: pequena/média/grande/extrema; lote: inteiro (quantidade fixa por unidade) ou "tudo"; min: mínimo de unidades no lote. A aldeia atual usa a regra do grupo a que pertence; sem regra (ou grupo não lido) valem os campos acima. Linha inválida: nada muda (fail-closed).',
   },
 ];
 
@@ -270,19 +402,68 @@ async function runCycle(ctx: TshCycleContext): Promise<void> {
 
   const available: Partial<Record<UnitType, number>> =
     mine !== undefined ? mine.troops : readScavengeUnitsFromRows(document);
+  // Reservas por unidade (Onda 5b): o lote nunca toca as tropas reservadas.
+  const usable = applyUnitReserves(available, settings.reserveByUnit);
+
+  // Regras por grupo (Onda 5b): texto preenchido e VÁLIDO tem prioridade; a
+  // aldeia atual usa a regra do SEU grupo. Grupo não lido/não encontrado ou
+  // sem regra = settings atuais (com nota no status) — nunca filtra tudo.
+  let effective = {
+    duration: settings.duration,
+    minUnits: settings.minUnits,
+    lotMode: settings.lotMode,
+    units: settings.units,
+  };
+  let groupNote = '';
+  if (settings.groupRules.trim() !== '') {
+    const parsedRules = parseGroupRules(settings.groupRules);
+    if (!parsedRules.ok) {
+      ctx.status(
+        `Regras por grupo inválidas — nada foi feito e os campos acima seguem valendo (${parsedRules.reason}).`,
+        'warn',
+      );
+      return;
+    }
+    const groupId = await groupIdForVillage(ctx.world, ctx.villageId);
+    const rule = ruleForGroup(parsedRules.rules, groupId);
+    if (rule === null) {
+      groupNote =
+        groupId === null
+          ? ' Grupo da aldeia não identificado (leitura de grupos vazia/indisponível) — usando os campos acima.'
+          : ` Nenhuma regra para o grupo ${groupId} — usando os campos acima.`;
+    } else {
+      effective = {
+        duration: rule.duration,
+        minUnits: rule.minUnits,
+        lotMode: rule.lot === 'tudo' ? 'tudo' : 'fixo',
+        // Lote numérico vale só para as unidades DISPONÍVEIS na tela (unidade
+        // ausente não entra: sem leitura do teto o jogo receberia um lote de
+        // tropa que a aldeia não tem).
+        units:
+          rule.lot === 'tudo'
+            ? {}
+            : Object.fromEntries(
+                UNIT_TYPES.filter((unit) => (usable[unit] ?? 0) > 0).map((unit) => [unit, rule.lot as number]),
+              ),
+      };
+      groupNote = ` Regra do grupo ${groupId}: ${rule.duration}, lote ${rule.lot === 'tudo' ? 'tudo' : rule.lot}, mínimo ${rule.minUnits}.`;
+    }
+  }
+
+  // Reservas por unidade (Onda 5b): o lote nunca toca as tropas reservadas.
   // Lote efetivo (puro): 'tudo' = todas as disponíveis (original); 'fixo' =
   // lote por unidade, caindo para todas as disponíveis quando vazio (hoje).
-  const decision = decideCollectionLot(available, settings.units, {
-    lotMode: settings.lotMode,
-    minUnits: settings.minUnits,
+  const decision = decideCollectionLot(usable, effective.units, {
+    lotMode: effective.lotMode,
+    minUnits: effective.minUnits,
   });
   if (decision.kind === 'skip') {
-    ctx.status(decision.reason, 'info');
+    ctx.status(`${decision.reason}${groupNote}`, 'info');
     return;
   }
   const units = decision.units;
 
-  const duration = settings.duration as ScavengeDuration;
+  const duration = effective.duration as ScavengeDuration;
   // F2: UM envio por ciclo. Tela em massa = gatilhos de nível; individual =
   // esquadrilha da aldeia atual (API-first com o villageId do ctx).
   if (mode === 'scavenge_mass') {
@@ -291,13 +472,13 @@ async function runCycle(ctx: TshCycleContext): Promise<void> {
     await sendScavengingSquads(ctx.villageId, [{ duration, units }]);
   }
   const total = Object.values(units).reduce((sum, amount) => sum + amount, 0);
-  ctx.status(`Coleta enviada (${duration}): ${total} unidades em ${Object.keys(units).length} tipo(s).`, 'ok');
+  ctx.status(`Coleta enviada (${duration}): ${total} unidades em ${Object.keys(units).length} tipo(s).${groupNote}`, 'ok');
 }
 
 export const collectionAutomation: TshAutomation = {
   id: 'collection',
   label: 'Coleta',
-  desc: 'Envia tropas para coletar recursos (Praça → Coletar recursos): 1 envio por ciclo na duração configurada.',
+  desc: 'Envia tropas para coletar recursos (Praça → Coletar recursos): 1 envio por ciclo na duração configurada (ou na regra do grupo da aldeia).',
   category: 'producao',
   screen: 'place',
   mutating: true,

@@ -14,11 +14,22 @@
 //   ([data-building]+data-level, porta do readBuildings) e recursos da barra;
 // - F2: UMA mutação por ciclo — upgradeBuilding do primeiro item pendente da
 //   fila (respeitando as reservas de recursos configuradas).
+// - Onda 5b: VISÃO HORAS (settings.viewMode 'fila'|'horas') — o relatório de
+//   prévia passa a ordenar a fila pendente pelo tempo estimado até os recursos
+//   caberem, usando o farm (produção por hora) lido da página; sem leitura de
+//   custo/produção o item sai como "sem estimativa" (fail-closed, nada é
+//   inventado). COMPARAR PP (settings.comparePp + ppFactor) mostra o custo
+//   estimado em Pontos Premium (custo total / 1000 × fator). COLETAR QUESTS
+//   (settings.collectQuests) clica o botão canônico de recompensa de quest da
+//   tela main quando ele é inequívoco (rótulo exato + exatamente 1 candidato)
+//   — a armação do módulo é a confirmação implícita; o clique consome o F2 do
+//   ciclo (nenhuma ampliação no mesmo ciclo).
 
 import { z } from 'zod';
 import { registerTsh, type TshAutomation, type TshCycleContext } from '../tsh-runtime';
 import type { SettingsField } from '../tsh-settings';
 import { upgradeBuilding } from '../tsh-transport';
+import { awaitRoutineMutation } from '../tsh-humanize';
 import {
   decodeGcTemplate,
   GcTemplateCodecError,
@@ -154,6 +165,14 @@ const builderSettings = z
     gcTemplateImport: z.string().default(''),
     prioritiesText: z.string().default(''),
     farmPriorityThreshold: z.number().int().min(0).max(100).default(0),
+    /** Visão do relatório de prévia (Onda 5b): fila (de sempre) ou horas. */
+    viewMode: z.enum(['fila', 'horas']).default('fila'),
+    /** Coleta recompensa de quest visível na tela main (Onda 5b). */
+    collectQuests: z.boolean().default(false),
+    /** Mostra o custo estimado em PP na prévia (Onda 5b). */
+    comparePp: z.boolean().default(false),
+    /** Fator fixo de conversão recurso → PP da estimativa (Onda 5b). */
+    ppFactor: z.number().min(0).max(1000).default(30),
   })
   .superRefine((settings, context) => {
     if (settings.gcTemplateImport.trim() === '') return;
@@ -170,6 +189,10 @@ export const DEFAULT_SETTINGS: BuilderSettings = {
   gcTemplateImport: '',
   prioritiesText: '',
   farmPriorityThreshold: 0,
+  viewMode: 'fila',
+  collectQuests: false,
+  comparePp: false,
+  ppFactor: 30,
 };
 
 const SETTINGS_FORM: SettingsField[] = [
@@ -186,6 +209,37 @@ const SETTINGS_FORM: SettingsField[] = [
     type: 'textarea',
     placeholder: 'Cole aqui o template GC exportado (Base64)…',
     help: 'Se preenchido (e a fila em texto acima estiver vazia/inválida), o template define a fila de construção na ordem (igrejas são rejeitadas e o limiar de fazenda vem do próprio template).',
+  },
+  {
+    key: 'viewMode',
+    label: 'Visão do relatório',
+    type: 'select',
+    options: [
+      { value: 'fila', label: 'Fila (ordem de prioridade)' },
+      { value: 'horas', label: 'Horas (tempo estimado com o farm atual)' },
+    ],
+    help: 'A visão Horas ordena a fila pendente pelo tempo estimado até os recursos caberem, usando a produção por hora lida da página; itens sem custo/produção legível saem como "sem estimativa".',
+  },
+  {
+    key: 'collectQuests',
+    label: 'Coletar recompensas de quest',
+    type: 'boolean',
+    help: 'Ligado, clica o botão canônico "Receber recompensa" quando ele está visível na tela principal (rótulo exato e um único candidato — sem dúvida, nada é clicado). A armação do módulo é a confirmação; o clique consome o ciclo (1 mutação).',
+  },
+  {
+    key: 'comparePp',
+    label: 'Mostrar custo em PP na prévia',
+    type: 'boolean',
+    help: 'Acrescenta ao relatório o custo estimado em Pontos Premium de cada item pendente (custo total / 1000 × fator).',
+  },
+  {
+    key: 'ppFactor',
+    label: 'Fator de conversão para PP',
+    type: 'number',
+    min: 0,
+    max: 1000,
+    step: 1,
+    help: 'Fator fixo usado na estimativa de PP (padrão 30). Vale só quando "Mostrar custo em PP" está ligado.',
   },
 ];
 
@@ -213,6 +267,197 @@ function readResources(doc: Document): Record<ResourceType, number> {
 /** Fila de construção ativa (porta do readBuildQueue: #build_queue presente). */
 function hasActiveBuildQueue(doc: Document): boolean {
   return doc.querySelector('#build_queue') !== null;
+}
+
+// ── Visão Horas / comparação em PP (Onda 5b — puro e testável) ──────────────
+
+export type ProductionRates = Record<ResourceType, number>;
+
+/**
+ * Produção por hora lida da página (HEURÍSTICA tolerante e fail-closed):
+ * procura um atributo de dados por recurso e, se não houver, o "N por hora"
+ * do título/tooltip do recurso no header. Nada legível → null (o relatório
+ * diz "sem estimativa" em vez de inventar tempo).
+ */
+export function readProductionPerHour(doc: Document): ProductionRates | null {
+  const rates: ProductionRates = { wood: 0, stone: 0, iron: 0 };
+  let readable = 0;
+  for (const resource of RESOURCES) {
+    const direct = doc.querySelector<HTMLElement>(`[data-production="${resource}"], #${resource}_production`);
+    let value = parseGameInteger(direct?.getAttribute('data-production-value') ?? direct?.textContent ?? '');
+    if (value <= 0) {
+      const header = doc.querySelector<HTMLElement>(
+        `#${resource}, [data-resource="${resource}"], .resource-${resource}`,
+      );
+      const title = `${header?.getAttribute('title') ?? ''} ${header?.getAttribute('data-tooltip') ?? ''}`;
+      const match = title.match(/([\d.]+)[^\d]{0,20}por hora/i) ?? title.match(/por hora[^\d]{0,20}([\d.]+)/i);
+      if (match) value = parseGameInteger(match[1] ?? '');
+    }
+    if (value > 0) {
+      rates[resource] = value;
+      readable += 1;
+    }
+  }
+  return readable === 0 ? null : rates;
+}
+
+/**
+ * Custo por recurso do próximo nível lido da linha do edifício (HEURÍSTICA
+ * tolerante): atributos data-cost-<recurso> primeiro, depois os ícones de
+ * recurso da própria linha com o número do recipiente mais próximo (mesma
+ * técnica do custo de unidade do recrutamento). Custo ilegível = ausente.
+ */
+export function readBuildingCosts(doc: Document): Map<string, Partial<Record<ResourceType, number>>> {
+  const costs = new Map<string, Partial<Record<ResourceType, number>>>();
+  for (const row of Array.from(doc.querySelectorAll<HTMLElement>('[data-building]'))) {
+    const building = row.getAttribute('data-building');
+    if (building === null || building === '') continue;
+    const cost: Partial<Record<ResourceType, number>> = {};
+    for (const resource of RESOURCES) {
+      const fromAttribute = parseGameInteger(row.getAttribute(`data-cost-${resource}`));
+      if (fromAttribute > 0) {
+        cost[resource] = fromAttribute;
+        continue;
+      }
+      const icon = row.querySelector<HTMLImageElement>(`img[src*="${resource}"]`);
+      if (icon === null) continue;
+      const text = icon.closest('span, td')?.textContent ?? '';
+      const amount = parseGameInteger((text.match(/[\d.,]+/) ?? ['0'])[0]);
+      if (amount > 0) cost[resource] = amount;
+    }
+    if (Object.keys(cost).length > 0) costs.set(building, cost);
+  }
+  return costs;
+}
+
+/**
+ * Horas estimadas até a aldeia poder pagar o custo (PURA): máximo, por
+ * recurso, de faltante / produção por hora. Custo AUSENTE (não lido) ou
+ * produção ilegível/zerada para um recurso faltante → null (sem estimativa).
+ */
+export function estimateHoursUntilAffordable(
+  cost: Partial<Record<ResourceType, number>>,
+  resources: Record<ResourceType, number>,
+  production: ProductionRates | null,
+): number | null {
+  if (Object.keys(cost).length === 0) return null; // custo não lido
+  let hours = 0;
+  for (const resource of RESOURCES) {
+    const missing = Math.max(0, (cost[resource] ?? 0) - (resources[resource] ?? 0));
+    if (missing <= 0) continue;
+    const rate = production?.[resource] ?? 0;
+    if (rate <= 0) return null;
+    hours = Math.max(hours, missing / rate);
+  }
+  return hours;
+}
+
+/** Custo total estimado em PP: (recursos totais / 1000) × fator (PURA). */
+export function estimatePpCost(cost: Partial<Record<ResourceType, number>>, ppFactor: number): number {
+  const total = RESOURCES.reduce((sum, resource) => sum + (cost[resource] ?? 0), 0);
+  return Math.round((total / 1000) * Math.max(0, ppFactor));
+}
+
+/** Horas em pt-BR curto ("~1,2h" / "~3h" / "~45min"). */
+export function formatHours(hours: number): string {
+  if (!Number.isFinite(hours) || hours < 0) return '?';
+  if (hours < 1) return `~${Math.max(1, Math.round(hours * 60))}min`;
+  return `~${hours.toFixed(hours < 10 ? 1 : 0).replace('.', ',')}h`;
+}
+
+export interface BuilderReportInput {
+  /** Fila pendente na ordem de prioridade (só o que falta ampliar). */
+  pending: BuilderPriority[];
+  resources: Record<ResourceType, number>;
+  production: ProductionRates | null;
+  costs: ReadonlyMap<string, Partial<Record<ResourceType, number>>>;
+  viewMode: 'fila' | 'horas';
+  comparePp: boolean;
+  ppFactor: number;
+}
+
+/**
+ * Relatório de prévia do construtor (PURO): na visão 'fila' sem comparação em
+ * PP não há relatório (comportamento de sempre); 'horas' ordena a fila pelo
+ * tempo estimado até os recursos caberem (farm atual) e 'comparePp' acrescenta
+ * o custo estimado em Pontos Premium. Item sem custo/produção legível sai como
+ * "sem estimativa" — nada é inventado (fail-closed).
+ */
+export function buildBuilderQueueReport(input: BuilderReportInput): string {
+  if (input.viewMode !== 'horas' && !input.comparePp) return '';
+  const label = (item: BuilderPriority): string => `${item.building}:${item.targetLevel}`;
+  const parts: string[] = [];
+  if (input.viewMode === 'horas') {
+    if (input.production === null) {
+      parts.push(
+        `Visão Horas: produção por hora não legível — fila na ordem: ${input.pending.map(label).join(', ')}.`,
+      );
+    } else {
+      const estimated = input.pending.map((item, index) => ({
+        item,
+        index,
+        hours: estimateHoursUntilAffordable(input.costs.get(item.building) ?? {}, input.resources, input.production),
+      }));
+      const known = estimated
+        .filter((entry) => entry.hours !== null)
+        .sort((left, right) => (left.hours ?? 0) - (right.hours ?? 0) || left.index - right.index);
+      const unknown = estimated.filter((entry) => entry.hours === null);
+      const knownText = known.map((entry, position) => `${position + 1}) ${label(entry.item)} ${formatHours(entry.hours ?? 0)}`);
+      parts.push(
+        `Visão Horas (farm atual): ${knownText.length > 0 ? knownText.join('; ') : 'nenhum item com estimativa'}${
+          unknown.length > 0 ? `; sem estimativa: ${unknown.map((entry) => label(entry.item)).join(', ')}` : ''
+        }.`,
+      );
+    }
+  }
+  if (input.comparePp) {
+    const pp = input.pending.map((item) => {
+      const cost = input.costs.get(item.building);
+      if (cost === undefined || Object.keys(cost).length === 0) return `${label(item)} (custo não lido)`;
+      return `${label(item)} ~${estimatePpCost(cost, input.ppFactor).toLocaleString('pt-BR')} PP`;
+    });
+    parts.push(`Custo em PP estimado (fator ${input.ppFactor}): ${pp.join('; ')}.`);
+  }
+  return parts.join(' ');
+}
+
+// ── Quests (Onda 5b — seleção fail-closed) ─────────────────────────────────
+
+/**
+ * Rótulos aceitos do botão de recompensa de quest (o clique só acontece com
+ * rótulo EXATO — "concluir"/"aceitar" NÃO entram: poderiam fazer outra coisa).
+ */
+export const QUEST_REWARD_LABELS: readonly string[] = ['receber recompensa', 'coletar recompensa'];
+
+/** Texto normalizado (minúsculas, espaços colapsados) para comparar rótulos. */
+export function normalizeQuestLabel(text: string | null | undefined): string {
+  return (text ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** O texto é de um botão de recompensa canônico? (PURA) */
+export function isQuestRewardLabel(text: string | null | undefined): boolean {
+  return QUEST_REWARD_LABELS.includes(normalizeQuestLabel(text));
+}
+
+/**
+ * Botão canônico de recompensa de quest na tela main: precisa estar DENTRO de
+ * um contêiner de quest ([class*="quest"]) e ter rótulo exato. Zero ou mais de
+ * um candidato → null (fail-closed: nunca clica em dúvida).
+ */
+export function findQuestRewardButton(doc: Document): HTMLElement | null {
+  const controls = Array.from(
+    doc.querySelectorAll<HTMLElement>('a, button, input[type="submit"], input[type="button"]'),
+  );
+  const candidates = controls.filter((control) => {
+    const text = control instanceof HTMLInputElement ? control.value : control.textContent;
+    if (!isQuestRewardLabel(text)) return false;
+    return control.closest('[class*="quest"]') !== null;
+  });
+  if (candidates.length !== 1) return null;
+  const button = candidates[0];
+  if (button === undefined) return null;
+  if (button instanceof HTMLInputElement && button.disabled) return null;
+  return button;
 }
 
 /**
@@ -255,6 +500,24 @@ async function runCycle(ctx: TshCycleContext): Promise<void> {
     return;
   }
   const settings: BuilderSettings = parsed.data;
+
+  // Coletar quests (Onda 5b): a recompensa visível é coletada ANTES de tudo e
+  // consome o F2 do ciclo. Botão inequívoco (rótulo exato + 1 candidato) e
+  // humanização de rotina respeitada; sem candidato, segue o fluxo normal.
+  if (settings.collectQuests) {
+    const reward = findQuestRewardButton(document);
+    if (reward !== null) {
+      const liberado = await awaitRoutineMutation('construcao');
+      if (!liberado) {
+        ctx.status('Pausa de humanização ativa — a recompensa de quest foi pulada neste ciclo.', 'info');
+        return;
+      }
+      reward.click();
+      ctx.status('Recompensa de quest coletada (1 clique por ciclo; a próxima ampliação fica para o ciclo seguinte).', 'ok');
+      return;
+    }
+  }
+
   if (hasActiveBuildQueue(document)) {
     ctx.status('Já existe uma construção em andamento nesta aldeia.', 'info');
     return;
@@ -285,16 +548,33 @@ async function runCycle(ctx: TshCycleContext): Promise<void> {
     return;
   }
   const buildings = readMainBuildings(document);
-  const priority = priorities.find((candidate) => (buildings.get(candidate.building) ?? 0) < candidate.targetLevel);
-  if (priority === undefined) {
+  const pending = priorities.filter((candidate) => (buildings.get(candidate.building) ?? 0) < candidate.targetLevel);
+  if (pending.length === 0) {
     ctx.status('Nenhuma prioridade de construção está pendente.', 'info');
     return;
   }
-  const reserve = settings.reserve ?? {};
+  // Relatório de prévia (Onda 5b): visão Horas ordena por tempo estimado com o
+  // farm atual; comparePp acrescenta o custo estimado em PP. Só monta o
+  // relatório quando o usuário pediu (default = comportamento de sempre).
   const resources = readResources(document); // 1 leitura da barra (não 1 por recurso)
+  const report =
+    settings.viewMode === 'horas' || settings.comparePp
+      ? buildBuilderQueueReport({
+          pending,
+          resources,
+          production: readProductionPerHour(document),
+          costs: readBuildingCosts(document),
+          viewMode: settings.viewMode,
+          comparePp: settings.comparePp,
+          ppFactor: settings.ppFactor,
+        })
+      : '';
+  const priority = pending[0];
+  if (priority === undefined) return;
+  const reserve = settings.reserve ?? {};
   const withinReserve = RESOURCES.every((resource) => resources[resource] >= (reserve[resource] ?? 0));
   if (!withinReserve) {
-    ctx.status('Os recursos estão abaixo das reservas configuradas.', 'info');
+    ctx.status(`Os recursos estão abaixo das reservas configuradas.${report !== '' ? ` ${report}` : ''}`, 'info');
     return;
   }
   // F2: UMA mutação por ciclo — ampliação do próximo pendente da fila.
@@ -302,7 +582,7 @@ async function runCycle(ctx: TshCycleContext): Promise<void> {
   ctx.status(
     `Ampliação enviada: ${priority.building} → nível ${priority.targetLevel}${
       templateName !== undefined && templateName !== '' ? ` (template "${templateName}")` : ''
-    }.`,
+    }.${report !== '' ? ` ${report}` : ''}`,
     'ok',
   );
 }
@@ -310,7 +590,7 @@ async function runCycle(ctx: TshCycleContext): Promise<void> {
 export const megaBuilderAutomation: TshAutomation = {
   id: 'mega-builder',
   label: 'Mega Construtor',
-  desc: 'Fila de construção por texto, prioridades salvas ou template GC no Edifício Principal: amplia o próximo pendente (1 upgrade por ciclo).',
+  desc: 'Fila de construção por texto, prioridades salvas ou template GC no Edifício Principal: amplia o próximo pendente (1 upgrade por ciclo), com visão Horas e coleta de quests opcionais.',
   category: 'producao',
   screen: 'main',
   mutating: true,
