@@ -130,6 +130,11 @@ export function renderAjuda(container: HTMLElement): void {
   item(construtor.body, '**Fazenda primeiro** quando a população livre cai abaixo do limite; **armazém primeiro** quando ele está cheio ou pequeno demais para o próximo custo. Recusa do jogo aparece no status e aquele item espera 30 min; nada é repetido às cegas.');
   grid.appendChild(construtor.box);
 
+  const cunhagem = card('Cunhagem', 'coins');
+  item(cunhagem.body, '**Cunhagem nativa (principal):** mantém ligada a **Criação automática** da Academia — a sessão de 8h do próprio jogo, que cunha sozinha sempre que a aldeia junta o custo, mesmo com o navegador fechado. O script religa a sessão assim que ela acaba. Escolha as aldeias por **coordenadas**, por **grupo** ou **todas com Academia**.');
+  item(cunhagem.body, '**Cunhagem em massa:** cunha de uma vez em todas as aldeias pela "Cunhar moedas de ouro" do jogo (Conta Premium), deixando em casa uma **reserva fixa** ou um **% do armazém**. O jogo confirma quantas moedas saíram em cada aldeia. Por padrão ela pula as aldeias que já estão com a cunhagem nativa ligada.');
+  grid.appendChild(cunhagem.box);
+
   const farm = card('Central de Farm', 'sword');
   item(farm.body, '**Script de página:** com o Auto Farm ligado, a Central aparece no topo do **Assistente de Saque** (botão "Acessar página" no painel). Aperte **Iniciar**: ela farma de todas as aldeias enquanto a aba estiver aberta, e continua sozinha se a página recarregar.');
   item(farm.body, '**Uma rodada:** lê a lista do Assistente uma vez, as tropas em casa de todas as aldeias e os ataques já a caminho; cada alvo vai para a **sua aldeia mais próxima** que tem a tropa, e o mesmo alvo não recebe dois farms chegando juntos.');

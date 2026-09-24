@@ -862,6 +862,23 @@ export async function upgradeBuildingApi(villageId: string, building: string, op
   throw transportError(result.error, 'GAME_REFUSED');
 }
 
+/**
+ * Cunhagem em massa (v3.10.0): o mesmo pedido do botão "Cunhar moedas de ouro"
+ * da tela snob&mode=coin (verificado no BR142: ajaxaction=coin_multi,
+ * villages[<id>]=<qtd>). Devolve o que o JOGO diz ter cunhado por aldeia.
+ */
+export async function mintCoinsMultiApi(villages: Record<string, number>): Promise<unknown> {
+  await gateRoutine('cunhagem');
+  const data: Record<string, string> = {};
+  for (const [id, n] of Object.entries(villages)) data[`villages[${normalizeVillageId(id)}]`] = String(Math.max(1, Math.floor(n)));
+  const result = await enqueue(() => callGameAction('snob', 'coin_multi', data, GAME_API_TIMEOUT_MS * 2));
+  if (result.ok) return result.response;
+  if (result.afterMutation) throw transportError(`Cunhagem inconclusiva: ${result.error}`, 'RESULT_UNCERTAIN', true);
+  if (result.code === 'anti-bot') throw transportError(result.error, 'CAPTCHA_DETECTED');
+  if (result.code === 'indisponivel' || result.code === 'lancou') throw transportError(`Cunhagem não enviada: ${result.error}`, 'GATEWAY_UNAVAILABLE');
+  throw transportError(result.error, 'GAME_REFUSED');
+}
+
 export interface SendResourcesPayload {
   wood: number;
   stone: number;

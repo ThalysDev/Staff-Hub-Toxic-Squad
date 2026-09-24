@@ -20,6 +20,7 @@
 // a página expôs" + o status claro quando a página não expõe nada.
 
 import { enqueue } from '../../../core/net';
+import { tripHalt } from '../../../core/halt';
 import { currentCsrf } from '../../vanta/vanta-net';
 
 export interface GameFormPostResult {
@@ -41,10 +42,14 @@ export function rootedActionPath(action: string): string {
 function challengeMessage(body: string): string | null {
   const head = body.slice(0, 4000).toLowerCase();
   if (head.includes('name="password"') || head.includes('id="login"')) {
-    return 'A sessão do jogo precisa ser atualizada manualmente — a ação não foi confirmada.';
+    const msg = 'A sessão do jogo precisa ser atualizada manualmente — a ação não foi confirmada.';
+    tripHalt('sessao', msg);
+    return msg;
   }
   if (head.includes('captcha')) {
-    return 'Captcha detectado na resposta do jogo — a automação foi pausada para intervenção manual.';
+    const msg = 'Captcha detectado na resposta do jogo — a automação foi pausada para intervenção manual.';
+    tripHalt('captcha', msg);
+    return msg;
   }
   return null;
 }
