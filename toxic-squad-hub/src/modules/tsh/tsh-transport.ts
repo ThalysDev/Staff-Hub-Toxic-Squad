@@ -22,8 +22,10 @@
 //   submit DOM que navega) é enfileirado individualmente.
 
 import { enqueue, enqueueUrgent, pacedGet } from '../../core/net';
+import { pageShowsBotProtection, tripHalt } from '../../core/halt';
 import { pageWindow } from '../../core/page';
-import { currentCsrf, currentVillageId } from '../vanta/vanta-net';
+import { callGameAction, type GatewayFailure } from '../../core/game-gateway';
+import { currentVillageId } from '../vanta/vanta-net';
 import { awaitRoutineMutation } from './tsh-humanize';
 import type { TimingLane } from '../../ext/core/humanize/humanize-policy';
 
@@ -127,7 +129,7 @@ export function flattenGameApiBody(body: Record<string, unknown>, prefix = ''): 
 
 export type GameApiResult =
   | { ok: true; result: unknown }
-  | { ok: false; error: string; afterMutation: boolean };
+  | { ok: false; error: string; afterMutation: boolean; code: GatewayFailure };
 
 /**
  * POST numa API interna do jogo via TribalWars.post (gateway da página),
@@ -137,59 +139,19 @@ export type GameApiResult =
  * afterMutation (inconclusivo). Desvio: todos os campos vão no corpo do POST
  * (o gateway do userscript recebe um único payload; o jogo lê via $_REQUEST).
  */
-async function postGameApi(screen: string, action: string, body: Record<string, unknown>): Promise<GameApiResult> {
-  const params = new URLSearchParams({ ...flattenGameApiBody(body), h: currentCsrf() });
-  return enqueue(
-    () =>
-      new Promise<GameApiResult>((resolve) => {
-        const gateway = pageWindow().TribalWars;
-        if (typeof gateway?.post !== 'function') {
-          resolve({
-            ok: false,
-            error: 'O gateway do jogo (TribalWars.post) não está disponível nesta página.',
-            afterMutation: false,
-          });
-          return;
-        }
-        let settled = false;
-        // Timeout após o dispatch: o POST pode ter chegado ao jogo — tratar
-        // como mutação inconclusiva, nunca como "não aconteceu" (origem game-api.ts).
-        const timer = setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          resolve({ ok: false, error: 'Tempo esgotado aguardando a resposta da API do jogo.', afterMutation: true });
-        }, GAME_API_TIMEOUT_MS);
-        try {
-          void gateway.post(screen, action, params).then(
-            (result: unknown) => {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timer);
-              resolve({ ok: true, result });
-            },
-            (error: unknown) => {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timer);
-              resolve({
-                ok: false,
-                error: error instanceof Error ? error.message : 'A API do jogo recusou a operação.',
-                afterMutation: true,
-              });
-            },
-          );
-        } catch (error) {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          resolve({
-            ok: false,
-            error: error instanceof Error ? error.message : 'Falha ao chamar a API do jogo.',
-            afterMutation: true,
-          });
-        }
-      }),
-  );
+async function postGameApi(
+  screen: string,
+  action: string,
+  body: Record<string, unknown>,
+  opts?: { village?: string },
+): Promise<GameApiResult> {
+  // v3.6.0: gateway correto (ação em objeto, resultado por callbacks) — ver core/game-gateway.
+  return enqueue(async () => {
+    const result = await callGameAction(screen, action, flattenGameApiBody(body), GAME_API_TIMEOUT_MS * 2, opts);
+    return result.ok
+      ? { ok: true, result: result.response }
+      : { ok: false, error: result.error, afterMutation: result.afterMutation, code: result.code };
+  });
 }
 
 /** Soneca efêmera DENTRO da promise da chamada (sempre sob um deadline). */
@@ -208,12 +170,20 @@ async function pollUntil<T>(probe: () => T | null, timeoutMs: number): Promise<T
   }
 }
 
-function isChallengePage(doc: Document): boolean {
-  const body = doc.body?.textContent?.toLocaleLowerCase('pt-BR') || '';
+/** Marca ESTRUTURAL do desafio (id/classe/iframe) — é o que abre o disjuntor. */
+function hasChallengeMarkup(doc: Document): boolean {
   return (
-    Boolean(doc.querySelector('[id*="captcha"], [class*="captcha"], iframe[src*="captcha"]')) ||
-    body.includes('captcha')
+    pageShowsBotProtection(doc) || Boolean(doc.querySelector('[class*="captcha"]'))
   );
+}
+
+/**
+ * "captcha" só no TEXTO (sem marca estrutural): pode ser o nome de uma aldeia
+ * no destino/lista — falha só este envio, sem pausar o script inteiro
+ * (revisão de código da Onda 1, P1).
+ */
+function mentionsCaptcha(doc: Document): boolean {
+  return (doc.body?.textContent?.toLocaleLowerCase('pt-BR') ?? '').includes('captcha');
 }
 
 function isSessionPage(doc: Document): boolean {
@@ -222,10 +192,17 @@ function isSessionPage(doc: Document): boolean {
 
 /** Gates de página da origem (assertMutable, sem o flag "armed" — transporte stateless). */
 function assertMutablePage(doc: Document): void {
-  if (isChallengePage(doc))
+  if (hasChallengeMarkup(doc)) {
+    tripHalt('captcha', 'A página do jogo mostrou o desafio anti-bot antes de um envio.');
     throw transportError('Captcha detectado; a automação foi pausada para intervenção manual.', 'CAPTCHA_DETECTED');
-  if (isSessionPage(doc))
+  }
+  if (mentionsCaptcha(doc)) {
+    throw transportError('A página cita "captcha" — por segurança este envio não foi feito. Confira a tela no jogo.', 'CAPTCHA_DETECTED');
+  }
+  if (isSessionPage(doc)) {
+    tripHalt('sessao', 'A página do jogo pediu login antes de um envio.');
     throw transportError('A sessão do Tribal Wars precisa ser atualizada manualmente.', 'SESSION_REQUIRED');
+  }
 }
 
 function fillFormFields(form: HTMLFormElement, fields: Record<string, number | string>): void {
@@ -349,7 +326,7 @@ function clickConfirmSend(form: HTMLFormElement): void {
   send.click();
 }
 
-type ConfirmMatch = 'match' | 'mismatch' | 'unknown';
+export type ConfirmMatch = 'match' | 'mismatch' | 'unknown';
 
 /**
  * P1-2 da revisão: o alvo de edifício da Praça é `select[name="building"]`
@@ -562,6 +539,249 @@ export async function submitCommand2Step(
 }
 
 /**
+ * PRÉ-ARME do cravado (Onda A — regra de ouro): executa SÓ o passo 1 (preencher
+ * e submeter a Praça — nenhuma tropa sai) alguns segundos ANTES do horário,
+ * para que o clique final (passo 2) aconteça no ms planejado na tela de
+ * confirmação. Fluxo normal do jogo: a submissão NAVEGA e este contexto morre
+ * — a página nova (tela de confirmação) retoma pelo ciclo de boot do agendador.
+ * Se a confirmação aparecer NESTE contexto (variante AJAX), devolve true e o
+ * chamador mira/clica aqui mesmo. Tela da Praça ausente/alterada → erro
+ * PAGE_SELECTOR_CHANGED (nada foi submetido).
+ */
+export async function prearmCommandStep1(
+  target: string,
+  units: Record<string, number>,
+  opts: CommandOptions,
+  /** Chamado DENTRO do slot urgente, imediatamente antes do submit (marcadores/lock). */
+  beforeSubmit?: () => void,
+): Promise<boolean> {
+  // Regra de ouro: fakes (faixa humanizada) respeitam a política ANTES do
+  // passo 1; cravados (precisão) nunca esperam.
+  if ((opts.lane ?? 'precisao') === 'humanizado') {
+    const liberado = await awaitRoutineMutation('fake');
+    if (!liberado) {
+      throw transportError('Pausa de humanização ativa — comando humanizado pulado.', 'HUMANIZE_PAUSE');
+    }
+  }
+  const coords = parseCommandTarget(target);
+  if (findCommandConfirmForm() !== null) return true; // já na confirmação
+  const form = document.querySelector<HTMLFormElement>(
+    '#command-data-form, form[action*="screen=place"][action*="try=confirm"]',
+  );
+  if (form === null)
+    throw transportError('O formulário canônico da Praça de Reunião não foi encontrado.', 'PAGE_SELECTOR_CHANGED');
+  const submitter = form.querySelector<HTMLElement>(
+    opts.attack ? 'input[name="attack"], input#target_attack' : 'input[name="support"], input#target_support',
+  );
+  if (submitter === null) {
+    throw transportError(
+      `O botão canônico de ${opts.attack ? 'ataque' : 'apoio'} (#target_${opts.attack ? 'attack' : 'support'}) não foi encontrado na Praça de Reunião.`,
+      'PAGE_SELECTOR_CHANGED',
+    );
+  }
+  const fields: Record<string, number> = { x: coords.x, y: coords.y };
+  for (const [unit, amount] of Object.entries(units)) fields[unit] = integerAmount(amount);
+  const catapultSelect = requireCatapultTargetSelect(form, opts.catapultTarget, units);
+  const catapultTarget = opts.catapultTarget ?? '';
+  // Passo 1 pela fila urgente (faixa de precisão — nunca espera a normal).
+  await enqueueUrgent(async () => {
+    assertMutablePage(document);
+    if (catapultSelect !== null) setCatapultTarget(catapultSelect, catapultTarget);
+    fillFormFields(form, fields);
+    beforeSubmit?.();
+    form.requestSubmit(submitter);
+  });
+  const reached = await pollUntil(() => (findCommandConfirmForm() === null ? null : true), COMMAND_CONFIRM_TIMEOUT_MS);
+  return reached === true;
+}
+
+/** A tela de confirmação aberta casa com o comando? 'absent' = não há confirmação nesta página. */
+export function commandConfirmScreenState(
+  target: string,
+  units: Record<string, number>,
+  opts: CommandOptions,
+): ConfirmMatch | 'absent' {
+  const form = findCommandConfirmForm();
+  if (form === null) return 'absent';
+  return matchConfirmScreen(form, parseCommandTarget(target), units, opts);
+}
+
+// ── Onda E: TREM NATIVO do jogo (tela de confirmação) ────────────────────────
+// Estrutura lida da tela real (br142, 23/09/2026): tabela #place_confirm_units
+// com linhas tr.units-row ("Ataque #1" = o comando base, sem inputs; os
+// adicionais têm input[type=number][data-unit][name="train[N][unidade]"]);
+// o botão a#troop_confirm_train chama Place.confirmScreen.addAdditionalAttack
+// (máximo 5 ataques no total) e o jogo valida com validateTrainRows().
+
+const TRAIN_UNIT_ORDER = ['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob'] as const;
+
+interface ConfirmScreenApi {
+  addAdditionalAttack?: () => void;
+  validateTrainRows?: () => { error_count?: number; has_fake_violation?: boolean; has_unprotected_snob?: boolean };
+}
+
+function confirmScreenApi(): ConfirmScreenApi | null {
+  const place = (pageWindow() as { Place?: { confirmScreen?: ConfirmScreenApi } }).Place;
+  return place?.confirmScreen ?? null;
+}
+
+/** Linhas de ataque ADICIONAL visíveis (sem a do Ataque #1), na ordem da tela. */
+function additionalTrainRows(): HTMLTableRowElement[] {
+  const rows = Array.from(document.querySelectorAll<HTMLTableRowElement>('#place_confirm_units tr.units-row'));
+  return rows.filter((row) => row.querySelector('input[name^="train["]') !== null);
+}
+
+/** Tropas de uma linha adicional (vazio = 0), por data-unit. */
+function readTrainRow(row: HTMLTableRowElement): Record<string, number> {
+  const units: Record<string, number> = {};
+  for (const input of Array.from(row.querySelectorAll<HTMLInputElement>('input[name^="train["]'))) {
+    const unit = input.dataset.unit ?? /\]\[(\w+)\]$/.exec(input.name)?.[1] ?? '';
+    const amount = Number.parseInt(input.value, 10);
+    if (unit !== '' && Number.isFinite(amount) && amount > 0) units[unit] = amount;
+  }
+  return units;
+}
+
+/** Linhas adicionais preenchidas na tela (o que o jogo vai enviar além do #1). */
+export function readNativeTrainFromScreen(): Record<string, number>[] {
+  return additionalTrainRows()
+    .map(readTrainRow)
+    .filter((units) => Object.keys(units).length > 0);
+}
+
+function sameUnits(a: Partial<Record<string, number>>, b: Partial<Record<string, number>>): boolean {
+  for (const unit of TRAIN_UNIT_ORDER) {
+    if ((a[unit] ?? 0) !== (b[unit] ?? 0)) return false;
+  }
+  return true;
+}
+
+/** A tela tem EXATAMENTE os ataques adicionais pedidos (mesma ordem e tropas)? */
+export function nativeTrainMatches(rows: ReadonlyArray<Partial<Record<string, number>>>): boolean {
+  const onScreen = additionalTrainRows().map(readTrainRow);
+  if (onScreen.length !== rows.length) return false;
+  return rows.every((row, index) => sameUnits(row, onScreen[index] ?? {}));
+}
+
+/**
+ * Monta o trem nativo na tela de confirmação ANTES da mira: adiciona as
+ * linhas pelo próprio jogo, preenche cada unidade (0 = vazio) disparando os
+ * eventos que o jogo escuta, confere tudo e pede a validação do jogo.
+ * Fail-closed: tela com linhas adicionais que NÃO são as pedidas (o jogador
+ * mexeu) não é alterada; seletor ausente → PAGE_SELECTOR_CHANGED.
+ */
+export async function prepareNativeTrain(rows: ReadonlyArray<Partial<Record<string, number>>>): Promise<void> {
+  if (findCommandConfirmForm() === null)
+    throw transportError('A tela de confirmação não está aberta — o trem não pode ser montado.', 'CONFIRM_SCREEN_NOT_REACHED');
+  if (nativeTrainMatches(rows)) return; // já montado (ex.: pelo próprio jogador no "Cravar daqui")
+  const existing = additionalTrainRows();
+  if (existing.length > rows.length)
+    throw transportError(
+      `A tela tem ${existing.length} ataques adicionais e o trem agendado tem ${rows.length} — remova as linhas a mais.`,
+      'PLAN_INVALID',
+    );
+  const preenchidas = existing.filter((row) => Object.keys(readTrainRow(row)).length > 0);
+  if (preenchidas.length > 0)
+    throw transportError(
+      'A tela já tem ataques adicionais diferentes do trem agendado — nada foi alterado. Confira a tela ou reagende.',
+      'RESULT_UNCERTAIN',
+    );
+  const api = confirmScreenApi();
+  const addButton = document.querySelector<HTMLElement>('#troop_confirm_train');
+  if (api?.addAdditionalAttack === undefined && addButton === null)
+    throw transportError('O botão "Adicionar ataque adicional" do jogo não foi encontrado.', 'PAGE_SELECTOR_CHANGED');
+  while (additionalTrainRows().length < rows.length) {
+    const before = additionalTrainRows().length;
+    if (api?.addAdditionalAttack !== undefined) api.addAdditionalAttack();
+    else addButton?.click();
+    const grew = await pollUntil(() => (additionalTrainRows().length > before ? true : null), 2_000);
+    if (grew !== true)
+      throw transportError('O jogo não criou a linha do ataque adicional (limite de 5 ataques?).', 'PAGE_SELECTOR_CHANGED');
+  }
+  const screenRows = additionalTrainRows();
+  rows.forEach((wanted, index) => {
+    const row = screenRows[index];
+    if (row === undefined) return;
+    for (const unit of TRAIN_UNIT_ORDER) {
+      const input = row.querySelector<HTMLInputElement>(`input[data-unit="${unit}"], input[name$="[${unit}]"]`);
+      const amount = wanted[unit] ?? 0;
+      if (input === null) {
+        if (amount > 0)
+          throw transportError(`Campo de "${unit}" do ataque adicional não encontrado na tela.`, 'PAGE_SELECTOR_CHANGED');
+        continue;
+      }
+      // Setter NATIVO + eventos que o jogo escuta (input/change/keyup).
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      if (setter !== undefined) setter.call(input, amount > 0 ? String(amount) : '');
+      else input.value = amount > 0 ? String(amount) : '';
+      for (const type of ['input', 'change', 'keyup']) input.dispatchEvent(new Event(type, { bubbles: true }));
+    }
+  });
+  if (!nativeTrainMatches(rows))
+    throw transportError('Os ataques adicionais não ficaram como o planejado — nada foi confirmado.', 'PAGE_SELECTOR_CHANGED');
+  if (api?.validateTrainRows === undefined)
+    throw transportError('A validação do trem do jogo não foi encontrada — nada foi confirmado.', 'PAGE_SELECTOR_CHANGED');
+  const verdict = api.validateTrainRows();
+  if (verdict.has_unprotected_snob === true)
+    throw transportError(
+      'O jogo avisa nobre sem escolta no trem (pediria confirmação extra) — adicione escolta em cada ataque.',
+      'PLAN_INVALID',
+    );
+  if ((verdict.error_count ?? 0) > 0) {
+    throw transportError(
+      verdict.has_fake_violation === true
+        ? 'O jogo recusou o trem: um ataque adicional fica abaixo do limite de fakes.'
+        : 'O jogo recusou o trem: há ataque adicional vazio ou inválido.',
+      'PLAN_INVALID',
+    );
+  }
+}
+
+/**
+ * Clique FINAL do cravado (passo 2), SÍNCRONO — chamado no instante exato pela
+ * mira de precisão. Sem fila nem await: nada entre o fim da espera e o clique.
+ * Fail-closed: re-lê a tela e passa o matcher (tipo/alvo/tropas/catapulta)
+ * imediatamente antes; qualquer divergência lança SEM clicar.
+ */
+/**
+ * Gate de página (captcha/sessão) da tela de confirmação — CARO (varre o
+ * texto do documento). O agendador chama ANTES da mira; o clique em si
+ * (`clickCommandConfirmNow` com `prechecked`) não repete a varredura.
+ */
+export function assertCommandPageSafe(): void {
+  assertMutablePage(document);
+}
+
+export function clickCommandConfirmNow(
+  target: string,
+  units: Record<string, number>,
+  opts: CommandOptions,
+  train?: ReadonlyArray<Partial<Record<string, number>>>,
+  prechecked = false,
+): void {
+  if (!prechecked) assertMutablePage(document);
+  // Trem nativo: a tela precisa ter EXATAMENTE os adicionais planejados — e
+  // sem trem, nenhum adicional preenchido (senão o jogo mandaria a mais).
+  if (!nativeTrainMatches(train ?? []))
+    throw transportError(
+      'Os ataques adicionais da tela não batem com o comando agendado — nada foi confirmado.',
+      'RESULT_UNCERTAIN',
+    );
+  const current = findCommandConfirmForm();
+  if (current === null)
+    throw transportError(
+      'A tela de confirmação do comando desapareceu antes do clique final — nada foi confirmado.',
+      'CONFIRM_SCREEN_NOT_REACHED',
+    );
+  if (matchConfirmScreen(current, parseCommandTarget(target), units, opts) !== 'match')
+    throw transportError(
+      'A tela de confirmação atual não corresponde ao comando pedido (tipo, alvo ou tropas) — nada foi confirmado.',
+      'RESULT_UNCERTAIN',
+    );
+  clickConfirmSend(current);
+}
+
+/**
  * Recrutamento (origem page-transport.ts ~226-245): #train_form +
  * input[name=<unidade>] (só unidades PESQUISADAS aparecem — input ausente
  * falha fechado) + requestSubmit. Generalização da origem (uma unidade por
@@ -619,6 +839,71 @@ export async function upgradeBuilding(buildingId: string): Promise<void> {
   });
 }
 
+/**
+ * Ampliação pelo MESMO pedido do botão "Nível N" do Edifício principal
+ * (BuildingMain.build, verificado no BR142): screen=main&ajaxaction=
+ * upgrade_building com {id, force: 1, destroy: 0, source} e a aldeia na URL.
+ * Uma chamada = uma ampliação. Recusa do jogo (recursos, fila cheia…) =
+ * GAME_REFUSED com a mensagem dele; dúvida = RESULT_UNCERTAIN (sem repetir).
+ */
+export async function upgradeBuildingApi(villageId: string, building: string, opts?: { cheap?: boolean }): Promise<void> {
+  await gateRoutine('construcao');
+  const village = normalizeVillageId(villageId);
+  const result = await enqueue(() =>
+    callGameAction('main', 'upgrade_building', { id: building, force: '1', destroy: '0', source: village, ...(opts?.cheap === true ? { cheap: '1' } : {}) }, GAME_API_TIMEOUT_MS * 2, {
+      village,
+      params: { type: building },
+    }),
+  );
+  if (result.ok) return;
+  if (result.afterMutation) throw transportError(`Construção inconclusiva: ${result.error}`, 'RESULT_UNCERTAIN', true);
+  if (result.code === 'anti-bot') throw transportError(result.error, 'CAPTCHA_DETECTED');
+  if (result.code === 'indisponivel' || result.code === 'lancou') throw transportError(`Construção não enviada: ${result.error}`, 'GATEWAY_UNAVAILABLE');
+  throw transportError(result.error, 'GAME_REFUSED');
+}
+
+/**
+ * Cunhagem em massa (v3.10.0): o mesmo pedido do botão "Cunhar moedas de ouro"
+ * da tela snob&mode=coin (verificado no BR142: ajaxaction=coin_multi,
+ * villages[<id>]=<qtd>). Devolve o que o JOGO diz ter cunhado por aldeia.
+ */
+export async function mintCoinsMultiApi(villages: Record<string, number>): Promise<unknown> {
+  await gateRoutine('cunhagem');
+  const data: Record<string, string> = {};
+  for (const [id, n] of Object.entries(villages)) data[`villages[${normalizeVillageId(id)}]`] = String(Math.max(1, Math.floor(n)));
+  const result = await enqueue(() => callGameAction('snob', 'coin_multi', data, GAME_API_TIMEOUT_MS * 2));
+  if (result.ok) return result.response;
+  if (result.afterMutation) throw transportError(`Cunhagem inconclusiva: ${result.error}`, 'RESULT_UNCERTAIN', true);
+  if (result.code === 'anti-bot') throw transportError(result.error, 'CAPTCHA_DETECTED');
+  if (result.code === 'indisponivel' || result.code === 'lancou') throw transportError(`Cunhagem não enviada: ${result.error}`, 'GATEWAY_UNAVAILABLE');
+  throw transportError(result.error, 'GAME_REFUSED');
+}
+
+/**
+ * "Pedido" do Mercado (v3.11.0, verificado no BR142 com ação real): a aldeia
+ * DESTINO pede de várias origens num POST só — market&ajaxaction=call com
+ * resource[<origem>][<recurso>]. Devolve a resposta do jogo (success +
+ * transport_info por origem) para o chamador confirmar.
+ */
+export async function requestResourcesApi(
+  targetId: string,
+  origins: readonly { from: string; res: { wood: number; stone: number; iron: number } }[],
+): Promise<unknown> {
+  await gateRoutine('mercado');
+  const target = normalizeVillageId(targetId);
+  const data: Record<string, string> = {};
+  for (const o of origins) {
+    const from = normalizeVillageId(o.from);
+    for (const k of ['wood', 'stone', 'iron'] as const) data[`resource[${from}][${k}]`] = String(Math.max(0, Math.floor(o.res[k])));
+  }
+  const result = await enqueue(() => callGameAction('market', 'call', data, GAME_API_TIMEOUT_MS * 2, { village: target }));
+  if (result.ok) return result.response;
+  if (result.afterMutation) throw transportError(`Pedido de recursos inconclusivo: ${result.error}`, 'RESULT_UNCERTAIN', true);
+  if (result.code === 'anti-bot') throw transportError(result.error, 'CAPTCHA_DETECTED');
+  if (result.code === 'indisponivel' || result.code === 'lancou') throw transportError(`Pedido não enviado: ${result.error}`, 'GATEWAY_UNAVAILABLE');
+  throw transportError(result.error, 'GAME_REFUSED');
+}
+
 export interface SendResourcesPayload {
   wood: number;
   stone: number;
@@ -642,13 +927,19 @@ export async function sendResources(villageId: string, payload: SendResourcesPay
   const sourceId = normalizeVillageId(villageId) || normalizeVillageId(currentVillageId());
   const receiverId = typeof payload.receiverId === 'string' ? normalizeVillageId(payload.receiverId) : '';
   if (receiverId !== '') {
-    const api = await postGameApi('market', 'map_send', {
-      village: sourceId,
-      target_id: receiverId,
-      wood: integerAmount(payload.wood),
-      stone: integerAmount(payload.stone),
-      iron: integerAmount(payload.iron),
-    });
+    // v3.6.0: a aldeia de ORIGEM vai na URL (params.village do buildURL do
+    // jogo), como a própria tela do Mercado faz — no corpo ela era ignorada.
+    const api = await postGameApi(
+      'market',
+      'map_send',
+      {
+        target_id: receiverId,
+        wood: integerAmount(payload.wood),
+        stone: integerAmount(payload.stone),
+        iron: integerAmount(payload.iron),
+      },
+      { village: sourceId },
+    );
     if (api.ok) return;
     if (api.afterMutation)
       throw transportError(
@@ -656,6 +947,9 @@ export async function sendResources(villageId: string, payload: SendResourcesPay
         'RESULT_UNCERTAIN',
         true,
       );
+    // Recusa do PRÓPRIO jogo (sem mercadores, recursos…): o formulário recusaria
+    // igual — e seria uma 2ª mutação no ciclo. Plano B só sem o gateway.
+    if (api.code !== 'indisponivel') throw transportError(`O jogo recusou o envio: ${api.error}`, 'GAME_REFUSED');
   }
   await enqueue(async () => {
     assertMutablePage(document);
@@ -703,6 +997,101 @@ function sanitizedUnitCounts(units: Record<string, number>): Record<string, numb
  * registra o valor no change) + gatilho <a> com o rótulo do botão-oculto
  * .free_send_button ("Começar") da opção — uma esquadrilha por tela.
  */
+/** Erros por grupo na resposta do send_squads (vazio = todos aceitos). Puro. */
+export function scavengeSquadErrors(response: unknown): string[] {
+  const list = (response as { squad_responses?: unknown } | null)?.squad_responses;
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((r): r is { success?: unknown; error?: unknown } => typeof r === 'object' && r !== null)
+    .filter((r) => r.success === false)
+    .map((r) => (typeof r.error === 'string' && r.error !== '' ? r.error.replace(/<[^>]+>/g, '') : 'grupo recusado'));
+}
+
+/**
+ * Farm pelo Assistente de Saque (v3.7.0) — o MESMO pedido dos botões A/B/C
+ * da tela do jogo (Accountmanager.farm.sendUnits / sendUnitsFromReport):
+ * screen=am_farm&mode=farm&ajaxaction=farm|farm_from_report&json=1, com a
+ * aldeia de origem na URL. Uma chamada = um ataque. Nunca repete: recusa do
+ * jogo vira GAME_REFUSED (com a mensagem dele), dúvida vira RESULT_UNCERTAIN.
+ * Devolve as tropas que o jogo diz que ficaram em casa (quando ele manda).
+ */
+export async function sendFarmAttack(
+  sourceId: string,
+  send: { kind: 'template'; targetId: string; templateId: string } | { kind: 'report'; reportId: string },
+): Promise<{ currentUnits: Record<string, number> | null }> {
+  const source = normalizeVillageId(sourceId);
+  const action = send.kind === 'template' ? 'farm' : 'farm_from_report';
+  const data: Record<string, string> =
+    send.kind === 'template'
+      ? { target: send.targetId, template_id: send.templateId, source }
+      : { report_id: send.reportId };
+  const result = await enqueue(() =>
+    callGameAction('am_farm', action, data, GAME_API_TIMEOUT_MS * 2, { village: source, params: { mode: 'farm', json: '1' } }),
+  );
+  if (!result.ok) {
+    if (result.afterMutation) throw transportError(`Farm inconclusivo: ${result.error}`, 'RESULT_UNCERTAIN', true);
+    if (result.code === 'indisponivel' || result.code === 'lancou') throw transportError(`Farm não enviado: ${result.error}`, 'GATEWAY_UNAVAILABLE');
+    throw transportError(result.code === 'recusado' ? result.error : `Farm não enviado: ${result.error}`, 'GAME_REFUSED');
+  }
+  const raw = (result.response as { current_units?: unknown } | null)?.current_units;
+  if (raw === null || typeof raw !== 'object') return { currentUnits: null };
+  const currentUnits: Record<string, number> = {};
+  for (const [u, v] of Object.entries(raw as Record<string, unknown>)) {
+    const n = Number(v);
+    if (Number.isFinite(n)) currentUnits[u] = n;
+  }
+  return { currentUnits };
+}
+
+/** Grupo de coleta de QUALQUER aldeia (coleta em 2º plano, v3.6.0). */
+export interface ScavengeBatchRequest {
+  villageId: string;
+  levelId: number;
+  units: Record<string, number>;
+}
+
+/** Até 50 grupos por pedido (mesmo teto da tela Coleta em massa do jogo). */
+export const SCAVENGE_BATCH_MAX = 50;
+
+/**
+ * Coleta em 2º plano (v3.6.0): UM pedido scavenge_api/send_squads com grupos
+ * de várias aldeias — é exatamente o que a tela "Coleta em massa" do jogo
+ * faz. Sem tela, sem plano B via DOM. Devolve quantos grupos o jogo aceitou e
+ * as recusas (mensagem do jogo). Recusa total = erro GAME_REFUSED.
+ */
+export async function sendScavengeBatch(requests: readonly ScavengeBatchRequest[]): Promise<{ accepted: number; refused: string[] }> {
+  await gateRoutine('coleta');
+  if (requests.length === 0) throw transportError('Nenhum grupo de coleta foi informado.', 'PLAN_INVALID');
+  if (requests.length > SCAVENGE_BATCH_MAX) throw transportError(`No máximo ${SCAVENGE_BATCH_MAX} grupos por envio.`, 'PLAN_INVALID');
+  const api = await postGameApi('scavenge_api', 'send_squads', {
+    squad_requests: requests.map((r) => ({
+      village_id: normalizeVillageId(r.villageId),
+      candidate_squad: { unit_counts: sanitizedUnitCounts(r.units), carry_max: 9_999_999_999 },
+      option_id: r.levelId,
+      use_premium: false,
+    })),
+  });
+  if (!api.ok) {
+    if (api.afterMutation) {
+      throw transportError(`Coleta inconclusiva: ${api.error} — o próximo ciclo relê o jogo antes de mandar de novo.`, 'RESULT_UNCERTAIN', true);
+    }
+    throw transportError(api.code === 'indisponivel' ? api.error : `O jogo recusou a coleta: ${api.error}`, 'GAME_REFUSED');
+  }
+  const refused = scavengeSquadErrors(api.result);
+  if (refused.length >= requests.length) throw transportError(`O jogo recusou a coleta: ${[...new Set(refused)].join(' · ')}`, 'GAME_REFUSED');
+  return { accepted: requests.length - refused.length, refused };
+}
+
+/** Desbloqueio de nível de coleta (scavenge_api/start_unlock) — 1 mutação. */
+export async function unlockScavengeLevel(villageId: string, levelId: number): Promise<void> {
+  await gateRoutine('coleta');
+  const api = await postGameApi('scavenge_api', 'start_unlock', { village_id: normalizeVillageId(villageId), option_id: levelId });
+  if (!api.ok) {
+    if (api.afterMutation) throw transportError(`Desbloqueio inconclusivo: ${api.error}`, 'RESULT_UNCERTAIN', true);
+    throw transportError(`O jogo recusou o desbloqueio: ${api.error}`, 'GAME_REFUSED');
+  }
+}
+
 export async function sendScavengingSquads(villageId: string, squads: ScavengeSquad[]): Promise<void> {
   await gateRoutine('coleta');
   if (squads.length === 0) throw transportError('Nenhuma esquadrilha de coleta foi informada.', 'PLAN_INVALID');
@@ -715,13 +1104,22 @@ export async function sendScavengingSquads(villageId: string, squads: ScavengeSq
       use_premium: false,
     })),
   });
-  if (api.ok) return;
+  if (api.ok) {
+    // O jogo responde por grupo (squad_responses: {success, error}).
+    const falhas = scavengeSquadErrors(api.result);
+    if (falhas.length > 0 && falhas.length >= squads.length) {
+      throw transportError(`O jogo recusou a coleta: ${falhas.join(' · ')}`, 'GAME_REFUSED');
+    }
+    return;
+  }
   if (api.afterMutation)
     throw transportError(
       `Coleta por API inconclusiva: ${api.error} — releia o jogo antes de nova tentativa.`,
       'RESULT_UNCERTAIN',
       true,
     );
+  // Recusa do PRÓPRIO jogo (regra): a tela recusaria igual — sem plano B.
+  if (api.code !== 'indisponivel') throw transportError(`O jogo recusou a coleta: ${api.error}`, 'GAME_REFUSED');
   if (squads.length > 1)
     throw transportError(
       'O envio DOM de coleta suporta apenas uma opção por tela — use o caminho da API (TribalWars.post) para múltiplas esquadrilhas.',

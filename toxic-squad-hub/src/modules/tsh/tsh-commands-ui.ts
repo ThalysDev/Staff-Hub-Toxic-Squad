@@ -23,9 +23,10 @@
 // export/import JSON). As engines puras vivem em ext/ (noble-train,
 // block-scheduler, ops-viewer) — aqui é só fiação de DOM e storage.
 // Regras da casa: zero innerHTML com dado dinâmico (tudo textContent), pt-BR,
-// horários interpretados no relógio do SEU COMPUTADOR (nota de ajuda; o motor
-// mira o sendAt pelo relógio do servidor lido na tela) e nenhum timer além do
-// debounce do lookup do alvo. Partes puras exportadas para testes em
+// horários com MILISSEGUNDOS na referência escolhida (Hora do servidor, padrão,
+// ou do computador — convertida pelo relógio medido) e poucos timers: o
+// debounce do lookup do alvo e o relógio vivo da tela (1 interval, some ao
+// fechar). Partes puras exportadas para testes em
 // tsh-commands-ui.test.ts.
 
 import { icon, type IconName } from '../../core/icons';
@@ -36,13 +37,14 @@ import {
   SCHEDULER_CANCEL_COUNTS,
   SCHEDULER_DEFAULT_WINDOW,
   SCHEDULER_TIMING_STRATEGIES,
+  SCHEDULER_NATIVE_TRAIN_MAX_EXTRA,
+  NATIVE_TRAIN_ARRIVAL_STEP_MS,
   type HubSchedulerState,
   type ScheduledCommandRecord,
   type ScheduledCommandViewStatus,
   type SchedulerTimingStrategy,
 } from '../../ext/core/scheduler-state';
 import {
-  NOBLE_TRAIN_DEFAULT_GAP_MS,
   NOBLE_TRAIN_SIZES,
   planNobleTrain,
   validateNobleTrain,
@@ -73,12 +75,36 @@ import {
   type ViewerStatusFilter,
 } from '../../ext/modules/features/ops-viewer/ops-viewer';
 import type { UnitType } from '../../ext/modules/shared/module-types';
-import { serverClockOffset } from '../../ext/core/execution/server-clock';
-import { createScheduledCommand, UNIT_POPULATION, type NewScheduledCommandInput } from './plugins/command-scheduler';
+import { aimIsHot, calibrateClock, clockInfo, serverNowMs, serverOffsetMs } from '../../core/game-clock';
+import { clockSourceLabel } from '../../ext/core/timing/clock-source';
+import { clockLabelMs, travelDurationMs } from '../../ext/core/timing/precise-fire';
+import { commandPopulation, createScheduledCommand, learnedSigilPct, UNIT_POPULATION, type NewScheduledCommandInput } from './plugins/command-scheduler';
+import { minimumAttackPopulationFor, worldRules } from './tsh-world-rules';
+import { loadVillageForecast, unitsAt, type Units, type VillageForecast } from './tsh-troop-forecast';
 import { getGroupOptions, getGroupVillages, type GroupVillageRow } from './tsh-groups';
 import { ownVillages, travelMinutes, villageAt, type OwnVillage } from './tsh-game-data';
 import { buildTshModal, tshConfirm, tshNoteBanner } from './tsh-settings-ui';
-import { unitIcon, UNIT_LABELS as UNIT_LABELS_SHARED } from './tsh-units';
+import { commandUnitStrip, kindIcon, unitIcon, unitStrip, UNIT_LABELS as UNIT_LABELS_SHARED } from './tsh-units';
+import { readinessOf } from './tsh-condutor';
+import { cachedNightBonus, inNightBonus, loadPlaceData, worldNightBonus, type NightBonus } from './tsh-templates';
+import { frameAliveFor, readDiary } from './tsh-envio-quadro';
+import {
+  cancelManyCommands,
+  cardActionsFor,
+  countByKind,
+  exportCommands,
+  failureReasonOf,
+  formatDelta,
+  HISTORY_STATUSES,
+  importCommands,
+  matchesHistory,
+  matchesKind,
+  matchesQuery,
+  precisionSummary,
+  sendResultOf,
+  type HistoryFilter,
+  type KindFilter,
+} from './tsh-central-logic';
 
 // ── Partes puras (testadas em tsh-commands-ui.test.ts) ──
 
@@ -102,14 +128,29 @@ export function fieldsDistance(from: { x: number; y: number }, to: { x: number; 
   return Math.hypot(to.x - from.x, to.y - from.y);
 }
 
-/** Conversão do modo "Chegar às": envio = chegada − tempo de viagem (min). */
+/**
+ * Conversão do modo "Chegar às": envio = chegada − tempo de viagem. Onda A: a
+ * viagem é arredondada ao SEGUNDO, como o jogo faz (sem isso o cravado por
+ * chegada errava até ±500ms).
+ */
 export function arrivalToSendAt(arrival: Date, travelMinutesValue: number): Date {
-  return new Date(arrival.getTime() - Math.max(0, travelMinutesValue) * 60_000);
+  return new Date(arrival.getTime() - travelDurationMs(travelMinutesValue));
 }
 
-/** Chegada derivada do modo "Enviar às" (simétrico — só exibição). */
+/** Chegada derivada do modo "Enviar às" (simétrico). */
 export function sendToArrival(send: Date, travelMinutesValue: number): Date {
-  return new Date(send.getTime() + Math.max(0, travelMinutesValue) * 60_000);
+  return new Date(send.getTime() + travelDurationMs(travelMinutesValue));
+}
+
+/** "dd/mm HH:MM:SS.mmm" — exibição de precisão (cravados). */
+export function formatTimestampMs(date: Date): string {
+  return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)} ${clockLabelMs(date.getTime())}`;
+}
+
+/** Milissegundos digitados (0–999; vazio/lixo = 0). */
+export function parseMillisInput(raw: string): number {
+  const n = Math.floor(Number(raw.trim().replace(',', '.')));
+  return Number.isFinite(n) ? Math.min(999, Math.max(0, n)) : 0;
 }
 
 /** "dd/mm HH:MM:SS" no relógio local. */
@@ -142,12 +183,36 @@ export function parseDatetimeLocal(value: string): Date | null {
 // (em hora de servidor) precisa ser T + offset — P1 da revisão: o sinal era
 // o inverso e o disparo saía 2×offset fora da hora.
 
-/** Offset atual (ms) lido da página; 0 quando indisponível. */
+// Onda A: o operador escolhe em que relógio DIGITA os horários. Padrão =
+// Hora do SERVIDOR (é o que o jogo mostra e o que se copia das chegadas);
+// "Meu computador" converte pelo offset MEDIDO (core/game-clock).
+export type TimeReference = 'servidor' | 'local';
+const TIME_REF_KEY = 'tsh-ui:time-ref';
+
+export function timeReference(): TimeReference {
+  return gm.get<TimeReference>(TIME_REF_KEY, 'servidor') === 'local' ? 'local' : 'servidor';
+}
+
+export function setTimeReference(ref: TimeReference): void {
+  gm.set(TIME_REF_KEY, ref);
+}
+
+/** Offset puro entre as referências: 0 se os horários já são do servidor. */
+export function referenceOffsetMs(ref: TimeReference, measuredOffsetMs: number): number {
+  return ref === 'servidor' ? 0 : measuredOffsetMs;
+}
+
+/**
+ * Offset (ms) entre o relógio em que o operador DIGITA/LÊ e o relógio do
+ * servidor: 0 na referência "servidor"; o offset medido na "local".
+ */
 export function currentServerOffsetMs(): number {
-  const timeText = document.getElementById('serverTime')?.textContent ?? null;
-  const dateText = document.getElementById('serverDate')?.textContent ?? null;
-  const offset = serverClockOffset(`${dateText ?? ''} ${timeText ?? ''}`.trim() || null);
-  return offset ?? 0;
+  return referenceOffsetMs(timeReference(), serverOffsetMs());
+}
+
+/** "Agora" na referência em que o operador digita (servidor ou computador). */
+export function referenceNow(): Date {
+  return new Date(serverNowMs() - currentServerOffsetMs());
 }
 
 /** Horário LOCAL escolhido → epoch no RELÓGIO DO SERVIDOR (gravação do sendAt). */
@@ -182,7 +247,11 @@ export function formatDecimalPtBr(n: number): string {
 
 /** Leitura defensiva de caixa numérica de tropas: inteiro ≥ 1 (vazio/lixo = 0). */
 export function parseUnitCount(raw: string): number {
-  const n = Number(raw.trim().replace(',', '.'));
+  const trimmed = raw.trim();
+  // Onda 1: "1.500" é MIL E QUINHENTAS (separador de milhar pt-BR) — antes
+  // virava 1,5 → 1 unidade. Tropas nunca são fracionárias.
+  if (/^\d{1,3}(\.\d{3})+$/.test(trimmed)) return Math.min(1_000_000, Number(trimmed.replace(/\./g, '')));
+  const n = Number(trimmed.replace(',', '.'));
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.min(1_000_000, Math.floor(n));
 }
@@ -407,6 +476,86 @@ export function buildNobleTrainRecords(input: NobleTrainRecordInput): BuildRecor
   return { ok: true, records };
 }
 
+/**
+ * Onda E — TREM NATIVO do jogo: 2–5 ataques COM NOBRE saindo num ÚNICO clique
+ * da tela de confirmação ("Adicionar ataque adicional"); o próprio jogo espaça
+ * as chegadas em 100 ms. Cada linha leva ≥1 nobre (todas na velocidade do
+ * nobre — sem isso as chegadas não ficariam a 100 ms); os nobres extras vão
+ * para as ÚLTIMAS linhas; a escolta se repete em todas. Vira UM registro
+ * (`units` = ataque #1, `trainUnits` = #2..#N) ancorado na chegada do #1.
+ */
+export function buildNativeNobleTrainRecord(input: {
+  readonly sourceVillageId: string;
+  readonly sourceName?: string;
+  readonly source?: { x: number; y: number };
+  readonly target: { x: number; y: number };
+  readonly targetName?: string;
+  readonly targetPoints?: number;
+  readonly firstArrivalMs: number;
+  readonly trainSize: number;
+  readonly noblesAvailable: number;
+  readonly escort: Partial<Record<UnitType, number>>;
+  /** Viagem em MINUTOS do ataque #1 (escolta + nobre); null = indisponível. */
+  readonly travelMinutes: number | null;
+  readonly catapultTarget?: string;
+  readonly forced?: boolean;
+}): BuildRecordsResult {
+  const size = Math.floor(input.trainSize);
+  if (!Number.isInteger(size) || size < 2 || size > SCHEDULER_NATIVE_TRAIN_MAX_EXTRA + 1) {
+    return { ok: false, message: `O trem nativo do jogo aceita de 2 a ${SCHEDULER_NATIVE_TRAIN_MAX_EXTRA + 1} ataques.` };
+  }
+  if (input.noblesAvailable < size) {
+    return {
+      ok: false,
+      message: `Trem nativo de ${size} precisa de ${size} nobres na grade (1 por ataque) — há ${input.noblesAvailable}.`,
+    };
+  }
+  if (input.travelMinutes === null || !Number.isFinite(input.travelMinutes) || input.travelMinutes <= 0) {
+    return { ok: false, message: 'Tempo de viagem indisponível — confira as unidades e as velocidades do mundo.' };
+  }
+  const temEscolta = Object.entries(input.escort).some(([unit, amount]) => unit !== 'snob' && unit !== 'spy' && (amount ?? 0) > 0);
+  if (!temEscolta) {
+    return { ok: false, message: 'Trem nativo precisa de escolta (o jogo recusa nobre sem proteção) — informe as tropas que acompanham cada nobre.' };
+  }
+  const nobles = new Array<number>(size).fill(1);
+  for (let extra = 0; extra < input.noblesAvailable - size; extra += 1) {
+    const index = size - 1 - (extra % size);
+    nobles[index] = (nobles[index] ?? 1) + 1;
+  }
+  const rows = nobles.map((snob) => {
+    const units: Partial<Record<UnitType, number>> = {};
+    for (const [unit, amount] of Object.entries(input.escort)) {
+      if (unit !== 'snob' && (amount ?? 0) > 0) units[unit as UnitType] = amount;
+    }
+    units.snob = snob;
+    return units;
+  });
+  const [first, ...extras] = rows;
+  if (first === undefined) return { ok: false, message: 'Trem vazio.' };
+  const hasCatapult = (first.catapult ?? 0) > 0;
+  const arrivalIso = new Date(input.firstArrivalMs).toISOString();
+  const record = createScheduledCommand({
+    kind: 'noble',
+    sourceVillageId: input.sourceVillageId,
+    ...(input.sourceName !== undefined ? { sourceName: input.sourceName } : {}),
+    ...(input.source !== undefined ? { source: input.source } : {}),
+    target: input.target,
+    ...(input.targetName !== undefined ? { targetName: input.targetName } : {}),
+    ...(input.targetPoints !== undefined ? { targetPoints: input.targetPoints } : {}),
+    units: first,
+    trainUnits: extras,
+    timingMode: 'arrival',
+    sendAt: new Date(input.firstArrivalMs - travelDurationMs(input.travelMinutes)).toISOString(),
+    arrivalAt: arrivalIso,
+    ...(hasCatapult && input.catapultTarget !== undefined && input.catapultTarget !== ''
+      ? { catapultTarget: input.catapultTarget }
+      : {}),
+    ...(input.forced === true ? { forced: true } : {}),
+    detail: `Trem nativo de ${size} ataques (chegadas a cada ${NATIVE_TRAIN_ARRIVAL_STEP_MS} ms, pelo jogo).`,
+  });
+  return { ok: true, records: [record] };
+}
+
 // ── Agendamento em Bloco (Onda 1, C) ─────────────────────────────────────────
 
 export type BlockTiming =
@@ -428,7 +577,7 @@ export interface BlockRecordInput {
   readonly timing: BlockTiming;
   /** Agora em hora do SERVIDOR (partida no passado é recusada sem `forceLate`). */
   readonly nowMs: number;
-  /** Separa partidas da MESMA origem em ≥ 300 ms (conflito de precisão). */
+  /** Separa partidas da MESMA origem em ≥ 5 s (cada envio abre a própria confirmação). */
   readonly avoidMsConflicts: boolean;
   /** "Forçar atraso": aceita partida no passado e marca o registro como `forced`. */
   readonly forceLate: boolean;
@@ -449,7 +598,7 @@ const BLOCK_ASAP_LEAD_MS = 5_000;
  * chegada desejada vem do `timing` (única / distribuída na janela / o quanto
  * antes) e a partida = chegada − viagem do par (injetada pelo plano). Com
  * `avoidMsConflicts`, partidas da mesma origem são empurradas para frente até
- * ficarem ≥ 300 ms entre si; sem `forceLate`, partida no passado é ignorada com
+ * ficarem ≥ 5 s entre si; sem `forceLate`, partida no passado é ignorada com
  * aviso (nada de comando que já nasce atrasado).
  */
 export function buildBlockRecords(input: BlockRecordInput): BlockRecordsResult {
@@ -504,8 +653,22 @@ export function buildBlockRecords(input: BlockRecordInput): BlockRecordsResult {
       );
       continue;
     }
-    lastDepartureByOrigin.set(originKey, departure);
     const arrival = departure + command.travelMinutes * 60_000;
+    // Revisão de produto (Onda 1): partida empurrada pelo espaço mínimo muda
+    // a CHEGADA — o jogador precisa ver isso antes de agendar.
+    const wanted = desiredDeparture.get(command.index);
+    if (input.timing.mode === 'window' && wanted !== undefined && departure > wanted && arrival > input.timing.toMs) {
+      warnings.push(
+        `Partida de ${originKey} → ${targetKey} empurrada para fora da janela: chegaria às ${clockLabelMs(arrival)}, depois do fim (${clockLabelMs(input.timing.toMs)}) — comando ignorado. Alargue a janela ou desmarque "Evitar conflito de ms".`,
+      );
+      continue;
+    }
+    lastDepartureByOrigin.set(originKey, departure);
+    if (wanted !== undefined && departure > wanted) {
+      warnings.push(
+        `Partida de ${originKey} → ${targetKey} empurrada +${Math.round((departure - wanted) / 1000)} s (mesma aldeia precisa de ${VIEWER_CONFLICT_WINDOW_MS / 1000} s entre envios) — chega às ${clockLabelMs(arrival)}. Para chegadas coladas da mesma aldeia, use o Trem do jogo.`,
+      );
+    }
     const targetInfo = input.targetInfoFor?.(command.target);
     records.push(
       createScheduledCommand({
@@ -650,7 +813,7 @@ export function commandStatusLabel(status: ScheduledCommandViewStatus): string {
     case 'agendado':
       return 'Agendado';
     case 'janela':
-      return 'Na janela';
+      return 'Na mira';
     case 'enviando':
       return 'Enviando';
     case 'enviado':
@@ -712,11 +875,35 @@ export function orderCommandRows(
   return [...alive, ...history];
 }
 
+/**
+ * Limpeza do histórico (Onda C): tira os registros ENCERRADOS (enviado,
+ * falhou, removido) e mantém os vivos e os INCERTOS (esses o operador precisa
+ * conferir no jogo antes de apagar). Puro/testável.
+ */
+export function pruneCommandHistory(records: readonly ScheduledCommandRecord[]): {
+  kept: ScheduledCommandRecord[];
+  removed: number;
+} {
+  // Revisão Onda C: só FATOS gravados contam — o "falhou" derivado pelo
+  // relógio (janela padrão) pode ser um comando que o motor ainda envia com a
+  // tolerância configurada pelo usuário.
+  const kept = records.filter((record) => {
+    const last = [...record.events]
+      .reverse()
+      .find((event) => ['enviado', 'falhou', 'removido', 'incerto'].includes(event.status));
+    return !(last !== undefined && last.status !== 'incerto');
+  });
+  return { kept, removed: records.length - kept.length };
+}
+
+/** Quantos itens do histórico a lista mostra (o resto fica resumido). */
+export const HISTORY_VISIBLE_LIMIT = 30;
+
 // ── Storage do motor (MESMA chave do command-scheduler) ──
 
 const schedulerKey = (world: string): string => `tsh-auto:${world}:command-scheduler:scheduler`;
 
-function loadSchedulerState(world: string): HubSchedulerState {
+export function loadSchedulerState(world: string): HubSchedulerState {
   const stored = gm.get<Partial<HubSchedulerState>>(schedulerKey(world), {});
   return {
     commands: Array.isArray(stored.commands) ? stored.commands : [],
@@ -724,7 +911,7 @@ function loadSchedulerState(world: string): HubSchedulerState {
   };
 }
 
-function saveSchedulerState(world: string, state: HubSchedulerState): void {
+export function saveSchedulerState(world: string, state: HubSchedulerState): void {
   gm.set(schedulerKey(world), state);
 }
 
@@ -737,7 +924,7 @@ function setCommandPaused(world: string, id: string, paused: boolean): void {
 }
 
 /** Anexa registros ao estado do motor, com ids únicos (nada sobrescreve comando). */
-function appendSchedulerRecords(world: string, records: readonly ScheduledCommandRecord[]): ScheduledCommandRecord[] {
+export function appendSchedulerRecords(world: string, records: readonly ScheduledCommandRecord[]): ScheduledCommandRecord[] {
   const state = loadSchedulerState(world);
   const unique = dedupeRecordIds(records, state.commands.map((command) => command.id));
   saveSchedulerState(world, { ...state, commands: [...state.commands, ...unique] });
@@ -745,14 +932,14 @@ function appendSchedulerRecords(world: string, records: readonly ScheduledComman
 }
 
 /** Edição em massa do Mapa: substitui sendAt/arrivalAt dos ids informados. */
-function applySchedulerTimes(world: string, times: ReadonlyMap<string, { sendAt: string; arrivalAt: string }>): number {
+function applySchedulerTimes(world: string, times: ReadonlyMap<string, { sendAt: string; arrivalAt?: string }>): number {
   const state = loadSchedulerState(world);
   let changed = 0;
   const commands = state.commands.map((command) => {
     const next = times.get(command.id);
     if (next === undefined) return command;
     changed += 1;
-    return { ...command, sendAt: next.sendAt, arrivalAt: next.arrivalAt };
+    return { ...command, sendAt: next.sendAt, ...(next.arrivalAt !== undefined ? { arrivalAt: next.arrivalAt } : {}) };
   });
   if (changed > 0) saveSchedulerState(world, { ...state, commands });
   return changed;
@@ -801,10 +988,9 @@ function labelEl(text: string, help?: string): HTMLSpanElement {
   el.className = 'tsh-field-label';
   el.appendChild(document.createTextNode(text));
   if (help !== undefined) {
-    // ⓘ com tooltip CSS (data-tip, à direita) + title nativo de fallback.
+    // ⓘ com tooltip CSS (data-tip, à direita). Onda B: sem title nativo (duplicava).
     const tip = document.createElement('span');
     tip.className = 'tsh-field-info tsh-tip tsh-tip--right';
-    tip.title = help;
     tip.setAttribute('data-tip', help);
     tip.setAttribute('aria-label', help);
     tip.appendChild(icon('info', 11));
@@ -898,7 +1084,6 @@ function checkboxEl(label: string, help?: string): { row: HTMLDivElement; input:
   if (help !== undefined) {
     const tip = document.createElement('span');
     tip.className = 'tsh-field-info tsh-tip tsh-tip--right';
-    tip.title = help;
     tip.setAttribute('data-tip', help);
     tip.setAttribute('aria-label', help);
     tip.appendChild(icon('info', 11));
@@ -946,31 +1131,84 @@ interface UnitsGridHandle {
   /** Percentuais 0–100 digitados (> 0) — o mesmo conjunto de caixas. */
   readPercent(): Partial<Record<UnitType, number>>;
   reset(): void;
+  /** Preenche a grade (Reagendar / modelo do jogo); `all` marca "Todas". */
+  set(values: Partial<Record<string, number>>, all?: ReadonlyArray<string>): void;
+  /** Unidades marcadas em "Todas" (v3.3.0). */
+  readAll(): UnitType[];
+  /** Mostra/esconde as caixas "Todas" (somem no modo percentual). */
+  setAllEnabled(on: boolean): void;
+  /** Quantas há de cada tropa agora (null = desconhecido) — aparece em "Todas (N)". */
+  setAvailable(available: Partial<Record<string, number>> | null): void;
+  /** Previsão no horário do envio (null = sem previsão) — "no envio: N" quando difere. */
+  setForecast(forecast: Partial<Record<string, number>> | null): void;
 }
 
-function buildUnitsGrid(onInput?: () => void): UnitsGridHandle {
+function buildUnitsGrid(onInput?: () => void, opts?: { allowAll?: boolean }): UnitsGridHandle {
   const grid = document.createElement('div');
   grid.className = 'tsh-record-grid';
-  const inputs: { key: UnitType; input: HTMLInputElement }[] = [];
+  const inputs: { key: UnitType; input: HTMLInputElement; all: HTMLInputElement | null; allText: Text | null; cell: HTMLDivElement; fc: HTMLSpanElement | null }[] = [];
+  let lastAvailable: Partial<Record<string, number>> | null = null;
+  const applyAll = (input: HTMLInputElement, all: HTMLInputElement, cell: HTMLDivElement): void => {
+    input.disabled = all.checked;
+    cell.classList.toggle('is-all', all.checked);
+    if (all.checked) {
+      input.value = '';
+      input.placeholder = 'todas';
+    } else {
+      input.placeholder = '';
+      if (input.value === '') input.value = '0';
+    }
+  };
   for (const row of UNIT_ROWS) {
     const cell = document.createElement('div');
     cell.className = 'tsh-record-cell tsh-unit-cell';
     const label = document.createElement('span');
     label.className = 'tsh-record-label';
-    label.title = row.key;
+    // v3.2: ÍCONE oficial no lugar do nome (mais curto e didático) — o nome
+    // fica na dica e no rótulo acessível do campo.
+    label.title = unitLabel(row.key);
     label.appendChild(unitIcon(row.key, 18));
-    const labelText = document.createElement('span');
-    labelText.textContent = unitLabel(row.key);
-    label.appendChild(labelText);
     const input = document.createElement('input');
     input.type = 'number';
     input.className = 'tsh-input';
+    input.setAttribute('aria-label', unitLabel(row.key));
     input.min = '0';
     input.step = String(row.step);
     input.value = '0';
     input.addEventListener('input', () => onInput?.());
-    inputs.push({ key: row.key, input });
     cell.append(label, input);
+    // v3.3.0: "Todas" desta tropa (como o "(200)" da Praça do jogo) — o total
+    // é lido na Praça da origem na hora do disparo.
+    let all: HTMLInputElement | null = null;
+    let allText: Text | null = null;
+    if (opts?.allowAll === true) {
+      const allLabel = document.createElement('label');
+      allLabel.className = 'tsh-unit-all';
+      all = document.createElement('input');
+      all.type = 'checkbox';
+      all.setAttribute('aria-label', `Todas as unidades de ${unitLabel(row.key)}`);
+      const allBox = all;
+      allBox.addEventListener('change', () => {
+        applyAll(input, allBox, cell);
+        onInput?.();
+      });
+      allText = document.createTextNode('');
+      const allWord = document.createElement('span');
+      allWord.textContent = 'Todas';
+      const allCount = document.createElement('span');
+      allCount.className = 'tsh-unit-avail';
+      allCount.appendChild(allText);
+      allLabel.append(allBox, allWord);
+      allLabel.title = `Enviar TODAS as unidades de ${unitLabel(row.key)} que houver na aldeia na hora do envio. Se não houver nenhuma: com "Chegar às" o comando não sai (se ela for a mais lenta); com "Enviar às" ele sai sem essa tropa.`;
+      cell.append(allLabel, allCount);
+    }
+    let fc: HTMLSpanElement | null = null;
+    if (opts?.allowAll === true) {
+      fc = document.createElement('span');
+      fc.className = 'tsh-unit-forecast';
+      cell.appendChild(fc);
+    }
+    inputs.push({ key: row.key, input, all, allText, cell, fc });
     grid.appendChild(cell);
   }
   const readPercent = (): Partial<Record<UnitType, number>> => {
@@ -986,17 +1224,78 @@ function buildUnitsGrid(onInput?: () => void): UnitsGridHandle {
     grid,
     read: () => {
       const units: Partial<Record<UnitType, number>> = {};
-      for (const { key, input } of inputs) {
+      for (const { key, input, all } of inputs) {
+        if (all?.checked === true) continue;
         const n = parseUnitCount(input.value);
         if (n > 0) units[key] = n;
       }
       return units;
     },
+    readAll: () => inputs.filter((row) => row.all?.checked === true).map((row) => row.key),
+    setForecast: (forecast) => {
+      for (const row of inputs) {
+        if (row.fc === null) continue;
+        const f = forecast?.[row.key];
+        const agora = lastAvailable?.[row.key];
+        const mostra = forecast !== null && f !== undefined && (agora === undefined || f !== agora);
+        const pedido = row.all?.checked === true ? 0 : parseUnitCount(row.input.value);
+        const falta = mostra && pedido > (f ?? 0);
+        row.fc.textContent = mostra ? (falta ? `no envio: ${f.toLocaleString('pt-BR')} (faltam ${(pedido - (f ?? 0)).toLocaleString('pt-BR')})` : `no envio: ${f.toLocaleString('pt-BR')}`) : '';
+        row.fc.classList.toggle('is-short', falta);
+        row.fc.title = mostra ? 'Previsão para o horário do envio (recalculada ao mudar a hora): em casa agora + voltando (ataques, farm, apoios retirados, coleta) + recrutamento − outros comandos agendados desta aldeia.' : '';
+      }
+    },
+    setAvailable: (available) => {
+      lastAvailable = available;
+      for (const row of inputs) {
+        if (row.allText === null) continue;
+        const n = available?.[row.key];
+        row.allText.textContent = n === undefined ? '' : `na aldeia: ${n.toLocaleString('pt-BR')}`;
+        row.cell.classList.toggle('is-empty', n === 0);
+      }
+    },
+    setAllEnabled: (on) => {
+      for (const row of inputs) {
+        if (row.all === null) continue;
+        (row.all.parentElement as HTMLElement).hidden = !on;
+        if (!on && row.all.checked) {
+          row.all.checked = false;
+          applyAll(row.input, row.all, row.cell);
+        }
+      }
+    },
     readPercent,
     reset: () => {
-      for (const { input } of inputs) input.value = '0';
+      for (const row of inputs) {
+        if (row.all !== null && row.all.checked) {
+          row.all.checked = false;
+          applyAll(row.input, row.all, row.cell);
+        }
+        row.input.value = '0';
+      }
+    },
+    set: (values, allList) => {
+      for (const row of inputs) {
+        const isAll = row.all !== null && allList?.includes(row.key) === true;
+        if (row.all !== null) {
+          row.all.checked = isAll;
+          applyAll(row.input, row.all, row.cell);
+        }
+        if (!isAll) row.input.value = String(values[row.key] ?? 0);
+      }
     },
   };
+}
+
+/** Tropas de um comando em texto (confirmação e resultado). */
+function describeUnits(record: Pick<ScheduledCommandRecord, 'units' | 'allUnits' | 'percentMode' | 'unitsPercent' | 'trainUnits'>): string {
+  if (record.percentMode === true) return `${summarizePercentUnits((record.unitsPercent ?? {}) as Partial<Record<UnitType, number>>)} das tropas`;
+  const partes = Object.entries(record.units)
+    .filter(([, n]) => (n ?? 0) > 0)
+    .map(([u, n]) => `${formatInt(n ?? 0)} ${unitLabel(u as UnitType)}`);
+  for (const u of record.allUnits ?? []) partes.push(`TODAS ${unitLabel(u)}`);
+  const base = partes.length > 0 ? partes.join(', ') : '—';
+  return record.trainUnits !== undefined && record.trainUnits.length > 0 ? `${base} + ${record.trainUnits.length} ataque(s) no trem` : base;
 }
 
 /** Resumo curto de um conjunto de tropas em percentual (para o preview). */
@@ -1013,139 +1312,506 @@ function viewerSkippedNote(skipped: number): string {
     : `${skipped} comandos ficaram fora do mapa (removidos ou sem coordenada de origem conhecida).`;
 }
 
-// ── Lista de comandos ──
+// ── Fila e Histórico (v3.3.0) ──
 
-function renderCommandList(
+/** Filtros vivos da Fila/Histórico (sobrevivem aos redesenhos da lista). */
+interface ListFilters {
+  query: string;
+  kind: KindFilter;
+  history: HistoryFilter;
+}
+
+/** Ações da Central que precisam de outras partes do modal. */
+interface CentralHooks {
+  /** Leva o comando para a aba "Novo comando", com os campos preenchidos (novo comando). */
+  reagendar(record: ScheduledCommandRecord, mode: 'reuse' | 'duplicate'): void;
+  /** Abre o comando PENDENTE no formulário; salvar substitui o original. */
+  editar(record: ScheduledCommandRecord): void;
+}
+
+/**
+ * Por que um comando pendente NÃO pode mais ser alterado (null = pode):
+ * já saiu, está na mira ou foi pré-armado (a confirmação já está aberta com
+ * o horário/tropas antigos — mexer agora seria no escuro).
+ */
+function notEditableReason(world: string, id: string): string | null {
+  const alvo = loadSchedulerState(world).commands.find((c) => c.id === id);
+  if (alvo === undefined || alvo.events.some((e) => HISTORY_STATUSES.has(e.status) || e.status === 'enviando')) {
+    return 'Este comando já saiu da fila — nada foi alterado.';
+  }
+  const statusAgora = deriveSchedulerCommandStatus(alvo, new Date(serverNowMs()), SCHEDULER_DEFAULT_WINDOW);
+  const prearm = gm.get<{ id?: string; at?: number } | null>(
+    `tsh-auto:${world}:command-scheduler:prearm:${normalizeVillageId(alvo.sourceVillageId)}`,
+    null,
+  );
+  const prearmado = prearm !== null && prearm.id === alvo.id && Date.now() - (prearm.at ?? 0) < 45_000;
+  if ((statusAgora !== 'agendado' && statusAgora !== 'pausado') || prearmado) {
+    return 'Este comando já está na mira (pré-armado) — não dá para alterá-lo agora. Cancele o envio e crie outro.';
+  }
+  return null;
+}
+
+const KIND_FILTER_OPTIONS: readonly { value: KindFilter; label: string }[] = [
+  { value: 'todos', label: 'Todos os tipos' },
+  { value: 'attack', label: 'Ataque' },
+  { value: 'fake', label: 'Fake' },
+  { value: 'support', label: 'Apoio' },
+  { value: 'noble', label: 'Nobre' },
+  { value: 'cancel', label: 'Cancelar' },
+];
+
+function rowsOf(world: string): CommandRow[] {
+  return orderCommandRows(loadSchedulerState(world).commands, new Date(serverNowMs()));
+}
+
+/** Fila: comandos que ainda vão sair (pendentes, na mira, enviando, pausados). */
+function renderQueue(
   wrap: HTMLElement,
   shadow: ShadowRoot,
   world: string,
+  filters: ListFilters,
+  hooks: CentralHooks,
   rerender: () => void,
   refresh: () => void,
 ): void {
   wrap.replaceChildren();
-  const rows = orderCommandRows(loadSchedulerState(world).commands, new Date());
-  if (rows.length === 0) {
-    // P3 (auditoria impeccable): empty state no padrão do shell (.shs-empty —
-    // padding generoso, centralizado, muted; definido no <style> do core).
+  const alive = rowsOf(world).filter((row) => !HISTORY_STATUSES.has(row.status));
+  if (alive.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'shs-empty';
-    empty.textContent = 'Nenhum comando agendado — crie o primeiro abaixo.';
+    empty.textContent = 'Nenhum comando na fila. Crie um em "Novo comando" ou vários em "Em bloco".';
     wrap.appendChild(empty);
     return;
   }
-  const alive = rows.filter((row) => !TERMINAL_VIEW_STATUSES.has(row.status));
-  const paused = alive.filter((row) => row.status === 'pausado');
+  const shown = alive.filter((row) => matchesQuery(row.record, filters.query) && matchesKind(row.record, filters.kind));
   const meta = document.createElement('div');
   meta.className = 'tsh-meta-row';
-  meta.textContent = `${alive.length} ativo(s) · ${paused.length} pausado(s) · ${rows.length - alive.length} no histórico`;
+  const paused = alive.filter((row) => row.status === 'pausado').length;
+  meta.textContent =
+    shown.length === alive.length
+      ? `${alive.length} na fila${paused > 0 ? ` · ${paused} pausado(s)` : ''}`
+      : `Mostrando ${shown.length} de ${alive.length} (filtro ativo)`;
   wrap.appendChild(meta);
-  for (const row of rows) wrap.appendChild(commandCard(row, shadow, world, rerender, refresh));
+  if (shown.length === 0) {
+    wrap.appendChild(helpEl('Nenhum comando combina com o filtro.'));
+    return;
+  }
+  for (const row of shown) wrap.appendChild(commandCard(row, shadow, world, hooks, rerender, refresh));
+}
+
+/** Histórico: enviados, falhos, incertos e cancelados — com o desfecho de cada um. */
+function renderHistory(
+  wrap: HTMLElement,
+  shadow: ShadowRoot,
+  world: string,
+  filters: ListFilters,
+  hooks: CentralHooks,
+  rerender: () => void,
+  refresh: () => void,
+): void {
+  wrap.replaceChildren();
+  const history = rowsOf(world).filter((row) => HISTORY_STATUSES.has(row.status));
+  if (history.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'shs-empty';
+    empty.textContent = 'O histórico está vazio. Cada comando enviado aparece aqui com a precisão do envio.';
+    wrap.appendChild(empty);
+    return;
+  }
+  const summary = precisionSummary(history.filter((row) => row.status === 'enviado').map((row) => row.record));
+  if (summary !== null) {
+    const stat = document.createElement('div');
+    stat.className = 'tsh-central-precision';
+    stat.append(icon('crosshair', 14));
+    const txt = document.createElement('span');
+    txt.textContent = `Precisão: ${summary.meanAbsMs} ms de desvio médio em ${summary.count} envio(s) (pior: ${summary.worstAbsMs} ms).`;
+    stat.appendChild(txt);
+    wrap.appendChild(stat);
+  }
+  const shown = history.filter(
+    (row) => matchesHistory(row.status, filters.history) && matchesQuery(row.record, filters.query) && matchesKind(row.record, filters.kind),
+  );
+  if (shown.length === 0) {
+    wrap.appendChild(helpEl('Nenhum registro combina com o filtro.'));
+    return;
+  }
+  for (const row of shown.slice(0, HISTORY_VISIBLE_LIMIT)) wrap.appendChild(commandCard(row, shadow, world, hooks, rerender, refresh));
+  if (shown.length > HISTORY_VISIBLE_LIMIT) {
+    wrap.appendChild(helpEl(`… e mais ${shown.length - HISTORY_VISIBLE_LIMIT} registro(s) antigo(s). Use "Limpar histórico" para apagar os encerrados.`));
+  }
+}
+
+const EVENT_LABELS: Record<string, string> = {
+  agendado: 'Agendado',
+  janela: 'Pré-arme',
+  enviando: 'Enviando',
+  enviado: 'Enviado',
+  incerto: 'Incerto',
+  falhou: 'Falhou',
+  removido: 'Cancelado',
+};
+const DIARY_LABELS: Record<string, string> = {
+  abriu: 'Praça abriu',
+  pronto: 'Praça pronta',
+  fechou: 'Praça fechou',
+  falhou: '2º plano falhou',
+  'saiu-da-pagina': 'Aba saiu',
+};
+
+/**
+ * "Detalhes": linha do tempo do comando — eventos do motor + o diário do
+ * envio em 2º plano daquela aldeia (quando a Praça invisível abriu/fechou).
+ */
+function timelineEl(record: ScheduledCommandRecord, world: string): HTMLDetailsElement {
+  const details = document.createElement('details');
+  details.className = 'tsh-timeline';
+  const summary = document.createElement('summary');
+  summary.textContent = 'Detalhes';
+  details.appendChild(summary);
+  details.addEventListener(
+    'toggle',
+    () => {
+      if (!details.open || details.dataset.filled === '1') return;
+      details.dataset.filled = '1';
+      const skew = serverNowMs() - Date.now();
+      const sendLocal = Date.parse(record.sendAt) - skew;
+      const rows: { at: number; label: string; text: string }[] = record.events.map((e) => ({
+        at: Date.parse(e.at),
+        label: EVENT_LABELS[e.status] ?? e.status,
+        text: e.detail ?? '',
+      }));
+      // Só o que é DESTE envio: a abertura marcada com este horário (±5 s) e
+      // o que aconteceu com o quadro até 1 min depois dele.
+      const sendServer = Date.parse(record.sendAt);
+      for (const d of readDiary(world, normalizeVillageId(record.sourceVillageId), sendLocal - 3 * 60_000, sendLocal + 60_000)) {
+        if (d.kind === 'abriu' && d.sendAt !== undefined && Math.abs(d.sendAt - sendServer) > 5_000) continue;
+        rows.push({ at: d.at, label: DIARY_LABELS[d.kind] ?? d.kind, text: d.detail });
+      }
+      rows.sort((a, b) => a.at - b.at);
+      const list = document.createElement('ol');
+      list.className = 'tsh-timeline-list';
+      for (const row of rows) {
+        const li = document.createElement('li');
+        const when = document.createElement('span');
+        when.className = 'tsh-timeline-at';
+        when.textContent = Number.isFinite(row.at) ? clockLabelMs(row.at + skew) : '—';
+        const tag = document.createElement('span');
+        tag.className = 'tsh-timeline-tag';
+        tag.textContent = row.label;
+        const text = document.createElement('span');
+        text.textContent = row.text;
+        li.append(when, tag, text);
+        list.appendChild(li);
+      }
+      if (rows.length === 0) list.appendChild(helpEl('Sem registros.'));
+      details.appendChild(list);
+      details.appendChild(helpEl('Registros da Praça invisível podem incluir outro comando da mesma aldeia no mesmo minuto.'));
+    },
+    { once: false },
+  );
+  return details;
+}
+
+/** Selo de QUEM vai enviar um comando pendente (a mesma verdade do Condutor). */
+function readinessBadge(record: ScheduledCommandRecord, world: string): HTMLSpanElement | null {
+  const r = readinessOf(record, world);
+  const perto = Date.parse(record.sendAt) - serverNowMs() <= 30 * 60_000;
+  switch (r) {
+    case 'aqui':
+      return badgeEl('tsh-badge tsh-badge--on', 'Esta aba envia');
+    case 'pronta':
+      return badgeEl('tsh-badge tsh-badge--on', frameAliveFor(world, record.sourceVillageId.replace(/^n/, '')) ? 'Pronta (2º plano)' : 'Pronta na Praça');
+    case 'fundo':
+      return badgeEl('tsh-badge', 'Sai em 2º plano');
+    case 'automatico':
+      return badgeEl('tsh-badge', 'Aba vai à Praça');
+    case 'manual':
+      return perto ? badgeEl('tsh-badge tsh-badge--muta', 'Sem aba na Praça') : null;
+  }
+}
+
+/**
+ * "Mudar horário" de um pendente: novo ENVIO (mesma referência de hora do
+ * formulário); a chegada anda junto (a viagem não muda). Sem cancelar/recriar.
+ */
+function openTimeEditor(
+  card: HTMLElement,
+  record: ScheduledCommandRecord,
+  world: string,
+  rerender: () => void,
+  refresh: () => void,
+): void {
+  if (card.querySelector('.tsh-time-editor') !== null) return;
+  const offset = currentServerOffsetMs();
+  // Comando pensado pela CHEGADA (snipe/dodge/"Chegar às"): edita a chegada.
+  const byArrival = record.timingMode === 'arrival' && record.arrivalAt !== undefined;
+  const current = serverToLocal(byArrival ? (record.arrivalAt as string) : record.sendAt, offset);
+  const box = document.createElement('div');
+  box.className = 'tsh-time-editor';
+  const input = document.createElement('input');
+  input.type = 'datetime-local';
+  input.step = '1';
+  input.className = 'tsh-input tsh-input--dt';
+  input.value = toDatetimeLocalValue(current);
+  input.setAttribute('aria-label', byArrival ? 'Nova chegada' : 'Novo envio');
+  const ms = document.createElement('input');
+  ms.type = 'number';
+  ms.min = '0';
+  ms.max = '999';
+  ms.className = 'tsh-input tsh-input--ms';
+  ms.value = String(current.getMilliseconds());
+  ms.setAttribute('aria-label', 'Milissegundos');
+  const msg = document.createElement('span');
+  msg.className = 'tsh-time-editor-msg';
+  const ref = timeReference() === 'servidor' ? 'hora do servidor' : 'hora do seu computador';
+  msg.textContent = byArrival ? `Nova CHEGADA (${ref}) — o envio anda junto.` : `Novo horário de ENVIO (${ref}) — a chegada anda junto.`;
+  const save = actionButton('Salvar', 'check', 'tsh-btn tsh-btn--sm tsh-btn--primary', () => {
+    const base = parseDatetimeLocal(input.value);
+    if (base === null) {
+      msg.textContent = 'Informe data e hora completas.';
+      return;
+    }
+    const local = new Date(base.getTime() + parseMillisInput(ms.value));
+    const typed = localToServerEpoch(local, currentServerOffsetMs());
+    const delta = typed - Date.parse(byArrival ? (record.arrivalAt as string) : record.sendAt);
+    const newSend = Date.parse(record.sendAt) + delta;
+    if (newSend <= serverNowMs() + 5_000) {
+      msg.textContent = byArrival
+        ? 'Com essa chegada o envio cairia no passado (ou a menos de 5 s) — escolha uma chegada mais tarde.'
+        : 'O novo envio precisa ser no futuro (pelo menos 5 s a partir de agora).';
+      return;
+    }
+    const bloqueio = notEditableReason(world, record.id);
+    if (bloqueio !== null) {
+      msg.textContent = bloqueio;
+      return;
+    }
+    const alvo = loadSchedulerState(world).commands.find((c) => c.id === record.id);
+    if (alvo === undefined) return;
+    applySchedulerTimes(
+      world,
+      new Map([
+        [
+          record.id,
+          {
+            sendAt: new Date(newSend).toISOString(),
+            ...(alvo.arrivalAt !== undefined ? { arrivalAt: new Date(Date.parse(alvo.arrivalAt) + delta).toISOString() } : {}),
+          },
+        ],
+      ]),
+    );
+    rerender();
+    refresh();
+  });
+  const cancel = actionButton('Cancelar', 'x', 'tsh-btn tsh-btn--sm tsh-btn--ghost', () => box.remove());
+  box.append(input, ms, save, cancel, msg);
+  card.appendChild(box);
+  input.focus();
+}
+
+function actionButton(label: string, iconName: IconName, cls: string, onClick: () => void, title?: string): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = cls;
+  if (title !== undefined) btn.title = title;
+  btn.append(icon(iconName, 12), document.createTextNode(label));
+  btn.addEventListener('click', onClick);
+  return btn;
 }
 
 function commandCard(
   row: CommandRow,
   shadow: ShadowRoot,
   world: string,
+  hooks: CentralHooks,
   rerender: () => void,
   refresh: () => void,
 ): HTMLDivElement {
   const { record, status } = row;
   const card = document.createElement('div');
-  card.className = 'tsh-card';
-  if (status === 'pausado') card.classList.add('tsh-card--off');
+  card.className = 'tsh-card tsh-ccard';
+  card.dataset.status = status;
+  if (status === 'pausado' || status === 'removido') card.classList.add('tsh-card--off');
 
+  // Cabeçalho: ícone do tipo + tipo + alvo … contagem + estado.
   const head = document.createElement('div');
   head.className = 'tsh-card-head';
+  const kIcon = kindIcon(record.kind, 18);
+  if (kIcon !== null) head.appendChild(kIcon);
   const title = document.createElement('div');
   title.className = 'tsh-card-title';
   title.style.flex = '1';
   title.textContent =
     record.targetName !== undefined ? `${record.targetName} (${record.target.x}|${record.target.y})` : `${record.target.x}|${record.target.y}`;
-  head.append(
-    badgeEl(commandKindBadgeClass(record.kind), commandKindLabel(record.kind)),
-    title,
-    badgeEl(commandStatusBadgeClass(status), commandStatusLabel(status)),
-  );
+  head.append(badgeEl(commandKindBadgeClass(record.kind), commandKindLabel(record.kind)), title);
+  if (!HISTORY_STATUSES.has(status) && status !== 'pausado') {
+    const sendAtServer = Date.parse(record.sendAt);
+    if (Number.isFinite(sendAtServer)) {
+      const eta = document.createElement('span');
+      eta.className = 'tsh-eta';
+      eta.dataset.tshEta = String(sendAtServer);
+      eta.textContent = formatEta(sendAtServer - serverNowMs());
+      head.appendChild(eta);
+    }
+  }
+  if (status === 'agendado' || status === 'janela') {
+    const who = readinessBadge(record, world);
+    if (who !== null) head.appendChild(who);
+  }
+  head.appendChild(badgeEl(commandStatusBadgeClass(status), commandStatusLabel(status)));
   card.appendChild(head);
 
-  const originText =
-    record.sourceName !== undefined ? record.sourceName : `aldeia ${record.sourceVillageId}`;
-  const originCoord =
-    record.source !== undefined ? ` (${record.source.x}|${record.source.y})` : '';
-  const targetDetail = [
-    record.targetPoints !== undefined ? `${formatInt(record.targetPoints)} pts` : undefined,
-  ]
-    .filter((part): part is string => part !== undefined)
-    .join(' · ');
+  // Origem → alvo.
+  const originText = record.sourceName !== undefined ? record.sourceName : `aldeia ${record.sourceVillageId}`;
+  const originCoord = record.source !== undefined ? ` (${record.source.x}|${record.source.y})` : '';
+  const points = record.targetPoints !== undefined ? ` · ${formatInt(record.targetPoints)} pts` : '';
   const line1 = document.createElement('div');
   line1.className = 'tsh-card-desc';
-  line1.textContent = `De ${originText}${originCoord} → ${record.target.x}|${record.target.y}${targetDetail !== '' ? ` · ${targetDetail}` : ''}`;
+  line1.textContent = `De ${originText}${originCoord} → ${record.target.x}|${record.target.y}${points}`;
   card.appendChild(line1);
 
-  // Exibição no relógio LOCAL (o sendAt gravado é hora do SERVIDOR).
+  // Horários + tropas (ícones).
   const offset = currentServerOffsetMs();
   const sendDate = serverToLocal(record.sendAt, offset);
-  const timing =
-    Number.isFinite(sendDate.getTime())
-      ? `Envio ${formatTimestamp(sendDate)}` +
-        (record.arrivalAt !== undefined ? ` · Chegada ${formatTimestamp(serverToLocal(record.arrivalAt, offset))}` : '')
-      : `Envio: ${record.sendAt} (horário ilegível)`;
+  const timing = Number.isFinite(sendDate.getTime())
+    ? `Envio ${formatTimestampMs(sendDate)}` +
+      (record.arrivalAt !== undefined ? ` · Chegada ${formatTimestampMs(serverToLocal(record.arrivalAt, offset))}` : '')
+    : `Envio: ${record.sendAt} (horário ilegível)`;
   const line2 = document.createElement('div');
-  line2.className = 'tsh-card-desc';
-  const troopText =
-    record.percentMode === true
-      ? `Tropas: ${summarizePercentUnits(record.unitsPercent ?? {})} das tropas da origem`
-      : record.kind === 'cancel'
-        ? `Cancelar até ${record.cancelCount ?? 1} comando(s) no alvo`
-        : `Tropas: ${summarizeUnits(record.units)}`;
-  line2.textContent = `${timing} · ${troopText}`;
+  line2.className = 'tsh-card-desc tsh-card-line';
+  const timingEl = document.createElement('span');
+  timingEl.textContent = timing;
+  line2.appendChild(timingEl);
+  if (record.kind === 'cancel') {
+    const cancelEl = document.createElement('span');
+    cancelEl.textContent = `Cancelar até ${record.cancelCount ?? 1} comando(s) no alvo`;
+    line2.appendChild(cancelEl);
+  } else {
+    line2.appendChild(commandUnitStrip(record));
+  }
   card.appendChild(line2);
 
-  // Detalhes da Onda 1 que mudam a leitura do comando (estratégia, forçar,
-  // trem, repetição, catapulta) — linha curta só quando algum está presente.
-  const extras: string[] = [];
-  if (record.timingStrategy !== undefined && record.timingStrategy !== 'direto') {
-    extras.push(timingStrategyLabel(record.timingStrategy));
+  // Desfecho: precisão (enviado) ou motivo (falhou/incerto/cancelado).
+  if (status === 'enviado') {
+    const result = sendResultOf(record);
+    const ok = document.createElement('div');
+    ok.className = 'tsh-card-desc tsh-card-result';
+    if (result?.confirmedAt !== undefined || result?.arrivalDeltaMs !== undefined) {
+      const parts: string[] = [];
+      if (result.arrivalDeltaMs !== undefined) parts.push(`Chegada conferida no jogo: ${formatDelta(result.arrivalDeltaMs)} do planejado`);
+      if (result.confirmedAt !== undefined) {
+        const d = result.clickDeltaMs;
+        parts.push(
+          d === undefined
+            ? `clique às ${result.confirmedAt}`
+            : d < 0
+              ? `clique às ${result.confirmedAt} (${Math.abs(d)} ms antes, para compensar a latência)`
+              : `clique às ${result.confirmedAt} (${formatDelta(d)} do horário)`,
+        );
+      }
+      ok.textContent = parts.join(' · ');
+    } else {
+      ok.textContent = 'Enviado.';
+    }
+    card.appendChild(ok);
+  } else if (status === 'falhou' || status === 'incerto' || status === 'removido') {
+    const reason = failureReasonOf(record);
+    const why = document.createElement('div');
+    why.className = status === 'removido' ? 'tsh-card-desc' : 'tsh-card-desc tsh-card-why';
+    why.textContent =
+      status === 'incerto'
+        ? `Incerto: ${reason ?? 'o envio pode ter acontecido'} — confira na Visão de Comandos do jogo.`
+        : status === 'removido'
+          ? reason === 'Substituído por edição.'
+            ? 'Substituído por uma edição — a versão nova está na Fila.'
+            : 'Cancelado antes de sair — nada foi enviado.'
+          : `Motivo: ${reason ?? 'o horário passou sem envio.'}`;
+    card.appendChild(why);
   }
+
+  // Bônus noturno: ataque pendente que chega na janela (defesa em dobro).
+  if (!HISTORY_STATUSES.has(status) && record.kind !== 'support' && record.kind !== 'cancel' && record.arrivalAt !== undefined) {
+    if (inNightBonus(Date.parse(record.arrivalAt), cachedNightBonus())) {
+      const nb = document.createElement('div');
+      nb.className = 'tsh-card-desc tsh-card-warn';
+      nb.textContent = 'Chega no bônus noturno (defesa ×2).';
+      card.appendChild(nb);
+    }
+  }
+  // Detalhes que mudam a leitura (estratégia, repetição, catapulta, forçar, trem).
+  const extras: string[] = [];
+  if (record.timingStrategy !== undefined && record.timingStrategy !== 'direto') extras.push(timingStrategyLabel(record.timingStrategy));
   if (record.sequentialCount !== undefined && record.sequentialCount > 1) extras.push(`${record.sequentialCount}×`);
   if (record.catapultTarget !== undefined && record.catapultTarget !== '') {
     extras.push(`catapulta: ${CATAPULT_TARGETS[record.catapultTarget as keyof typeof CATAPULT_TARGETS] ?? record.catapultTarget}`);
   }
-  if (record.forced === true) extras.push('FORÇADO (mesmo impossível)');
+  if (record.forced === true) extras.push('forçado (mesmo impossível)');
+  if (record.trainUnits !== undefined && record.trainUnits.length > 0) extras.push(`trem do jogo: +${record.trainUnits.length} ataque(s)`);
   if (extras.length > 0) {
     const line3 = document.createElement('div');
     line3.className = 'tsh-card-desc';
     line3.textContent = extras.join(' · ');
     card.appendChild(line3);
   }
-
-  const actions = document.createElement('div');
-  actions.className = 'tsh-actions';
-  const pauseBtn = document.createElement('button');
-  pauseBtn.type = 'button';
-  pauseBtn.className = 'tsh-btn';
-  if (record.paused) {
-    pauseBtn.appendChild(icon('play', 12));
-    pauseBtn.appendChild(document.createTextNode('Retomar'));
-  } else {
-    pauseBtn.appendChild(icon('pause', 12));
-    pauseBtn.appendChild(document.createTextNode('Pausar'));
+  for (const [i, trainRow] of (record.trainUnits ?? []).entries()) {
+    const trainLine = document.createElement('div');
+    trainLine.className = 'tsh-card-desc tsh-card-line';
+    const tag = document.createElement('span');
+    tag.textContent = `#${i + 2}`;
+    tag.style.fontFamily = 'var(--shs-font-mono)';
+    trainLine.append(tag, unitStrip(trainRow));
+    card.appendChild(trainLine);
   }
-  pauseBtn.addEventListener('click', () => {
-    setCommandPaused(world, record.id, !record.paused);
-    rerender();
-    refresh();
-  });
-  const removeBtn = document.createElement('button');
-  removeBtn.type = 'button';
-  removeBtn.className = 'tsh-btn tsh-btn--danger';
-  removeBtn.appendChild(icon('trash', 12));
-  removeBtn.appendChild(document.createTextNode('Remover'));
-  removeBtn.addEventListener('click', () => {
-    void removeCommandWithConfirm(record, shadow, world, rerender, refresh);
-  });
-  actions.append(pauseBtn, removeBtn);
-  card.appendChild(actions);
+
+  card.appendChild(timelineEl(record, world));
+  // Ações — só as que fazem sentido no estado (enviado não se pausa).
+  const acts = cardActionsFor(status);
+  if (acts.length > 0) {
+    const actions = document.createElement('div');
+    actions.className = 'tsh-actions';
+    if (status === 'agendado' || status === 'pausado') {
+      actions.appendChild(actionButton('Mudar horário', 'clock', 'tsh-btn tsh-btn--sm', () => openTimeEditor(card, record, world, rerender, refresh)));
+      // Trem do jogo não se remonta no formulário — só horário/cancelar.
+      if (record.trainUnits === undefined || record.trainUnits.length === 0) {
+        actions.appendChild(
+          actionButton('Editar', 'edit', 'tsh-btn tsh-btn--sm', () => hooks.editar(record), 'Abre este comando no formulário (tropas, alvo, horário). Salvar substitui o original.'),
+        );
+      }
+      actions.appendChild(
+        actionButton('Duplicar', 'copy', 'tsh-btn tsh-btn--sm tsh-btn--ghost', () => hooks.reagendar(record, 'duplicate'), 'Cria OUTRO comando igual a este (este continua na fila). Confira o horário.'),
+      );
+    }
+    for (const act of acts) {
+      if (act === 'pausar' || act === 'retomar') {
+        actions.appendChild(
+          actionButton(act === 'pausar' ? 'Pausar' : 'Retomar', act === 'pausar' ? 'pause' : 'play', 'tsh-btn tsh-btn--sm', () => {
+            setCommandPaused(world, record.id, act === 'pausar');
+            rerender();
+            refresh();
+          }),
+        );
+      } else if (act === 'cancelar') {
+        actions.appendChild(
+          actionButton('Cancelar envio', 'x', 'tsh-btn tsh-btn--sm tsh-btn--danger', () => {
+            void removeCommandWithConfirm(record, shadow, world, rerender, refresh);
+          }),
+        );
+      } else if (act === 'reagendar') {
+        actions.appendChild(
+          actionButton('Usar de novo', 'refresh', 'tsh-btn tsh-btn--sm', () => hooks.reagendar(record, 'reuse'), 'Cria um comando NOVO com a mesma origem, alvo e tropas. Confira o horário.'),
+        );
+      } else {
+        actions.appendChild(
+          actionButton('Apagar do histórico', 'trash', 'tsh-btn tsh-btn--sm tsh-btn--ghost', () => {
+            void removeCommandWithConfirm(record, shadow, world, rerender, refresh);
+          }),
+        );
+      }
+    }
+    card.appendChild(actions);
+  } else if (status === 'enviando') {
+    card.appendChild(helpEl('Saindo agora — aguarde a confirmação do jogo.'));
+  }
   return card;
 }
 
@@ -1164,16 +1830,28 @@ async function removeCommandWithConfirm(
   rerender: () => void,
   refresh: () => void,
 ): Promise<void> {
-  const status = deriveSchedulerCommandStatus(record, new Date(), SCHEDULER_DEFAULT_WINDOW);
+  const status = deriveSchedulerCommandStatus(record, new Date(serverNowMs()), SCHEDULER_DEFAULT_WINDOW);
   const label = `${commandKindLabel(record.kind)} → ${record.target.x}|${record.target.y}`;
+  const pendente = !HISTORY_STATUSES.has(status);
   const message =
     status === 'incerto'
-      ? `O envio de "${label}" está INCERTO — pode ter acontecido ou não. Remover o registro mesmo assim?`
-      : status === 'enviado' || status === 'removido'
-        ? `Remover "${label}" do histórico? (não afeta o jogo — o comando já não dispara mais)`
-        : `Remover o comando "${label}"? Ele NÃO será enviado.`;
-  const ok = await tshConfirm(shadow, 'Remover comando', message, { danger: true });
+      ? `O envio de "${label}" está INCERTO — pode ter acontecido ou não. Apagar o registro mesmo assim?`
+      : pendente
+        ? `Cancelar o envio de "${label}"? Ele NÃO será enviado e fica no histórico como cancelado.`
+        : `Apagar "${label}" do histórico? (não afeta o jogo)`;
+  const ok = await tshConfirm(shadow, pendente ? 'Cancelar envio' : 'Apagar do histórico', message, {
+    danger: true,
+    okLabel: pendente ? 'Sim, cancelar o envio' : 'Apagar',
+    cancelLabel: pendente ? 'Manter na fila' : 'Manter',
+  });
   if (!ok) return;
+  if (pendente) {
+    const atual = loadSchedulerState(world);
+    saveSchedulerState(world, { ...atual, commands: cancelManyCommands(atual.commands, new Set([record.id]), new Date().toISOString()) });
+    rerender();
+    refresh();
+    return;
+  }
   const state = loadSchedulerState(world);
   saveSchedulerState(world, {
     ...state,
@@ -1197,33 +1875,538 @@ async function removeCommandWithConfirm(
 
 // ── Tela principal ──
 
-export async function openSchedulerCommands(shadow: ShadowRoot, world: string, rerender: () => void): Promise<void> {
-  const { body, foot, close } = buildTshModal(shadow, 'Comandos — Agendador', 'clock');
+/** "em 1h02m", "em 02:13.450" ou "vencido há 3s" — contagem do cravado. */
+export function formatEta(deltaMs: number): string {
+  if (!Number.isFinite(deltaMs)) return '';
+  if (deltaMs < 0) {
+    const late = Math.round(-deltaMs / 1000);
+    return late < 1 ? 'agora' : `passou há ${late}s`;
+  }
+  if (deltaMs >= 3_600_000) {
+    const h = Math.floor(deltaMs / 3_600_000);
+    const m = Math.floor((deltaMs % 3_600_000) / 60_000);
+    return `em ${h}h${pad2(m)}m`;
+  }
+  const totalMs = Math.floor(deltaMs);
+  const mm = Math.floor(totalMs / 60_000);
+  const ss = Math.floor((totalMs % 60_000) / 1000);
+  const ms = totalMs % 1000;
+  return `em ${pad2(mm)}:${pad2(ss)}.${String(ms).padStart(3, '0')}`;
+}
+
+/** Barra do relógio de precisão (fonte, incerteza, hora do servidor viva, Calibrar). */
+function clockBarEl(onCalibrated: () => void): { bar: HTMLDivElement; tick: () => void } {
+  const bar = document.createElement('div');
+  bar.className = 'tsh-clockbar';
+  const now = document.createElement('span');
+  now.className = 'tsh-clockbar-now';
+  const meta = document.createElement('span');
+  meta.className = 'tsh-clockbar-meta';
+  const calibrar = document.createElement('button');
+  calibrar.type = 'button';
+  calibrar.className = 'tsh-btn tsh-btn--ghost tsh-btn--sm';
+  calibrar.appendChild(icon('clock', 12));
+  const calibrarTxt = document.createElement('span');
+  calibrarTxt.className = 'tsh-btn-txt';
+  calibrarTxt.textContent = 'Calibrar relógio';
+  calibrar.appendChild(calibrarTxt);
+  calibrar.title = 'Mede o relógio do servidor agora (até 11 consultas leves, alguns segundos).';
+  calibrar.addEventListener('click', () => {
+    calibrar.disabled = true;
+    calibrarTxt.textContent = 'Calibrando…';
+    void calibrateClock().finally(() => {
+      calibrar.disabled = false;
+      calibrarTxt.textContent = 'Calibrar relógio';
+      tick();
+      onCalibrated();
+    });
+  });
+  const tick = (): void => {
+    const info = clockInfo();
+    now.textContent = `Servidor ${clockLabelMs(serverNowMs())}`;
+    const fonte = info.source === 'nenhuma' ? 'sem fonte' : clockSourceLabel(info.source);
+    const rtt = info.rttMedianMs !== null ? ` · resposta ~${info.rttMedianMs} ms` : '';
+    const aprendido =
+      info.learnedCompensationMs !== null
+        ? ` · autoajuste ${info.learnedCompensationMs} ms (${info.feedbackCount} envio(s)${
+            info.lastArrivalErrorMs !== null ? `, último ${info.lastArrivalErrorMs >= 0 ? '+' : ''}${info.lastArrivalErrorMs} ms` : ''
+          })`
+        : info.feedbackCount > 0 && info.lastArrivalErrorMs !== null
+          ? ` · último envio ${info.lastArrivalErrorMs >= 0 ? '+' : ''}${info.lastArrivalErrorMs} ms`
+          : '';
+    meta.textContent = `${fonte} · precisão ±${info.uncertaintyMs} ms${rtt}${aprendido}`;
+    bar.dataset.quality = info.uncertaintyMs <= 60 ? 'ok' : info.uncertaintyMs <= 300 ? 'warn' : 'bad';
+  };
+  tick();
+  bar.append(icon('clock', 13), now, meta, calibrar);
+  return { bar, tick };
+}
+
+/** Abas da Central (v3.3.0). */
+export type CentralTab = 'fila' | 'novo' | 'bloco' | 'mapa' | 'historico';
+
+/** Última aba aberta (a Central reabre onde o jogador estava). */
+let lastCentralTab: CentralTab = 'fila';
+
+/** Barra de abas simples: botões + painéis; mostra um por vez. */
+function centralTabs(parent: HTMLElement, defs: readonly { id: CentralTab; label: string; icon: IconName }[]): {
+  panel(id: CentralTab): HTMLDivElement;
+  select(id: CentralTab): void;
+  setCount(id: CentralTab, n: number | null): void;
+} {
+  const bar = document.createElement('div');
+  bar.className = 'tsh-tabs';
+  bar.setAttribute('role', 'tablist');
+  parent.appendChild(bar);
+  const buttons = new Map<CentralTab, { btn: HTMLButtonElement; count: HTMLSpanElement }>();
+  const panels = new Map<CentralTab, HTMLDivElement>();
+  const select = (id: CentralTab): void => {
+    lastCentralTab = id;
+    for (const [key, { btn }] of buttons) {
+      btn.setAttribute('aria-selected', String(key === id));
+      btn.tabIndex = key === id ? 0 : -1;
+    }
+    for (const [key, panel] of panels) panel.hidden = key !== id;
+  };
+  // ←/→ entre as abas (padrão de tablist).
+  bar.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+    const order = defs.map((d) => d.id);
+    const i = order.indexOf(lastCentralTab);
+    const next = order[(i + (event.key === 'ArrowRight' ? 1 : order.length - 1)) % order.length];
+    if (next === undefined) return;
+    event.preventDefault();
+    select(next);
+    buttons.get(next)?.btn.focus();
+  });
+  for (const def of defs) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tsh-tab';
+    btn.setAttribute('role', 'tab');
+    btn.id = `tsh-tab-${def.id}`;
+    btn.setAttribute('aria-controls', `tsh-tabpanel-${def.id}`);
+    const count = document.createElement('span');
+    count.className = 'tsh-tab-count';
+    count.hidden = true;
+    btn.append(icon(def.icon, 14), document.createTextNode(def.label), count);
+    btn.addEventListener('click', () => select(def.id));
+    bar.appendChild(btn);
+    buttons.set(def.id, { btn, count });
+    const panel = document.createElement('div');
+    panel.className = 'tsh-tab-panel';
+    panel.setAttribute('role', 'tabpanel');
+    panel.id = `tsh-tabpanel-${def.id}`;
+    panel.setAttribute('aria-labelledby', `tsh-tab-${def.id}`);
+    panel.hidden = true;
+    parent.appendChild(panel);
+    panels.set(def.id, panel);
+  }
+  return {
+    panel: (id) => panels.get(id) as HTMLDivElement,
+    select,
+    setCount: (id, n) => {
+      const entry = buttons.get(id);
+      if (entry === undefined) return;
+      entry.count.hidden = n === null || n === 0;
+      entry.count.textContent = n === null ? '' : String(n);
+    },
+  };
+}
+
+/** Faixa de números da fila: total, por tipo (com ícone do jogo) e o próximo. */
+function renderCentralStats(wrap: HTMLElement, world: string): void {
+  wrap.replaceChildren();
+  const fila = rowsOf(world).filter((row) => !HISTORY_STATUSES.has(row.status));
+  const alive = fila.filter((row) => row.status !== 'pausado');
+  const pausados = fila.length - alive.length;
+  const chip = (label: string, value: string, kind?: string): HTMLDivElement => {
+    const el = document.createElement('div');
+    el.className = 'tsh-stat-chip';
+    const v = document.createElement('strong');
+    v.textContent = value;
+    const l = document.createElement('span');
+    l.textContent = label;
+    const k = kind !== undefined ? kindIcon(kind, 16) : null;
+    if (k !== null) el.appendChild(k);
+    el.append(v, l);
+    return el;
+  };
+  wrap.appendChild(chip(pausados > 0 ? `na fila (${pausados} pausado${pausados > 1 ? 's' : ''})` : 'na fila', String(fila.length)));
+  const counts = countByKind(alive.map((row) => row.record));
+  const labels: Record<string, string> = { attack: 'ataques', fake: 'fakes', support: 'apoios', noble: 'nobres', cancel: 'cancelamentos' };
+  for (const [kind, n] of Object.entries(counts)) {
+    if (n > 0) wrap.appendChild(chip(labels[kind] ?? kind, String(n), kind));
+  }
+  const next = alive.find((row) => row.status === 'agendado' || row.status === 'janela');
+  if (next !== undefined) {
+    const at = Date.parse(next.record.sendAt);
+    const el = document.createElement('div');
+    el.className = 'tsh-stat-chip tsh-stat-chip--next';
+    const l = document.createElement('span');
+    l.textContent = `próximo: ${commandKindLabel(next.record.kind).toLowerCase()} → ${next.record.target.x}|${next.record.target.y}`;
+    const v = document.createElement('strong');
+    v.dataset.tshEta = String(at);
+    v.textContent = formatEta(at - serverNowMs());
+    el.append(icon('clock', 14), l, v);
+    wrap.appendChild(el);
+  }
+}
+
+export async function openSchedulerCommands(
+  shadow: ShadowRoot,
+  world: string,
+  rerender: () => void,
+  focus?: 'form' | CentralTab,
+): Promise<void> {
+  // Relógio vivo (Onda A): UM interval de 250ms enquanto a tela está aberta —
+  // atualiza a hora do servidor e as contagens [data-tsh-eta]; some ao fechar.
+  let liveTimer: number | undefined;
+  const { body, foot, requestClose, markClean } = buildTshModal(shadow, 'Central de comandos', 'crosshair', {
+    onClose: () => {
+      if (liveTimer !== undefined) window.clearInterval(liveTimer);
+    },
+  });
   const modalEl = body.parentElement; // modal é o pai do body no scaffold
   if (modalEl !== null) {
-    // Modal grande (lista + grade de 12 unidades) — o scaffold padrão é 720px.
-    modalEl.style.width = 'min(780px, calc(100vw - 32px))';
-    modalEl.style.maxHeight = 'min(88vh, 860px)';
+    modalEl.style.width = 'min(820px, calc(100vw - 32px))';
+    modalEl.style.maxHeight = 'min(90vh, 900px)';
   }
 
-  // ── Help geral vira banner de info Nexus no topo ──
   body.appendChild(
-    tshNoteBanner('Comandos disparam sozinhos pela Praça da aldeia de origem, no horário marcado.'),
+    tshNoteBanner(
+      'Os comandos saem sozinhos no horário, pela Praça da aldeia de origem — em segundo plano, sem trocar a sua tela. Deixe uma aba do jogo aberta e o computador acordado.',
+    ),
   );
 
-  // ── Lista (estado atual do motor) ──
-  const listSection = sectionBoxEl('Comandos agendados', 'send');
-  body.appendChild(listSection.box);
-  const listWrap = document.createElement('div');
-  listSection.body.appendChild(listWrap);
+  // ── Relógio de precisão ──
+  const clock = clockBarEl(() => refreshList());
+  body.appendChild(clock.bar);
+  const tickLive = (): void => {
+    if (aimIsHot()) return; // reta final de um cravado nesta página
+    clock.tick();
+    const nowServer = serverNowMs();
+    for (const el of body.querySelectorAll<HTMLElement>('[data-tsh-eta]')) {
+      const at = Number(el.dataset.tshEta);
+      el.textContent = formatEta(at - nowServer);
+    }
+  };
+  // A Fila acompanha o motor sozinha: quando algum comando muda de estado
+  // (saiu, falhou, entrou na mira), a lista é redesenhada (antes ficava velha).
+  let lastSig = '';
+  let liveTicks = 0;
+  const sigOf = (): string =>
+    rowsOf(world)
+      .map((row) => `${row.record.id}:${row.status}:${row.record.sendAt}`)
+      .join('|');
+  const tickAll = (): void => {
+    tickLive();
+    liveTicks += 1;
+    if (liveTicks % 4 !== 0 || aimIsHot()) return;
+    // Editor de horário aberto ou importação em curso: não redesenha por cima.
+    if (body.querySelector('.tsh-time-editor') !== null || !importBox.hidden) return;
+    const sig = sigOf();
+    if (sig !== lastSig) {
+      lastSig = sig;
+      refreshList();
+    }
+  };
+  liveTimer = window.setInterval(tickAll, 250);
+  if (clockInfo().source !== 'http') void calibrateClock().then(() => clock.tick());
+
+  // ── Números da fila ──
+  const stats = document.createElement('div');
+  stats.className = 'tsh-central-stats';
+  body.appendChild(stats);
+
+  // ── Abas ──
+  const tabs = centralTabs(body, [
+    { id: 'fila', label: 'Fila', icon: 'list' },
+    { id: 'novo', label: 'Novo comando', icon: 'plus' },
+    { id: 'bloco', label: 'Em bloco', icon: 'layers' },
+    { id: 'mapa', label: 'Mapa', icon: 'map' },
+    { id: 'historico', label: 'Histórico', icon: 'clock' },
+  ]);
+  const initialTab: CentralTab = focus === 'form' ? 'novo' : (focus ?? lastCentralTab);
+
+  const queueFilters: ListFilters = { query: '', kind: 'todos', history: 'todos' };
+  const historyFilters: ListFilters = { query: '', kind: 'todos', history: 'todos' };
+  let prefillForm: ((record: ScheduledCommandRecord, mode: 'reuse' | 'duplicate' | 'edit') => void) | null = null;
+  let formIsDirty: () => boolean = () => false;
+  // Aldeias desta conta (para o Importar recusar origens alheias) — carregadas com o formulário.
+  let ownIds: ReadonlySet<string> | undefined;
+  const openInForm = (record: ScheduledCommandRecord, mode: 'reuse' | 'duplicate' | 'edit'): void => {
+    void (async () => {
+      tabs.select('novo');
+      if (prefillForm === null) {
+        showNotice('O formulário ainda não carregou suas aldeias — espere um instante e clique de novo.');
+        return;
+      }
+      // Não apaga em silêncio o que o jogador já digitou no formulário.
+      if (formIsDirty()) {
+        const ok = await tshConfirm(
+          shadow,
+          'Substituir o formulário?',
+          'Você já preencheu dados em "Novo comando". Substituir pelos dados deste comando?',
+          { okLabel: 'Substituir', cancelLabel: 'Manter o que digitei' },
+        );
+        if (!ok) return;
+      }
+      prefillForm(record, mode);
+    })();
+  };
+  const hooks: CentralHooks = {
+    reagendar: (record, mode) => openInForm(record, mode),
+    editar: (record) => {
+      const bloqueio = notEditableReason(world, record.id);
+      if (bloqueio !== null) {
+        showQueueNote(bloqueio);
+        return;
+      }
+      openInForm(record, 'edit');
+    },
+  };
+
+  // Fila: barra de ferramentas (fica fixa) + lista (redesenha).
+  const filaPanel = tabs.panel('fila');
+  const queueBar = document.createElement('div');
+  queueBar.className = 'tsh-central-toolbar';
+  const search = document.createElement('input');
+  search.type = 'search';
+  search.className = 'tsh-input tsh-central-search';
+  search.placeholder = 'Buscar coordenada ou aldeia';
+  search.setAttribute('aria-label', 'Buscar na fila');
+  const kindFilter = selectEl(KIND_FILTER_OPTIONS.map((o) => ({ value: o.value, label: o.label })));
+  kindFilter.setAttribute('aria-label', 'Filtrar por tipo');
+  const bulk = document.createElement('div');
+  bulk.className = 'tsh-central-bulk';
+  queueBar.append(search, kindFilter, bulk);
+  filaPanel.appendChild(queueBar);
+  const importBox = document.createElement('div');
+  importBox.className = 'tsh-central-import';
+  importBox.hidden = true;
+  filaPanel.appendChild(importBox);
+  const queueList = document.createElement('div');
+  filaPanel.appendChild(queueList);
+
+  // Histórico: filtro (Todos/Enviados/Falhas) + limpar.
+  const histPanel = tabs.panel('historico');
+  const histBar = document.createElement('div');
+  histBar.className = 'tsh-central-toolbar';
+  const seg = document.createElement('div');
+  seg.className = 'tsh-seg';
+  seg.setAttribute('role', 'radiogroup');
+  const segBtns: HTMLButtonElement[] = [];
+  for (const [value, label] of [
+    ['todos', 'Todos'],
+    ['enviados', 'Enviados'],
+    ['falhas', 'Falhas'],
+  ] as const) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tsh-seg-btn';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(value === 'todos'));
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      historyFilters.history = value as HistoryFilter;
+      for (const other of segBtns) other.setAttribute('aria-checked', String(other === b));
+      refreshList();
+    });
+    segBtns.push(b);
+    seg.appendChild(b);
+  }
+  const limpar = actionButton('Limpar histórico', 'trash', 'tsh-btn tsh-btn--ghost tsh-btn--sm', () => {
+    void (async () => {
+      const { removed } = pruneCommandHistory(loadSchedulerState(world).commands);
+      if (removed === 0) return;
+      const ok = await tshConfirm(
+        shadow,
+        'Limpar histórico',
+        `Apagar ${removed} registro(s) encerrado(s) (enviados, falhos e cancelados)? Os INCERTOS ficam — confira-os no jogo antes.`,
+        { danger: true },
+      );
+      if (!ok) return;
+      const atual = loadSchedulerState(world);
+      saveSchedulerState(world, { ...atual, commands: pruneCommandHistory(atual.commands).kept });
+      rerender();
+      refreshList();
+    })();
+  });
+  const histSearch = document.createElement('input');
+  histSearch.type = 'search';
+  histSearch.className = 'tsh-input tsh-central-search';
+  histSearch.placeholder = 'Buscar coordenada ou aldeia';
+  histSearch.setAttribute('aria-label', 'Buscar no histórico');
+  histSearch.addEventListener('input', () => {
+    historyFilters.query = histSearch.value;
+    refreshList();
+  });
+  histBar.append(seg, histSearch, limpar);
+  histPanel.appendChild(histBar);
+  const histList = document.createElement('div');
+  histPanel.appendChild(histList);
+
   const refreshList = (): void => {
-    renderCommandList(listWrap, shadow, world, rerender, refreshList);
+    renderCentralStats(stats, world);
+    renderQueue(queueList, shadow, world, queueFilters, hooks, rerender, refreshList);
+    renderHistory(histList, shadow, world, historyFilters, hooks, rerender, refreshList);
+    renderBulk();
+    const rows = rowsOf(world);
+    tabs.setCount('fila', rows.filter((row) => !HISTORY_STATUSES.has(row.status)).length);
+    tabs.setCount('historico', rows.filter((row) => HISTORY_STATUSES.has(row.status)).length);
+  };
+
+  // Ações em lote da Fila (valem para o que o filtro mostra).
+  const filtered = (): ScheduledCommandRecord[] =>
+    rowsOf(world)
+      .filter((row) => !HISTORY_STATUSES.has(row.status) && row.status !== 'enviando')
+      .map((row) => row.record)
+      .filter((record) => matchesQuery(record, queueFilters.query) && matchesKind(record, queueFilters.kind));
+  function filtroTexto(): string {
+    const partes: string[] = [];
+    if (queueFilters.kind !== 'todos') partes.push(KIND_FILTER_OPTIONS.find((o) => o.value === queueFilters.kind)?.label ?? '');
+    if (queueFilters.query.trim() !== '') partes.push(`"${queueFilters.query.trim()}"`);
+    return partes.length > 0 ? ` (filtro: ${partes.join(' · ')})` : '';
+  }
+  function renderBulk(): void {
+    bulk.replaceChildren();
+    const list = filtered();
+    const pausados = list.filter((r) => r.paused);
+    const ativos = list.filter((r) => !r.paused);
+    if (ativos.length > 0) {
+      bulk.appendChild(
+        actionButton(`Pausar ${ativos.length}`, 'pause', 'tsh-btn tsh-btn--sm', () => {
+          void (async () => {
+            const breve = ativos.filter((r) => Date.parse(r.sendAt) - serverNowMs() < 5 * 60_000).length;
+            if (breve > 0) {
+              const ok = await tshConfirm(
+                shadow,
+                'Pausar comandos',
+                `Pausar ${ativos.length} comando(s)${filtroTexto()}? ${breve} sai(em) nos próximos 5 min — pausado não sai, e se passar da hora não é reenviado.`,
+                { danger: true, okLabel: `Sim, pausar ${ativos.length}`, cancelLabel: 'Não pausar' },
+              );
+              if (!ok) return;
+            }
+            for (const r of ativos) setCommandPaused(world, r.id, true);
+            rerender();
+            refreshList();
+          })();
+        }),
+      );
+    }
+    if (pausados.length > 0) {
+      bulk.appendChild(
+        actionButton(`Retomar ${pausados.length}`, 'play', 'tsh-btn tsh-btn--sm', () => {
+          for (const r of pausados) setCommandPaused(world, r.id, false);
+          rerender();
+          refreshList();
+        }),
+      );
+    }
+    if (list.length > 0) {
+      bulk.appendChild(
+        actionButton(`Cancelar ${list.length}`, 'x', 'tsh-btn tsh-btn--sm tsh-btn--danger', () => {
+          void (async () => {
+            const breve = list.filter((r) => Date.parse(r.sendAt) - serverNowMs() < 2 * 60_000).length;
+            const ok = await tshConfirm(
+              shadow,
+              'Cancelar envios',
+              `Cancelar ${list.length} comando(s)${filtroTexto()}?${breve > 0 ? ` ${breve} sai(em) nos próximos 2 min.` : ''} Eles NÃO serão enviados e ficam no histórico como cancelados.`,
+              { danger: true, okLabel: `Sim, cancelar ${list.length}`, cancelLabel: 'Manter na fila' },
+            );
+            if (!ok) return;
+            const atual = loadSchedulerState(world);
+            saveSchedulerState(world, { ...atual, commands: cancelManyCommands(atual.commands, new Set(list.map((r) => r.id)), new Date().toISOString()) });
+            rerender();
+            refreshList();
+          })();
+        }),
+      );
+      bulk.appendChild(
+        actionButton('Exportar', 'copy', 'tsh-btn tsh-btn--sm tsh-btn--ghost', () => {
+          const text = exportCommands(world, list);
+          void navigator.clipboard.writeText(text).then(
+            () => showQueueNote(`${list.length} comando(s) copiado(s). Cole em "Importar" em outro navegador desta mesma conta.`),
+            () => openImport(text, 'Copie o texto abaixo (Ctrl+C):'),
+          );
+        }),
+      );
+    }
+    bulk.appendChild(actionButton('Importar', 'download', 'tsh-btn tsh-btn--sm tsh-btn--ghost', () => openImport('', null)));
+  }
+  let queueNote: HTMLDivElement | null = null;
+  const showQueueNote = (text: string): void => {
+    if (queueNote === null) {
+      queueNote = statusRowEl('');
+      filaPanel.insertBefore(queueNote, queueList);
+    }
+    statusMsgOf(queueNote).textContent = text;
+  };
+  const openImport = (preset: string, title: string | null): void => {
+    importBox.replaceChildren();
+    importBox.hidden = false;
+    const area = textAreaEl('Cole aqui o texto do botão "Exportar".', 5);
+    area.value = preset;
+    const msg = helpEl(title ?? 'Os comandos entram na fila como novos. Os que já passaram do horário ficam de fora.');
+    const go = actionButton('Importar comandos', 'download', 'tsh-btn tsh-btn--primary tsh-btn--sm', () => {
+      const out = importCommands(
+        area.value,
+        world,
+        new Set(loadSchedulerState(world).commands.map((c) => c.id)),
+        serverNowMs(),
+        ownIds,
+      );
+      if (!out.ok) {
+        msg.textContent = out.message;
+        msg.style.color = 'var(--shs-danger)';
+        return;
+      }
+      const { records, past, invalid, foreign } = out.result;
+      if (records.length > 0) appendSchedulerRecords(world, records);
+      const parts = [`${records.length} comando(s) importado(s)`];
+      if (past > 0) parts.push(`${past} já tinha(m) passado do horário`);
+      if (foreign > 0) parts.push(`${foreign} sai(em) de aldeia que não é sua`);
+      if (invalid > 0) parts.push(`${invalid} inválido(s)`);
+      importBox.hidden = true;
+      showQueueNote(`${parts.join(' · ')}.`);
+      rerender();
+      refreshList();
+    });
+    const fechar = actionButton('Fechar', 'x', 'tsh-btn tsh-btn--sm tsh-btn--ghost', () => {
+      importBox.hidden = true;
+    });
+    const row = document.createElement('div');
+    row.className = 'tsh-actions';
+    row.append(go, fechar);
+    importBox.append(area, msg, row);
+    if (preset !== '') area.select();
+    else area.focus();
+  };
+  search.addEventListener('input', () => {
+    queueFilters.query = search.value;
+    refreshList();
+  });
+  kindFilter.addEventListener('change', () => {
+    queueFilters.kind = kindFilter.value as KindFilter;
+    refreshList();
+  });
+
+  // ── Novo comando ──
+  const formSection = sectionBoxEl('Agendar comando', 'plus');
+  tabs.panel('novo').appendChild(formSection.box);
+  let noticeEl: HTMLDivElement | null = null;
+  const showNotice = (text: string): void => {
+    if (noticeEl === null) {
+      noticeEl = statusRowEl('');
+      noticeEl.classList.add('tsh-central-notice');
+      formSection.body.prepend(noticeEl);
+    }
+    statusMsgOf(noticeEl).textContent = text;
+    noticeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
   refreshList();
-
-  // ── Formulário "Agendar comando" ──
-  const formSection = sectionBoxEl('Agendar comando', 'plus');
-  body.appendChild(formSection.box);
+  tabs.select(initialTab);
   const form = document.createElement('div');
   formSection.body.appendChild(form);
 
@@ -1243,9 +2426,20 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   closeBtn.className = 'tsh-btn tsh-btn--ghost';
   closeBtn.appendChild(icon('x', 12));
   closeBtn.appendChild(document.createTextNode('Fechar'));
-  closeBtn.addEventListener('click', close);
+  closeBtn.addEventListener('click', requestClose); // pergunta se há comando meio digitado
   foot.appendChild(closeBtn);
 
+  ownIds = new Set(villages.map((v) => normalizeVillageId(v.id)));
+  // Bônus noturno do mundo (aviso no resumo) — não bloqueia o formulário.
+  let nightBonus: NightBonus | null = null;
+  void worldNightBonus().then((nb) => {
+    nightBonus = nb;
+    try {
+      updateSummary();
+    } catch {
+      /* formulário não montou (sem aldeias) — nada a atualizar */
+    }
+  });
   const firstVillage = villages[0];
   if (firstVillage === undefined) {
     const err = document.createElement('div');
@@ -1264,11 +2458,13 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   let travelMin: number | null = null; // último travelMinutes válido do conjunto atual
 
   let errorEl: HTMLDivElement | null = null;
+  // Onde o erro aparece: na barra de ações fixa (criada mais abaixo), à vista.
+  let errorHost: HTMLElement = form;
   const showError = (message: string): void => {
     if (errorEl === null) {
       errorEl = document.createElement('div');
       errorEl.className = 'tsh-error';
-      form.appendChild(errorEl);
+      errorHost.prepend(errorEl);
     }
     errorEl.textContent = message; // sempre textContent — nunca HTML
   };
@@ -1282,10 +2478,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   // ── Origem ──
   const originField = document.createElement('div');
   originField.className = 'tsh-field tsh-field--block';
-  const originLabel = labelEl(
-    'Origem',
-    'Suas aldeias, lidas do próprio jogo. A coordenada da origem é usada para converter chegada→envio.',
-  );
+  const originLabel = labelEl('Origem');
   const originSelect = document.createElement('select');
   originSelect.className = 'tsh-select';
   for (const village of villages) {
@@ -1300,6 +2493,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
     if (found !== undefined) {
       origin = found;
       clearError();
+      loadTemplatesFor(found.id);
       void recomputeTravel();
       updateSummary();
     }
@@ -1311,7 +2505,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   // ── Alvo ──
   const targetField = document.createElement('div');
   targetField.className = 'tsh-field tsh-field--block';
-  const targetLabel = labelEl('Alvo (x|y)', 'Coordenadas de 0 a 999. O nome e os pontos são buscados no mapa automaticamente.');
+  const targetLabel = labelEl('Alvo (x|y)');
   const targetInput = document.createElement('input');
   targetInput.type = 'text';
   targetInput.className = 'tsh-input';
@@ -1336,6 +2530,21 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
     ),
   );
   form.appendChild(kindField);
+
+  // ── Sinal de Aflição do alvo (v3.5.0, só apoio) ──
+  const sigilField = document.createElement('div');
+  sigilField.className = 'tsh-field tsh-field--block';
+  const sigilLabel = labelEl(
+    'Sinal de Aflição do alvo (%)',
+    'Com o Sinal de Aflição ativo no ALVO, os apoios chegam mais rápido. Deixe 0 se não souber. Com "Chegar às", no pré-arme o script lê a duração real, calcula a % e reagenda para chegar na hora. Com "Enviar às", ele só corrige a chegada prevista.',
+  );
+  const sigilInput = numberInputEl('0', 0, 300, 1);
+  sigilInput.setAttribute('aria-label', 'Sinal de Aflição do alvo em porcentagem');
+  sigilInput.style.width = '110px';
+  const sigilHelp = helpEl('0 = sem aflição (ou não sei — com "Chegar às" o script confere e reagenda na hora).');
+  sigilField.append(sigilLabel, sigilInput, sigilHelp);
+  form.appendChild(sigilField);
+  const sigilPctNow = (): number => (kindSelect.value === 'support' ? Math.max(0, Math.min(300, Math.floor(Number(sigilInput.value) || 0))) : 0);
 
   // ── Estratégia de envio (Onda 1: direto/snipe/dodge) ──
   const strategyField = document.createElement('div');
@@ -1379,14 +2588,122 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   unitsModePercent.className = 'tsh-check-row';
   unitsModePercent.append(unitsModePercentRadio, percentText);
   unitsModeRow.append(unitsModeAbsolute, unitsModePercent);
-  const unitsGridHandle = buildUnitsGrid(() => {
-    clearError();
-    updateConditionalFields();
-    void recomputeTravel();
-    updateSummary();
-  });
+  const unitsGridHandle = buildUnitsGrid(
+    () => {
+      clearError();
+      updateConditionalFields();
+      void recomputeTravel();
+      updateSummary();
+    },
+    { allowAll: true },
+  );
+  // ── Modelos de tropas do jogo (v3.3.0): os MESMOS da Praça, 1 clique ──
+  const templatesRow = document.createElement('div');
+  templatesRow.className = 'tsh-templates-row';
+  // ── Previsão de tropas no horário do envio (v3.5.0) ──
+  let forecastData: VillageForecast | null = null;
+  let forecastSeq = 0;
+  const refreshForecast = (village: OwnVillage): void => {
+    const seq = ++forecastSeq;
+    forecastData = null;
+    unitsGridHandle.setForecast(null);
+    void loadVillageForecast(village)
+      .then((data) => {
+        if (seq !== forecastSeq) return;
+        forecastData = data;
+        applyForecast();
+      })
+      .catch(() => undefined);
+  };
+  /** Envio planejado no formulário (hora do servidor, ms) — null se incompleto. */
+  const plannedSendServerMs = (): number | null => {
+    const when = readWhen();
+    if (when === null) return null;
+    const arrivalMode = arrivalRadio.checked && !arrivalRadio.disabled;
+    const sendLocal = arrivalMode ? (travelMin !== null ? arrivalToSendAt(when, travelMin) : null) : when;
+    return sendLocal === null ? null : localToServerEpoch(sendLocal, currentServerOffsetMs());
+  };
+  /** Tropas previstas em casa no horário do envio (null = sem dados). */
+  const forecastAtSend = (): Units | null => {
+    const T = plannedSendServerMs();
+    if (forecastData === null || forecastData.home === null || T === null) return null;
+    const leaving = loadSchedulerState(world)
+      .commands.filter(
+        (c) =>
+          c.id !== editingIdRef() &&
+          normalizeVillageId(c.sourceVillageId) === normalizeVillageId(origin.id) &&
+          !c.paused &&
+          !c.events.some((e) => HISTORY_STATUSES.has(e.status) || e.status === 'enviando'),
+      )
+      .map((c) => ({ atMs: Date.parse(c.sendAt), units: c.units, ...(c.allUnits !== undefined ? { all: c.allUnits } : {}) }));
+    return unitsAt(T, forecastData.home, forecastData.arrivals, forecastData.train, leaving);
+  };
+  const applyForecast = (): void => {
+    unitsGridHandle.setForecast(forecastAtSend());
+  };
+  let editingIdRef: () => string | null = () => null;
+
+  let templatesSeq = 0;
+  const loadTemplatesFor = (villageId: string): void => {
+    const seq = ++templatesSeq;
+    const aldeia = villages.find((v) => v.id === villageId);
+    if (aldeia !== undefined) refreshForecast(aldeia);
+    templatesRow.replaceChildren(helpEl('Carregando seus modelos de tropas do jogo…'));
+    unitsGridHandle.setAvailable(null);
+    void loadPlaceData(villageId)
+      .then((place) => {
+        if (seq !== templatesSeq) return; // outra aldeia foi escolhida depois
+        const list = place.templates;
+        unitsGridHandle.setAvailable(place.available);
+        templatesRow.replaceChildren();
+        if (list.length === 0) {
+          templatesRow.appendChild(helpEl('Não achei modelos de tropas nesta aldeia — digite as tropas ou marque "Todas".'));
+          return;
+        }
+        const title = document.createElement('span');
+        title.className = 'tsh-templates-title';
+        title.textContent = 'Modelos do jogo:';
+        templatesRow.appendChild(title);
+        for (const tpl of list) {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'tsh-template-chip';
+          chip.textContent = tpl.name;
+          const resumo = [
+            ...Object.entries(tpl.units).map(([u, n]) => `${unitLabel(u as UnitType)} ${formatInt(n ?? 0)}`),
+            ...tpl.useAll.map((u) => `${unitLabel(u)}: todas`),
+          ].join(' · ');
+          chip.title = resumo === '' ? tpl.name : resumo;
+          chip.setAttribute('aria-label', resumo === '' ? `Modelo ${tpl.name}` : `Modelo ${tpl.name}: ${resumo}`);
+          chip.addEventListener('click', () => {
+            unitsModeAbsoluteRadio.checked = true;
+            unitsGridHandle.setAllEnabled(true);
+            unitsGridHandle.set(tpl.units, tpl.useAll);
+            clearError();
+            // Modelo com nobre + tipo Ataque: o jogador quer um NOBRE.
+            const temNobre = (tpl.units.snob ?? 0) > 0 || tpl.useAll.includes('snob');
+            if (temNobre && kindSelect.value === 'attack') {
+              kindSelect.value = 'noble';
+              kindSelect.dispatchEvent(new Event('change'));
+              showNotice(`Modelo "${tpl.name}" leva nobre — o tipo mudou para Nobre.`);
+            }
+            if (tpl.useAll.length > 0 && trainCheck.input.checked) {
+              showError('Este modelo usa "Todas" — o trem de nobres precisa de quantidades fixas. Desmarque o trem ou ajuste as tropas.');
+            }
+            updateConditionalFields();
+            void recomputeTravel();
+            updateSummary();
+          });
+          templatesRow.appendChild(chip);
+        }
+      })
+      .catch(() => {
+        templatesRow.replaceChildren(helpEl('Não consegui ler os modelos de tropas agora — digite as tropas ou marque "Todas".'));
+      });
+  };
   const unitsHelp = helpEl('A soma das tropas deve ser maior que zero. A viagem vale a MAIS LENTA unidade do conjunto.');
-  unitsField.append(unitsLabel, unitsModeRow, unitsGridHandle.grid, unitsHelp);
+  unitsField.append(unitsLabel, unitsModeRow, templatesRow, unitsGridHandle.grid, unitsHelp);
+  loadTemplatesFor(origin.id);
   form.appendChild(unitsField);
 
   // ── Alvo da catapulta (só com catapulta no conjunto) ──
@@ -1414,7 +2731,15 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   );
   const trainSizeSelect = selectEl(NOBLE_TRAIN_SIZES.map((size) => ({ value: String(size), label: `${size} chegadas` })));
   trainSizeSelect.value = '2';
-  const trainGapInput = numberInputEl(String(NOBLE_TRAIN_DEFAULT_GAP_MS), 100, 60_000, 50);
+  // Onda E: modo do trem — nativo do jogo (1 clique, 100 ms) ou comandos separados.
+  const trainModeSelect = selectEl([
+    { value: 'nativo', label: 'Trem do jogo — 1 envio, chegadas a cada 100 ms (recomendado)' },
+    { value: 'separado', label: 'Comandos separados — gap livre (um envio por ataque)' },
+  ]);
+  trainModeSelect.value = 'nativo';
+  // Só vale no modo SEPARADO: cada nobre é um envio próprio da mesma aldeia
+  // (confirmação por envio) — abaixo de ~5 s o segundo perde a janela.
+  const trainGapInput = numberInputEl(String(VIEWER_CONFLICT_WINDOW_MS), VIEWER_CONFLICT_WINDOW_MS, 60_000, 500);
   const trainGapRow = document.createElement('div');
   trainGapRow.className = 'tsh-field';
   trainGapRow.append(labelEl('Gap entre chegadas (ms)'), trainGapInput);
@@ -1422,7 +2747,21 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
     'Nobre solitário',
     'Autoriza o trem incompleto quando faltam nobres (as primeiras chegadas levam os nobres disponíveis).',
   );
-  trainField.append(trainLabel, trainCheck.row, trainSizeSelect, trainGapRow, loneSnobCheck.row);
+  const trainModeHelp = helpEl('');
+  trainField.append(trainLabel, trainCheck.row, trainModeSelect, trainSizeSelect, trainGapRow, loneSnobCheck.row, trainModeHelp);
+  const applyTrainMode = (): void => {
+    const nativo = trainModeSelect.value === 'nativo';
+    trainGapRow.style.display = nativo ? 'none' : '';
+    loneSnobCheck.row.style.display = nativo ? 'none' : '';
+    trainModeHelp.textContent = nativo
+      ? 'Todos os ataques levam nobre e saem num ÚNICO clique na confirmação; o jogo espaça as chegadas em 100 ms. O horário é a chegada do 1º. Precisa de 1 nobre por ataque na grade.'
+      : `Um comando por ataque, cada um com sua própria confirmação — o gap mínimo é ${VIEWER_CONFLICT_WINDOW_MS / 1000} s (cada envio precisa abrir e confirmar a tela). Para chegadas coladas (100 ms), use o trem do jogo.`;
+  };
+  trainModeSelect.addEventListener('change', () => {
+    applyTrainMode();
+    updateSummary();
+  });
+  applyTrainMode();
   trainField.appendChild(
     helpEl(
       'Os nobres da grade são distribuídos entre os slots; o excedente pinga nas ÚLTIMAS chegadas. Repetição sequencial fica desligada no trem.',
@@ -1477,20 +2816,75 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   timeInput.step = '1';
   timeInput.className = 'tsh-input';
   // Conforto: pré-preenchido com daqui a 10 minutos (relógio local).
-  timeInput.value = toDatetimeLocalValue(new Date(Date.now() + 10 * 60_000));
+  timeInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 10 * 60_000));
+  const msInput = document.createElement('input');
+  msInput.type = 'number';
+  msInput.min = '0';
+  msInput.max = '999';
+  msInput.step = '1';
+  msInput.value = '0';
+  msInput.className = 'tsh-input tsh-input--ms';
+  msInput.title = 'Milissegundos (0–999)';
+  msInput.setAttribute('aria-label', 'Milissegundos');
+  const msSuffix = document.createElement('span');
+  msSuffix.className = 'tsh-ms-suffix';
+  msSuffix.textContent = 'ms';
   const timeRow = document.createElement('div');
   timeRow.style.display = 'flex';
   timeRow.style.gap = '6px';
   timeRow.style.alignItems = 'center';
+  timeRow.style.flexWrap = 'wrap';
   const pasteBtn = document.createElement('button');
   pasteBtn.type = 'button';
   pasteBtn.className = 'tsh-btn tsh-btn--ghost';
   pasteBtn.appendChild(icon('copy', 12));
   pasteBtn.appendChild(document.createTextNode('Colar horário'));
   pasteBtn.title = 'Lê a área de transferência (HH:mm:ss ou HH:mm:ss:ms) e preenche HOJE nesse horário — amanhã se já passou.';
-  timeRow.append(timeInput, pasteBtn);
+  timeRow.append(timeInput, msInput, msSuffix, pasteBtn);
+  // v3.3.1: ajuste rápido do horário (sem redigitar a data inteira).
+  const nudges = document.createElement('div');
+  nudges.className = 'tsh-time-nudges';
+  for (const [label, deltaMs] of [
+    ['−1 min', -60_000],
+    ['+1 min', 60_000],
+    ['+5 min', 5 * 60_000],
+    ['+10 min', 10 * 60_000],
+    ['+1 h', 60 * 60_000],
+  ] as const) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tsh-nudge';
+    b.textContent = label;
+    b.title = deltaMs < 0 ? `Voltar ${label.slice(1)} no horário digitado` : `Adiantar ${label.slice(1)} no horário digitado`;
+    b.addEventListener('click', () => {
+      const base = parseDatetimeLocal(timeInput.value) ?? referenceNow();
+      timeInput.value = toDatetimeLocalValue(new Date(base.getTime() + deltaMs));
+      timeInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    nudges.appendChild(b);
+  }
+  timeRow.appendChild(nudges);
+  // Referência do horário digitado (Onda A) — persistida.
+  const refRow = document.createElement('div');
+  refRow.className = 'tsh-check-row';
+  refRow.style.gap = '14px';
+  const refServer = document.createElement('input');
+  refServer.type = 'radio';
+  refServer.name = 'tsh-cmd-timeref';
+  const refLocal = document.createElement('input');
+  refLocal.type = 'radio';
+  refLocal.name = 'tsh-cmd-timeref';
+  refServer.checked = timeReference() === 'servidor';
+  refLocal.checked = !refServer.checked;
+  const refServerLabel = document.createElement('label');
+  refServerLabel.className = 'tsh-check-row';
+  refServerLabel.append(refServer, document.createTextNode('Hora do servidor'));
+  const refLocalLabel = document.createElement('label');
+  refLocalLabel.className = 'tsh-check-row';
+  refLocalLabel.append(refLocal, document.createTextNode('Hora do meu computador'));
+  refRow.append(refServerLabel, refLocalLabel);
   const timingHelp = helpEl('');
-  timingField.append(timingLabel, sendRow, arrivalRow, timeRow, timingHelp);
+  timingField.append(timingLabel, sendRow, arrivalRow, timeRow, refRow, timingHelp);
   form.appendChild(timingField);
 
   // ── Forçar (agendar mesmo impossível) ──
@@ -1539,12 +2933,15 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
         ? strategy === 'dodge'
           ? 'Dodge: o horário é a CHEGADA-alvo; as tropas saem ANTES do impacto e voltam depois — a partida sai pela unidade mais lenta.'
           : 'Snipe: o horário é a CHEGADA-alvo (cruzamento com o ataque que chega); a partida sai pela unidade mais lenta.'
-        : 'Horário no relógio do SEU COMPUTADOR — confira com a "Hora do servidor" do jogo antes de agendar (o motor dispara pelo relógio do servidor).';
+        : timeReference() === 'servidor'
+          ? 'Horário na HORA DO SERVIDOR (a do rodapé do jogo), com milissegundos. "Colar horário" aceita HH:mm:ss:ms.'
+          : 'Horário no relógio do SEU COMPUTADOR — o agendador converte para o servidor pelo relógio medido.';
   };
 
   // ── Campos condicionais do tipo/modo (cancelar esconde tropas; nobre mostra o trem) ──
   const usePercentMode = (): boolean => unitsModePercentRadio.checked;
   const readCatapultCount = (): number => {
+    if (!usePercentMode() && unitsGridHandle.readAll().includes('catapult')) return 1;
     const source = usePercentMode() ? unitsGridHandle.readPercent() : unitsGridHandle.read();
     return source.catapult ?? 0;
   };
@@ -1557,10 +2954,18 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
     catapultField.style.display = !isCancel && readCatapultCount() > 0 ? '' : 'none';
     trainField.style.display = !isCancel && isNoble ? '' : 'none';
     cancelField.style.display = isCancel ? '' : 'none';
+    sigilField.style.display = kindSelect.value === 'support' ? '' : 'none';
     trainCheck.row.style.display = isNoble ? '' : 'none';
     unitsHelp.textContent = usePercentMode()
       ? 'Percentual das tropas da aldeia de origem NO DISPARO (floor). O motor exige a Praça da aldeia de origem aberta; sem leitura das tropas, o envio é abortado.'
       : 'A soma das tropas deve ser maior que zero. A viagem vale a MAIS LENTA unidade do conjunto.';
+  };
+
+  /** Data+hora do campo + milissegundos (null = incompleto). */
+  const readWhen = (): Date | null => {
+    const base = parseDatetimeLocal(timeInput.value);
+    if (base === null) return null;
+    return new Date(base.getTime() + parseMillisInput(msInput.value));
   };
 
   // ── Resumo vivo ──
@@ -1568,35 +2973,58 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   form.appendChild(summaryRow);
   const summaryMsg = statusMsgOf(summaryRow);
 
-  const readUnitsForTravel = (): Partial<Record<UnitType, number>> =>
-    usePercentMode() ? unitsGridHandle.readPercent() : unitsGridHandle.read();
+  const readUnitsForTravel = (): Partial<Record<UnitType, number>> => {
+    if (usePercentMode()) return unitsGridHandle.readPercent();
+    const units = { ...unitsGridHandle.read() };
+    // "Todas" entra na conta da viagem (a mais lenta manda) com 1 unidade.
+    for (const unit of unitsGridHandle.readAll()) units[unit] = Math.max(1, units[unit] ?? 0);
+    return units;
+  };
 
   const updateSummary = (): void => {
+    applyForecast();
     const parts: string[] = [];
-    const when = parseDatetimeLocal(timeInput.value);
+    const when = readWhen();
     const isCancel = kindSelect.value === 'cancel';
     const strategy = strategySelect.value as SchedulerTimingStrategy;
     const needsArrival = strategy === 'snipe' || strategy === 'dodge';
     const mode: 'arrival' | 'send' = needsArrival || arrivalRadio.checked ? 'arrival' : 'send';
     if (when !== null && travelMin !== null && !isCancel) {
       if (mode === 'arrival') {
-        parts.push(`Enviar ${formatTimestamp(arrivalToSendAt(when, travelMin))}`, `Chegar ${formatTimestamp(when)}`);
+        parts.push(`Enviar ${formatTimestampMs(arrivalToSendAt(when, travelMin))}`, `Chegar ${formatTimestampMs(when)}`);
       } else {
-        parts.push(`Enviar ${formatTimestamp(when)}`, `Chegar ${formatTimestamp(sendToArrival(when, travelMin))}`);
+        parts.push(`Enviar ${formatTimestampMs(when)}`, `Chegar ${formatTimestampMs(sendToArrival(when, travelMin))}`);
       }
     } else if (when !== null) {
-      parts.push(`${isCancel ? 'Cancelar' : mode === 'arrival' ? 'Chegar' : 'Enviar'} ${formatTimestamp(when)}`);
+      parts.push(`${isCancel ? 'Cancelar' : mode === 'arrival' ? 'Chegar' : 'Enviar'} ${formatTimestampMs(when)}`);
     }
     if (target !== null) parts.push(`dist ${formatDecimalPtBr(fieldsDistance(origin, target))} campos`);
     if (isCancel) {
       parts.push(`cancelar ${cancelCountSelect.value} comando(s)`);
     } else {
-      const units = readUnitsForTravel();
+      const allList = usePercentMode() ? [] : unitsGridHandle.readAll();
+      const units = usePercentMode() ? unitsGridHandle.readPercent() : unitsGridHandle.read();
       const total = Object.values(units).reduce((sum, n) => sum + (n ?? 0), 0);
       if (total > 0) parts.push(usePercentMode() ? `${formatInt(total)}% de tropa` : `${formatInt(total)} tropa(s)`);
+      if (allList.length > 0) parts.push(`TODAS: ${allList.map((u) => unitLabel(u)).join(', ')}`);
+      if (allList.length > 0 && kindSelect.value === 'fake') parts.push('ATENÇÃO: fake com "Todas" envia TODA a tropa marcada');
+      // Bônus noturno (get_config): ataque chegando na janela = defesa em dobro.
+      if (when !== null && travelMin !== null && kindSelect.value !== 'support' && nightBonus !== null) {
+        const chegadaLocal = mode === 'arrival' ? when : sendToArrival(when, travelMin);
+        if (inNightBonus(localToServerEpoch(chegadaLocal, currentServerOffsetMs()), nightBonus)) {
+          parts.push(`ATENÇÃO: chega no bônus noturno (${nightBonus.startHour}h–${nightBonus.endHour % 24}h) — a defesa vale o dobro`);
+        } else if (nightBonus.mode === 'jogador') {
+          const h = new Date(localToServerEpoch(chegadaLocal, currentServerOffsetMs())).getHours();
+          if (h >= 20 || h < 10) parts.push('chegada de madrugada: neste mundo cada jogador escolhe o período do bônus noturno (8 h) — confira o do alvo');
+        }
+      }
       if (strategy !== 'direto') parts.push(strategy === 'dodge' ? 'dodge' : 'snipe');
       if (kindSelect.value === 'noble' && trainCheck.input.checked) {
-        parts.push(`trem de ${trainSizeSelect.value} (gap ${trainGapInput.value} ms)`);
+        parts.push(
+          trainModeSelect.value === 'nativo'
+            ? `trem do jogo de ${trainSizeSelect.value} (chegadas a cada ${NATIVE_TRAIN_ARRIVAL_STEP_MS} ms)`
+            : `trem de ${trainSizeSelect.value} (gap ${trainGapInput.value} ms)`,
+        );
       }
     }
     if (forcedCheck.input.checked) parts.push('FORÇADO');
@@ -1620,21 +3048,24 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
       updateSummary();
       return;
     }
-    const minutes = await travelMinutes(origin, to, units);
+    const minutesRaw = await travelMinutes(origin, to, units);
     if (seq !== travelSeq) return; // input mais novo venceu — descarta
-    travelMin = minutes;
+    // Aflição do alvo: duração ÷ (1 + %/100) — o jogo arredonda depois.
+    const pct = sigilPctNow();
+    travelMin = minutesRaw !== null && pct > 0 ? minutesRaw / (1 + pct / 100) : minutesRaw;
     applyTravelAvailability();
     updateSummary();
   };
 
   // ── Colar horário (clipboard + fallback do evento paste) ──
   const applyPastedTime = (text: string): void => {
-    const parsed = parseClipboardTime(text, new Date());
+    const parsed = parseClipboardTime(text, referenceNow());
     if (parsed === null) {
       showError(`Horário colado ilegível: "${text.trim()}". Use HH:mm:ss ou HH:mm:ss:ms.`);
       return;
     }
     timeInput.value = toDatetimeLocalValue(parsed);
+    msInput.value = String(parsed.getMilliseconds());
     clearError();
     updateSummary();
   };
@@ -1690,6 +3121,12 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
         if (found !== null) {
           targetName = found.name;
           targetPoints = found.points;
+          const aprendida = learnedSigilPct(world, parsed);
+          if (aprendida !== null && sigilInput.value === '0') {
+            sigilInput.value = String(aprendida);
+            sigilHelp.textContent = `${aprendida}% aprendido no último apoio a este alvo (Sinal de Aflição). Ajuste se mudou.`;
+            void recomputeTravel();
+          }
           targetInfo.textContent = `${found.name} · ${formatInt(found.points)} pontos`;
           targetInfo.style.color = '';
         } else {
@@ -1709,8 +3146,23 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
       updateSummary();
     });
   }
-  timeInput.addEventListener('input', () => {
+  for (const input of [timeInput, msInput]) {
+    input.addEventListener('input', () => {
+      clearError();
+      updateSummary();
+    });
+  }
+  for (const radio of [refServer, refLocal]) {
+    radio.addEventListener('change', () => {
+      setTimeReference(refServer.checked ? 'servidor' : 'local');
+      applyTravelAvailability();
+      refreshList();
+      updateSummary();
+    });
+  }
+  sigilInput.addEventListener('input', () => {
     clearError();
+    void recomputeTravel();
     updateSummary();
   });
   kindSelect.addEventListener('change', () => {
@@ -1726,6 +3178,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   });
   for (const radio of [unitsModeAbsoluteRadio, unitsModePercentRadio]) {
     radio.addEventListener('change', () => {
+      unitsGridHandle.setAllEnabled(!unitsModePercentRadio.checked);
       clearError();
       updateConditionalFields();
       void recomputeTravel();
@@ -1756,12 +3209,132 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   applyTravelAvailability();
   updateSummary();
 
+  // ── Formulário "sujo" (há algo digitado que um preenchimento apagaria) ──
+  let dirty = false;
+  form.addEventListener('input', () => {
+    dirty = true;
+  });
+  form.addEventListener('change', () => {
+    dirty = true;
+  });
+  formIsDirty = () => dirty;
+
+  // ── Edição (v3.3.1): salvar substitui o comando original ──
+  let editingId: string | null = null;
+  editingIdRef = () => editingId;
+  const editBanner = document.createElement('div');
+  editBanner.className = 'tsh-edit-banner';
+  editBanner.hidden = true;
+  const editText = document.createElement('span');
+  const stopEdit = actionButton('Cancelar edição', 'x', 'tsh-btn tsh-btn--sm tsh-btn--ghost', () => {
+    setEditing(null);
+    // Limpa alvo e tropas: um "Adicionar" depois disso criaria uma CÓPIA do pendente.
+    target = null;
+    targetName = undefined;
+    targetPoints = undefined;
+    targetInput.value = '';
+    unitsGridHandle.reset();
+    travelMin = null;
+    applyTravelAvailability();
+    updateConditionalFields();
+    updateSummary();
+    dirty = false;
+    showNotice('Edição cancelada — o comando original continua na Fila sem mudanças.');
+  });
+  editBanner.append(icon('edit', 14), editText, stopEdit);
+  form.prepend(editBanner);
+  const addLabel = document.createTextNode('Adicionar comando');
+  let actionsBarRef: HTMLElement | null = null;
+  const setEditing = (record: ScheduledCommandRecord | null): void => {
+    editingId = record?.id ?? null;
+    editBanner.hidden = record === null;
+    editText.textContent =
+      record === null ? '' : `Editando: ${commandKindLabel(record.kind)} → ${record.target.x}|${record.target.y}. Ao salvar, o comando original é substituído.`;
+    addLabel.textContent = record === null ? 'Adicionar comando' : 'Salvar alterações (substitui)';
+    actionsBarRef?.classList.toggle('is-editing', record !== null);
+  };
+
+  // ── Reagendar / Duplicar / Editar: um comando vem para o formulário ──
+  prefillForm = (record: ScheduledCommandRecord, mode: 'reuse' | 'duplicate' | 'edit'): void => {
+    const village = villages.find((v) => normalizeVillageId(v.id) === normalizeVillageId(record.sourceVillageId));
+    if (village !== undefined) {
+      origin = village;
+      originSelect.value = village.id;
+    }
+    const origemAviso = village === undefined ? ` A origem ${record.sourceName ?? record.sourceVillageId} não está entre suas aldeias — escolha outra.` : '';
+    kindSelect.value = record.kind;
+    strategySelect.value = record.timingStrategy ?? 'direto';
+    if (record.percentMode === true) {
+      unitsModePercentRadio.checked = true;
+      unitsGridHandle.setAllEnabled(false);
+      unitsGridHandle.set(record.unitsPercent ?? {});
+    } else {
+      unitsModeAbsoluteRadio.checked = true;
+      unitsGridHandle.setAllEnabled(true);
+      unitsGridHandle.set(record.units, record.allUnits ?? []);
+    }
+    if (record.cancelCount !== undefined) cancelCountSelect.value = String(record.cancelCount);
+    sigilInput.value = String(record.sigilPct ?? 0);
+    if (record.catapultTarget !== undefined) catapultSelect.value = record.catapultTarget;
+    // Edição mantém o "forçado" do original; um comando novo começa sem ele.
+    forcedCheck.input.checked = mode === 'edit' && record.forced === true;
+    trainCheck.input.checked = false;
+    // Um comando vira UM comando (repetir herdado de antes multiplicaria).
+    repeatCountInput.value = '1';
+    if (village !== undefined) loadTemplatesFor(village.id);
+    targetInput.value = `${record.target.x}|${record.target.y}`;
+    targetInput.dispatchEvent(new Event('input'));
+    if (mode === 'edit') {
+      // Edição: os horários ORIGINAIS (pela chegada, se foi criado assim).
+      const byArrival = record.timingMode === 'arrival' && record.arrivalAt !== undefined;
+      arrivalRadio.checked = byArrival;
+      sendRadio.checked = !byArrival;
+      const local = serverToLocal(byArrival ? (record.arrivalAt as string) : record.sendAt, currentServerOffsetMs());
+      timeInput.value = toDatetimeLocalValue(local);
+      msInput.value = String(local.getMilliseconds());
+    } else {
+      // Novo comando: "Enviar às" daqui a 10 min (com "Chegar às" a partida
+      // podia cair no passado). O jogador ajusta antes de adicionar.
+      arrivalRadio.checked = false;
+      sendRadio.checked = true;
+      timeInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 10 * 60_000));
+      msInput.value = '0';
+    }
+    setEditing(mode === 'edit' ? record : null);
+    hideResult();
+    syncAdvanced();
+    updateConditionalFields();
+    void recomputeTravel().then(() => {
+      // Sem velocidades do mundo o formulário cai para "Enviar às": na edição
+      // pela chegada, troca também o HORÁRIO para o envio original (senão a
+      // chegada digitada viraria envio).
+      if (mode === 'edit' && record.timingMode === 'arrival' && sendRadio.checked) {
+        const envio = serverToLocal(record.sendAt, currentServerOffsetMs());
+        timeInput.value = toDatetimeLocalValue(envio);
+        msInput.value = String(envio.getMilliseconds());
+        showNotice('Velocidades do mundo indisponíveis agora — editando pelo horário de ENVIO original.');
+        updateSummary();
+      }
+    });
+    updateSummary();
+    clearError();
+    showNotice(
+      mode === 'edit'
+        ? `Editando o comando das ${formatTimestampMs(serverToLocal(record.sendAt, currentServerOffsetMs()))}. Ajuste e clique em "Salvar alterações".${origemAviso}`
+        : `Dados de "${commandKindLabel(record.kind)} → ${record.target.x}|${record.target.y}" copiados para um comando NOVO${
+            record.trainUnits !== undefined && record.trainUnits.length > 0 ? ' (o trem do jogo precisa ser remontado)' : ''
+          }. O horário voltou para ENVIO daqui a 10 min — ajuste antes de clicar em "Adicionar comando".${origemAviso}`,
+    );
+    dirty = false;
+    timeInput.focus();
+  };
+
   // ── Botão Adicionar + validações ──
   const addBtn = document.createElement('button');
   addBtn.type = 'button';
   addBtn.className = 'tsh-btn tsh-btn--primary';
   addBtn.appendChild(icon('plus', 13));
-  addBtn.appendChild(document.createTextNode('Adicionar comando'));
+  addBtn.appendChild(addLabel);
   let adding = false;
 
   const handleAdd = async (): Promise<void> => {
@@ -1788,7 +3361,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
       showError('Alvo inválido — use o formato x|y (coordenadas de 0 a 999).');
       return;
     }
-    const when = parseDatetimeLocal(timeInput.value);
+    const when = readWhen();
     if (when === null) {
       showError('Informe o horário (data e hora, com segundos).');
       return;
@@ -1801,13 +3374,14 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
     const absolute = unitsGridHandle.read();
     const percent = unitsGridHandle.readPercent();
     const usePercent = !isCancel && usePercentMode();
+    const allUnits = !isCancel && !usePercent ? unitsGridHandle.readAll() : [];
     if (!isCancel) {
-      const hasUnits = usePercent ? Object.keys(percent).length > 0 : Object.keys(absolute).length > 0;
+      const hasUnits = usePercent ? Object.keys(percent).length > 0 : Object.keys(absolute).length > 0 || allUnits.length > 0;
       if (!hasUnits) {
         showError(
           usePercent
             ? 'Informe ao menos um percentual maior que zero.'
-            : 'Informe ao menos uma unidade — a soma das tropas deve ser maior que zero.',
+            : 'Informe ao menos uma unidade (ou marque "Todas" em alguma tropa).',
         );
         return;
       }
@@ -1838,7 +3412,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
       sendDate = when;
       if (travelMin !== null) arrivalDate = sendToArrival(when, travelMin);
     }
-    if (sendDate.getTime() <= Date.now() + 5_000 && !forced) {
+    if (sendDate.getTime() <= referenceNow().getTime() + 5_000 && !forced) {
       showError(
         'O horário de envio precisa ser no FUTURO (pelo menos 5 segundos a partir de agora) — marque "Agendar mesmo impossível" para forçar.',
       );
@@ -1865,6 +3439,8 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
       sendAt,
       ...(arrivalAt !== undefined ? { arrivalAt } : {}),
       ...(usePercent ? { percentMode: true, unitsPercent: percent } : {}),
+      ...(allUnits.length > 0 ? { allUnits } : {}),
+      ...(sigilPctNow() > 0 ? { sigilPct: sigilPctNow() } : {}),
       ...(strategy !== 'direto' && !isCancel ? { timingStrategy: strategy } : {}),
       ...(forced ? { forced: true } : {}),
       ...(catapultTargetValue !== '' ? { catapultTarget: catapultTargetValue } : {}),
@@ -1884,49 +3460,196 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
         showError('O trem de nobres exige a contagem ABSOLUTA de nobres — desligue o modo percentual para montar o trem.');
         return;
       }
+      if (allUnits.length > 0) {
+        showError('O trem de nobres precisa de quantidades fixas — desmarque "Todas" nas tropas do trem.');
+        return;
+      }
       if (arrivalIso === undefined || mode !== 'arrival') {
         showError('O trem de nobres ancora na CHEGADA (o horário digitado é a chegada do slot 0) — use o modo "Chegar às".');
         return;
       }
       const trainSize = Number(trainSizeSelect.value) as NobleTrainSize;
-      const gapMs = Math.max(100, Math.floor(Number(trainGapInput.value) || NOBLE_TRAIN_DEFAULT_GAP_MS));
+      const gapMs = Math.floor(Number(trainGapInput.value) || VIEWER_CONFLICT_WINDOW_MS);
+      if (trainModeSelect.value !== 'nativo' && gapMs < VIEWER_CONFLICT_WINDOW_MS) {
+        showError(
+          `Comandos separados precisam de pelo menos ${VIEWER_CONFLICT_WINDOW_MS / 1000} s entre chegadas (cada nobre abre a própria confirmação). Para chegadas coladas, use "Trem do jogo".`,
+        );
+        return;
+      }
       const noblesAvailable = absolute.snob ?? 0;
       const escort: Partial<Record<UnitType, number>> = { ...absolute };
       delete escort.snob;
-      const travelEscort = await travelMinutes(origin, to, escort);
-      const travelWithNobles = await travelMinutes(origin, to, { ...escort, snob: 1 });
-      const result = buildNobleTrainRecords({
-        sourceVillageId: origin.id,
-        sourceName: origin.name,
-        source: { x: origin.x, y: origin.y },
-        target: to,
-        ...(targetName !== undefined ? { targetName } : {}),
-        ...(targetPoints !== undefined ? { targetPoints } : {}),
-        firstArrivalMs: Date.parse(arrivalIso),
-        trainSize,
-        gapMs,
-        noblesAvailable,
-        allowLoneSnob: loneSnobCheck.input.checked,
-        autoSplitExtraNobles: true,
-        escort,
-        travelMinutesFor: (slotUnits) => ((slotUnits.snob ?? 0) > 0 ? travelWithNobles : travelEscort),
-        ...(catapultTargetValue !== '' ? { catapultTarget: catapultTargetValue } : {}),
-        ...(forced ? { forced: true } : {}),
-        detail: `Trem de ${trainSize} chegadas (gap ${gapMs} ms).`,
-      });
-      if (!result.ok) {
-        showError(result.message);
-        return;
+      if (trainModeSelect.value === 'nativo') {
+        const nativo = buildNativeNobleTrainRecord({
+          sourceVillageId: origin.id,
+          sourceName: origin.name,
+          source: { x: origin.x, y: origin.y },
+          target: to,
+          ...(targetName !== undefined ? { targetName } : {}),
+          ...(targetPoints !== undefined ? { targetPoints } : {}),
+          firstArrivalMs: Date.parse(arrivalIso),
+          trainSize,
+          noblesAvailable,
+          escort,
+          travelMinutes: await travelMinutes(origin, to, { ...escort, snob: 1 }),
+          ...(catapultTargetValue !== '' ? { catapultTarget: catapultTargetValue } : {}),
+          ...(forced ? { forced: true } : {}),
+        });
+        if (!nativo.ok) {
+          showError(nativo.message);
+          return;
+        }
+        records = nativo.records;
+      } else {
+        const travelEscort = await travelMinutes(origin, to, escort);
+        const travelWithNobles = await travelMinutes(origin, to, { ...escort, snob: 1 });
+        const result = buildNobleTrainRecords({
+          sourceVillageId: origin.id,
+          sourceName: origin.name,
+          source: { x: origin.x, y: origin.y },
+          target: to,
+          ...(targetName !== undefined ? { targetName } : {}),
+          ...(targetPoints !== undefined ? { targetPoints } : {}),
+          firstArrivalMs: Date.parse(arrivalIso),
+          trainSize,
+          gapMs,
+          noblesAvailable,
+          allowLoneSnob: loneSnobCheck.input.checked,
+          autoSplitExtraNobles: true,
+          escort,
+          travelMinutesFor: (slotUnits) => ((slotUnits.snob ?? 0) > 0 ? travelWithNobles : travelEscort),
+          ...(catapultTargetValue !== '' ? { catapultTarget: catapultTargetValue } : {}),
+          ...(forced ? { forced: true } : {}),
+          detail: `Trem de ${trainSize} chegadas (gap ${gapMs} ms).`,
+        });
+        if (!result.ok) {
+          showError(result.message);
+          return;
+        }
+        records = result.records;
       }
-      records = result.records;
     } else {
       const inputs = replicateCommandInput(baseInput(sendAtIso, arrivalIso), repeatCount, repeatInterval);
       records = inputs.map((input) => createScheduledCommand(input));
     }
 
-    appendSchedulerRecords(world, records);
+    // Confirmação com EXATAMENTE o que vai ser agendado (tropas, alvo, horas).
+    const first = records[0];
+    if (first === undefined) return;
+    if (editingId !== null) {
+      const original = loadSchedulerState(world).commands.find((c) => c.id === editingId);
+      if (records.length > 1) {
+        showError('Na edição, um comando continua sendo UM comando — deixe "Repetir" em 1 (para mais cópias, use Duplicar).');
+        return;
+      }
+      if (original !== undefined && normalizeVillageId(original.sourceVillageId) !== normalizeVillageId(origin.id)) {
+        showError('A origem mudou em relação ao comando editado — para sair de outra aldeia, cancele a edição e crie um comando novo.');
+        return;
+      }
+    }
+    const offsetNow = currentServerOffsetMs();
+    const quandoEnvio = formatTimestampMs(serverToLocal(first.sendAt, offsetNow));
+    const quandoChegada = first.arrivalAt !== undefined ? formatTimestampMs(serverToLocal(first.arrivalAt, offsetNow)) : null;
+    const tropasTxt = describeUnits(first);
+    const linhas = [
+      `${commandKindLabel(first.kind)}: ${origin.name} (${origin.x}|${origin.y}) → ${first.target.x}|${first.target.y}${first.targetName !== undefined ? ` (${first.targetName})` : ''}`,
+      first.kind === 'cancel' ? `Cancelar até ${first.cancelCount ?? 1} comando(s) no alvo` : `Tropas: ${tropasTxt}`,
+      `Envio: ${quandoEnvio}${quandoChegada !== null ? ` · Chegada: ${quandoChegada}` : ''} (${timeReference() === 'servidor' ? 'hora do servidor' : 'hora do seu computador'})`,
+    ];
+    if (records.length > 1) linhas.push(`${records.length} comandos no total (o primeiro acima).`);
+    const editando = editingId;
+    if (editando !== null) {
+      linhas.push(records.length > 1 ? `O comando original será SUBSTITUÍDO por estes ${records.length}.` : 'O comando original será SUBSTITUÍDO por este.');
+    }
+    // Detector de duplicata: mesma origem, alvo e envio (±1 s) já na Fila.
+    const igual = loadSchedulerState(world).commands.find(
+      (c) =>
+        c.id !== editando &&
+        !c.events.some((e) => HISTORY_STATUSES.has(e.status)) &&
+        normalizeVillageId(c.sourceVillageId) === normalizeVillageId(first.sourceVillageId) &&
+        c.target.x === first.target.x &&
+        c.target.y === first.target.y &&
+        Math.abs(Date.parse(c.sendAt) - Date.parse(first.sendAt)) <= 1_000,
+    );
+    if (igual !== undefined) {
+      linhas.push(`⚠ Já existe um comando igual na Fila (envio ${formatTimestampMs(serverToLocal(igual.sendAt, offsetNow))}). Agendar mesmo assim?`);
+    }
+    // Regras do MUNDO: só AVISAM — quem decide é o jogo (a situação pode mudar
+    // até a hora, e a recusa dele vira o motivo do comando).
+    const regras = await worldRules();
+    if (regras !== null && first.kind !== 'support' && first.kind !== 'cancel' && first.percentMode !== true && (first.allUnits?.length ?? 0) === 0) {
+      const minimo = minimumAttackPopulationFor(origin.points, regras.fakeLimitPct);
+      const pop = commandPopulation(first.units);
+      if (minimo > 0 && pop < minimo) {
+        linhas.push(`⚠ Este mundo exige ${minimo} de população por ataque (${regras.fakeLimitPct}% dos ${formatInt(origin.points)} pontos de ${origin.name}); este tem ${pop} — o jogo deve recusar.`);
+      }
+    }
+    const levaNobre = (first.units.snob ?? 0) > 0 || (first.allUnits ?? []).includes('snob') || first.kind === 'noble';
+    if (regras?.snobMaxDist !== null && regras?.snobMaxDist !== undefined && levaNobre) {
+      const dist = fieldsDistance(origin, first.target);
+      if (dist > regras.snobMaxDist) {
+        linhas.push(`⚠ Nobre a ${formatDecimalPtBr(dist)} campos: o limite deste mundo é ${regras.snobMaxDist} — o jogo deve recusar.`);
+      }
+    }
+    // Previsão de tropas no horário do envio: só AVISA (o jogo decide).
+    const previstas = first.kind === 'cancel' || first.percentMode === true ? null : forecastAtSend();
+    if (previstas !== null) {
+      const faltas: string[] = [];
+      for (const [u, pedido] of Object.entries(first.units)) {
+        const tem = previstas[u as UnitType] ?? 0;
+        if ((pedido ?? 0) > tem) faltas.push(`${unitLabel(u as UnitType)}: ${formatInt(tem)} de ${formatInt(pedido ?? 0)}`);
+      }
+      for (const u of first.allUnits ?? []) if ((previstas[u] ?? 0) === 0) faltas.push(`${unitLabel(u)}: 0 (TODAS)`);
+      if (faltas.length > 0) {
+        linhas.push(`⚠ Previsão no horário do envio — faltam tropas: ${faltas.join(' · ')}. O jogo pode recusar ("tropas insuficientes").`);
+      }
+      if (forecastData !== null && forecastData.missing.length > 0) {
+        linhas.push(`(Previsão sem: ${forecastData.missing.join(', ')}.)`);
+      }
+    }
+    if (first.sigilPct !== undefined) linhas.push(`Aflição do alvo considerada: ${first.sigilPct}% (conferida no pré-arme).`);
+    linhas.push('', 'Enter confirma · Esc volta para revisar.');
+    const ok = await tshConfirm(shadow, editando !== null ? 'Salvar alterações?' : 'Agendar este comando?', linhas.join('\n'), {
+      okLabel: editando !== null ? 'Salvar' : records.length > 1 ? `Agendar ${records.length}` : 'Agendar',
+      cancelLabel: 'Revisar',
+    });
+    if (!ok) return;
+    // A janela pode ter ficado aberta um tempo: o horário ainda é futuro?
+    if (!forced && records.some((r) => Date.parse(r.sendAt) <= serverNowMs() + 5_000)) {
+      showError('Enquanto a confirmação estava aberta, o horário de envio chegou (ou ficou a menos de 5 s) — nada foi agendado. Ajuste o horário.');
+      return;
+    }
+    let criados: ScheduledCommandRecord[];
+    if (editando !== null) {
+      const bloqueio = notEditableReason(world, editando);
+      if (bloqueio !== null) {
+        showError(`${bloqueio} Suas alterações NÃO foram salvas.`);
+        return;
+      }
+      // Uma gravação só: original vira "substituído" (fica no histórico) + os novos.
+      const atual = loadSchedulerState(world);
+      const agoraIso = new Date().toISOString();
+      const marcados = atual.commands.map((c) =>
+        c.id === editando
+          ? { ...c, paused: false, events: [...c.events, { status: 'removido' as const, at: agoraIso, detail: 'Substituído por edição.' }] }
+          : c,
+      );
+      criados = dedupeRecordIds(records, marcados.map((c) => c.id));
+      saveSchedulerState(world, { ...atual, commands: [...marcados, ...criados] });
+    } else {
+      criados = appendSchedulerRecords(world, records);
+    }
     rerender();
     refreshList();
+    showResult(
+      editando !== null
+        ? `Alterações salvas: ${commandKindLabel(first.kind)} → ${first.target.x}|${first.target.y} · ${tropasTxt} · envio ${quandoEnvio}.`
+        : records.length === 1
+          ? `Agendado: ${commandKindLabel(first.kind)} → ${first.target.x}|${first.target.y} · ${tropasTxt} · envio ${quandoEnvio}.`
+          : `${records.length} comandos agendados (o primeiro sai ${quandoEnvio}).`,
+      editando !== null ? [] : criados.map((r) => r.id),
+    );
+    setEditing(null);
 
     // Limpa o form (mantém origem, tipo e estratégia — agendar em sequência fica mais rápido).
     target = null;
@@ -1936,16 +3659,93 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
     targetInfo.textContent = 'Coordenadas de 0 a 999. O nome e os pontos são buscados no mapa automaticamente.';
     targetInfo.style.color = '';
     unitsGridHandle.reset();
-    timeInput.value = toDatetimeLocalValue(new Date(Date.now() + 10 * 60_000));
+    timeInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 10 * 60_000));
+    msInput.value = '0';
     travelMin = null;
     applyTravelAvailability();
     updateConditionalFields();
     updateSummary();
+    markClean(form);
+    dirty = false;
   };
   addBtn.addEventListener('click', () => {
     void handleAdd();
   });
   form.appendChild(addBtn);
+
+  // ── Resultado do último "Adicionar" — ao lado do botão, com Desfazer ──
+  const resultBox = document.createElement('div');
+  resultBox.className = 'tsh-add-result';
+  resultBox.hidden = true;
+  form.appendChild(resultBox);
+
+  // ── Layout (v3.3.1): opções avançadas recolhidas + barra de ações FIXA ──
+  // Antes: resumo/botão/resultado no fim de um formulário longo — o jogador
+  // não via que o comando tinha sido criado e seguia editando um form limpo.
+  const advanced = document.createElement('details');
+  advanced.className = 'tsh-advanced';
+  const advSummary = document.createElement('summary');
+  advSummary.textContent = 'Opções avançadas — estratégia (snipe/dodge), forçar, repetir';
+  advanced.append(advSummary, strategyField, forcedCheck.row, sequentialField);
+  form.insertBefore(advanced, summaryRow);
+  const actionsBar = document.createElement('div');
+  actionsBar.className = 'tsh-form-actions';
+  const actionsRow = document.createElement('div');
+  actionsRow.className = 'tsh-form-actions-row';
+  actionsRow.append(summaryRow, addBtn);
+  actionsBar.append(actionsRow, resultBox);
+  form.appendChild(actionsBar);
+  errorHost = actionsBar;
+  actionsBarRef = actionsBar;
+  // Resultado anterior some quando o jogador começa o próximo comando.
+  form.addEventListener('input', () => {
+    if (!resultBox.hidden) hideResult();
+  });
+  // Estratégia fora do padrão abre as avançadas (ninguém esquece um snipe escondido).
+  const syncAdvanced = (): void => {
+    const ativos: string[] = [];
+    if (strategySelect.value !== 'direto') ativos.push(`${TIMING_STRATEGY_LABELS[strategySelect.value as SchedulerTimingStrategy]} ativo`);
+    if (forcedCheck.input.checked) ativos.push('forçado');
+    const rep = Math.floor(Number(repeatCountInput.value) || 1);
+    if (rep > 1) ativos.push(`repetir ${rep}×`);
+    advSummary.textContent = ativos.length > 0 ? `Opções avançadas (${ativos.join(' · ')})` : 'Opções avançadas — estratégia (snipe/dodge), forçar, repetir';
+    if (ativos.length > 0) advanced.open = true;
+  };
+  strategySelect.addEventListener('change', syncAdvanced);
+  forcedCheck.input.addEventListener('change', syncAdvanced);
+  repeatCountInput.addEventListener('input', syncAdvanced);
+  function hideResult(): void {
+    resultBox.hidden = true;
+    resultBox.replaceChildren();
+  }
+  function showResult(text: string, createdIds: readonly string[]): void {
+    resultBox.replaceChildren();
+    resultBox.hidden = false;
+    const msg = document.createElement('span');
+    msg.className = 'tsh-add-result-msg';
+    msg.append(icon('check', 14), document.createTextNode(` ${text}`));
+    const ver = actionButton('Ver na Fila', 'list', 'tsh-btn tsh-btn--sm', () => tabs.select('fila'));
+    resultBox.append(msg, ver);
+    if (createdIds.length > 0) {
+      const desfazer = actionButton('Desfazer', 'undo', 'tsh-btn tsh-btn--sm tsh-btn--ghost', () => {
+        const ids = new Set(createdIds);
+        const atual = loadSchedulerState(world);
+        // Só desfaz o que ainda não entrou na mira/pré-arme.
+        const presos = atual.commands.filter((c) => ids.has(c.id) && notEditableReason(world, c.id) !== null);
+        saveSchedulerState(world, { ...atual, commands: atual.commands.filter((c) => !ids.has(c.id) || presos.includes(c)) });
+        rerender();
+        refreshList();
+        resultBox.replaceChildren();
+        const done = document.createElement('span');
+        done.className = 'tsh-add-result-msg';
+        done.textContent =
+          presos.length === 0 ? 'Desfeito — nada foi agendado.' : `Desfeito em parte: ${presos.length} já estava(m) na mira e continua(m) na Fila.`;
+        resultBox.appendChild(done);
+      });
+      resultBox.appendChild(desfazer);
+    }
+    resultBox.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
 
   // ── Seções novas (Onda 1): bloco em massa e mapa de operações ──
   const uiContext: SchedulerUiContext = {
@@ -1956,8 +3756,10 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
     villages,
     percentMode: usePercentMode,
   };
-  appendBlockSection(body, uiContext);
-  appendMapSection(body, uiContext);
+  appendBlockSection(tabs.panel('bloco'), uiContext);
+  appendMapSection(tabs.panel('mapa'), uiContext);
+  // Onda B: fechar com um comando meio digitado pede confirmação.
+  markClean(form);
 }
 
 // ── Agendamento em Bloco (Onda 1, C) ─────────────────────────────────────────
@@ -1990,7 +3792,7 @@ const BLOCK_KIND_ROWS: readonly { value: 'attack' | 'support' | 'noble'; label: 
 const BLOCK_PREVIEW_ROWS = 25;
 
 function appendBlockSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
-  const { box, body } = collapsibleSectionEl('Agendamento em Bloco', 'zap', false);
+  const { box, body } = collapsibleSectionEl('Agendamento em Bloco', 'zap', true);
   parent.appendChild(box);
   body.appendChild(
     tshNoteBanner(
@@ -2007,6 +3809,8 @@ function appendBlockSection(parent: HTMLElement, ctx: SchedulerUiContext): void 
     const msg = statusMsgOf(statusEl);
     msg.textContent = message;
     msg.style.color = danger ? 'var(--shs-danger)' : '';
+    // v3.2.1: o botão fica no fim de uma seção longa — a mensagem vem à vista.
+    statusEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
 
   // ── Origens (grupo do jogo OU coordenadas digitadas) ──
@@ -2136,18 +3940,26 @@ function appendBlockSection(parent: HTMLElement, ctx: SchedulerUiContext): void 
   arrivalInput.type = 'datetime-local';
   arrivalInput.step = '1';
   arrivalInput.className = 'tsh-input';
-  arrivalInput.value = toDatetimeLocalValue(new Date(Date.now() + 30 * 60_000));
+  arrivalInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 30 * 60_000));
   const windowFromInput = document.createElement('input');
   windowFromInput.type = 'datetime-local';
   windowFromInput.step = '1';
   windowFromInput.className = 'tsh-input';
-  windowFromInput.value = toDatetimeLocalValue(new Date(Date.now() + 30 * 60_000));
+  windowFromInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 30 * 60_000));
   const windowToInput = document.createElement('input');
   windowToInput.type = 'datetime-local';
   windowToInput.step = '1';
   windowToInput.className = 'tsh-input';
-  windowToInput.value = toDatetimeLocalValue(new Date(Date.now() + 60 * 60_000));
-  const arrivalField = fieldEl(labelEl('Chegada única'), arrivalInput);
+  windowToInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 60 * 60_000));
+  const arrivalMsInput = document.createElement('input');
+  arrivalMsInput.type = 'number';
+  arrivalMsInput.min = '0';
+  arrivalMsInput.max = '999';
+  arrivalMsInput.value = '0';
+  arrivalMsInput.className = 'tsh-input tsh-input--ms';
+  arrivalMsInput.title = 'Milissegundos da chegada (0–999)';
+  arrivalMsInput.setAttribute('aria-label', 'Milissegundos da chegada');
+  const arrivalField = fieldEl(labelEl('Chegada única (+ ms)'), arrivalInput, arrivalMsInput);
   const windowField = fieldEl(labelEl('Janela (início e fim)'), windowFromInput, windowToInput);
   const asapHint = helpEl('O quanto antes: as partidas saem já (com 5s de folga) e o espaçamento por origem continua valendo.');
   const applyBlockTimingVisibility = (): void => {
@@ -2174,7 +3986,7 @@ function appendBlockSection(parent: HTMLElement, ctx: SchedulerUiContext): void 
     'Aceita partida no passado e marca o registro como forçado (o motor envia mesmo fora da janela).',
   );
   const distributeCheck = checkboxEl('Distribuir excedente', 'Anotado no detalhe do plano: cotas sobrando aparecem nos avisos do preview.');
-  const avoidMsCheck = checkboxEl('Evitar conflito de ms', 'Separa as partidas da MESMA origem em pelo menos 300 ms.');
+  const avoidMsCheck = checkboxEl('Evitar conflito de ms', `Separa as partidas da MESMA origem em pelo menos ${VIEWER_CONFLICT_WINDOW_MS / 1000} s — cada envio abre a própria confirmação.`);
   avoidMsCheck.input.checked = true;
   for (const check of [markFakeCheck, fillAllCheck, autoSplitCheck, nightBonusCheck, forceLateCheck, distributeCheck, avoidMsCheck]) {
     body.appendChild(check.row);
@@ -2220,7 +4032,7 @@ function appendBlockSection(parent: HTMLElement, ctx: SchedulerUiContext): void 
     const from = parseDatetimeLocal(windowRadio.checked ? windowFromInput.value : arrivalInput.value);
     if (from === null) return { ok: false, message: 'Informe o horário do bloco (data e hora, com segundos).' };
     if (!windowRadio.checked) {
-      const arrivalMs = localToServerEpoch(from, offsetMs);
+      const arrivalMs = localToServerEpoch(from, offsetMs) + parseMillisInput(arrivalMsInput.value);
       return { ok: true, timing: { mode: 'arrival', arrivalMs }, engine: { arrivalMs } };
     }
     const to = parseDatetimeLocal(windowToInput.value);
@@ -2242,7 +4054,7 @@ function appendBlockSection(parent: HTMLElement, ctx: SchedulerUiContext): void 
       const row = document.createElement('div');
       row.className = 'tsh-card-desc';
       const originText = record.source !== undefined ? `${record.source.x}|${record.source.y}` : record.sourceVillageId;
-      row.textContent = `${originText} → ${record.target.x}|${record.target.y} · partida ${formatTimestamp(serverToLocal(record.sendAt, offset))} · ${summarizeUnits(record.units)}`;
+      row.textContent = `${originText} → ${record.target.x}|${record.target.y} · partida ${formatTimestampMs(serverToLocal(record.sendAt, offset))} · ${summarizeUnits(record.units)}`;
       previewWrap.appendChild(row);
     }
     if (records.length > BLOCK_PREVIEW_ROWS) {
@@ -2366,7 +4178,7 @@ function appendBlockSection(parent: HTMLElement, ctx: SchedulerUiContext): void 
       percentMode: usePercent,
       unitsPercent: percent,
       timing: timingRead.timing,
-      nowMs: Date.now() + offset,
+      nowMs: serverNowMs(),
       avoidMsConflicts: avoidMsCheck.input.checked,
       forceLate: forceLateCheck.input.checked,
       ...(catapultValue !== '' ? { catapultTarget: catapultValue } : {}),
@@ -2435,7 +4247,7 @@ const VIEWER_KIND_LABELS: Readonly<Record<ViewerKind, string>> = {
 };
 
 function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
-  const { box, body } = collapsibleSectionEl('Mapa de Operações', 'eye', false);
+  const { box, body } = collapsibleSectionEl('Mapa de Operações', 'eye', true);
   parent.appendChild(box);
   body.appendChild(
     tshNoteBanner(
@@ -2452,6 +4264,8 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
     const msg = statusMsgOf(statusEl);
     msg.textContent = message;
     msg.style.color = danger ? 'var(--shs-danger)' : '';
+    // v3.2.1: o botão fica no fim de uma seção longa — a mensagem vem à vista.
+    statusEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
 
   // ── Filtros ──
@@ -2475,7 +4289,7 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
   const statusSelect = selectEl(VIEWER_STATUS_ROWS.map((row) => ({ value: row.value, label: row.label })));
   const sortSelect = selectEl(VIEWER_SORT_ROWS.map((row) => ({ value: row.value, label: row.label })));
   const groupSelect = selectEl([{ value: '', label: '— todos —' }]);
-  const conflictsCheck = checkboxEl('Só conflitos de ms', 'Comandos da MESMA origem com partidas a menos de 300 ms entre si.');
+  const conflictsCheck = checkboxEl(`Só conflitos de partida (< ${VIEWER_CONFLICT_WINDOW_MS / 1000} s)`, `Comandos da MESMA origem com partidas a menos de ${VIEWER_CONFLICT_WINDOW_MS / 1000} s entre si (a aba não consegue enviar os dois).`);
   const kindChecks = VIEWER_KINDS.map((kind) => {
     const check = checkboxEl(VIEWER_KIND_LABELS[kind]);
     check.input.checked = true;
@@ -2555,7 +4369,15 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
   bulkTimeInput.type = 'datetime-local';
   bulkTimeInput.step = '1';
   bulkTimeInput.className = 'tsh-input';
-  bulkTimeInput.value = toDatetimeLocalValue(new Date(Date.now() + 30 * 60_000));
+  bulkTimeInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 30 * 60_000));
+  const bulkMsInput = document.createElement('input');
+  bulkMsInput.type = 'number';
+  bulkMsInput.min = '0';
+  bulkMsInput.max = '999';
+  bulkMsInput.value = '0';
+  bulkMsInput.className = 'tsh-input tsh-input--ms';
+  bulkMsInput.title = 'Milissegundos (0–999)';
+  bulkMsInput.setAttribute('aria-label', 'Milissegundos');
   const bulkBtn = document.createElement('button');
   bulkBtn.type = 'button';
   bulkBtn.className = 'tsh-btn';
@@ -2572,7 +4394,7 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
       return;
     }
     const field = bulkFieldSelect.value as ViewerDateField;
-    const newTimeMs = localToServerEpoch(when, currentServerOffsetMs());
+    const newTimeMs = localToServerEpoch(when, currentServerOffsetMs()) + parseMillisInput(bulkMsInput.value);
     const edited = applyBulkTimeEdit(currentCommands(), [...selectedIds], field, newTimeMs);
     const times = new Map<string, { sendAt: string; arrivalAt: string }>();
     for (const command of edited) {
@@ -2593,7 +4415,7 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
   bulkRow.className = 'tsh-check-row';
   bulkRow.style.flexWrap = 'wrap';
   bulkRow.style.gap = '8px';
-  bulkRow.append(bulkFieldSelect, bulkTimeInput, bulkBtn);
+  bulkRow.append(bulkFieldSelect, bulkTimeInput, bulkMsInput, bulkBtn);
   body.appendChild(fieldEl(labelEl('Edição em massa'), bulkRow));
 
   // ── Ações ──
@@ -2754,7 +4576,7 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
     for (const record of records) {
       if (record.targetPoints !== undefined) targetPointsById.set(record.id, record.targetPoints);
     }
-    currentSet = toViewerCommands(records, new Date(), SCHEDULER_DEFAULT_WINDOW, (villageId) =>
+    currentSet = toViewerCommands(records, new Date(serverNowMs()), SCHEDULER_DEFAULT_WINDOW, (villageId) =>
       groupVillageIds !== null && activeGroupId !== undefined && groupVillageIds.has(normalizeVillageId(villageId))
         ? activeGroupId
         : undefined,
@@ -2804,8 +4626,8 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
     desc.className = 'tsh-card-desc';
     const conflict = conflicts.has(command.id);
     desc.textContent =
-      `Partida ${formatTimestamp(serverToLocal(new Date(command.departureMs).toISOString(), offset))}` +
-      ` · Chegada ${formatTimestamp(serverToLocal(new Date(command.arrivalMs).toISOString(), offset))}` +
+      `Partida ${formatTimestampMs(serverToLocal(new Date(command.departureMs).toISOString(), offset))}` +
+      ` · Chegada ${formatTimestampMs(serverToLocal(new Date(command.arrivalMs).toISOString(), offset))}` +
       (conflict ? ' · CONFLITO de ms' : '');
     if (conflict) desc.style.color = 'var(--shs-danger)';
     row.appendChild(desc);

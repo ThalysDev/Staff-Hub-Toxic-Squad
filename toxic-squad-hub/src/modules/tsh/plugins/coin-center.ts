@@ -1,3 +1,7 @@
+// v3.10.0: vira a CUNHAGEM EM MASSA — segundo plano em todas as aldeias pela
+// própria "Cunhar moedas de ouro" do jogo (coin_multi, ver coin-mass.ts), com
+// reserva fixa ou % do armazém; o modo "Só na tela" abaixo segue como antes.
+//
 // Cunhagem de moedas — porta do plugin coin-center da extensão Toxic Squad
 // Hub (toxic-squad-hub-ext/.../modules/features/coin-center/plugin.ts):
 // - reservas por recurso (manter X madeira/argila/ferro no armazém) e teto de
@@ -22,15 +26,17 @@
 //   (1 − X%) / custo) por recurso). 0 (default) = comportamento de sempre
 //   (reservas fixas por recurso).
 
-import { registerTsh } from '../tsh-runtime';
+import { registerTsh, type TshCycleContext } from '../tsh-runtime';
 import type { SettingsField } from '../tsh-settings';
-import { mintCoins } from '../tsh-transport';
+import { mintCoins, mintCoinsMultiApi } from '../tsh-transport';
 import { parsePtBrInt } from '../../vanta/vanta-utils';
+import { pacedGet } from '../../../core/net';
+import { gm } from '../../../core/storage';
+import { parseCoinOverview, parseSnobScreen, planMassMint, readMintedCoins } from './coin-mass';
+import { buildCoinMassPanel } from './coin-mass-panel';
 
 export type CoinResource = 'wood' | 'stone' | 'iron';
 const RESOURCES: readonly CoinResource[] = ['wood', 'stone', 'iron'];
-
-const RESOURCE_LABEL: Record<CoinResource, string> = { wood: 'madeira', stone: 'argila', iron: 'ferro' };
 
 // Type alias (não interface) para continuar atribuível a Record<string, unknown>
 // em settingsDefaults.
@@ -45,7 +51,14 @@ export type CoinSettings = {
    * de sempre); > 0 substitui as reservas fixas.
    */
   keepPercent?: number;
+  /** Custo de reserva (o ciclo lê o custo real da página do jogo). */
   coinCost: Record<CoinResource, number>;
+  /** v3.10.0: 'fundo' = todas as aldeias (Cunhagem em massa); 'tela' = só na Academia aberta. */
+  execMode?: 'fundo' | 'tela';
+  /** Teto de moedas por aldeia por rodada (0 = o máximo do jogo). */
+  perVillage?: number;
+  /** Pula aldeias com a cunhagem nativa do jogo ativa. */
+  skipNative?: boolean;
 };
 
 export const DEFAULT_SETTINGS: CoinSettings = {
@@ -55,6 +68,9 @@ export const DEFAULT_SETTINGS: CoinSettings = {
   reserveIron: 0,
   keepPercent: 0,
   coinCost: { wood: 28_000, stone: 30_000, iron: 25_000 },
+  execMode: 'fundo',
+  perVillage: 0,
+  skipNative: true,
 };
 
 const SETTINGS_FORM: SettingsField[] = [
@@ -102,17 +118,6 @@ const SETTINGS_FORM: SettingsField[] = [
     max: 90,
     step: 5,
     help: 'Acima de 0, o ciclo cunha mantendo este percentual do DISPONÍVEL de cada recurso (as reservas fixas acima são ignoradas). 0 = modo de reservas fixas (comportamento de sempre).',
-  },
-  {
-    key: 'coinCost',
-    label: 'Custo de cada moeda (por recurso)',
-    type: 'record',
-    help: 'Custo da Academia do mundo (padrão br142: 28000 madeira, 30000 argila, 25000 ferro) — só mude se o mundo cobrar diferente.',
-    recordKeys: [
-      { key: 'wood', label: 'Madeira', min: 0, step: 500 },
-      { key: 'stone', label: 'Argila', min: 0, step: 500 },
-      { key: 'iron', label: 'Ferro', min: 0, step: 500 },
-    ],
   },
 ];
 
@@ -242,57 +247,149 @@ export function decideMintWithPercent(
   return { count: Math.max(0, count), possible: Math.max(0, possible), keepPercent };
 }
 
-registerTsh({
-  id: 'coin-center',
-  label: 'Cunhagem de moedas',
-  desc: 'Cunha moedas na Academia respeitando as reservas por recurso ou o percentual retido (máx. 1 cunhagem por ciclo).',
-  category: 'economia',
-  screen: 'snob',
-  mutating: true,
-  cooldownMs: 5 * 60_000,
-  settingsForm: SETTINGS_FORM,
-  settingsDefaults: DEFAULT_SETTINGS,
-  async runCycle(ctx) {
-    const settings = ctx.storage.get('settings', DEFAULT_SETTINGS);
-    const resources: Record<CoinResource, number> = {
-      wood: readPageResource('wood', document),
-      stone: readPageResource('stone', document),
-      iron: readPageResource('iron', document),
-    };
-    const { count, possible, keepPercent } = decideMintWithPercent(resources, settings, readMintMax(document));
-    if (count < 1) {
-      // Página informando 0 moedas (limite do jogo) com reservas sobrando é
-      // bloqueio do jogo — status didático separado do "sem recursos".
-      ctx.status(
-        possible >= 1
-          ? `Cunhagem bloqueada pela página: 0 moedas disponíveis agora (${keepPercent > 0 ? `o modo percentual permitiria ${possible}` : `as reservas permitiriam ${possible}`}).`
-          : keepPercent > 0
-            ? `Recursos insuficientes para cunhar mantendo ${keepPercent}% de cada recurso no armazém.`
-            : 'Recursos insuficientes para cunhar dentro das reservas.',
-        'info',
-      );
+// ── v3.10.0: Cunhagem em massa (segundo plano) ──────────────────────────────
+
+type MassSettings = CoinSettings;
+
+/** Modo salvo: quem já usava (settings sem execMode) fica gravado em 'tela' (aviso 7 dias). */
+function savedCoinMode(world: string): { mode: 'fundo' | 'tela' | null; legacy: boolean } {
+  const key = `tsh-auto:${world}:coin-center:settings`;
+  const raw = gm.get<Record<string, unknown> | null>(key, null);
+  if (raw === null || typeof raw !== 'object' || Object.keys(raw).length === 0) {
+    // Nunca salvou, mas já estava ligado/rodando na versão antiga: segue na tela (sem gastar tudo em massa).
+    const used = gm.get<boolean>('tsh-auto:coin-center:enabled', false) || gm.get<unknown>(`tsh-auto:${world}:coin-center:state`, null) !== null;
+    if (!used) return { mode: null, legacy: false };
+    gm.set(key, { execMode: 'tela', legacyTela: Date.now() });
+    return { mode: 'tela', legacy: true };
+  }
+  if (raw.execMode === 'fundo' || raw.execMode === 'tela') {
+    const since = typeof raw.legacyTela === 'number' ? raw.legacyTela : 0;
+    return { mode: raw.execMode, legacy: raw.execMode === 'tela' && Date.now() - since < 7 * 24 * 60 * 60_000 };
+  }
+  gm.set(key, { ...raw, execMode: 'tela', legacyTela: Date.now() });
+  return { mode: 'tela', legacy: true };
+}
+
+/** Aldeias com sessão nativa ativa (o que a Cunhagem nativa sabe). */
+function nativeActive(world: string): Set<string> {
+  const next = gm.get<Record<string, number>>(`tsh-auto:${world}:auto-mint-nativo:active`, {});
+  const now = Date.now();
+  return new Set(Object.entries(next).filter(([, until]) => until > now).map(([id]) => id));
+}
+
+async function runMass(ctx: TshCycleContext, settings: MassSettings): Promise<void> {
+  const from = ctx.storage.get<number>('massFrom', 0);
+  const html = await pacedGet(`/game.php?village=${ctx.villageId}&screen=snob&mode=coin&from=${from}`, { fresh: true });
+  const page = parseCoinOverview(html, from);
+  if (page === null) {
+    if (from > 0) ctx.storage.set('massFrom', 0);
+    ctx.status('Não consegui ler "Cunhar moedas de ouro" da Academia (exige Conta Premium) — nada foi cunhado. Sem Premium, use "Só na tela da Academia" em Configurar.', 'warn');
+    return;
+  }
+  const nextFrom = page.more ? from + 1000 : 0;
+  const cost = page.cost ?? settings.coinCost;
+  const keepPct = normalizeKeepPercent(settings.keepPercent);
+  const skip = settings.skipNative !== false ? nativeActive(ctx.world) : new Set<string>();
+  const eligible = page.villages.filter((v) => !skip.has(v.id));
+  const plan = planMassMint(eligible, cost, {
+    keep: { wood: settings.reserveWood, stone: settings.reserveStone, iron: settings.reserveIron },
+    keepPct,
+    perVillage: Math.max(0, Math.floor(settings.perVillage ?? 0)),
+  });
+  const note =
+    (page.groupId !== 0 ? ' O jogo está mostrando só um grupo de aldeias: a cunhagem cobre só essas (escolha "todos" no menu de grupos do jogo para todas).' : '') +
+    (skip.size > 0 ? ` ${skip.size} aldeia(s) com a cunhagem nativa ativa ficaram de fora.` : '');
+  ctx.storage.set('massFrom', nextFrom);
+  if (nextFrom !== 0) ctx.again?.(60_000);
+  const n = Object.keys(plan).length;
+  if (n === 0) {
+    ctx.status(`Nenhuma moeda a cunhar agora: nenhuma aldeia tem recursos para 1 moeda além do que fica em casa.${nextFrom !== 0 ? ' Sigo nas próximas aldeias em 1 min.' : ''}${note}`, 'info');
+    return;
+  }
+  const total = Object.values(plan).reduce((a, b) => a + b, 0);
+  let response: unknown;
+  try {
+    response = await mintCoinsMultiApi(plan);
+  } catch (error) {
+    const e = error as { code?: string; message?: string };
+    if (e.code === 'HUMANIZE_PAUSE') {
+      ctx.status('Pausa de humanização ativa — a cunhagem fica para o próximo ciclo.', 'info');
       return;
     }
     ctx.status(
-      `Prévia: cunhar ${count} de ${possible} moeda${possible !== 1 ? 's' : ''} possível${possible !== 1 ? 'is' : ''}; ${
-        keepPercent > 0
-          ? `mantendo ${keepPercent}% de cada recurso no armazém`
-          : `ficam reservas ${reserveLabel(settings)}`
-      } (custo ${costLabel(settings)} por moeda).`,
+      e.code === 'RESULT_UNCERTAIN'
+        ? `${e.message ?? 'Cunhagem inconclusiva'} — não repito às cegas; a próxima leitura mostra o que o jogo cunhou.`
+        : `O jogo não cunhou: ${e.message ?? String(error)}`,
+      'warn',
+    );
+    return;
+  }
+  const minted = readMintedCoins(response);
+  if (minted === null) {
+    ctx.status(`Cunhagem enviada (${total} moeda(s) em ${n} aldeia(s)), mas a resposta do jogo não disse quantas saíram — confiro na próxima leitura.${note}`, 'warn');
+    return;
+  }
+  const got = Object.values(minted).reduce((a, b) => a + b, 0);
+  const villagesOk = Object.keys(minted).length;
+  ctx.status(
+    `Cunhadas ${got} moeda(s) em ${villagesOk} aldeia(s) — confirmado pelo jogo${got < total ? ` (pedidas ${total}; o jogo cunhou o que coube)` : ''}.${nextFrom !== 0 ? ' Sigo nas próximas aldeias em 1 min.' : ''}${note}`,
+    got > 0 ? 'ok' : 'warn',
+  );
+}
+
+/** Só na tela da Academia (comportamento de antes, custo lido da própria página). */
+async function runScreen(ctx: TshCycleContext, settings: MassSettings, legacy: boolean): Promise<void> {
+  if (new URLSearchParams(window.location.search).get('screen') !== 'snob') {
+    ctx.status(
+      legacy
+        ? 'Novo na 3.10: a Cunhagem pode rodar em TODAS as aldeias sem abrir a Academia — escolha "Segundo plano" em Configurar. Por enquanto ela segue só na tela da Academia, como antes.'
+        : 'Modo "Só na tela": abra a Academia para cunhar.',
       'info',
     );
-    await mintCoins(count);
+    return;
+  }
+  const page = parseSnobScreen(document.documentElement.outerHTML);
+  const raw = gm.get<Record<string, unknown> | null>(`tsh-auto:${ctx.world}:coin-center:settings`, null);
+  const per = typeof raw?.perVillage === 'number' ? raw.perVillage : settings.maxCoinsPerCycle;
+  const capped: CoinSettings = { ...settings, maxCoinsPerCycle: per > 0 ? per : 100_000 };
+  const effective: CoinSettings = page === null || page.cost.wood === 0 ? capped : { ...capped, coinCost: page.cost };
+  const resources: Record<CoinResource, number> = {
+    wood: readPageResource('wood', document),
+    stone: readPageResource('stone', document),
+    iron: readPageResource('iron', document),
+  };
+  const { count, possible, keepPercent } = decideMintWithPercent(resources, effective, readMintMax(document));
+  if (count < 1) {
     ctx.status(
-      `Cunhagem enviada: ${count} de ${possible} possível${possible !== 1 ? 'is' : ''} — a Academia vai recarregar.`,
-      'ok',
+      possible >= 1
+        ? `O jogo não deixa cunhar agora nesta aldeia (limite da Academia) — pelas suas reservas daria ${possible}.`
+        : keepPercent > 0
+          ? `Recursos insuficientes para cunhar mantendo ${keepPercent}% de cada recurso no armazém.`
+          : 'Recursos insuficientes para cunhar dentro das reservas.',
+      'info',
     );
+    return;
+  }
+  await mintCoins(count);
+  ctx.status(`Cunhagem enviada: ${count} de ${possible} ${possible === 1 ? 'possível' : 'possíveis'} — a Academia vai recarregar.`, 'ok');
+}
+
+registerTsh({
+  id: 'coin-center',
+  label: 'Cunhagem em massa',
+  desc: 'Cunha de uma vez o que já está acumulado em todas as aldeias (a própria "Cunhar moedas de ouro" do jogo), deixando em casa a reserva que você escolher. Para cunhar o dia todo, prefira a Cunhagem nativa.',
+  category: 'economia',
+  screen: null,
+  mutating: true,
+  cooldownMs: 10 * 60_000,
+  settingsForm: SETTINGS_FORM,
+  settingsDefaults: DEFAULT_SETTINGS,
+  settingsPanel: (settings, world) => buildCoinMassPanel(settings, world),
+  async runCycle(ctx) {
+    const settings = { ...DEFAULT_SETTINGS, ...ctx.storage.get<Partial<MassSettings>>('settings', DEFAULT_SETTINGS) } as MassSettings;
+    const saved = savedCoinMode(ctx.world);
+    const mode = saved.mode ?? settings.execMode ?? 'fundo';
+    if (mode === 'fundo') await runMass(ctx, settings);
+    else await runScreen(ctx, settings, saved.legacy);
   },
 });
-
-function costLabel(settings: CoinSettings): string {
-  return RESOURCES.map((resource) => settings.coinCost[resource] ?? 0).join('/');
-}
-
-function reserveLabel(settings: CoinSettings): string {
-  return RESOURCES.map((resource) => `${RESOURCE_LABEL[resource]} ${settings[RESERVE_KEY[resource]] ?? 0}`).join(', ');
-}

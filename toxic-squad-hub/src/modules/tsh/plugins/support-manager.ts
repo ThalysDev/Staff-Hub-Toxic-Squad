@@ -352,7 +352,7 @@ export type SupportManagerSettings = z.infer<typeof supportManagerSettingsSchema
 /** Defaults efetivos do schema (o que o plugin assume com settings vazio). */
 export const DEFAULT_SETTINGS: SupportManagerSettings = {
   scope: 'player',
-  groupId: null,
+  groupId: '', // campo de texto: '' = sem grupo (null não relia no formulário)
   selectionPercent: '100',
   unitIds: [...SUPPORT_WITHDRAWAL_UNITS],
 };

@@ -131,6 +131,10 @@ describe('formatação pt-BR', () => {
     expect(parseUnitCount('-3')).toBe(0);
     expect(parseUnitCount('50')).toBe(50);
     expect(parseUnitCount('50,7')).toBe(50);
+    // Separador de milhar pt-BR (Onda 1): '1.500' = 1500, não 1.
+    expect(parseUnitCount('1.500')).toBe(1500);
+    expect(parseUnitCount('12.000')).toBe(12000);
+    expect(parseUnitCount('1.5')).toBe(1);
   });
 });
 
@@ -161,7 +165,7 @@ describe('badges de tipo e status', () => {
     expect(commandKindLabel('support')).toBe('Apoio');
     expect(commandKindLabel('noble')).toBe('Nobre');
     expect(commandStatusLabel('agendado')).toBe('Agendado');
-    expect(commandStatusLabel('janela')).toBe('Na janela');
+    expect(commandStatusLabel('janela')).toBe('Na mira');
     expect(commandStatusLabel('pausado')).toBe('Pausado');
   });
 
@@ -383,13 +387,26 @@ describe('buildBlockRecords (plano em bloco)', () => {
     forceLate: false,
   };
 
+  it('partida empurrada avisa a nova chegada; na JANELA, empurrar para fora recusa o comando', () => {
+    const pushed = buildBlockRecords({ ...base, commands });
+    expect(pushed.warnings.some((warning) => warning.includes('empurrada +5 s'))).toBe(true);
+    // Janela de 2 s: a 2ª partida de 500|500 seria empurrada 5 s → fora da janela.
+    const windowed = buildBlockRecords({
+      ...base,
+      commands,
+      timing: { mode: 'window' as const, fromMs: arrivalMs, toMs: arrivalMs + 2_000 },
+    });
+    expect(windowed.records.filter((record) => record.source?.x === 500)).toHaveLength(1);
+    expect(windowed.warnings.some((warning) => warning.includes('fora da janela'))).toBe(true);
+  });
+
   it('partida = chegada − viagem e o espaçamento separa partidas da MESMA origem', () => {
     const built = buildBlockRecords({ ...base, commands });
     expect(built.records).toHaveLength(3);
     const from500 = built.records.filter((record) => record.source?.x === 500);
     expect(from500).toHaveLength(2);
     const departures = from500.map((record) => Date.parse(record.sendAt)).sort((a, b) => a - b);
-    expect(departures[1]! - departures[0]!).toBe(300);
+    expect(departures[1]! - departures[0]!).toBe(5_000);
     // A outra origem não é afetada pelo espaçamento da primeira.
     const from600 = built.records.find((record) => record.source?.x === 600);
     expect(Date.parse(from600?.sendAt ?? '')).toBe(arrivalMs - 30 * 60_000);

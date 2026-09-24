@@ -404,8 +404,8 @@ function buildVillageSection(table: HTMLTableElement, data: IncomingRow[]): stri
                                     </td>
                                     <td rowspan="2" style="vertical-align:middle;font-size:11px;line-height:1.5">
                                         ${escapeHtml(cmd.arrivalFull)}
-                                        <br><span style="color:#6f5e40;font-size:10px">Duração: <span class="vanta-cmd-duracao" data-command-id="${cmdIdAttr}">${escapeHtml(cmd.chegaEmText || '--:--:--')}</span></span>
-                                        ${cmd.torreText !== '' ? `<br><span style="color:#6f5e40;font-size:10px">Torre: <span class="vanta-cmd-torre" data-command-id="${cmdIdAttr}">${escapeHtml(cmd.torreText)}</span> <span class="vanta-cmd-lead" data-command-id="${cmdIdAttr}"></span></span>` : ''}
+                                        <br><span style="color:var(--shs-muted, #6f5e40);font-size:10px">Duração: <span class="vanta-cmd-duracao" data-command-id="${cmdIdAttr}">${escapeHtml(cmd.chegaEmText || '--:--:--')}</span></span>
+                                        ${cmd.torreText !== '' ? `<br><span style="color:var(--shs-muted, #6f5e40);font-size:10px">Torre: <span class="vanta-cmd-torre" data-command-id="${cmdIdAttr}">${escapeHtml(cmd.torreText)}</span> <span class="vanta-cmd-lead" data-command-id="${cmdIdAttr}"></span></span>` : ''}
                                     </td>
                                 </tr>
                                 <tr class="${cls}" data-command-id="${cmdIdAttr}">
@@ -911,14 +911,20 @@ function mountDashboard(scope: ModuleScope): void {
     // Atualização ao vivo — Duração (col 6), Torre (col 7) e lead time
     function updateCountdowns(): void {
       const cmdData: Record<string, { duracao?: string; torre?: string }> = {};
+      // Onda 1: UMA passada na tabela por segundo (id → células). Antes cada
+      // span fazia um querySelector na tabela inteira — com 700 ataques eram
+      // ~1.400 varreduras por segundo e a página travava.
+      const rowCells = new Map<string, NodeListOf<HTMLTableCellElement>>();
+      table.querySelectorAll<HTMLElement>('tr.nowrap span.quickedit[data-id]').forEach((qe) => {
+        const id = qe.getAttribute('data-id');
+        const tr = qe.closest('tr');
+        if (id !== null && id !== '' && tr !== null && !rowCells.has(id)) rowCells.set(id, tr.querySelectorAll('td'));
+      });
       container.querySelectorAll('.vanta-cmd-duracao, .vanta-cmd-torre').forEach((span) => {
         const cmdId = span.getAttribute('data-command-id');
         if (cmdId === null || cmdId === '') return;
-        const origQe = table.querySelector(`tr.nowrap span.quickedit[data-id="${CSS.escape(cmdId)}"]`);
-        if (origQe === null) return;
-        const tr = origQe.closest('tr');
-        if (tr === null) return;
-        const tds = tr.querySelectorAll('td');
+        const tds = rowCells.get(cmdId);
+        if (tds === undefined) return;
         const colIdx = span.classList.contains('vanta-cmd-duracao') ? 6 : 7;
         const td = tds[colIdx];
         if (td !== undefined) {
@@ -1180,6 +1186,7 @@ function mountCores(scope: ModuleScope): void {
 registerVanta({
   id: 'vanta-dashboard',
   label: 'Painel de Incomings',
+  icon: 'alert',
   desc: 'Resumo de ataques/nobres/jogadores, comandos por aldeia, tropas e sim de blindagem',
   group: 'defesa',
   match: () => params().get('screen') === 'overview_villages' && params().get('mode') === 'incomings',
@@ -1190,6 +1197,7 @@ registerVanta({
 registerVanta({
   id: 'vanta-cores',
   label: 'Cores de Incomings',
+  icon: 'tag',
   desc: 'Colore os ataques da lista de incomings conforme a tag do rótulo',
   group: 'defesa',
   match: () => params().get('screen') === 'overview_villages' && params().get('mode') === 'incomings',

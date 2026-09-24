@@ -341,42 +341,42 @@ function ensureStyles(): void {
   style.id = STYLE_ID;
   style.textContent = `
         #vanta-gio-ui {
-            margin: 10px 0; background: #fffdf3; border: 1px solid #e0cda0;
+            margin: 10px 0; background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border, #e0cda0);
             border-radius: 10px; overflow: hidden;
-            font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #5a3a16;
+            font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; color: var(--shs-ink, #5a3a16);
         }
         #vanta-gio-ui * { box-sizing: border-box; }
         #vanta-gio-header {
             display: flex; align-items: center; justify-content: space-between;
-            padding: 9px 14px; background: #efe2ba; border-bottom: 1px solid #e0cda0;
+            padding: 9px 14px; background: var(--shs-bg-head, #efe2ba); border-bottom: 1px solid var(--shs-border, #e0cda0);
         }
         #vanta-gio-header-title {
-            font-size: 12px; font-weight: 700; letter-spacing: 2px;
-            text-transform: uppercase; color: #8a5a1e;
+            font-size: 12px; font-weight: 700; letter-spacing: 0;
+            text-transform: uppercase; color: var(--shs-accent-ink, #8a5a1e);
         }
         #vanta-gio-body { padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 8px; }
-        #vanta-gio-help { font-size: 11px; color: #6f5e40; line-height: 1.4; }
+        #vanta-gio-help { font-size: 11px; color: var(--shs-muted, #6f5e40); line-height: 1.4; }
         #vanta-gio-actions { display: flex; flex-wrap: wrap; gap: 8px; }
         #vanta-gio-ui button {
-            background: #fbf4de; border: 1px solid #cbb384; border-radius: 8px;
-            color: #5a3a16; padding: 5px 12px; font-size: 11px;
+            background: var(--shs-bg-field, #fbf4de); border: 1px solid var(--shs-border-strong, #cbb384); border-radius: 8px;
+            color: var(--shs-ink, #5a3a16); padding: 5px 12px; font-size: 11px;
             font-family: inherit; cursor: pointer;
         }
-        #vanta-gio-ui button:hover:not(:disabled) { background: #efe2ba; border-color: #834a1a; color: #834a1a; }
+        #vanta-gio-ui button:hover:not(:disabled) { background: var(--shs-bg-head, #efe2ba); border-color: var(--shs-action-hover, #834a1a); color: var(--shs-action-hover, #834a1a); }
         #vanta-gio-ui button:disabled { opacity: 0.4; cursor: default; }
-        #vanta-gio-exportar { background: #6d3c14; border-color: #5a3110; color: #fff; font-weight: 600; }
-        #vanta-gio-exportar:hover:not(:disabled) { background: #834a1a; color: #fff; }
-        #vanta-gio-confirmar { background: #2f66c0; border-color: #27549f; color: #fff; font-weight: 600; }
-        #vanta-gio-confirmar:hover:not(:disabled) { background: #4473cd; color: #fff; }
-        #vanta-gio-status { font-size: 11px; color: #6f5e40; line-height: 1.4; min-height: 14px; }
-        #vanta-gio-status.vanta-gio-status--erro { color: #c04038; }
-        #vanta-gio-status.vanta-gio-status--ok { color: #3f8f43; font-weight: 600; }
+        #vanta-gio-ui #vanta-gio-exportar { background: var(--shs-action, #6d3c14); border-color: var(--shs-action-deep, #5a3110); color: #fff; font-weight: 600; }
+        #vanta-gio-ui #vanta-gio-exportar:hover:not(:disabled) { background: var(--shs-action-hover, #834a1a); color: #fff; }
+        #vanta-gio-ui #vanta-gio-confirmar { background: var(--shs-info, #2f66c0); border-color: #27549f; color: #fff; font-weight: 600; }
+        #vanta-gio-ui #vanta-gio-confirmar:hover:not(:disabled) { background: #4473cd; color: #fff; }
+        #vanta-gio-status { font-size: 11px; color: var(--shs-muted, #6f5e40); line-height: 1.4; min-height: 14px; }
+        #vanta-gio-status.vanta-gio-status--erro { color: var(--shs-danger, #c04038); }
+        #vanta-gio-status.vanta-gio-status--ok { color: var(--shs-ok, #3f8f43); font-weight: 600; }
         #vanta-gio-preview ul { margin: 6px 0 0; padding: 0; list-style: none; }
-        #vanta-gio-preview li { font-size: 11.5px; padding: 3px 0; border-top: 1px dashed #e0cda0; }
+        #vanta-gio-preview li { font-size: 11.5px; padding: 3px 0; border-top: 1px dashed var(--shs-border, #e0cda0); }
         #vanta-gio-preview li:first-child { border-top: none; }
-        #vanta-gio-preview li.vanta-gio-aviso { color: #8a5a1e; }
+        #vanta-gio-preview li.vanta-gio-aviso { color: var(--shs-accent-ink, #8a5a1e); }
         #vanta-gio-preview .vanta-gio-note {
-            margin-top: 6px; font-size: 11px; color: #6f5e40; font-style: italic;
+            margin-top: 6px; font-size: 11px; color: var(--shs-muted, #6f5e40); font-style: italic;
         }
     `;
   document.head.appendChild(style);
@@ -387,6 +387,7 @@ function ensureStyles(): void {
 registerVanta({
   id: 'vanta-grupos-io',
   label: 'Grupos: Backup e Restauração',
+  icon: 'layers',
   desc: 'Exporta/importa os grupos do jogo em JSON',
   group: 'utilidades',
   match: () => {

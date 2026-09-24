@@ -35,6 +35,7 @@
 import { z } from 'zod';
 import { registerTsh, isTshEnabled, type TshCycleContext } from '../tsh-runtime';
 import { isUncertainMutationError, normalizeVillageId, submitCommand2Step } from '../tsh-transport';
+import { automationReserveBlock } from '../tsh-reserva';
 import { gm } from '../../../core/storage';
 import type { TimingLane } from '../../../ext/core/humanize/humanize-policy';
 import {
@@ -127,7 +128,8 @@ type MassSupportDefenseTarget = MassSupportSettings['targets'][number];
 /** Defaults efetivos do schema (o que o plugin assume com settings vazio). */
 export const DEFAULT_SETTINGS: MassSupportSettings = {
   mode: 'immediate',
-  sourceGroupId: null,
+  // '' (não null): o campo é de TEXTO — o formulário só relê string.
+  sourceGroupId: '',
   allocationStrategy: 'max_available',
   distancePriority: 'closest',
   villageLimit: 0,
@@ -135,7 +137,7 @@ export const DEFAULT_SETTINGS: MassSupportSettings = {
   destinations: [],
   // P1 (revisão Onda 8): sem esta chave o loadSettings descartava o valor
   // salvo e o campo "Chegada agendada" reabria vazio a cada configuração.
-  scheduledArrivalAt: undefined,
+  scheduledArrivalAt: '',
   targets: [],
   destinationsText: '',
   targetsText: '',
@@ -143,6 +145,9 @@ export const DEFAULT_SETTINGS: MassSupportSettings = {
   executionMode: 'immediate',
   defensePopulationLimit: 5000,
   hasArchers: true,
+  // Sem esta chave o switch "armed" reabria SEMPRE desligado e o próximo
+  // Salvar gravava false por cima (auditoria de formulários, 23/09).
+  armed: false,
 };
 
 // ── Texto "x|y por linha" → listas que a engine consome ────────────────────
@@ -925,6 +930,13 @@ registerTsh({
     }
     const command = selection.command;
     const transport = commandToTransport(command);
+    // v3.5.0: apoio não volta — tropas reservadas para um comando agendado
+    // desta aldeia ficam em casa.
+    const reserva = automationReserveBlock(ctx.world, ctx.villageId, transport.units as Partial<Record<string, number>>);
+    if (reserva !== null) {
+      ctx.status(withNotes(reserva), 'warn');
+      return;
+    }
     ctx.status(
       `Enviando apoio de ${command.sourceCoordinate} para ${transport.target} (pop ${command.population}) — 1 comando neste ciclo.`,
       'info',

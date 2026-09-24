@@ -14,6 +14,7 @@
 //   confirmação por ciclo).
 // - P1-4: listeners/timers/node via ModuleScope.
 
+import { isHalted } from '../../core/halt';
 import { gm } from '../../core/storage';
 import type { ModuleScope } from './vanta-lifecycle';
 import { registerVanta } from './vanta-registry';
@@ -45,6 +46,7 @@ function findMintButton(mintInput: HTMLInputElement): HTMLElement | null {
 registerVanta({
   id: 'vanta-autocunhar',
   label: 'Auto Cunhar',
+  icon: 'coins',
   desc: 'Cunha o máximo de moedas e recarrega a página em intervalo',
   group: 'utilidades',
   match: () => params().get('screen') === 'snob',
@@ -122,16 +124,16 @@ registerVanta({
       if (on) {
         runCunhar();
       } else {
-        setStatus('#5a3a16', 'Desativado.');
+        setStatus('var(--shs-ink, #34312c)', 'Desativado.');
       }
     });
 
     function scheduleReload(): void {
       if (!toggle.checked) return;
       const secs = gm.get<number>(INTERVAL_KEY, 30);
-      setStatus('#5a3a16', `Próxima cunhagem em ${secs} segundo${secs !== 1 ? 's' : ''}...`);
+      setStatus('var(--shs-ink, #34312c)', `Próxima cunhagem em ${secs} segundo${secs !== 1 ? 's' : ''}...`);
       scope.after(() => {
-        if (isEnabled()) window.location.reload();
+        if (isEnabled() && !isHalted()) window.location.reload(); // disjuntor: não recarrega em loop com captcha aberto
       }, secs * 1000);
     }
 
@@ -150,7 +152,7 @@ registerVanta({
       // ponto de milhar); o input recebe String do número parseado.
       const maxNum = parsePtBrInt((maxEl.textContent ?? '').replace(/[()]/g, ''));
       if (maxNum <= 0) {
-        setStatus('#5a3a16', 'Nenhuma moeda disponível para cunhar.');
+        setStatus('var(--shs-ink, #34312c)', 'Nenhuma moeda disponível para cunhar.');
         scheduleReload();
         return;
       }

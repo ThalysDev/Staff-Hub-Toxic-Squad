@@ -63,6 +63,7 @@ function infoVillageId(): string | null {
 registerVanta({
   id: 'vanta-notas-campo',
   label: 'Bloco de Campo',
+  icon: 'note',
   desc: 'Notas locais por aldeia (rascunhos de OP, lembretes) com marcador no mapa.',
   group: 'utilidades',
   match: () => params().get('screen') === 'info_village',
@@ -136,7 +137,7 @@ export function mountMapNotesMarker(scope: ModuleScope): void {
         const dot = document.createElement('span');
         dot.textContent = '●';
         dot.title = 'Esta aldeia tem nota no Bloco de Campo';
-        dot.style.color = '#b8860b';
+        dot.style.color = 'var(--shs-brass, #9a6512)';
         dot.style.position = 'absolute';
         dot.style.top = '0';
         dot.style.right = '0';
@@ -159,6 +160,7 @@ export function mountMapNotesMarker(scope: ModuleScope): void {
 registerVanta({
   id: 'vanta-notas-mapa',
   label: 'Notas no Mapa',
+  icon: 'bookmark',
   desc: 'Marca com ● as aldeias que têm nota no Bloco de Campo.',
   group: 'utilidades',
   match: () => params().get('screen') === 'map',

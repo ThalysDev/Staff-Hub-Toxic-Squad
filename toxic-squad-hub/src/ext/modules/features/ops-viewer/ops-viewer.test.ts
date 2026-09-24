@@ -208,16 +208,16 @@ describe('conflitos de precisão (ms)', () => {
     expect(filterViewerCommands(BASE, { dateField: 'partida', status: 'todos', conflictsOnly: true })).toEqual([]);
   });
 
-  it('mesma origem conflita abaixo de 300ms; exatamente 300ms ou mais nunca conflita', () => {
+  it('mesma origem conflita abaixo de 5s; exatamente 5s ou mais nunca conflita', () => {
     const origin = { x: 1, y: 1 };
     const first = command({ id: 'a', origin, departureMs: at(0) });
-    const below = detectDepartureConflicts([first, command({ id: 'b', origin, departureMs: at(299) })]);
+    const below = detectDepartureConflicts([first, command({ id: 'b', origin, departureMs: at(4_999) })]);
     expect([...below.keys()]).toEqual(['a', 'b']);
     expect(below.get('a')).toEqual(['b']);
     expect(below.get('b')).toEqual(['a']);
 
-    expect(detectDepartureConflicts([first, command({ id: 'b', origin, departureMs: at(300) })]).size).toBe(0);
-    expect(detectDepartureConflicts([first, command({ id: 'b', origin, departureMs: at(1_200) })]).size).toBe(0);
+    expect(detectDepartureConflicts([first, command({ id: 'b', origin, departureMs: at(5_000) })]).size).toBe(0);
+    expect(detectDepartureConflicts([first, command({ id: 'b', origin, departureMs: at(6_000) })]).size).toBe(0);
     // Mesmo instante e mesma partida em ORIGEM diferente: não há conflito.
     expect(detectDepartureConflicts([first, command({ id: 'b', origin: { x: 2, y: 1 } })]).size).toBe(0);
   });

@@ -168,3 +168,38 @@ describe('parseVillageRows — overview_villages&group=<id>', () => {
     expect(parseVillageRows(html)).toHaveLength(1);
   });
 });
+
+describe('parseVillageRows — formato REAL do overview_villages (BR142, 23/09)', () => {
+  // A tabela liga cada aldeia a `village=NNN&screen=overview` (não info_village):
+  // antes o leitor devolvia 0 aldeias em todo grupo.
+  const html = `
+    <div id="menu_row2"><a href="/game.php?village=111&amp;screen=overview">Aldeia atual</a> (500|500)</div>
+    <table id="combined_table" class="vis overview_table">
+      <tr><th>Aldeia</th></tr>
+      <tr class="nowrap row_a"><td><span class="quickedit-vn" data-id="111">
+        <a href="/game.php?village=111&amp;screen=overview"><span class="quickedit-label" data-text="225 - Nobre">225 - Nobre (553|453) K45</span></a>
+      </span></td></tr>
+      <tr class="nowrap row_b"><td><span class="quickedit-vn" data-id="222">
+        <a href="/game.php?village=222&amp;screen=overview"><span class="quickedit-label">Vila B (54|7) K05</span></a>
+      </span></td></tr>
+      <tr><td><a href="/game.php?village=111&amp;screen=overview_villages&amp;mode=combined">Combinado</a></td></tr>
+    </table>`;
+
+  it('lê as aldeias do link village=&screen=overview com coordenada no texto', () => {
+    expect(parseVillageRows(html)).toEqual([
+      { villageId: 111, name: '225 - Nobre', x: 553, y: 453 },
+      { villageId: 222, name: 'Vila B', x: 54, y: 7 },
+    ]);
+  });
+
+  it('modo Edifícios/Pesquisa: link aponta para main/smith e ainda é lido', () => {
+    const edificios = `<table id="buildings_table"><tr class="row_a"><td>
+      <a href="/game.php?village=333&amp;screen=main"><span>Vila C (100|200) K21</span></a></td></tr></table>`;
+    expect(parseVillageRows(edificios)).toEqual([{ villageId: 333, name: 'Vila C', x: 100, y: 200 }]);
+  });
+
+  it('link de menu da aldeia atual SEM coordenada no texto não vira linha', () => {
+    const soMenu = '<a href="/game.php?village=999&amp;screen=overview">Aldeia</a> (1|2)';
+    expect(parseVillageRows(soMenu)).toEqual([]);
+  });
+});

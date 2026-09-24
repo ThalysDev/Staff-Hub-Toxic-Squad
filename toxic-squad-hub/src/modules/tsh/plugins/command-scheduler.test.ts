@@ -13,6 +13,7 @@
 import { describe, expect, it } from 'vitest';
 import type { HubSchedulerState, ScheduledCommandRecord, ScheduledCommandStatus } from '../../../ext/core/scheduler-state';
 import {
+  pickConfirmCandidate,
   AUTO_SEND_HOLD_DETAIL,
   createScheduledCommand,
   autoSendExpiredHeldRecords,
@@ -229,5 +230,24 @@ describe('createScheduledCommand (montagem mínima do registro)', () => {
     expect(created.events.map((event) => event.status)).toEqual(['agendado']);
     // Mesmo comando = mesmo id canônico (dedupe do agendador).
     expect(createScheduledCommand(input).id).toBe(created.id);
+  });
+});
+
+describe('pickConfirmCandidate (Onda A — revisão P1)', () => {
+  const at = (iso: string): number => Date.parse(iso);
+  const a = { id: 'a', sendAt: '2026-09-23T12:00:00.000Z' };
+  const b = { id: 'b', sendAt: '2026-09-23T12:02:00.000Z' };
+  it('prefere o pré-armado quando a tela casa com ele', () => {
+    expect(pickConfirmCandidate([b, a], 'a', at('2026-09-23T11:59:55.000Z'), () => true)?.id).toBe('a');
+  });
+  it('sem pré-arme, escolhe o horário mais próximo do agora', () => {
+    expect(pickConfirmCandidate([b, a], null, at('2026-09-23T11:59:55.000Z'), () => true)?.id).toBe('a');
+    expect(pickConfirmCandidate([a, b], null, at('2026-09-23T12:01:59.000Z'), () => true)?.id).toBe('b');
+  });
+  it('pré-armado que NÃO casa com a tela não é escolhido', () => {
+    expect(pickConfirmCandidate([a, b], 'a', at('2026-09-23T11:59:55.000Z'), (c) => c.id === 'b')?.id).toBe('b');
+  });
+  it('nenhum casa → undefined', () => {
+    expect(pickConfirmCandidate([a, b], null, 0, () => false)).toBeUndefined();
   });
 });

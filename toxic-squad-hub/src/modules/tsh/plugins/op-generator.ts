@@ -20,7 +20,7 @@ import { z } from 'zod';
 import { registerTsh } from '../tsh-runtime';
 import { pacedGet } from '../../../core/net';
 import { pageWindow } from '../../../core/page';
-import { parseServerNow } from '../../vanta/vanta-utils';
+import { serverNowMs } from '../../../core/game-clock';
 import {
   OP_PLANNER_CRITERIA,
   OP_PLANNER_LIMITS,
@@ -87,13 +87,13 @@ export function resolvePlayerIdFromPlayerTxt(playerTxt: string, playerName: stri
   return undefined;
 }
 
-/** "Agora" na perspectiva do servidor (header #serverDate/#serverTime), fallback relógio local. */
-export function serverNowIso(fallback = new Date()): string {
-  const parsed = parseServerNow(
-    document.getElementById('serverDate')?.textContent ?? '',
-    document.getElementById('serverTime')?.textContent ?? '',
-  );
-  return (parsed ?? fallback).toISOString();
+/**
+ * "Agora" na perspectiva do servidor — Onda A: relógio de precisão
+ * (core/game-clock: medição HTTP / relógio do jogo / Hora do servidor da
+ * tela, a de menor incerteza; sem nenhuma fonte = relógio local).
+ */
+export function serverNowIso(): string {
+  return new Date(serverNowMs()).toISOString();
 }
 
 // ── Editor de texto "x|y por linha" (compartilhado pelos plugins da onda) ──

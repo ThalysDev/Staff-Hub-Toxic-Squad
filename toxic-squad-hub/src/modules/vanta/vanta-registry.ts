@@ -5,6 +5,8 @@
 // via flag de navegação, como o "Abrir" do Vanta fazia).
 
 import { gm } from '../../core/storage';
+import type { IconName } from '../../core/icons';
+import { ensureDocumentTheme } from '../../core/theme';
 import { createModuleScope, type ModuleScope } from './vanta-lifecycle';
 
 export type VantaGroup = 'defesa' | 'blindagem' | 'utilidades';
@@ -14,6 +16,8 @@ export interface VantaLauncher {
   label: string;
   desc: string;
   group: VantaGroup;
+  /** Ícone próprio da ferramenta (Onda C/D); ausente = ícone do grupo. */
+  icon?: IconName;
   /** Injeção da UI na página atual. Deve ser idempotente (chamada 2× = 1 UI). */
   mount(scope: ModuleScope): void;
   /** Esta URL (relativa ao jogo) exibe a tela do módulo? null = qualquer tela. */
@@ -61,18 +65,24 @@ export function unmountVanta(id: string): void {
 }
 
 /** Monta um módulo: descarta o escopo anterior e cria um novo (remount limpo). */
-export function mountVanta(id: string): void {
+export function mountVanta(id: string): { ok: boolean; error?: string } {
   const launcher = launchers.get(id);
-  if (launcher === undefined) return;
+  if (launcher === undefined) return { ok: false, error: 'módulo desconhecido' };
   unmountVanta(id);
+  // Onda D: o tema único (--shs-*) precisa existir no documento do jogo,
+  // onde as ferramentas Vanta são injetadas (fora do Shadow DOM).
+  ensureDocumentTheme();
   const scope = createModuleScope(id);
   scopes.set(id, scope);
   try {
     launcher.mount(scope);
+    return { ok: true };
   } catch (error) {
     scope.dispose();
     scopes.delete(id);
     console.warn(`[toxic-squad-hub] falha ao montar módulo ${id}:`, error);
+    // Onda C: o motivo chega à linha do painel (antes só no console).
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -110,11 +120,15 @@ function consumeOpenFlag(id: string): boolean {
 
 /**
  * Bootstrap da suíte (1× por carregamento de página): monta cada módulo
- * habilitado que case a tela atual OU que tenha flag de abertura pendente.
+ * habilitado SÓ na tela dele. A flag de abertura é consumida (limpa), mas não
+ * monta sozinha: antes ela montava em QUALQUER tela que carregasse depois do
+ * "Abrir" (redirecionamento do jogo, sub-tela diferente — ex.: a confirmação
+ * do cravado aparecia na Praça comum).
  */
 export function runVantaOnLoad(): void {
   for (const launcher of launchers.values()) {
+    consumeOpenFlag(launcher.id);
     if (!isVantaEnabled(launcher.id)) continue;
-    if (consumeOpenFlag(launcher.id) || launcher.match()) mountVanta(launcher.id);
+    if (launcher.match()) mountVanta(launcher.id);
   }
 }

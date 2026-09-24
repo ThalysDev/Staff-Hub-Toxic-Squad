@@ -239,75 +239,75 @@ const STYLE_ID = 'vanta-previa-styles';
 const MODAL_ID = 'vanta-previa-modal';
 const PREVIA_STYLES = `
   #vanta-previa-widget {
-    position: fixed; z-index: 99999; width: 250px;
-    background: #fffdf3; border: 1px solid #cbb384; border-radius: 12px;
+    position: fixed; z-index: 2147482000; width: 250px; /* widget fixo: abaixo do painel */
+    background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border-strong, #cbb384); border-radius: 12px;
     box-shadow: 0 12px 40px rgba(60,37,10,0.18);
-    font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #5a3a16;
+    font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; color: var(--shs-ink, #5a3a16);
   }
   #vanta-previa-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 9px 12px 8px; background: #efe2ba; border-bottom: 1px solid #e0cda0;
+    padding: 9px 12px 8px; background: var(--shs-bg-head, #efe2ba); border-bottom: 1px solid var(--shs-border, #e0cda0);
     border-radius: 12px 12px 0 0; cursor: grab;
   }
   #vanta-previa-header:active { cursor: grabbing; }
   #vanta-previa-title {
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    color: #3c250a; text-transform: uppercase;
+    color: var(--shs-ink-strong, #3c250a); text-transform: uppercase;
   }
   #vanta-previa-close {
-    background: none; border: none; color: #6f5e40; font-size: 16px;
+    background: none; border: none; color: var(--shs-muted, #6f5e40); font-size: 16px;
     line-height: 1; cursor: pointer; padding: 0 2px;
   }
-  #vanta-previa-close:hover { color: #c04038; }
+  #vanta-previa-close:hover { color: var(--shs-danger, #c04038); }
   #vanta-previa-body {
     padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px;
   }
   #vanta-previa-toggle-row {
     display: flex; align-items: center; gap: 6px;
-    font-size: 11px; font-weight: 600; color: #8a5a1e; cursor: pointer;
+    font-size: 11px; font-weight: 600; color: var(--shs-accent-ink, #8a5a1e); cursor: pointer;
   }
-  #vanta-previa-status { font-size: 11px; color: #6f5e40; }
+  #vanta-previa-status { font-size: 11px; color: var(--shs-muted, #6f5e40); }
   #vanta-previa-modal {
-    position: fixed; inset: 0; z-index: 100000;
+    position: fixed; inset: 0; z-index: 2147483100;
     background: rgba(60,37,10,0.35);
     display: flex; align-items: center; justify-content: center;
-    font-family: 'Segoe UI', Arial, sans-serif;
+    font-family: var(--shs-font, Verdana, sans-serif);
   }
   #vanta-previa-card {
     width: min(760px, 92vw); max-height: 82vh;
     display: flex; flex-direction: column;
-    background: #fffdf3; border: 1px solid #cbb384; border-radius: 12px;
+    background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border-strong, #cbb384); border-radius: 12px;
     box-shadow: 0 18px 60px rgba(60,37,10,0.35);
   }
   #vanta-previa-card-header {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    padding: 10px 14px; background: #efe2ba; border-bottom: 1px solid #e0cda0;
+    padding: 10px 14px; background: var(--shs-bg-head, #efe2ba); border-bottom: 1px solid var(--shs-border, #e0cda0);
     border-radius: 12px 12px 0 0;
   }
   #vanta-previa-card-title {
-    font-size: 13px; font-weight: 700; color: #3c250a; overflow-wrap: anywhere;
+    font-size: 13px; font-weight: 700; color: var(--shs-ink-strong, #3c250a); overflow-wrap: anywhere;
   }
   #vanta-previa-card-close {
-    background: none; border: none; color: #6f5e40; font-size: 18px;
+    background: none; border: none; color: var(--shs-muted, #6f5e40); font-size: 18px;
     line-height: 1; cursor: pointer; padding: 0 2px;
   }
-  #vanta-previa-card-close:hover { color: #c04038; }
+  #vanta-previa-card-close:hover { color: var(--shs-danger, #c04038); }
   #vanta-previa-card-body {
     padding: 12px 14px; overflow: auto; flex: 1;
-    font-size: 12px; color: #3c250a;
+    font-size: 12px; color: var(--shs-ink-strong, #3c250a);
   }
   #vanta-previa-card-body img { max-width: 100%; }
   #vanta-previa-card-footer {
     display: flex; align-items: center; gap: 8px;
-    padding: 10px 14px; border-top: 1px solid #e0cda0;
+    padding: 10px 14px; border-top: 1px solid var(--shs-border, #e0cda0);
   }
-  #vanta-previa-note { flex: 1; font-size: 11px; color: #6f5e40; }
+  #vanta-previa-note { flex: 1; font-size: 11px; color: var(--shs-muted, #6f5e40); }
   .vanta-previa-btn {
-    padding: 6px 10px; background: #fbf4de; border: 1px solid #cbb384;
-    border-radius: 8px; color: #5a3a16; font-size: 11px; cursor: pointer; white-space: nowrap;
+    padding: 6px 10px; background: var(--shs-bg-field, #fbf4de); border: 1px solid var(--shs-border-strong, #cbb384);
+    border-radius: 8px; color: var(--shs-ink, #5a3a16); font-size: 11px; cursor: pointer; white-space: nowrap;
   }
-  .vanta-previa-btn:hover { background: #efe2ba; border-color: #834a1a; color: #834a1a; }
-  .vanta-previa-error { font-size: 12px; color: #c04038; }
+  .vanta-previa-btn:hover { background: var(--shs-bg-head, #efe2ba); border-color: var(--shs-action-hover, #834a1a); color: var(--shs-action-hover, #834a1a); }
+  .vanta-previa-error { font-size: 12px; color: var(--shs-danger, #c04038); }
 `;
 
 // ── Wrapper do clique (nível de módulo: precisa ser estável p/ comparação) ──
@@ -370,6 +370,7 @@ let handleMapClick: ((villageId: string, x: number, y: number) => void) | null =
 registerVanta({
   id: 'vanta-previa-aldeia',
   label: 'Prévia de Aldeia',
+  icon: 'target',
   desc: 'Clique na aldeia do mapa abre a prévia de info_village sem sair do mapa',
   group: 'utilidades',
   match: () => params().get('screen') === 'map',
@@ -403,7 +404,7 @@ registerVanta({
     widget.innerHTML = `
         <div id="vanta-previa-header">
             <span id="vanta-previa-title">Prévia de Aldeia</span>
-            <button id="vanta-previa-close" title="Fechar">×</button>
+            <button type="button" id="vanta-previa-close" title="Fechar">×</button>
         </div>
         <div id="vanta-previa-body">
             <label id="vanta-previa-toggle-row">
@@ -462,13 +463,13 @@ registerVanta({
           <div id="vanta-previa-card">
               <div id="vanta-previa-card-header">
                   <span id="vanta-previa-card-title"></span>
-                  <button id="vanta-previa-card-close" title="Fechar">×</button>
+                  <button type="button" id="vanta-previa-card-close" title="Fechar">×</button>
               </div>
               <div id="vanta-previa-card-body"></div>
               <div id="vanta-previa-card-footer">
                   <span id="vanta-previa-note"></span>
-                  <button class="vanta-previa-btn" id="vanta-previa-open">Abrir de verdade</button>
-                  <button class="vanta-previa-btn" id="vanta-previa-cancel">Fechar</button>
+                  <button type="button" class="vanta-previa-btn" id="vanta-previa-open">Abrir de verdade</button>
+                  <button type="button" class="vanta-previa-btn" id="vanta-previa-cancel">Fechar</button>
               </div>
           </div>
       `;

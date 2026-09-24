@@ -26,8 +26,13 @@ export type ViewerSort = 'partida_asc' | 'partida_desc' | 'chegada_asc' | 'chega
 
 export const VIEWER_KINDS = Object.freeze(['attack', 'support', 'noble', 'fake', 'cancel'] as const);
 
-/** Janela padrão do conflito de partidas da mesma origem. */
-export const VIEWER_CONFLICT_WINDOW_MS = 300;
+/**
+ * Espaço mínimo entre partidas da MESMA origem. Cada comando cravado abre a
+ * própria confirmação na aba daquela aldeia (pré-arme → carregar → clique):
+ * com menos de ~5 s o segundo perde a janela. Era 300 ms — valor que só o
+ * trem NATIVO do jogo (1 clique) consegue cumprir.
+ */
+export const VIEWER_CONFLICT_WINDOW_MS = 5_000;
 
 /** Versão do envelope de exportação (o import recusa qualquer outra). */
 export const VIEWER_SET_VERSION = 1;

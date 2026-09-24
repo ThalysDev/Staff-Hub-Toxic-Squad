@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { UnitType } from '../../../ext/modules/shared/module-types';
-import { DEFAULT_SETTINGS, applyUnitReserves, decideCollectionLot } from './collection';
+import { DEFAULT_SETTINGS, applyUnitReserves, collectionAutomation, decideCollectionLot } from './collection';
 
 const AVAILABLE: Partial<Record<UnitType, number>> = { spear: 300, sword: 150, axe: 80, spy: 5 };
 
@@ -72,8 +72,10 @@ describe('decisão do lote da Coleta (modo "fixo")', () => {
 });
 
 describe('settings da Coleta', () => {
-  it('default é modo fixo (compatibilidade: não muda o comportamento atual)', () => {
-    expect(DEFAULT_SETTINGS.lotMode).toBe('fixo');
+  it('v3.6.0: padrão é Equilibrada em segundo plano (todas as aldeias, sem tela)', () => {
+    expect(DEFAULT_SETTINGS.lotMode).toBe('equilibrada');
+    expect(DEFAULT_SETTINGS.execMode).toBe('fundo');
+    expect(collectionAutomation.screen).toBeNull();
   });
 });
 

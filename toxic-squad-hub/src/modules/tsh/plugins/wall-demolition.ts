@@ -19,6 +19,7 @@
 import { z } from 'zod';
 import { registerTsh } from '../tsh-runtime';
 import { isUncertainMutationError, submitCommand2Step } from '../tsh-transport';
+import { automationReserveBlock } from '../tsh-reserva';
 import { coordinateLinesNote, parseCoordinateLines, serverNowIso } from './op-generator';
 
 /** Modos do plugin: prévia (default — nada muda) e execução real. */
@@ -429,8 +430,12 @@ registerTsh({
       };
     } else {
       const decision = selectWallDemolitionExecution(settings, targets, troops.ram, ledger);
+      let reservaMuro: string | null = null;
       if (decision.kind === 'SKIP') {
         execution = { outcome: 'PULADO', reason: decision.reason };
+      } else if ((reservaMuro = automationReserveBlock(ctx.world, ctx.villageId, { ram: decision.execution.ram })) !== null) {
+        // v3.5.0: aríetes reservados para um comando agendado desta aldeia.
+        execution = { outcome: 'PULADO', reason: reservaMuro };
       } else {
         const wave = decision.execution;
         const nowMs = serverNowMs();

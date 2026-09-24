@@ -7,6 +7,9 @@
 import { pageWindow } from '../../core/page';
 import { csrfToken, enqueue, pacedGet } from '../../core/net';
 
+/** Teto de espera de um POST ajax (a fila normal não pode ficar pendurada). */
+const POST_TIMEOUT_MS = 20_000;
+
 export { pacedGet };
 
 /** game_data da página (id de aldeia, csrf etc.). */
@@ -48,16 +51,32 @@ export interface VantaPostResult {
 export async function vantaPostJson(path: string, body: Record<string, string>): Promise<VantaPostResult> {
   const params = new URLSearchParams(body);
   return enqueue(async () => {
-    const response = await fetch(path, {
+    // Timeout (Onda 1): um POST pendurado travava a fila normal inteira até
+    // recarregar a página. Mutação NÃO é repetida — abortada = incerta.
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), POST_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(path, {
       method: 'POST',
       credentials: 'same-origin',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         'TribalWars-Ajax': '1',
         'X-Requested-With': 'XMLHttpRequest',
       },
       body: params.toString(),
-    });
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.warn(`[toxic-squad-hub] POST sem resposta: ${path}`);
+        throw new Error(`O jogo não respondeu em ${POST_TIMEOUT_MS / 1000} s. Confira no jogo se a ação foi feita antes de tentar de novo.`);
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timer);
+    }
     if (!response.ok) throw new Error(`HTTP ${response.status} em ${path}`);
     const json = (await response.json()) as Record<string, unknown>;
     const resp = json.response as Record<string, unknown> | undefined;

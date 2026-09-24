@@ -28,8 +28,30 @@
 import { z } from 'zod';
 import { registerTsh, type TshAutomation, type TshCycleContext } from '../tsh-runtime';
 import type { SettingsField } from '../tsh-settings';
-import { upgradeBuilding } from '../tsh-transport';
+import { upgradeBuildingApi } from '../tsh-transport';
+import { pacedGet } from '../../../core/net';
+import { gm } from '../../../core/storage';
+import { backgroundSleep, serverNowMs } from '../../../core/game-clock';
+import { jittered } from '../farm/farm-plan';
+import {
+  BUILDINGS,
+  parseBuildingInfo,
+  parseBuildingsOverview,
+  parseMainScreen,
+  parseProdOverview,
+  planVillageBuild,
+  type BuildingId,
+  type BuildingInfo,
+  type BuildPlanOptions,
+  type BuildTarget,
+  type ProdVillage,
+  refusalKey,
+} from './builder-mass';
 import { awaitRoutineMutation } from '../tsh-humanize';
+import { getGroupVillages } from '../tsh-groups';
+import { pageWindow } from '../../../core/page';
+import { modelForVillage, modelTargets, readModels, readRules } from './builder-models';
+import { buildBuilderPanel } from './builder-panel';
 import {
   decodeGcTemplate,
   GcTemplateCodecError,
@@ -95,6 +117,7 @@ const BUILDING_WHITELIST: ReadonlySet<string> = new Set([
   'barracks',
   'stable',
   'garage',
+  'watchtower',
   'snob',
   'smith',
   'place',
@@ -109,6 +132,21 @@ const BUILDING_WHITELIST: ReadonlySet<string> = new Set([
   'wall',
 ]);
 const WHITELIST_LABEL = [...BUILDING_WHITELIST].join(', ');
+
+/** Nomes em português (sem acento) → código do jogo. */
+const PT_ALIASES: Readonly<Record<string, string>> = {
+  'edificio principal': 'main', 'ed principal': 'main', 'ed. principal': 'main', principal: 'main',
+  quartel: 'barracks', estabulo: 'stable', oficina: 'garage', 'torre de vigia': 'watchtower', torre: 'watchtower',
+  academia: 'snob', ferreiro: 'smith', praca: 'place', 'praca de reuniao': 'place', estatua: 'statue', mercado: 'market',
+  bosque: 'wood', madeira: 'wood', 'poco de argila': 'stone', argila: 'stone', 'mina de ferro': 'iron', ferro: 'iron',
+  fazenda: 'farm', armazem: 'storage', esconderijo: 'hide', muralha: 'wall',
+};
+
+/** Aceita o código do jogo ou o nome em português (com ou sem acento). */
+function buildingKey(raw: string): string {
+  const k = raw.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+  return PT_ALIASES[k] ?? k;
+}
 
 /**
  * Nível-alvo de linha SEM nível explícito ("main") = até o máximo do
@@ -134,12 +172,12 @@ export function parsePrioritiesText(
     const line = rawLine.trim();
     if (line === '') continue;
     const parts = line.split(':');
-    const building = (parts[0] ?? '').trim().toLowerCase();
+    const building = buildingKey(parts[0] ?? '');
     const levelPart = parts[1];
     if (parts.length > 2 || building === '' || !BUILDING_WHITELIST.has(building)) {
       return {
         ok: false,
-        reason: `linha ${index + 1} ("${line}") não é um edifício aceito — use um por linha: ${WHITELIST_LABEL}.`,
+        reason: `linha ${index + 1} ("${line}") não é um edifício conhecido — use o nome (fazenda, quartel, bosque…) ou o código do jogo (${WHITELIST_LABEL}).`,
       };
     }
     let targetLevel = PRIORITY_UNTIL_MAX_LEVEL;
@@ -148,7 +186,7 @@ export function parsePrioritiesText(
       if (!Number.isInteger(parsedLevel) || parsedLevel <= 0) {
         return {
           ok: false,
-          reason: `linha ${index + 1} ("${line}") tem nível inválido — use um inteiro positivo (ex.: main:20).`,
+          reason: `linha ${index + 1} ("${line}") tem nível inválido — use um número inteiro (ex.: fazenda:20).`,
         };
       }
       targetLevel = parsedLevel;
@@ -173,6 +211,34 @@ const builderSettings = z
     comparePp: z.boolean().default(false),
     /** Fator fixo de conversão recurso → PP da estimativa (Onda 5b). */
     ppFactor: z.number().min(0).max(1000).default(30),
+    /** v3.9.0: 'fundo' = todas as aldeias pelas visões do jogo; 'tela' = só com o Edifício principal aberto. */
+    execMode: z.enum(['fundo', 'tela']).default('fundo'),
+    /** Quantos itens deixar na fila do jogo (1–5). */
+    maxQueue: z.number().int().min(1).max(5).default(2),
+    /** Armazém primeiro quando o próximo custo não cabe nele. */
+    storageGuard: z.boolean().default(true),
+    /** true = espera o 1º pendente caber; false = pula para o próximo que cabe. */
+    strictOrder: z.boolean().default(true),
+    /** Ampliações por ciclo no segundo plano (com pausa humana entre elas). */
+    perCycle: z.number().int().min(1).max(20).default(5),
+    /** Armazém primeiro quando algum recurso passa deste % do armazém (0 = desliga). */
+    storageFullPct: z.number().int().min(0).max(100).default(0),
+    /**
+     * −20% do jogo: CUSTA PONTOS PREMIUM (data-cost="30" no botão, BR142
+     * 24/09/2026). Desligado nesta versão — volta com o Redutor (limite de PP
+     * + confirmação). O valor salvo é ignorado.
+     */
+    useCheap: z.boolean().default(false),
+    /** Fila do jogo por quantidade de itens ou por horas de construção. */
+    queueMode: z.enum(['itens', 'horas']).default('itens'),
+    /** Modo horas: manter pelo menos isto de construção na fila (h). */
+    queueHours: z.number().min(0.5).max(72).default(5),
+    /** v3.9.0: modelos (filas com nome) — lidos com tolerância por readModels. */
+    models: z.array(z.unknown()).default([]),
+    /** Regras por grupo/coordenada → modelo. */
+    rules: z.array(z.unknown()).default([]),
+    /** Modelo das aldeias sem regra ('' = elas não constroem). */
+    defaultModel: z.string().default(''),
   })
   .superRefine((settings, context) => {
     if (settings.gcTemplateImport.trim() === '') return;
@@ -193,15 +259,37 @@ export const DEFAULT_SETTINGS: BuilderSettings = {
   collectQuests: false,
   comparePp: false,
   ppFactor: 30,
+  execMode: 'fundo',
+  maxQueue: 2,
+  storageGuard: true,
+  strictOrder: true,
+  perCycle: 5,
+  storageFullPct: 0,
+  useCheap: false,
+  queueMode: 'itens',
+  queueHours: 5,
+  models: [],
+  rules: [],
+  defaultModel: '',
 };
 
 const SETTINGS_FORM: SettingsField[] = [
   {
+    key: 'execMode',
+    label: 'Onde roda',
+    type: 'select',
+    options: [
+      { value: 'fundo', label: 'Segundo plano — todas as aldeias' },
+      { value: 'tela', label: 'Só na tela do Edifício principal (a aldeia aberta)' },
+    ],
+    help: 'Segundo plano: lê as Visões de Edifícios e de Produção e amplia em todas as aldeias, em qualquer tela, com pausa humana entre os pedidos. Só na tela: age só na aldeia aberta. Quem usava a versão antiga segue em "Só na tela" até escolher aqui.',
+  },
+  {
     key: 'prioritiesText',
-    label: 'Fila de construção (texto)',
+    label: 'Fila de construção (um edifício por linha)',
     type: 'textarea',
-    placeholder: 'main:20\nbarracks\nstable:15',
-    help: 'Um edifício por linha, na ordem de prioridade; opcionalmente "edifício:nível" (ex.: main:20). Linha sem nível = amplia até o máximo do edifício. Preenchido e válido, vale MAIS que o template GC. Linha inválida: nada é feito e as prioridades salvas continuam valendo.',
+    placeholder: 'fazenda:20\nquartel:10\nbosque\narmazém:25',
+    help: 'Na ordem em que devem subir. Pode escrever em português ou com o código do jogo: Ed. principal = main, Quartel = barracks, Estábulo = stable, Oficina = garage, Ferreiro = smith, Mercado = market, Bosque = wood, Poço de argila = stone, Mina de ferro = iron, Fazenda = farm, Armazém = storage, Esconderijo = hide, Muralha = wall. Para parar num nível: "fazenda:20"; sem nível = até o máximo.',
   },
   {
     key: 'gcTemplateImport',
@@ -211,35 +299,88 @@ const SETTINGS_FORM: SettingsField[] = [
     help: 'Se preenchido (e a fila em texto acima estiver vazia/inválida), o template define a fila de construção na ordem (igrejas são rejeitadas e o limiar de fazenda vem do próprio template).',
   },
   {
-    key: 'viewMode',
-    label: 'Visão do relatório',
+    key: 'maxQueue',
+    label: 'Itens na fila do jogo',
+    type: 'number',
+    min: 1,
+    max: 5,
+    step: 1,
+    help: 'O script completa a fila do jogo até este número. Com Conta Premium o jogo aceita até 5; sem Premium, 2. Acima do seu limite o jogo recusa.',
+  },
+  {
+    key: 'queueMode',
+    label: 'Fila do jogo por',
     type: 'select',
     options: [
-      { value: 'fila', label: 'Fila (ordem de prioridade)' },
-      { value: 'horas', label: 'Horas (tempo estimado com o farm atual)' },
+      { value: 'itens', label: 'Itens (quantos na fila)' },
+      { value: 'horas', label: 'Horas (quanto tempo de construção na fila)' },
     ],
-    help: 'A visão Horas ordena a fila pendente pelo tempo estimado até os recursos caberem, usando a produção por hora lida da página; itens sem custo/produção legível saem como "sem estimativa".',
+    help: 'Itens: completa a fila até o número abaixo. Horas: completa enquanto a fila cobre menos que as horas pedidas (sem passar do número de itens).',
+  },
+  {
+    key: 'queueHours',
+    label: 'Horas de construção na fila (modo Horas)',
+    type: 'number',
+    min: 0.5,
+    max: 72,
+    step: 0.5,
+    help: 'Ex.: 5 = mantém pelo menos 5 horas de construção enfileiradas em cada aldeia.',
+  },
+  {
+    key: 'farmPriorityThreshold',
+    label: 'Fazenda primeiro abaixo de (% livre)',
+    type: 'number',
+    min: 0,
+    max: 100,
+    step: 1,
+    help: 'Quando a população livre da aldeia cai abaixo disso, a fazenda sobe antes da fila. 0 = desliga. Sugestão: 10.',
+  },
+  {
+    key: 'storageFullPct',
+    label: 'Armazém primeiro acima de (% cheio)',
+    type: 'number',
+    min: 0,
+    max: 100,
+    step: 5,
+    help: 'Quando algum recurso passa desse % do armazém, o armazém sobe antes da fila (para não perder produção). 0 = desliga. Sugestão: 90.',
+  },
+  {
+    key: 'storageGuard',
+    label: 'Armazém primeiro quando ele é pequeno demais',
+    type: 'boolean',
+    help: 'Se o próximo edifício custa mais do que o armazém comporta, amplia o armazém antes.',
+  },
+  {
+    key: 'strictOrder',
+    label: 'Seguir a ordem à risca',
+    type: 'boolean',
+    help: 'Ligado: espera o próximo da fila caber nos recursos. Desligado: pula para o próximo que já cabe.',
+  },
+  {
+    key: 'reserve',
+    label: 'Deixar em casa (recursos)',
+    type: 'record',
+    help: 'Recursos que o construtor nunca usa (ex.: para recrutar). 0 = pode usar tudo.',
+    recordKeys: [
+      { key: 'wood', label: 'Madeira', min: 0, step: 1000 },
+      { key: 'stone', label: 'Argila', min: 0, step: 1000 },
+      { key: 'iron', label: 'Ferro', min: 0, step: 1000 },
+    ],
+  },
+  {
+    key: 'perCycle',
+    label: 'Ampliações por ciclo (segundo plano)',
+    type: 'number',
+    min: 1,
+    max: 20,
+    step: 1,
+    help: 'Quantas aldeias recebem uma ampliação em cada ciclo (até 20), com pausa humana entre elas. Sobrou? O próximo ciclo vem em 1 minuto.',
   },
   {
     key: 'collectQuests',
-    label: 'Coletar recompensas de quest',
+    label: 'Coletar recompensas de quest (modo "Só na tela")',
     type: 'boolean',
-    help: 'Ligado, clica o botão canônico "Receber recompensa" quando ele está visível na tela principal (rótulo exato e um único candidato — sem dúvida, nada é clicado). A armação do módulo é a confirmação; o clique consome o ciclo (1 mutação).',
-  },
-  {
-    key: 'comparePp',
-    label: 'Mostrar custo em PP na prévia',
-    type: 'boolean',
-    help: 'Acrescenta ao relatório o custo estimado em Pontos Premium de cada item pendente (custo total / 1000 × fator).',
-  },
-  {
-    key: 'ppFactor',
-    label: 'Fator de conversão para PP',
-    type: 'number',
-    min: 0,
-    max: 1000,
-    step: 1,
-    help: 'Fator fixo usado na estimativa de PP (padrão 30). Vale só quando "Mostrar custo em PP" está ligado.',
+    help: 'Quando o botão "Receber recompensa" aparece no Edifício principal, o script clica nele. Nesse ciclo ele não amplia nada.',
   },
 ];
 
@@ -252,22 +393,7 @@ function parseGameInteger(value: string | null | undefined): number {
   return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
 }
 
-function readResources(doc: Document): Record<ResourceType, number> {
-  const read = (resource: ResourceType): number => {
-    const element = doc.querySelector(`#${resource}, [data-resource="${resource}"], .resource-${resource}`);
-    const text =
-      element instanceof HTMLInputElement || element instanceof HTMLSelectElement
-        ? element.value
-        : element?.textContent;
-    return parseGameInteger(text);
-  };
-  return { wood: read('wood'), stone: read('stone'), iron: read('iron') };
-}
 
-/** Fila de construção ativa (porta do readBuildQueue: #build_queue presente). */
-function hasActiveBuildQueue(doc: Document): boolean {
-  return doc.querySelector('#build_queue') !== null;
-}
 
 // ── Visão Horas / comparação em PP (Onda 5b — puro e testável) ──────────────
 
@@ -460,142 +586,374 @@ export function findQuestRewardButton(doc: Document): HTMLElement | null {
   return button;
 }
 
-/**
- * Níveis dos edifícios da tela principal: caminho primário [data-building]
- * (porta do readBuildings da extensão) com fallback para os links canônicos
- * de ampliação (a chave do edifício viaja no parâmetro id=/type= do href —
- * mesmos seletores do transporte) + "Nível N" do texto da linha.
- */
-function readMainBuildings(doc: Document): Map<string, number> {
-  const levels = new Map<string, number>();
-  for (const row of Array.from(doc.querySelectorAll<HTMLElement>('[data-building]'))) {
-    const building = row.getAttribute('data-building');
-    if (building === null || building === '') continue;
-    const level = parseGameInteger(
-      row.getAttribute('data-level') ??
-        row.querySelector('[data-level]')?.getAttribute('data-level') ??
-        row.textContent ??
-        '',
-    );
-    if (level > 0) levels.set(building, level);
-  }
-  if (levels.size > 0) return levels;
-  for (const link of Array.from(
-    doc.querySelectorAll<HTMLAnchorElement>('a[href*="screen=main"][href*="action=upgrade_building"]'),
-  )) {
-    const href = new URL(link.href, doc.baseURI);
-    const building = href.searchParams.get('id') ?? href.searchParams.get('type') ?? '';
-    if (building === '' || levels.has(building)) continue;
-    const levelText = link.closest('tr')?.textContent ?? '';
-    const match = levelText.match(/n[íi]vel\s+(\d{1,3})/i);
-    levels.set(building, match !== null ? Number(match[1]) : 0);
-  }
-  return levels;
+
+/** Quem já usava e ainda não tem execMode gravado (a tela não pode pré-marcar "Segundo plano"). */
+function legacyWithoutMode(world: string): boolean {
+  const raw = gm.get<Record<string, unknown> | null>(`tsh-auto:${world}:mega-builder:settings`, null);
+  return raw !== null && typeof raw === 'object' && Object.keys(raw).length > 0 && raw.execMode !== 'fundo' && raw.execMode !== 'tela';
 }
 
-async function runCycle(ctx: TshCycleContext): Promise<void> {
-  const parsed = builderSettings.safeParse(ctx.storage.get('settings', DEFAULT_SETTINGS));
-  if (!parsed.success) {
-    ctx.status('Configurações do Mega Construtor inválidas — nada foi feito. Revise prioridades/template GC.', 'warn');
-    return;
+/** Modo salvo: quem já usava (settings sem execMode) fica gravado em 'tela'. */
+function savedBuilderMode(world: string): { mode: 'fundo' | 'tela' | null; legacy: boolean } {
+  const key = `tsh-auto:${world}:mega-builder:settings`;
+  const raw = gm.get<Record<string, unknown> | null>(key, null);
+  if (raw === null || typeof raw !== 'object' || Object.keys(raw).length === 0) return { mode: null, legacy: false };
+  if (raw.execMode === 'fundo' || raw.execMode === 'tela') {
+    const since = typeof raw.legacyTela === 'number' ? raw.legacyTela : 0;
+    return { mode: raw.execMode, legacy: raw.execMode === 'tela' && Date.now() - since < 7 * 24 * 60 * 60_000 };
   }
-  const settings: BuilderSettings = parsed.data;
+  gm.set(key, { ...raw, execMode: 'tela', legacyTela: Date.now() });
+  return { mode: 'tela', legacy: true };
+}
 
-  // Coletar quests (Onda 5b): a recompensa visível é coletada ANTES de tudo e
-  // consome o F2 do ciclo. Botão inequívoco (rótulo exato + 1 candidato) e
-  // humanização de rotina respeitada; sem candidato, segue o fluxo normal.
-  if (settings.collectQuests) {
-    const reward = findQuestRewardButton(document);
-    if (reward !== null) {
-      const liberado = await awaitRoutineMutation('construcao');
-      if (!liberado) {
-        ctx.status('Pausa de humanização ativa — a recompensa de quest foi pulada neste ciclo.', 'info');
-        return;
-      }
-      reward.click();
-      ctx.status('Recompensa de quest coletada (1 clique por ciclo; a próxima ampliação fica para o ciclo seguinte).', 'ok');
-      return;
-    }
-  }
-
-  if (hasActiveBuildQueue(document)) {
-    ctx.status('Já existe uma construção em andamento nesta aldeia.', 'info');
-    return;
-  }
+/** Fila-alvo (texto > template GC > prioridades salvas). null = já avisou e parou. */
+function resolveTargets(
+  ctx: TshCycleContext,
+  settings: BuilderSettings,
+): { targets: BuildTarget[]; templateName?: string; farmThreshold?: number } | null {
   let priorities = settings.priorities;
   let templateName: string | undefined;
-  // Fila em texto (Onda 16): preenchida e VÁLIDA, tem prioridade sobre o
-  // template GC. Linha inválida = fail-closed: status warn e as priorities
-  // anteriores seguem valendo (o ciclo não cai para o template nem muta).
+  let farmThreshold: number | undefined;
   if (settings.prioritiesText.trim() !== '') {
     const parsedText = parsePrioritiesText(settings.prioritiesText);
     if (!parsedText.ok) {
-      ctx.status(`Fila em texto inválida — nada foi feito e as prioridades salvas seguem valendo (${parsedText.reason}).`, 'warn');
-      return;
+      ctx.status(`Fila em texto inválida — nada foi feito (${parsedText.reason}).`, 'warn');
+      return null;
     }
     priorities = parsedText.priorities;
   } else if (settings.gcTemplateImport.trim() !== '') {
     const imported = decodeBuilderImport(settings.gcTemplateImport);
     if (!imported.ok) {
       ctx.status(imported.reason, 'warn');
-      return;
+      return null;
     }
     priorities = imported.steps.map((step) => ({ building: step.buildingId, targetLevel: step.targetLevel }));
     templateName = imported.name;
+    const t = (imported as { threshold?: unknown }).threshold;
+    if (typeof t === 'number' && Number.isFinite(t)) farmThreshold = t;
   }
-  if (priorities.length === 0) {
-    ctx.status('Nenhuma fila de construção configurada (texto, settings.priorities ou template GC).', 'info');
+  const targets = priorities
+    .filter((p) => (BUILDINGS as readonly string[]).includes(p.building))
+    .map((p) => ({ building: p.building as BuildingId, level: p.targetLevel }));
+  return { targets, ...(templateName !== undefined ? { templateName } : {}), ...(farmThreshold !== undefined ? { farmThreshold } : {}) };
+}
+
+/**
+ * Fila de CADA aldeia (v3.9.0). Com modelos salvos: regra de coordenada >
+ * grupo > modelo padrão (sem nenhum = a aldeia não constrói). Sem modelos: a
+ * fila em texto/template GC de antes vale para todas.
+ */
+export interface VillageTargets {
+  forVillage(v: { id: string; x?: number; y?: number }): { targets: BuildTarget[]; model?: string } | null;
+  templateName?: string;
+  farmThreshold?: number;
+  notes: string[];
+}
+
+async function villageTargets(ctx: TshCycleContext, settings: BuilderSettings): Promise<VillageTargets | null> {
+  const models = readModels(settings.models);
+  if (models.length === 0) {
+    const resolved = resolveTargets(ctx, settings);
+    if (resolved === null) return null;
+    if (resolved.targets.length === 0) {
+      ctx.status('Nenhuma fila de construção configurada — abra Configurar e monte um modelo (ou comece por um pronto).', 'info');
+      return null;
+    }
+    return {
+      forVillage: () => ({ targets: resolved.targets }),
+      ...(resolved.templateName !== undefined ? { templateName: resolved.templateName } : {}),
+      ...(resolved.farmThreshold !== undefined ? { farmThreshold: resolved.farmThreshold } : {}),
+      notes: [],
+    };
+  }
+  const rules = readRules(settings.rules).filter((r) => models.some((m) => m.id === r.modelId));
+  const defaultModel = models.some((m) => m.id === settings.defaultModel) ? settings.defaultModel : '';
+  if (rules.length === 0 && defaultModel === '') {
+    ctx.status('Nenhuma aldeia tem modelo: em Configurar → Aldeias, escolha o modelo padrão ou ligue um modelo a um grupo/coordenada.', 'info');
+    return null;
+  }
+  const notes: string[] = [];
+  const groups = new Map<number, Set<string>>();
+  for (const r of rules) {
+    if (r.kind !== 'grupo' || groups.has(r.groupId)) continue;
+    const vs = await getGroupVillages(r.groupId);
+    if (vs.length === 0) {
+      // Fail-closed: sem saber quem é do grupo, as aldeias dele cairiam no modelo padrão.
+      ctx.status(`Não consegui ler as aldeias do grupo "${r.groupName || r.groupId}" (grupo vazio, apagado ou leitura falhou) — nada foi construído. Confira a regra em Configurar → Aldeias.`, 'warn');
+      return null;
+    }
+    groups.set(r.groupId, new Set(vs.map((v) => String(v.villageId))));
+  }
+  const byId = new Map(models.map((m) => [m.id, m]));
+  return {
+    forVillage: (v) => {
+      const id = modelForVillage(v, rules, groups, defaultModel);
+      const m = id === null ? undefined : byId.get(id);
+      return m === undefined ? null : { targets: modelTargets(m), model: m.name };
+    },
+    notes,
+  };
+}
+
+/**
+ * Filas por aldeia para OUTROS módulos (v3.11.0 — o Balanceador no foco
+ * "Construção"): mesmas regras do ciclo, sem status. null = Construtor sem fila.
+ */
+export async function builderTargetsForWorld(world: string, villageId: string): Promise<VillageTargets | null> {
+  const raw = gm.get<Record<string, unknown> | null>(`tsh-auto:${world}:mega-builder:settings`, null) ?? {};
+  const parsed = builderSettings.safeParse({ ...DEFAULT_SETTINGS, ...raw });
+  if (!parsed.success) return null;
+  const shim = { world, villageId, storage: { get: <T,>(_k: string, d: T): T => d, set: () => undefined }, status: () => undefined } as unknown as TshCycleContext;
+  return villageTargets(shim, parsed.data);
+}
+
+/** Custos-base do mundo (get_building_info), lidos uma vez por sessão. */
+let buildingInfoCache: Partial<Record<BuildingId, BuildingInfo>> | null = null;
+export async function buildingInfo(): Promise<Partial<Record<BuildingId, BuildingInfo>> | null> {
+  if (buildingInfoCache === null) buildingInfoCache = parseBuildingInfo(await pacedGet('/interface.php?func=get_building_info'));
+  return buildingInfoCache;
+}
+
+const BUILDING_LABEL: Record<BuildingId, string> = {
+  main: 'Ed. principal', barracks: 'Quartel', stable: 'Estábulo', garage: 'Oficina', watchtower: 'Torre de vigia', snob: 'Academia',
+  smith: 'Ferreiro', place: 'Praça', statue: 'Estátua', market: 'Mercado', wood: 'Bosque', stone: 'Poço de argila', iron: 'Mina de ferro',
+  farm: 'Fazenda', storage: 'Armazém', hide: 'Esconderijo', wall: 'Muralha',
+};
+
+function planOptions(settings: BuilderSettings, templateFarm?: number): BuildPlanOptions {
+  const r = settings.reserve ?? {};
+  return {
+    maxQueue: settings.maxQueue,
+    keep: { wood: r.wood ?? 0, stone: r.stone ?? 0, iron: r.iron ?? 0 },
+    farmFreePct: settings.farmPriorityThreshold > 0 ? settings.farmPriorityThreshold : (templateFarm ?? 0),
+    storageGuard: settings.storageGuard,
+    strictOrder: settings.strictOrder,
+    storageFullPct: settings.storageFullPct,
+    cheap: false,
+    ...(settings.queueMode === 'horas' ? { queueHours: settings.queueHours, nowMs: serverNowMs() } : {}),
+  };
+}
+
+/** Segundo plano: uma página de aldeias por ciclo, até N ampliações com pausa humana. */
+async function runBackground(ctx: TshCycleContext, settings: BuilderSettings): Promise<void> {
+  const resolved = await villageTargets(ctx, settings);
+  if (resolved === null) return;
+  const info = await buildingInfo();
+  if (info === null) {
+    ctx.status('Não consegui ler os custos dos edifícios deste mundo — nada foi construído.', 'warn');
     return;
   }
-  const buildings = readMainBuildings(document);
-  const pending = priorities.filter((candidate) => (buildings.get(candidate.building) ?? 0) < candidate.targetLevel);
-  if (pending.length === 0) {
-    ctx.status('Nenhuma prioridade de construção está pendente.', 'info');
+  const pageNo = ctx.storage.get<number>('massPage', 0);
+  const bldHtml = await pacedGet(`/game.php?village=${ctx.villageId}&screen=overview_villages&mode=buildings&page=${pageNo}`, { fresh: true });
+  const parsedBld = parseBuildingsOverview(bldHtml, serverNowMs());
+  // Página que repete a anterior (conta com múltiplo exato de 1000 aldeias):
+  // o jogo devolveu a última de novo — volta ao começo em vez de avançar sem fim.
+  const firstId = parsedBld?.villages[0]?.id ?? '';
+  const repeated = pageNo > 0 && firstId !== '' && firstId === ctx.storage.get<string>('massFirst', '');
+  ctx.storage.set('massFirst', firstId);
+  if (repeated) {
+    ctx.storage.set('massPage', 0);
+    ctx.status('Todas as aldeias revisadas — recomeço pela primeira página em 1 min.', 'info');
+    ctx.again?.(60_000);
     return;
   }
-  // Relatório de prévia (Onda 5b): visão Horas ordena por tempo estimado com o
-  // farm atual; comparePp acrescenta o custo estimado em PP. Só monta o
-  // relatório quando o usuário pediu (default = comportamento de sempre).
-  const resources = readResources(document); // 1 leitura da barra (não 1 por recurso)
-  const report =
-    settings.viewMode === 'horas' || settings.comparePp
-      ? buildBuilderQueueReport({
-          pending,
-          resources,
-          production: readProductionPerHour(document),
-          costs: readBuildingCosts(document),
-          viewMode: settings.viewMode,
-          comparePp: settings.comparePp,
-          ppFactor: settings.ppFactor,
-        })
-      : '';
-  const priority = pending[0];
-  if (priority === undefined) return;
-  const reserve = settings.reserve ?? {};
-  const withinReserve = RESOURCES.every((resource) => resources[resource] >= (reserve[resource] ?? 0));
-  if (!withinReserve) {
-    ctx.status(`Os recursos estão abaixo das reservas configuradas.${report !== '' ? ` ${report}` : ''}`, 'info');
+  const bld = parsedBld;
+  // A Produção NÃO vem na mesma ordem da Visão de Edifícios (verificado no
+  // BR142): lê todas as páginas dela e cruza por id da aldeia.
+  let prod: ProdVillage[] | null = [];
+  for (let p = 0; p < 20 && prod !== null; p++) {
+    const page = parseProdOverview(await pacedGet(`/game.php?village=${ctx.villageId}&screen=overview_villages&mode=prod&page=${p}`, { fresh: true }));
+    if (page === null) prod = null;
+    else {
+      const before = prod.length;
+      prod.push(...page.filter((v) => !prod?.some((x) => x.id === v.id)));
+      if (page.length < 1000 || prod.length === before) break;
+    }
+  }
+  if (bld === null || prod === null) {
+    if (pageNo > 0) ctx.storage.set('massPage', 0);
+    ctx.status('Não consegui ler as Visões de Edifícios e de Produção — elas exigem Conta Premium. Nada foi construído. Sem Premium, troque para "Só na tela" em Configurar.', 'warn');
     return;
   }
-  // F2: UMA mutação por ciclo — ampliação do próximo pendente da fila.
-  await upgradeBuilding(priority.building);
+  const groupId = Number(/"group_id":"?(\d+)"?/.exec(bldHtml)?.[1] ?? 0);
+  const note =
+    (groupId !== 0 ? ' O jogo está mostrando só um grupo de aldeias: o construtor cobre só essas (escolha "todos" no menu de grupos do jogo para todas).' : '') +
+    (resolved.notes.length > 0 ? ` ${resolved.notes.join(' ')}` : '');
+  const prodById = new Map(prod.map((p) => [p.id, p]));
+  const opts = planOptions(settings, resolved.farmThreshold);
+  // Recusa recente do jogo (aldeia+edifício+nível): 30 min sem tentar de novo.
+  const now = Date.now();
+  const refusedUntil = Object.fromEntries(
+    Object.entries(ctx.storage.get<Record<string, number>>('refused', {})).filter(([, until]) => until > now),
+  );
+  const todo: { vid: string; name: string; building: BuildingId; level: number; reason: string }[] = [];
+  let full = 0;
+  let done = 0;
+  let noModel = 0;
+  let blocked = 0;
+  for (const v of bld.villages) {
+    const mine = resolved.forVillage(v);
+    if (mine === null) {
+      noModel += 1;
+      continue;
+    }
+    const d = planVillageBuild(v, prodById.get(v.id), mine.targets, info, opts);
+    if (d.kind === 'construir' && (refusedUntil[refusalKey(v.id, d.building, d.level)] ?? 0) > now) continue;
+    if (d.kind === 'construir') todo.push({ vid: v.id, name: v.name, building: d.building, level: d.level, reason: d.reason });
+    else if (d.reason === 'fila-cheia') full += 1;
+    else if (d.reason === 'concluido' || d.reason === 'maximo') done += 1;
+    else if (d.reason === 'bloqueado') blocked += 1;
+  }
+  const leftover = todo.length > settings.perCycle;
+  const next = leftover ? pageNo : bld.full ? pageNo + 1 : 0;
+  ctx.storage.set('massPage', next);
+  if (todo.length === 0) {
+    const parts = [
+      full > 0 ? `${full} com a fila do jogo cheia` : '',
+      done > 0 ? `${done} com o modelo concluído` : '',
+      blocked > 0 ? `${blocked} esperando pré-requisito ou população (veja os avisos ⚠ no modelo)` : '',
+      noModel > 0 ? `${noModel} sem modelo` : '',
+    ].filter((p) => p !== '');
+    const rest = bld.villages.length - full - done - blocked - noModel;
+    if (rest > 0) parts.push(`${rest} esperando recursos`);
+    ctx.status(`Nada a construir agora: ${parts.join(', ')}.${next !== 0 ? ' Sigo nas próximas aldeias em 1 min.' : ''}${note}`, 'info');
+    if (next !== 0) ctx.again?.(60_000);
+    return;
+  }
+  let sent = 0;
+  const refused: string[] = [];
+  const sentKinds: BuildingId[] = [];
+  for (const item of todo.slice(0, settings.perCycle)) {
+    try {
+      await upgradeBuildingApi(item.vid, item.building);
+      sent += 1;
+      sentKinds.push(item.building);
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (e.code === 'GAME_REFUSED') {
+        refused.push(`${item.name}: ${e.message ?? ''}`);
+        refusedUntil[refusalKey(item.vid, item.building, item.level)] = Date.now() + 30 * 60_000;
+        ctx.storage.set('refused', refusedUntil);
+      } else if (e.code === 'HUMANIZE_PAUSE') {
+        break;
+      } else {
+        ctx.status(`${e.message ?? String(error)} — parei este ciclo (${sent} ampliação(ões) enviadas antes).`, 'warn');
+        return;
+      }
+    }
+    await backgroundSleep(jittered(700, 30));
+  }
+  if (leftover || next !== 0) ctx.again?.(60_000);
+  const byBuilding = new Map<string, number>();
+  for (const b of sentKinds) byBuilding.set(BUILDING_LABEL[b], (byBuilding.get(BUILDING_LABEL[b]) ?? 0) + 1);
+  if (sent === 0 && refused.length === 0) {
+    ctx.status('Pausa de humanização ativa — as ampliações ficam para o próximo ciclo.', 'info');
+    return;
+  }
   ctx.status(
-    `Ampliação enviada: ${priority.building} → nível ${priority.targetLevel}${
-      templateName !== undefined && templateName !== '' ? ` (template "${templateName}")` : ''
-    }.${report !== '' ? ` ${report}` : ''}`,
+    `Construção enviada em ${sent} aldeia(s)${byBuilding.size > 0 ? ` (${[...byBuilding].map(([b, n]) => `${n}× ${b}`).join(', ')})` : ''}.` +
+      (refused.length > 0 ? ` O jogo recusou ${refused.length} (sem tentar de novo por 30 min): ${refused[0] ?? ''}${refused.length > 1 ? ' …' : ''}` : '') +
+      (leftover ? ' Ainda há aldeias para ampliar — continuo em 1 min.' : '') +
+      (resolved.templateName !== undefined ? ` Template "${resolved.templateName}".` : '') +
+      note,
+    refused.length > 0 && sent === 0 ? 'warn' : 'ok',
+  );
+}
+
+/** Só na tela: a aldeia aberta, 1 ampliação por ciclo (e a recompensa de quest). */
+async function runScreen(ctx: TshCycleContext, settings: BuilderSettings, legacy: boolean): Promise<void> {
+  if (new URLSearchParams(window.location.search).get('screen') !== 'main') {
+    ctx.status(
+      legacy
+        ? 'Novo na 3.9: o Construtor pode rodar em TODAS as aldeias sem abrir a tela — escolha "Segundo plano" em Configurar. Por enquanto ele segue só no Edifício principal, como antes.'
+        : 'Modo "Só na tela": abra o Edifício principal para o Construtor agir.',
+      'info',
+    );
+    return;
+  }
+  if (settings.collectQuests) {
+    const reward = findQuestRewardButton(document);
+    if (reward !== null) {
+      if (!(await awaitRoutineMutation('construcao'))) {
+        ctx.status('Pausa de humanização ativa — a recompensa de quest foi pulada neste ciclo.', 'info');
+        return;
+      }
+      reward.click();
+      ctx.status('Cliquei em "Receber recompensa" no Edifício principal (a próxima ampliação fica para o ciclo seguinte).', 'ok');
+      return;
+    }
+  }
+  const resolved = await villageTargets(ctx, settings);
+  if (resolved === null) return;
+  const gv = pageWindow().game_data?.village as { x?: unknown; y?: unknown } | undefined;
+  const here = { id: ctx.villageId, ...(typeof gv?.x === 'number' && typeof gv.y === 'number' ? { x: gv.x, y: gv.y } : {}) };
+  const mine = resolved.forVillage(here);
+  if (mine === null) {
+    ctx.status('Esta aldeia não tem modelo de construção (nenhuma regra de grupo/coordenada e sem modelo padrão).', 'info');
+    return;
+  }
+  const info = await buildingInfo();
+  // Tela FRESCA: o pedido pela API não atualiza a página aberta (níveis/fila antigos).
+  const screen = parseMainScreen(await pacedGet(`/game.php?village=${ctx.villageId}&screen=main`, { fresh: true }), ctx.villageId);
+  if (info === null || screen === null) {
+    ctx.status('Não reconheci o Edifício principal (ou os custos do mundo) — nada foi construído.', 'warn');
+    return;
+  }
+  const d = planVillageBuild(screen.village, screen.prod, mine.targets, info, planOptions(settings, resolved.farmThreshold));
+  if (d.kind === 'esperar') {
+    const why = { 'fila-cheia': settings.queueMode === 'horas' ? `A fila do jogo já cobre ${String(settings.queueHours).replace('.', ',')} h de construção (ou tem ${settings.maxQueue} itens).` : `A fila do jogo já tem ${settings.maxQueue} item(ns).`,
+      bloqueado: 'O próximo passo pede outro edifício antes (ou falta população) — veja os avisos ⚠ no modelo.', concluido: `${mine.model !== undefined ? `Modelo "${mine.model}"` : 'Fila de construção'} concluído nesta aldeia.`, recursos: 'Esperando recursos para o próximo edifício da sua fila.', maximo: 'Os edifícios da fila já estão no nível máximo.' }[d.reason];
+    ctx.status(why, 'info');
+    return;
+  }
+  const key = refusalKey(ctx.villageId, d.building, d.level);
+  const refusedAt = ctx.storage.get<Record<string, number>>('refused', {});
+  if ((refusedAt[key] ?? 0) > Date.now()) {
+    ctx.status(`O jogo recusou ${BUILDING_LABEL[d.building]} → nível ${d.level} há pouco — tento de novo em até 30 min.`, 'info');
+    return;
+  }
+  try {
+    await upgradeBuildingApi(ctx.villageId, d.building);
+  } catch (error) {
+    const e = error as { code?: string; message?: string };
+    if (e.code === 'GAME_REFUSED') {
+      const now = Date.now();
+      const kept = Object.fromEntries(Object.entries(refusedAt).filter(([, until]) => until > now));
+      ctx.storage.set('refused', { ...kept, [key]: now + 30 * 60_000 });
+      ctx.status(`O jogo recusou ${BUILDING_LABEL[d.building]} → nível ${d.level}: ${e.message ?? ''} (sem tentar de novo por 30 min).`, 'warn');
+      return;
+    }
+    throw error;
+  }
+  ctx.status(
+    `Ampliação enviada: ${BUILDING_LABEL[d.building]} → nível ${d.level}${d.reason === 'fazenda' ? ' (fazenda primeiro: pouca população livre)' : d.reason === 'armazem' ? ' (armazém primeiro: pequeno demais para o próximo)' : ''}.`,
     'ok',
   );
+}
+
+async function runCycle(ctx: TshCycleContext): Promise<void> {
+  const parsed = builderSettings.safeParse(ctx.storage.get('settings', DEFAULT_SETTINGS));
+  if (!parsed.success) {
+    ctx.status('Configurações do Construtor inválidas — nada foi feito. Abra Configurar, confira e salve de novo.', 'warn');
+    return;
+  }
+  const saved = savedBuilderMode(ctx.world);
+  const mode = saved.mode ?? parsed.data.execMode;
+  if (mode === 'fundo') await runBackground(ctx, parsed.data);
+  else await runScreen(ctx, parsed.data, saved.legacy);
 }
 
 export const megaBuilderAutomation: TshAutomation = {
   id: 'mega-builder',
   label: 'Mega Construtor',
-  desc: 'Fila de construção por texto, prioridades salvas ou template GC no Edifício Principal: amplia o próximo pendente (1 upgrade por ciclo), com visão Horas e coleta de quests opcionais.',
+  desc: 'Constrói na ordem que você escolher em todas as aldeias (ou só na aldeia aberta), subindo fazenda e armazém antes quando falta espaço.',
   category: 'producao',
-  screen: 'main',
+  screen: null,
   mutating: true,
   settingsForm: SETTINGS_FORM,
   settingsDefaults: DEFAULT_SETTINGS,
+  settingsPanel: (settings, world) =>
+    buildBuilderPanel(settings, { parseText: parsePrioritiesText, decodeGc: decodeBuilderImport }, legacyWithoutMode(world)),
   runCycle,
 };
 

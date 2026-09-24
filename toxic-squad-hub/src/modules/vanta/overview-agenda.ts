@@ -275,36 +275,36 @@ const BAR_STYLES = `
   #${UI_ID} {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
     margin: 0 0 6px; padding: 8px 10px;
-    background: #fffdf3; border: 1px solid #e0cda0; border-radius: 10px;
-    font-family: 'Segoe UI', Arial, sans-serif; font-size: 11.5px; color: #3c250a;
+    background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border, #e0cda0); border-radius: 10px;
+    font-family: var(--shs-font, Verdana, sans-serif); font-size: 11.5px; color: var(--shs-ink-strong, #3c250a);
   }
   #${UI_ID} * { box-sizing: border-box; }
   #vanta-agenda-head { display: flex; align-items: center; gap: 8px; margin-right: auto; }
   #vanta-agenda-title {
     font-size: 10.5px; font-weight: 700; letter-spacing: 1.5px;
-    text-transform: uppercase; color: #3c250a;
+    text-transform: uppercase; color: var(--shs-ink-strong, #3c250a);
   }
-  #vanta-agenda-resumo { color: #6f5e40; }
+  #vanta-agenda-resumo { color: var(--shs-muted, #6f5e40); }
   .vanta-ag-btn {
     padding: 4px 10px; border-radius: 999px; cursor: pointer;
-    border: 1px solid #cbb384; background: #f4ead0; color: #5a3a16;
+    border: 1px solid var(--shs-border-strong, #cbb384); background: var(--shs-bg-inset, #f4ead0); color: var(--shs-ink, #5a3a16);
     font-size: 11px; font-weight: 600; font-family: inherit;
   }
-  .vanta-ag-btn:hover:not(:disabled) { background: #efe2ba; }
+  .vanta-ag-btn:hover:not(:disabled) { background: var(--shs-bg-head, #efe2ba); }
   .vanta-ag-btn:disabled { cursor: default; }
-  .vanta-ag-btn--on { background: #6d3c14; border-color: #6d3c14; color: #fff; }
-  .vanta-ag-btn--primary { background: #3f8f43; border-color: #357a39; color: #fff; }
-  .vanta-ag-btn--primary:hover:not(:disabled) { background: #357a39; }
-  .vanta-ag-btn--ok { background: #3f8f43; border-color: #357a39; color: #fff; }
-  .vanta-ag-btn--err { background: #fceaea; border-color: #c04038; color: #c04038; }
+  .vanta-ag-btn--on { background: var(--shs-action, #6d3c14); border-color: var(--shs-action, #6d3c14); color: #fff; }
+  .vanta-ag-btn--primary { background: var(--shs-ok, #3f8f43); border-color: var(--shs-ok-hover, #357a39); color: #fff; }
+  .vanta-ag-btn--primary:hover:not(:disabled) { background: var(--shs-ok-hover, #357a39); }
+  .vanta-ag-btn--ok { background: var(--shs-ok, #3f8f43); border-color: var(--shs-ok-hover, #357a39); color: #fff; }
+  .vanta-ag-btn--err { background: var(--shs-danger-bg, #fceaea); border-color: var(--shs-danger, #c04038); color: var(--shs-danger, #c04038); }
   /* Pill da coluna: verde = tem agendamento, âmbar = só fakes, cinza = nenhum. */
   .vanta-ag-pill {
     display: inline-block; min-width: 20px; padding: 1px 7px; border-radius: 999px;
-    background: #e8f4e2; border: 1px solid #b5d4a8; color: #2e5b2a;
+    background: var(--shs-ok-bg, #e8f4e2); border: 1px solid var(--shs-ok-border, #b5d4a8); color: var(--shs-ok-ink, #2e5b2a);
     font-size: 11px; font-weight: 700; line-height: 16px; text-align: center;
   }
-  .vanta-ag-pill--fake { background: #fdf6d8; border-color: #e8d588; color: #6b5518; }
-  .vanta-ag-pill--none { background: #f4ead0; border-color: #e0cda0; color: #b3a27d; font-weight: 500; }
+  .vanta-ag-pill--fake { background: var(--shs-warn-soft, #fdf6d8); border-color: #e8d588; color: #6b5518; }
+  .vanta-ag-pill--none { background: var(--shs-bg-inset, #f4ead0); border-color: var(--shs-border, #e0cda0); color: var(--shs-ink-disabled, #b3a27d); font-weight: 500; }
   .vanta-ag-cell, #vanta-agenda-th { text-align: center; }
 `;
 
@@ -437,6 +437,7 @@ function buildBar(scope: ModuleScope, lines: VillageLine[]): HTMLElement {
 registerVanta({
   id: MODULE_ID,
   label: 'Agenda das Aldeias',
+  icon: 'calendar',
   desc: 'Coluna com comandos agendados por aldeia, filtros rápidos e cópia das aldeias visíveis.',
   group: 'utilidades',
   match: () => params().get('screen') === 'overview_villages',

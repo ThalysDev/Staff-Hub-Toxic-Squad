@@ -48,6 +48,7 @@ interface DevolverScope {
 registerVanta({
   id: 'vanta-apoiovisao',
   label: 'Visão Geral Apoios',
+  icon: 'eye',
   desc: 'Resumo de apoios enviados por tribo',
   group: 'blindagem',
   match: () =>
@@ -83,7 +84,7 @@ registerVanta({
             <div id="vanta-ao-group-bar">
                 <label for="vanta-ao-group-select">Grupo:</label>
                 <select id="vanta-ao-group-select">${groupOptions}</select>
-                <button id="vanta-ao-gerar-btn">Gerar Tabela</button>
+                <button type="button" id="vanta-ao-gerar-btn">Gerar Tabela</button>
             </div>
             <div id="vanta-ao-content"></div>`;
 
@@ -237,7 +238,7 @@ registerVanta({
         const esc = escAttr(tribeName);
         const shown = escapeHtml(tribeName);
         chunks.push(
-          `<tr class="vanta-ao-tribe-row" data-tribe="${esc}"><td class="vanta-ao-name"><span class="vanta-ao-toggle">▶</span>${shown}</td>${fmtCells(tribeData.units, tribeData.pop)}<td><button class="vanta-ao-devolver-btn" data-scope="tribe" data-tribe="${esc}">Devolver tudo</button></td></tr>`,
+          `<tr class="vanta-ao-tribe-row" data-tribe="${esc}"><td class="vanta-ao-name"><span class="vanta-ao-toggle">▶</span>${shown}</td>${fmtCells(tribeData.units, tribeData.pop)}<td><button type="button" class="vanta-ao-devolver-btn" data-scope="tribe" data-tribe="${esc}">Devolver tudo</button></td></tr>`,
         );
 
         const sortedPlayers = Object.entries(tribeData.players).sort((a, b) => b[1].pop - a[1].pop);
@@ -245,7 +246,7 @@ registerVanta({
           const escP = escAttr(playerName);
           const shownP = escapeHtml(playerName);
           chunks.push(
-            `<tr class="vanta-ao-player-row vanta-ao-hidden" data-tribe="${esc}" data-player="${escP}"><td class="vanta-ao-name">${shownP}</td>${fmtCells(playerData.units, playerData.pop)}<td><button class="vanta-ao-devolver-btn" data-scope="player" data-tribe="${esc}" data-player="${escP}">Devolver tudo</button></td></tr>`,
+            `<tr class="vanta-ao-player-row vanta-ao-hidden" data-tribe="${esc}" data-player="${escP}"><td class="vanta-ao-name">${shownP}</td>${fmtCells(playerData.units, playerData.pop)}<td><button type="button" class="vanta-ao-devolver-btn" data-scope="player" data-tribe="${esc}" data-player="${escP}">Devolver tudo</button></td></tr>`,
           );
         }
       }
@@ -253,7 +254,7 @@ registerVanta({
       // Linha de resumo
       const resumoCells = UNITS.map((u) => `<td id="vanta-ao-resumo-${u}" class="vanta-zero">–</td>`).join('');
       chunks.push(
-        `<tr id="vanta-ao-resumo-row" style="display:none"><td class="vanta-ao-name" id="vanta-ao-resumo-label" style="font-weight:600;color:#7ddb82"></td>${resumoCells}<td id="vanta-ao-resumo-pop" style="font-weight:600;color:#7ddb82">–</td><td></td></tr>`,
+        `<tr id="vanta-ao-resumo-row" style="display:none"><td class="vanta-ao-name" id="vanta-ao-resumo-label" style="font-weight:600;color:var(--shs-ok-ink,#1f4d2c)"></td>${resumoCells}<td id="vanta-ao-resumo-pop" style="font-weight:600;color:var(--shs-ok-ink,#1f4d2c)">–</td><td></td></tr>`,
       );
 
       // Total geral
@@ -261,7 +262,7 @@ registerVanta({
         `<tr class="vanta-ao-total-row"><td class="vanta-ao-name" style="font-weight:bold">Total</td>${fmtCells(grandTotal, grandPop)}<td></td></tr>`,
       );
 
-      return `<div id="vanta-ao-table-wrap"><table>${colgroup}<thead><tr><th class="vanta-ao-name">Destino</th>${iconHeaders}<th>Pop</th><th>Ações</th></tr></thead><tbody>${chunks.join('')}</tbody></table></div><div id="vanta-ao-actions"><button id="vanta-ao-enviar" disabled>Enviar de Volta</button></div>`;
+      return `<div id="vanta-ao-table-wrap"><table>${colgroup}<thead><tr><th class="vanta-ao-name">Destino</th>${iconHeaders}<th>Pop</th><th>Ações</th></tr></thead><tbody>${chunks.join('')}</tbody></table></div><div id="vanta-ao-actions"><button type="button" id="vanta-ao-enviar" disabled>Enviar de Volta</button></div>`;
     }
 
     function wireTableEvents(container: HTMLElement, parsedRows: ParsedRow[]): void {

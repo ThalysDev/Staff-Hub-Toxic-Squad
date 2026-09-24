@@ -4,22 +4,39 @@
 // no Staff Hub In-Game (../userscript) — produto separado da liderança.
 
 import { gate, licenseState, activate, logout, type LicenseState } from './core/license';
-import { ensureHost, mountShell, registerSection, registerSearchEntries } from './core/shell';
-import { gameContext } from './core/shell';
+import { ensureHost, gameContext, mountShell, registerSection, registerSearchEntries, setFabAlert } from './core/shell';
 import { card, cardTitle, iconButton, spinner } from './core/ui';
 import { icon } from './core/icons';
 import { renderVantaSuite, runVantaOnLoad } from './modules/vanta';
 import { vantaLaunchers } from './modules/vanta/vanta-registry';
 import { renderTshPanel, startTshHeartbeat } from './modules/tsh';
-import { tshAutomations } from './modules/tsh/tsh-runtime';
+import { activeTshCount, isTshEnabled, tshAutomations } from './modules/tsh/tsh-runtime';
+import { comandosBadge, renderComandosSection } from './modules/tsh/comandos-section';
+import { revealTshAutomation } from './modules/tsh/tsh-panel';
 import {
   isSentinelaTab,
   mountSentinelaLauncher,
   startSentinelaBadge,
 } from './modules/tsh/tsh-sentinela';
-import { renderHome } from './modules/home';
+import { nextScheduled, renderHome } from './modules/home';
+import { currentWorld } from './core/page';
+import { aimIsHot, serverNowMs } from './core/game-clock';
+import { clockLabelMs } from './ext/core/timing/precise-fire';
 import { renderAjuda } from './modules/ajuda';
-import { createModuleScope } from './modules/vanta/vanta-lifecycle';
+import { createModuleScope, type ModuleScope } from './modules/vanta/vanta-lifecycle';
+import { mountFarmCentral } from './modules/tsh/farm/farm-central';
+
+/** v3.7.0 — scripts de página: a Central de Farm vive no Assistente de Saque. */
+function mountPageScripts(): void {
+  if (new URLSearchParams(window.location.search).get('screen') === 'am_farm') {
+    mountFarmCentral(createModuleScope('tsh-farm-central'), window.location.hostname.split('.')[0] ?? 'mundo');
+  }
+}
+import { haltLabel, haltState, pageShowsBotProtection, tripHalt } from './core/halt';
+import { renderHaltBar } from './core/halt-bar';
+import { conductorBackgroundTick, conductorTick, nextAliveRecord, readinessOf } from './modules/tsh/tsh-condutor';
+import { renderConductorBar } from './modules/tsh/tsh-condutor-bar';
+import { isEnvioFrame, isForeignFrame, startEnvioFrame } from './modules/tsh/tsh-envio-quadro';
 
 /** Diálogo de ativação (renderiza dentro do host até a licença validar). */
 function renderActivation(onActivate: () => void): void {
@@ -193,37 +210,124 @@ function renderActivation(onActivate: () => void): void {
   input.focus();
 }
 
+/**
+ * Onda C — aviso de cravado: com um comando agendado nos próximos 2 min, o
+ * escudo flutuante pulsa e o tooltip mostra o horário (quem está com o
+ * painel fechado sabe que NÃO deve fechar a aba agora).
+ */
+function startAimWatcher(scope: ModuleScope): void {
+  // Timer RASTREADO (regra do projeto: nada de setInterval cru nos módulos).
+  scope.every(() => {
+    if (aimIsHot()) return; // reta final do clique: nada de trabalho de UI
+    const sched = nextScheduled(currentWorld());
+    // v3.2.2 — Condutor roda SEMPRE (grava o motivo de comando perdido mesmo com
+    // o Agendador desligado ou o script pausado); só navega quando pode.
+    const conductor = conductorTick();
+    // Disjuntor aberto vence qualquer outro aviso: escudo VERMELHO + faixa no
+    // topo do jogo com o que está em jogo e o botão de retomar.
+    const halt = haltState();
+    if (halt !== null) {
+      setFabAlert(`${haltLabel(halt)} — script PAUSADO; nenhum comando sai até você retomar`, 'halt');
+      const emJogo =
+        sched.soon30 > 0 && sched.nextAt !== null
+          ? `${sched.soon30} comando(s) agendado(s) nos próximos 30 min (o próximo às ${clockLabelMs(sched.nextAt)}) NÃO vão sair — e comando que passa da hora não é reenviado.`
+          : null;
+      renderHaltBar(halt, emJogo);
+      renderConductorBar(null);
+      return;
+    }
+    renderHaltBar(null, null);
+    // Agendador desligado não envia nada — sem alerta enganoso.
+    if (!isTshEnabled('command-scheduler') || sched.nextAt === null) {
+      renderConductorBar(conductor.bar);
+      setFabAlert(conductor.fabText);
+      return;
+    }
+    // A faixa e o aviso do Condutor (vou/estou indo à Praça) vencem o aviso comum.
+    renderConductorBar(conductor.bar);
+    if (conductor.fabText !== null) {
+      setFabAlert(conductor.fabText);
+      return;
+    }
+    const falta = sched.nextAt - serverNowMs();
+    const proximo = nextAliveRecord();
+    if (falta > 0 && falta <= 120_000 && proximo !== undefined) {
+      // Só a aba NA PRAÇA da aldeia de origem envia — diga a verdade.
+      const r = readinessOf(proximo);
+      const nome = sched.nextSource?.label ?? 'origem';
+      const hora = clockLabelMs(sched.nextAt);
+      setFabAlert(
+        r === 'aqui'
+          ? `Comando desta Praça às ${hora} — mantenha esta aba aberta`
+          : r === 'pronta'
+            ? `${nome} às ${hora}: pronta na Praça`
+            : r === 'fundo'
+              ? `${nome} às ${hora}: sai em 2º plano`
+              : r === 'automatico'
+              ? `${nome} às ${hora}: uma aba vai à Praça antes do envio`
+              : `${nome} às ${hora}: sem aba na Praça — não vai sair`,
+      );
+    } else {
+      setFabAlert(null);
+    }
+  }, 1_000);
+}
+
 function main(): void {
+  // v3.3.0: iframe que NÃO é nosso quadro de envio — o script não roda lá.
+  if (isForeignFrame()) return;
+  // Quadro invisível do envio em 2º plano: só o Agendador desta aldeia.
+  if (isEnvioFrame()) {
+    startEnvioFrame(createModuleScope('tsh-envio-quadro'));
+    return;
+  }
   // Aba Sentinela (Onda 5): aba de fundo do jogo — sem shell/painel (não há UI
   // a montar fora da aba do jogador), só o heartbeat normal + o badge do
   // título com a contagem de automações ativas. O registro das seções nem roda.
   if (isSentinelaTab()) {
     startSentinelaBadge(createModuleScope('tsh-sentinela'));
     startTshHeartbeat(createModuleScope('tsh-heartbeat'));
+    // v3.3.0: a Sentinela também hospeda o envio em 2º plano (sem navegar).
+    createModuleScope('tsh-sentinela-envio').every(conductorBackgroundTick, 1_000);
     return;
   }
 
   // Registro das seções ANTES do gate: após a 1ª ativação o painel já nasce
   // completo, sem recarregar a página. "Início" é a entrada padrão (1ª).
+  // Redesign "Instrumento" (v3.2): navegação por tarefa — Comandos ganha
+  // seção própria e a Suite Vanta vira "Ferramentas".
   registerSection({ id: 'inicio', label: 'Início', icon: 'home', render: renderHome });
-  registerSection({ id: 'vanta', label: 'Suite Vanta', icon: 'sword', render: renderVantaSuite });
-  registerSection({ id: 'tsh', label: 'Automações', icon: 'zap', render: renderTshPanel });
-  registerSection({ id: 'ajuda', label: 'Ajuda & Sobre', icon: 'info', render: renderAjuda });
+  registerSection({ id: 'comandos', label: 'Comandos', icon: 'crosshair', render: renderComandosSection, badge: comandosBadge });
+  registerSection({
+    id: 'tsh',
+    label: 'Automações',
+    icon: 'zap',
+    render: renderTshPanel,
+    badge: () => {
+      const ativas = activeTshCount();
+      return ativas > 0 ? String(ativas) : null;
+    },
+  });
+  registerSection({ id: 'vanta', label: 'Ferramentas', icon: 'grid', render: renderVantaSuite });
+  registerSection({ id: 'ajuda', label: 'Ajuda', icon: 'info', render: renderAjuda });
 
   // Busca rápida (Onda 6): seções + ferramentas Vanta + automações TSH.
   registerSearchEntries([
     { id: 'sec:inicio', label: 'Início', hint: 'Painel', sectionId: 'inicio', icon: 'home' },
-    { id: 'sec:vanta', label: 'Suite Vanta', hint: 'Painel', sectionId: 'vanta', icon: 'sword' },
+    { id: 'sec:comandos', label: 'Comandos', hint: 'Painel', sectionId: 'comandos', icon: 'crosshair' },
+    { id: 'sec:vanta', label: 'Ferramentas', hint: 'Painel', sectionId: 'vanta', icon: 'grid' },
     { id: 'sec:tsh', label: 'Automações', hint: 'Painel', sectionId: 'tsh', icon: 'zap' },
-    { id: 'sec:ajuda', label: 'Ajuda & Sobre', hint: 'Painel', sectionId: 'ajuda', icon: 'info' },
+    { id: 'sec:ajuda', label: 'Ajuda', hint: 'Painel', sectionId: 'ajuda', icon: 'info' },
   ]);
   registerSearchEntries(
     vantaLaunchers().map((launcher) => ({
       id: `vanta:${launcher.id}`,
       label: launcher.label,
-      hint: 'Suite Vanta',
+      hint: 'Ferramentas',
       sectionId: 'vanta',
+      icon: launcher.icon ?? 'sword',
       keywords: launcher.desc,
+      targetId: `vanta:${launcher.id}`,
     })),
   );
   registerSearchEntries(
@@ -232,9 +336,18 @@ function main(): void {
       label: automation.label,
       hint: 'Automações',
       sectionId: 'tsh',
+      icon: 'zap' as const,
       keywords: automation.desc,
+      targetId: `tsh:${automation.id}`,
+      beforeNavigate: () => revealTshAutomation(automation.id),
     })),
   );
+
+  // Disjuntor (Onda 1): o jogo mostrou o desafio anti-bot NESTA página —
+  // pausa tudo antes de qualquer automação tentar agir.
+  if (pageShowsBotProtection()) {
+    tripHalt('captcha', 'O jogo mostrou o desafio anti-bot nesta página.');
+  }
 
   const state: LicenseState = gate();
   if (state.kind === 'ausente') {
@@ -243,6 +356,8 @@ function main(): void {
       runVantaOnLoad();
       startTshHeartbeat(createModuleScope('tsh-heartbeat'));
       mountSentinelaLauncher();
+      startAimWatcher(createModuleScope('tsh-aim-watcher'));
+      mountPageScripts();
     });
     return;
   }
@@ -251,6 +366,8 @@ function main(): void {
   runVantaOnLoad();
   startTshHeartbeat(createModuleScope('tsh-heartbeat'));
   mountSentinelaLauncher();
+  startAimWatcher(createModuleScope('tsh-aim-watcher'));
+  mountPageScripts();
   void logout;
   void licenseState;
 }

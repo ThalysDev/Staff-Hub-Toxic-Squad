@@ -4,9 +4,28 @@ Automação do **jogo individual** do jogador no Tribal Wars BR — fusão da **
 
 > Escopo: ferramenta do JOGADOR. Gestão de tribo/OPs é papel do **Staff Hub Toxic Squad** (app + userscript In-Game `../userscript`) — produto separado, que segue intacto.
 
-- **Versão:** 3.0.0 "Arsenal Completo" (ver `version.json` — o header TM precisa bater, o build valida)
+- **Versão:** 3.2.0 "Instrumento" (ver `version.json` — o header TM precisa bater, o build valida)
 - **Canal:** `http://74.0.5.75/staffhub/scripts/toxic-squad-hub.user.js` (+ `.meta.js` para update check)
 - **Artefato:** `dist/toxic-squad-hub.user.js` — **ofuscado** (o header TM fica limpo; o corpo passa por `javascript-obfuscator` determinístico, seed fixa)
+
+## v3.2.0 — Instrumento (redesign)
+
+Redesenho completo aprovado no Claude Design: painel neutro claro, **um** acento verde, âmbar só para cravado próximo e vermelho só para pausa/falha; horários, coordenadas e ms em fonte mono (Cascadia/Consolas); fontes do sistema (nada baixado a cada página).
+
+- **Navegação por tarefa:** Início · **Comandos** (seção própria: relógio do servidor, aviso de aldeias de origem, próximos comandos ao vivo) · Automações · **Ferramentas** (ex-Suite Vanta) · Ajuda — com contadores na barra lateral e licença/aldeia no rodapé dela.
+- **Início:** próximo cravado em destaque com contagem em ms, 3 indicadores (comandos, automações, precisão real das chegadas conferidas) e atividade.
+- **Automações:** uma linha por automação (nome, estado, próximo ciclo, configurar, liga/desliga), grupos em cartões, "Armar" só nas ligadas.
+- Diálogos, Central de comandos, Ferramentas, faixa de pausa, escudo (tinta · âmbar · vermelho) e botão Sentinela no mesmo sistema; ícones oficiais do jogo nas grades de tropas.
+- Inclui a **3.1.2** (Onda 1: viagem corrigida, lock por aldeia, disjuntor de captcha).
+
+## v3.1.0 — Precisão & Polimento (23/09/2026)
+
+Ondas A–D sobre a 3.0.0 (branch `melhorias-ondas-a-d`):
+
+- **A — precisão real dos cravados:** relógio do servidor medido com ms (`core/game-clock.ts`: cabeçalho `Date` + interseção de Marzullo, relógio do jogo, hora da tela — a de menor incerteza vence), espera em Web Worker + espera ativa final, **pré-arme** (a confirmação abre `prearmLeadMs` antes) e **mira** com clique síncrono em `sendAt − compensação de latência`; cravado atrasado além da tolerância não sai. Central com campo de **ms**, referência do horário (servidor/computador), relógio vivo com "Calibrar", contagem regressiva; viagem arredondada ao segundo.
+- **B — bugs de interface:** teclado isolado do jogo, painel lembra aberto/aba, busca clicável com teclado, tooltips sem corte/duplicidade, Esc em pilha + foco preso, confirmação de alterações não salvas, Início/Automações ao vivo com limpeza de timers.
+- **C — polimento:** histórico recolhido + limpar, validação visível nas configurações, filtros/ações em massa/grupos recolhíveis nas Automações, alerta pulsante de cravado, `type="button"` nos botões injetados, mundo único para chaves, Ajuda atualizada.
+- **D — visual unificado:** tema único `core/theme.ts` (variáveis `--shs-*` no shell e no documento do jogo), cores/fontes das injeções Vanta migradas para o tema, ícones SVG por ferramenta e no lugar dos emojis.
 
 ## v3.0.0 — Arsenal Completo (23/09/2026)
 
@@ -28,7 +47,7 @@ Inspeção de Aldeias e Prévia de Aldeia no mapa, Cancelamento em Bloco, Import
 Auto Farm **executável** (Template C dinâmico, mapeador de bárbaras, ledgers), recrutamento por **modelos de tropa** por grupo, cunhagem percentual, regras de coleta por grupo, estratégia de mercado, balanceador por coordenadas-alvo, construtor com visão Horas, **Conquista de Aldeias Livres**, **Produção de Nobres** (unified-balancer), renomeador de aldeias com tokens, agendador de itens, gerenciador do paladino, abertura de pacotes, cunhagem nativa e doador de prestígio. O **Modo Sentinela** mantém tudo ciclando numa aba de fundo.
 
 ### Infra
-Painel de Atividades na home, **parada programada universal**, busca rápida **Ctrl+K**, seção Ajuda & Sobre, canais de alerta (som local; webhooks ficam stub desligado — nada sai do navegador). Relógio adaptativo (mediana aparada, responsivo/estável) por baixo de todo o timing.
+Painel de Atividades na home, **parada programada universal**, busca rápida **Ctrl+K**, seção Ajuda & Sobre, canais de alerta (som local; webhooks ficam stub desligado — nada sai do navegador). Relógio adaptativo (mediana aparada, responsivo/estável) — na 3.1.0 substituído na prática pelo relógio medido (`core/game-clock.ts`).
 
 ---
 

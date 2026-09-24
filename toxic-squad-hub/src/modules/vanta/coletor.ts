@@ -18,6 +18,7 @@
 //   → pacedGet/vantaPostJson (fila global ≥200ms — o delay(200) manual entre
 //   aldeias do original foi absorvido pela fila, sem delay duplicado).
 
+import { iconMarkup } from '../../core/icons';
 import { gm } from '../../core/storage';
 import { pageWindow } from '../../core/page';
 import { registerVanta } from './vanta-registry';
@@ -312,6 +313,7 @@ function clearAllVillageFilters(): void {
 registerVanta({
   id: 'vanta-coletor',
   label: 'Coletor e Alocador',
+  icon: 'crosshair',
   desc: 'Seleção de coordenadas no mapa',
   group: 'utilidades',
   match: () => params().get('screen') === 'map',
@@ -502,8 +504,8 @@ registerVanta({
             <span class="vanta-group-swatch" style="background:${escAttr(color)}" title="Mudar cor"></span>
             <span class="vanta-group-name" title="${escAttr(g.name)}">${escapeHtml(g.name)}</span>
             <span class="vanta-group-count">${g.villages.length} aldeias</span>
-            <button class="vanta-group-edit" title="Renomear">✎</button>
-            <button class="vanta-group-del" title="Excluir">×</button>
+            <button type="button" class="vanta-group-edit" title="Renomear" aria-label="Renomear">${iconMarkup('edit', 12)}</button>
+            <button type="button" class="vanta-group-del" title="Excluir">×</button>
         `;
 
         const swatch = item.querySelector<HTMLElement>('.vanta-group-swatch');
@@ -585,7 +587,7 @@ registerVanta({
     widget.innerHTML = `
         <div id="vanta-coletor-header">
             <span id="vanta-coletor-title">Coletor e Alocador</span>
-            <button id="vanta-coletor-close" title="Fechar">×</button>
+            <button type="button" id="vanta-coletor-close" title="Fechar">×</button>
         </div>
         <div id="vanta-coletor-body">
             <div id="vanta-coletor-label">
@@ -593,17 +595,17 @@ registerVanta({
             </div>
             <textarea id="vanta-coletor-list" placeholder="Clique nas aldeias no mapa..."></textarea>
             <div id="vanta-coletor-buttons">
-                <button class="vanta-coletor-btn" id="vanta-coletor-reset">Resetar</button>
-                <button class="vanta-coletor-btn" id="vanta-coletor-copy">Copiar</button>
-                <button class="vanta-coletor-btn" id="vanta-coletor-copy-id">Copiar c/ ID</button>
-                <button class="vanta-coletor-btn" id="vanta-coletor-highlight">Destacar</button>
-                <button class="vanta-coletor-btn" id="vanta-coletor-save-grupo">Salvar Grupo</button>
-                <button class="vanta-coletor-btn" id="vanta-coletor-ingame-btn">Grupo do Jogo</button>
+                <button type="button" class="vanta-coletor-btn" id="vanta-coletor-reset">Resetar</button>
+                <button type="button" class="vanta-coletor-btn" id="vanta-coletor-copy">Copiar</button>
+                <button type="button" class="vanta-coletor-btn" id="vanta-coletor-copy-id">Copiar c/ ID</button>
+                <button type="button" class="vanta-coletor-btn" id="vanta-coletor-highlight">Destacar</button>
+                <button type="button" class="vanta-coletor-btn" id="vanta-coletor-save-grupo">Salvar Grupo</button>
+                <button type="button" class="vanta-coletor-btn" id="vanta-coletor-ingame-btn">Grupo do Jogo</button>
             </div>
             <div id="vanta-coletor-save-row" style="display:none">
                 <div id="vanta-coletor-mode-row" style="display:none">
-                    <button class="vanta-coletor-btn" id="vanta-coletor-mode-novo" style="flex:1">Novo grupo</button>
-                    <button class="vanta-coletor-btn" id="vanta-coletor-mode-add" style="flex:1">Adicionar ao grupo</button>
+                    <button type="button" class="vanta-coletor-btn" id="vanta-coletor-mode-novo" style="flex:1">Novo grupo</button>
+                    <button type="button" class="vanta-coletor-btn" id="vanta-coletor-mode-add" style="flex:1">Adicionar ao grupo</button>
                 </div>
                 <div id="vanta-coletor-novo-row">
                     <input id="vanta-coletor-group-color" type="color" value="#7ddb82" title="Cor do grupo">
@@ -613,8 +615,8 @@ registerVanta({
                     <select id="vanta-coletor-group-select"></select>
                 </div>
                 <div id="vanta-coletor-ok-row">
-                    <button class="vanta-coletor-btn" id="vanta-coletor-save-ok" style="flex:1">OK</button>
-                    <button class="vanta-coletor-btn" id="vanta-coletor-save-cancel" style="flex:0 0 auto">✕</button>
+                    <button type="button" class="vanta-coletor-btn" id="vanta-coletor-save-ok" style="flex:1">OK</button>
+                    <button type="button" class="vanta-coletor-btn" id="vanta-coletor-save-cancel" style="flex:0 0 auto" aria-label="Cancelar">${iconMarkup('x', 12)}</button>
                 </div>
             </div>
             <div id="vanta-coletor-groups-title" style="display:none">Grupos Salvos</div>
@@ -625,8 +627,8 @@ registerVanta({
                     <select id="vanta-coletor-ingame-select" disabled>
                         <option value="">Carregando...</option>
                     </select>
-                    <button class="vanta-coletor-btn" id="vanta-coletor-ingame-add" disabled>Adicionar</button>
-                    <button class="vanta-coletor-btn" id="vanta-coletor-ingame-remove" disabled>Remover</button>
+                    <button type="button" class="vanta-coletor-btn" id="vanta-coletor-ingame-add" disabled>Adicionar</button>
+                    <button type="button" class="vanta-coletor-btn" id="vanta-coletor-ingame-remove" disabled>Remover</button>
                 </div>
                 <div id="vanta-coletor-ingame-progress" style="display:none"></div>
             </div>
@@ -908,7 +910,7 @@ registerVanta({
         addBtn.disabled = true;
         removeBtn.disabled = true;
         progressEl.style.display = 'block';
-        progressEl.style.color = '#5a3a16';
+        progressEl.style.color = 'var(--shs-ink, #34312c)';
         progressEl.textContent = 'Resolvendo coordenadas...';
 
         const selection = await resolveSelection(progressEl, addBtn, removeBtn);

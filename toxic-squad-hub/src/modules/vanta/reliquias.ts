@@ -52,12 +52,12 @@ function buildCard(relics: EquippedRelic[]): { card: HTMLElement; removeBtn: HTM
   const card = document.createElement('div');
   card.id = 'vanta-reliquias-ui';
   card.style.cssText =
-    'background:#fffdf3;border:1px solid #e0cda0;border-radius:10px;margin:12px 0;font-family:"Segoe UI",sans-serif;color:#5a3a16;max-width:600px;';
+    'background:var(--shs-bg-card, #fffdf3);border:1px solid var(--shs-border, #e0cda0);border-radius:10px;margin:12px 0;font-family:var(--shs-font, Verdana, sans-serif);color:var(--shs-ink, #5a3a16);max-width:600px;';
 
   const header = document.createElement('div');
   header.style.cssText =
-    'background:#efe2ba;padding:8px 14px;border-radius:10px 10px 0 0;font-weight:700;text-transform:uppercase;color:#6d3c14;font-size:13px;letter-spacing:.5px;';
-  header.textContent = 'REMOVER RELÍQUIAS';
+    'background:var(--shs-bg-card,#fff);padding:10px 14px;border-radius:10px 10px 0 0;border-bottom:1px solid var(--shs-border,#e5e2db);font-weight:600;color:var(--shs-ink-strong,#1b1a17);font-size:13.5px;';
+  header.textContent = 'Remover relíquias';
   card.appendChild(header);
 
   const body = document.createElement('div');
@@ -89,7 +89,7 @@ function buildCard(relics: EquippedRelic[]): { card: HTMLElement; removeBtn: HTM
   removeBtn.textContent = 'Remover Todas Relíquias';
   removeBtn.disabled = relics.length === 0;
   removeBtn.style.cssText =
-    'background:#6d3c14;color:#fff;border:none;padding:6px 16px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;';
+    'background:var(--shs-action,#2e6b3e);color:#fff;border:none;padding:0 16px;min-height:34px;border-radius:9px;font-weight:600;font-size:13px;cursor:pointer;';
   if (relics.length === 0) removeBtn.style.opacity = '0.5';
   body.appendChild(removeBtn);
 
@@ -103,6 +103,7 @@ function buildCard(relics: EquippedRelic[]): { card: HTMLElement; removeBtn: HTM
 registerVanta({
   id: 'vanta-reliquias',
   label: 'Remover Relíquias',
+  icon: 'package',
   desc: 'Remove em lote as relíquias equipadas',
   group: 'utilidades',
   match: () => params().get('screen') === 'relic_system' && params().get('mode') === 'overview',

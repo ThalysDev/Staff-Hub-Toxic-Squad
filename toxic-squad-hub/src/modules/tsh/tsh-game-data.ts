@@ -157,7 +157,6 @@ export async function travelMinutes(
 ): Promise<number | null> {
   const speeds = await unitSpeedsMinutesPerField();
   if (speeds === null) return null;
-  const world = await worldSpeeds();
   let slowest = 0;
   for (const [unit, amount] of Object.entries(units)) {
     if ((amount ?? 0) <= 0) continue;
@@ -165,8 +164,20 @@ export async function travelMinutes(
     if (s !== undefined && s > slowest) slowest = s;
   }
   if (slowest <= 0) return null;
-  const dist = Math.sqrt((to.x - from.x) ** 2 + (to.y - from.y) ** 2);
-  // P1 (revisão Onda 9): fórmula do repo (support-planner:385) divide pelos
-  // DOIS fatores — min = dist × base / (world.speed × world.unit_speed).
-  return (dist * slowest) / (world.speed * world.unitSpeed);
+  return travelMinutesFromEffective(from, to, slowest);
+}
+
+/**
+ * Viagem com min/campo JÁ EFETIVO do mundo. O get_unit_info serve o valor
+ * final (BR142: nobre 31,111 = 35 ÷ (1,5 × 0,75)) — dividir de novo pelos
+ * fatores do mundo encurtava a viagem 11% e todo "Chegar às" saía atrasado
+ * (~35 min num nobre a 10 campos). Só a tabela CLÁSSICA (support-planner)
+ * divide pelos fatores.
+ */
+export function travelMinutesFromEffective(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  minutesPerField: number,
+): number {
+  return Math.sqrt((to.x - from.x) ** 2 + (to.y - from.y) ** 2) * minutesPerField;
 }

@@ -4,6 +4,8 @@
 // antes/sem o re-theme do shell) + constantes exclusivas do Nexus (lavanda,
 // divisória tracejada, gradiente do cabeçalho do modal). Prefixo tsh-*.
 
+import { TSH_INSTRUMENTO_CSS } from './tsh-instrumento-styles';
+
 export function ensureTshPanelStyles(shadow: ShadowRoot): void {
   if (shadow.getElementById('tsh-panel-styles') !== null) return;
   const style = document.createElement('style');
@@ -114,11 +116,11 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
       flex-wrap: wrap;
       padding: 12px 4px;
     }
-    .tsh-row + .tsh-row { border-top: 1px dashed #d9c48f; }
+    .tsh-row + .tsh-row { border-top: 1px dashed var(--shs-border-head, #d9c48f); }
     /* P2 (auditoria impeccable): OFF por COR DE TEXTO dedicada (paridade com a
        esteira irmã) — sem opacity, que apagava também bordas/ícones de chip. */
     .tsh-row--off .tsh-row-name,
-    .tsh-row--off .tsh-row-desc { color: #b3a27d; }
+    .tsh-row--off .tsh-row-desc { color: var(--shs-ink-disabled, #b3a27d); }
     .tsh-row--off .tsh-ic-box { color: #c9b998; }
     .tsh-row-main {
       flex: 1;
@@ -144,7 +146,7 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
       background: var(--shs-bg-inset, #f4ead0);
       color: var(--shs-muted, #6f5e40);
     }
-    .tsh-ic-box--eco { color: #b8860b; }
+    .tsh-ic-box--eco { color: var(--shs-brass, #b8860b); }
     .tsh-ic-box--prod { color: var(--shs-action, #6d3c14); }
     .tsh-ic-box--plan { color: var(--shs-info, #2f66c0); }
     .tsh-row-name {
@@ -329,7 +331,7 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
     .tsh-runbtn .shs-ic { margin-left: 1px; }
     .tsh-runbtn:hover:not(:disabled) { background: #347a38; }
     .tsh-runbtn:focus-visible { outline: 2px solid var(--shs-brass, #b8860b); outline-offset: 1px; }
-    .tsh-runbtn:disabled { background: #d8cbb0; cursor: default; }
+    .tsh-runbtn:disabled { background: var(--shs-switch-off, #d8cbb0); cursor: default; }
 
     /* ── Switch iOS 36×20 ── */
     .tsh-switch {
@@ -345,7 +347,7 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
       position: absolute;
       inset: 0;
       border-radius: 999px;
-      background: #d8cbb0;
+      background: var(--shs-switch-off, #d8cbb0);
       transition: background 0.15s ease;
       pointer-events: none;
     }
@@ -383,7 +385,7 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
     }
     /* Mesma cor de texto dedicada do .tsh-row--off (sem opacity). */
     .tsh-card--off .tsh-card-title,
-    .tsh-card--off .tsh-card-desc { color: #b3a27d; }
+    .tsh-card--off .tsh-card-desc { color: var(--shs-ink-disabled, #b3a27d); }
     .tsh-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .tsh-card-title {
       font-size: 13px;
@@ -442,7 +444,7 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
       gap: 10px;
       padding: 12px 16px;
       background: linear-gradient(90deg, #f2e2b4, #e9d7a4);
-      border-bottom: 1px solid #d9c48f;
+      border-bottom: 1px solid var(--shs-border-head, #d9c48f);
     }
     .tsh-modal-title {
       display: flex;
@@ -489,7 +491,7 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
       display: flex;
       align-items: flex-start;
       gap: 8px;
-      background: #fdf6d8;
+      background: var(--shs-warn-soft, #fdf6d8);
       border: 1px solid #e8d588;
       border-radius: 8px;
       padding: 8px 10px;
@@ -503,7 +505,7 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
 
     /* ── Seções-caixa ──
        P3 (auditoria impeccable): fundo INSET — dentro do modal (bg-card) a
-       seção deixava de ser "card dentro de card"; inputs seguem #fbf4de. */
+       seção deixava de ser "card dentro de card"; inputs seguem var(--shs-bg-field, #fbf4de). */
     .tsh-section {
       background: var(--shs-bg-inset, #f4ead0);
       border: 1px solid var(--shs-border, #e0cda0);
@@ -562,7 +564,7 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
       font-family: var(--shs-font, Verdana, sans-serif);
       font-size: 12px;
       color: var(--shs-ink-strong, #3c250a);
-      background: #fbf4de;
+      background: var(--shs-bg-field, #fbf4de);
       border: 1px solid var(--shs-border-strong, #cbb384);
       border-radius: 8px;
       padding: 6px 9px;
@@ -581,7 +583,7 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
       display: flex;
       flex-direction: column;
       gap: 4px;
-      background: #fbf4de;
+      background: var(--shs-bg-field, #fbf4de);
       border: 1px solid var(--shs-border-strong, #cbb384);
       border-radius: 8px;
       padding: 7px 8px;
@@ -632,7 +634,7 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
       transform: translateX(-50%);
       z-index: 2147483600;
       background: var(--shs-ink-strong, #3c250a);
-      color: #f5ecd0;
+      color: var(--shs-on-dark, #f5ecd0);
       border: 1px solid var(--shs-brass, #b8860b);
       padding: 5px 8px;
       border-radius: 6px;
@@ -759,6 +761,64 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
       color: var(--shs-ink, #5a3a16);
       overflow-wrap: anywhere;
     }
-  `;
+
+    /* ── Onda A: relógio de precisão, contagem e ms ── */
+    .tsh-clockbar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin: 0 0 12px; padding: 7px 10px; border-radius: 8px;
+      background: var(--shs-bg-inset, #f4ead0); border: 1px solid var(--shs-border, #e0cda0);
+      font-size: 11.5px; color: var(--shs-ink, #5a3a16);
+    }
+    .tsh-clockbar[data-quality='ok'] { border-color: var(--shs-ok, #3f8f43); }
+    .tsh-clockbar[data-quality='warn'] { border-color: var(--shs-warn, #8a6d1f); }
+    .tsh-clockbar[data-quality='bad'] { border-color: var(--shs-danger, #c04038); }
+    .tsh-clockbar-now {
+      font-family: var(--shs-font-mono, ui-monospace, Consolas, monospace);
+      font-weight: 700; color: var(--shs-ink-strong, #3c250a); font-variant-numeric: tabular-nums;
+    }
+    .tsh-clockbar-meta { color: var(--shs-muted, #6f5e40); flex: 1; min-width: 160px; }
+    .tsh-eta {
+      font-family: var(--shs-font-mono, ui-monospace, Consolas, monospace);
+      font-size: 11px; font-weight: 600; color: var(--shs-info, #2f66c0);
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .tsh-input--ms { width: 72px !important; flex: none; }
+    .tsh-ms-suffix { font-size: 11px; color: var(--shs-muted, #6f5e40); }
+    .tsh-btn--sm { padding: 3px 8px; font-size: 11px; }
+    .tsh-history { margin-top: 10px; }
+    /* Onda C: barra de filtro/ações em massa e grupos recolhíveis. */
+    .tsh-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 2px; }
+    .tsh-kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0 6px; }
+    .tsh-kind { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 10px; border-radius: 10px; cursor: pointer;
+      border: 1px solid var(--shs-border-strong, #cbb384); background: var(--shs-bg-card, #fffdf3); color: var(--shs-ink, #5a3a16);
+      font: 600 13px var(--shs-font); }
+    .tsh-kind[aria-selected='true'] { border-color: var(--shs-action, #6d3c14); box-shadow: inset 0 0 0 1px var(--shs-action, #6d3c14); color: var(--shs-ink-strong, #3c250a); }
+    .tsh-kind:focus-visible { outline: 2px solid var(--shs-brass, #b8860b); outline-offset: 1px; }
+    .tsh-row-go { display: inline-flex; align-items: center; gap: 4px; margin-top: 3px; font-size: 11.5px; font-weight: 600;
+      color: var(--shs-action, #6d3c14); text-decoration: none; }
+    .tsh-row-go:hover { text-decoration: underline; }
+    .tsh-kind-warn { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; padding: 0 6px; border-radius: 99px;
+      background: var(--shs-danger-bg, #fde8e4); color: var(--shs-danger, #b3261e); }
+    .tsh-kind-help { font-size: 12px; color: var(--shs-muted, #8a6a44); margin: 0 2px 10px; line-height: 1.45; }
+    @media (max-width: 420px) { .tsh-kinds { grid-template-columns: 1fr; } }
+    .tsh-seg { display: inline-flex; border: 1px solid var(--shs-border-strong, #cbb384);
+      border-radius: 8px; overflow: hidden; }
+    .tsh-seg-btn { border: none; background: transparent; padding: 4px 10px; cursor: pointer;
+      font: inherit; font-size: 11.5px; font-weight: 600; color: var(--shs-ink, #5a3a16); }
+    .tsh-seg-btn + .tsh-seg-btn { border-left: 1px solid var(--shs-border-strong, #cbb384); }
+    .tsh-seg-btn[aria-checked='true'] { background: var(--shs-action, #6d3c14); color: var(--shs-on-action, #f7ecd2); }
+    .tsh-seg-btn:focus-visible { outline: 2px solid var(--shs-brass, #b8860b); outline-offset: -2px; }
+    button.tsh-group-title { width: 100%; border: none; background: transparent; cursor: pointer;
+      text-align: left; font-family: inherit; padding-left: 0; padding-right: 0; }
+    button.tsh-group-title:hover { color: var(--shs-ink, #5a3a16); }
+    button.tsh-group-title:focus-visible { outline: 2px solid var(--shs-brass, #b8860b); outline-offset: 2px; }
+    .tsh-input--invalid { border-color: var(--shs-danger, #c04038) !important;
+      background: var(--shs-danger-bg, #fceaea) !important; }
+    .tsh-history > summary {
+      cursor: pointer; font-size: 11.5px; font-weight: 700; color: var(--shs-muted, #6f5e40);
+      padding: 4px 0; list-style-position: inside;
+    }
+    .tsh-history > summary:hover { color: var(--shs-ink, #5a3a16); }
+  ` + TSH_INSTRUMENTO_CSS; // redesign v3.2 — vem por último e vence
   shadow.appendChild(style);
 }

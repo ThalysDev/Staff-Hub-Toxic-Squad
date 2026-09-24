@@ -274,62 +274,62 @@ const STYLE_ID = 'vanta-inspecao-styles';
 const TOGGLE_KEY = 'tsh-vanta:inspecao:on';
 const WIDGET_STYLES = `
   #vanta-inspecao-widget {
-    position: fixed; z-index: 99999; width: 250px;
-    background: #fffdf3; border: 1px solid #cbb384; border-radius: 12px;
+    position: fixed; z-index: 2147482000; width: 250px; /* widget fixo: abaixo do painel (modais ficam acima) */
+    background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border-strong, #cbb384); border-radius: 12px;
     box-shadow: 0 12px 40px rgba(60,37,10,0.18);
-    font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #5a3a16;
+    font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; color: var(--shs-ink, #5a3a16);
   }
   #vanta-inspecao-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 9px 12px 8px; background: #efe2ba; border-bottom: 1px solid #e0cda0;
+    padding: 9px 12px 8px; background: var(--shs-bg-head, #efe2ba); border-bottom: 1px solid var(--shs-border, #e0cda0);
     border-radius: 12px 12px 0 0; cursor: grab;
   }
   #vanta-inspecao-header:active { cursor: grabbing; }
   #vanta-inspecao-title {
-    font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    color: #3c250a; text-transform: uppercase;
+    font-size: 11px; font-weight: 700; letter-spacing: 0;
+    color: var(--shs-ink-strong, #3c250a); text-transform: uppercase;
   }
   #vanta-inspecao-close {
-    background: none; border: none; color: #6f5e40; font-size: 16px;
+    background: none; border: none; color: var(--shs-muted, #6f5e40); font-size: 16px;
     line-height: 1; cursor: pointer; padding: 0 2px;
   }
-  #vanta-inspecao-close:hover { color: #c04038; }
+  #vanta-inspecao-close:hover { color: var(--shs-danger, #c04038); }
   #vanta-inspecao-body {
     padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px;
   }
   #vanta-inspecao-toggle-row {
     display: flex; align-items: center; gap: 6px;
-    font-size: 11px; font-weight: 600; color: #8a5a1e; cursor: pointer;
+    font-size: 11px; font-weight: 600; color: var(--shs-accent-ink, #8a5a1e); cursor: pointer;
   }
-  #vanta-inspecao-status { font-size: 11px; color: #6f5e40; }
+  #vanta-inspecao-status { font-size: 11px; color: var(--shs-muted, #6f5e40); }
   #vanta-inspecao-village {
     display: flex; flex-direction: column; gap: 5px;
-    border-top: 1px dashed #d9c48f; padding-top: 7px;
+    border-top: 1px dashed var(--shs-border-head, #d9c48f); padding-top: 7px;
   }
   #vanta-inspecao-name {
-    font-size: 12px; font-weight: 700; color: #3c250a; overflow-wrap: anywhere;
+    font-size: 12px; font-weight: 700; color: var(--shs-ink-strong, #3c250a); overflow-wrap: anywhere;
   }
-  #vanta-inspecao-meta { font-size: 11px; color: #8a5a1e; overflow-wrap: anywhere; }
+  #vanta-inspecao-meta { font-size: 11px; color: var(--shs-accent-ink, #8a5a1e); overflow-wrap: anywhere; }
   #vanta-inspecao-details {
     display: flex; flex-direction: column; gap: 3px;
     max-height: 190px; overflow-y: auto;
   }
   #vanta-inspecao-details:empty { display: none; }
   .vanta-inspecao-section {
-    font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
-    color: #8a5a1e; margin-top: 3px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0; text-transform: uppercase;
+    color: var(--shs-accent-ink, #8a5a1e); margin-top: 3px;
   }
   .vanta-inspecao-row { display: flex; gap: 6px; font-size: 11px; }
-  .vanta-inspecao-row-label { flex: 0 0 74px; color: #8a5a1e; }
-  .vanta-inspecao-row-value { flex: 1; min-width: 0; color: #3c250a; overflow-wrap: anywhere; }
-  .vanta-inspecao-row-missing .vanta-inspecao-row-value { color: #b3a27d; font-style: italic; }
-  .vanta-inspecao-msg { font-size: 11px; color: #c04038; }
+  .vanta-inspecao-row-label { flex: 0 0 74px; color: var(--shs-accent-ink, #8a5a1e); }
+  .vanta-inspecao-row-value { flex: 1; min-width: 0; color: var(--shs-ink-strong, #3c250a); overflow-wrap: anywhere; }
+  .vanta-inspecao-row-missing .vanta-inspecao-row-value { color: var(--shs-ink-disabled, #b3a27d); font-style: italic; }
+  .vanta-inspecao-msg { font-size: 11px; color: var(--shs-danger, #c04038); }
   #vanta-inspecao-actions { display: flex; gap: 4px; }
   .vanta-inspecao-btn {
-    flex: 1 1 auto; padding: 5px 8px; background: #fbf4de; border: 1px solid #cbb384;
-    border-radius: 8px; color: #5a3a16; font-size: 11px; cursor: pointer; white-space: nowrap;
+    flex: 1 1 auto; padding: 5px 8px; background: var(--shs-bg-field, #fbf4de); border: 1px solid var(--shs-border-strong, #cbb384);
+    border-radius: 8px; color: var(--shs-ink, #5a3a16); font-size: 11px; cursor: pointer; white-space: nowrap;
   }
-  .vanta-inspecao-btn:hover { background: #efe2ba; border-color: #834a1a; color: #834a1a; }
+  .vanta-inspecao-btn:hover { background: var(--shs-bg-head, #efe2ba); border-color: var(--shs-action-hover, #834a1a); color: var(--shs-action-hover, #834a1a); }
   .vanta-inspecao-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
@@ -338,6 +338,7 @@ const WIDGET_STYLES = `
 registerVanta({
   id: 'vanta-inspecao-mapa',
   label: 'Inspeção de Aldeias',
+  icon: 'search',
   desc: 'Passar o mouse na aldeia do mapa mostra dono, pontos e detalhes',
   group: 'utilidades',
   match: () => params().get('screen') === 'map',
@@ -367,7 +368,7 @@ registerVanta({
     widget.innerHTML = `
         <div id="vanta-inspecao-header">
             <span id="vanta-inspecao-title">Inspeção de Aldeias</span>
-            <button id="vanta-inspecao-close" title="Fechar">×</button>
+            <button type="button" id="vanta-inspecao-close" title="Fechar">×</button>
         </div>
         <div id="vanta-inspecao-body">
             <label id="vanta-inspecao-toggle-row">
@@ -379,7 +380,7 @@ registerVanta({
                 <div id="vanta-inspecao-meta"></div>
                 <div id="vanta-inspecao-details"></div>
                 <div id="vanta-inspecao-actions">
-                    <button class="vanta-inspecao-btn" id="vanta-inspecao-detalhes" disabled>Detalhes</button>
+                    <button type="button" class="vanta-inspecao-btn" id="vanta-inspecao-detalhes" disabled>Detalhes</button>
                 </div>
             </div>
         </div>

@@ -11,7 +11,19 @@ export interface GameData {
 }
 
 export interface TribalWarsGateway {
-  post?: (screen: string, action: string, payload: URLSearchParams | FormData) => Promise<unknown>;
+  /**
+   * Assinatura REAL (lida no BR142, 24/09/2026): params é OBJETO
+   * ({ ajaxaction }), o resultado vem pelos callbacks e o retorno é void.
+   * Use core/game-gateway (callGameAction) — nunca chame direto.
+   */
+  post?: (
+    screen: string,
+    params: Record<string, string>,
+    data: Record<string, string>,
+    onSuccess: (response: unknown) => void,
+    onError: (reason?: unknown) => void,
+    noLoading?: boolean,
+  ) => void;
 }
 
 export interface PageWindow {
@@ -32,4 +44,16 @@ export function gameContextFrom(data: GameData | undefined): { player: string; w
     world: data?.world ?? '—',
     villageId: String(data?.village?.id ?? '—'),
   };
+}
+
+/**
+ * Mundo atual para CHAVES de storage — a MESMA regra do motor de automações
+ * (subdomínio do hostname: br142.tribalwars.com.br → br142; fallback
+ * game_data.world). Onda C: a Início usava game_data.world e o motor o
+ * hostname — em mundos com nomes divergentes os números não batiam.
+ */
+export function currentWorld(): string {
+  const sub = window.location.hostname.split('.')[0];
+  if (sub !== undefined && sub !== '') return sub;
+  return pageWindow().game_data?.world ?? 'mundo';
 }

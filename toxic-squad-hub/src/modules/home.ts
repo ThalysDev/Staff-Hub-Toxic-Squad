@@ -1,54 +1,73 @@
-// Seção "Início" do Toxic Squad Hub: o resumo que o jogador precisa ao abrir
-// — conta/mundo/aldeia, estado da licença, panorama das ferramentas (o que
-// está ativo/armado/agendado) e o contato oficial da squad. Cartões no estilo
-// Nexus, classes próprias (home-*) com <style> idempotente no shadow.
+// Seção "Início" (redesign "Instrumento", v3.2): o próximo cravado em
+// destaque com contagem em ms, três números (comandos, automações, precisão
+// real das chegadas conferidas), a atividade das automações ligadas e o
+// suporte. Classes próprias (home-*) com <style> idempotente no shadow.
 
 import { icon, type IconName } from '../core/icons';
 import { gm } from '../core/storage';
-import { licenseState } from '../core/license';
-import { pageWindow } from '../core/page';
-import { gameContext } from '../core/shell';
+import { haltLabel, haltState } from '../core/halt';
+import { tryResume } from '../core/halt-bar';
+import { currentWorld } from '../core/page';
+import { ensureHost, openSection } from '../core/shell';
+import { openSchedulerCommands } from './tsh/tsh-commands-ui';
 import { isVantaEnabled, vantaLaunchers } from './vanta/vanta-registry';
 import { isTshEnabled, tshArmedUntil, tshAutomations, tshNextRunAt, tshStatus } from './tsh/tsh-runtime';
+import { commandUnitStrip, kindIcon, unitStrip } from './tsh/tsh-units';
+import { nextAliveRecord, readinessOf } from './tsh/tsh-condutor';
 import { loadSchedule, isScheduleStopped } from './tsh/tsh-settings';
+import { tshPanelSignature } from './tsh/tsh-panel';
+import { aimIsHot, clockInfo, serverNowMs } from '../core/game-clock';
+import { clockLabelMs } from '../ext/core/timing/precise-fire';
 
 export const SUPPORT_PHONE = '+55 81 99413-1872';
 const SUPPORT_WA = 'https://wa.me/5581994131872';
 
 const HOME_STYLE_ID = 'tsh-home-styles';
 const HOME_CSS = `
-  .home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
-  .home-card { background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border, #e0cda0); border-radius: 10px; padding: 14px 16px; }
-  .home-card--full { grid-column: 1 / -1; }
-  /* [8] O kicker virou TÍTULO do card: heading legítimo (h3) 16px/700, sem
-     estilo de eyebrow (nada de uppercase minúsculo sobre um heading). */
-  .home-kicker { display: flex; align-items: center; gap: 7px; margin: 0 0 10px;
-    font-family: var(--shs-font-display, Georgia, 'Times New Roman', serif);
-    font-size: 16px; font-weight: 700; letter-spacing: .2px; color: var(--shs-ink-strong, #3c250a); }
-  .home-player { margin: 0; font-size: 22px; font-weight: 800; color: var(--shs-ink-strong, #3c250a); font-family: var(--shs-font-display); letter-spacing: 0.5px; line-height: 1.2; }
-  .home-line { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--shs-ink, #5a3a16); margin-top: 6px; }
-  .home-line svg { color: var(--shs-muted, #6f5e40); flex-shrink: 0; }
-  .home-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid var(--shs-border-strong, #cbb384); background: var(--shs-bg-inset, #f4ead0); color: var(--shs-ink, #5a3a16); }
-  .home-pill--ok { background: var(--shs-ok-bg, #e8f4e2); border-color: #b5d4a8; color: #2e5b2a; }
-  .home-pill--warn { background: #fdf6d8; border-color: #e8d588; color: #6b5518; }
-  .home-pill--err { background: var(--shs-danger-bg, #fceaea); border-color: var(--shs-danger, #c04038); color: var(--shs-danger, #c04038); }
-  .home-stat { display: flex; align-items: baseline; justify-content: space-between; padding: 7px 0; border-bottom: 1px dashed var(--shs-border, #e0cda0); font-size: 12.5px; color: var(--shs-ink, #5a3a16); }
-  .home-stat:last-child { border-bottom: none; }
-  .home-stat strong { font-size: 15px; color: var(--shs-ink-strong, #3c250a); font-variant-numeric: tabular-nums; }
-  .home-contact { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
-  .home-wa { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 8px; background: #6d3c14; color: #fff !important; font-size: 12.5px; font-weight: 600; text-decoration: none; border: none; cursor: pointer; }
-  .home-wa:hover { background: #834a1a; }
-  .home-phone { font-family: var(--shs-font-mono, monospace); font-size: 14px; color: var(--shs-ink-strong, #3c250a); font-weight: 600; font-variant-numeric: tabular-nums; }
-  .home-note { font-size: 11px; color: var(--shs-muted, #6f5e40); line-height: 1.5; margin-top: 8px; }
-  .home-tip { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; font-size: 12px; color: var(--shs-ink, #5a3a16); }
-  .home-tip svg { flex-shrink: 0; margin-top: 1px; color: var(--shs-brass, #b8860b); }
-  .home-act { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--shs-border, #e0cda0); font-size: 12px; }
+  .home { display: flex; flex-direction: column; gap: 16px; }
+  .home-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .home-title { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.015em; color: var(--shs-ink-strong); }
+  .home-sub { font-size: 13px; color: var(--shs-muted); margin-top: 4px; }
+  .home-card { background: var(--shs-bg-card); border: 1px solid var(--shs-border); border-radius: 12px; padding: 16px 18px; }
+  .home-card--halt { border: 1.5px solid var(--shs-danger); }
+  .home-halt-title { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; font-size: 15px; font-weight: 600; color: var(--shs-ink-strong); }
+  .home-halt-ic { width: 30px; height: 30px; border-radius: 8px; background: var(--shs-danger); color: #fff; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .home-line { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--shs-ink); margin-top: 6px; line-height: 1.45; }
+  .home-line svg { color: var(--shs-muted); flex-shrink: 0; margin-top: 2px; }
+  .home-resume { margin-top: 12px; }
+  .home-resume-err { margin-top: 8px; color: var(--shs-danger); font-weight: 600; font-size: 13px; }
+  .home-hero { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; padding: 20px 22px; }
+  .home-hero--aim { border-color: var(--shs-brass-line); background: var(--shs-brass-wash); }
+  .home-hero-main { display: flex; flex-direction: column; gap: 10px; flex: 1 1 320px; min-width: 0; }
+  .home-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .home-count { font-family: var(--shs-font-mono); font-size: 42px; font-weight: 500; letter-spacing: -.02em; line-height: 1;
+    color: var(--shs-ink-strong); font-variant-numeric: tabular-nums; }
+  .home-count small { font-size: 42px; color: var(--shs-brass); }
+  .home-route { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--shs-ink); }
+  .home-route .m { font-family: var(--shs-font-mono); font-variant-numeric: tabular-nums; }
+  .home-route .sep { color: var(--shs-ink-disabled); }
+  .home-hero-side { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+  .home-empty-title { font-size: 15px; font-weight: 600; color: var(--shs-ink-strong); }
+  .home-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .home-stat { display: flex; flex-direction: column; gap: 6px; }
+  .home-stat-lbl { font-size: 12px; color: var(--shs-muted); font-weight: 500; }
+  .home-stat-val { font-family: var(--shs-font-mono); font-size: 24px; font-weight: 500; color: var(--shs-ink-strong); font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .home-stat-val small { font-size: 15px; color: var(--shs-muted); }
+  .home-stat-hint { font-size: 12px; color: var(--shs-muted); line-height: 1.4; }
+  .home-list { padding: 0; overflow: hidden; }
+  .home-list-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--shs-border); }
+  .home-list-head b { font-size: 14px; font-weight: 600; color: var(--shs-ink-strong); }
+  .home-linkbtn { background: none; border: 0; padding: 4px 0; font: inherit; font-size: 12.5px; font-weight: 500; color: var(--shs-action); cursor: pointer; }
+  .home-linkbtn:hover { color: var(--shs-action-hover); text-decoration: underline; }
+  .home-act { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 6px 18px; border-bottom: 1px solid var(--shs-bg-inset); font-size: 13px; }
   .home-act:last-child { border-bottom: none; }
-  .home-act-name { font-weight: 600; color: var(--shs-ink-strong, #3c250a); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .home-act-msg { font-size: 11px; color: var(--shs-muted, #6f5e40); max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .home-act-next { font-size: 11px; color: var(--shs-ink, #5a3a16); font-variant-numeric: tabular-nums; }
-  .home-pill--run { background: #eaf3fb; border-color: #a9c9e6; color: #24537f; }
-  .home-pill--idle { background: var(--shs-bg-inset, #f4ead0); color: var(--shs-muted, #6f5e40); }
+  .home-act-name { font-weight: 500; color: var(--shs-ink-strong); flex: 0 0 190px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-act-msg { flex: 1; min-width: 0; color: var(--shs-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-act-next { font-family: var(--shs-font-mono); font-size: 12.5px; color: var(--shs-ink); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .home-act-empty { padding: 20px 18px; color: var(--shs-muted); font-size: 13px; }
+  .home-support { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--shs-muted); }
+  .home-phone { font-family: var(--shs-font-mono); color: var(--shs-ink-strong); font-variant-numeric: tabular-nums; }
+  @media (max-width: 720px) { .home-stats { grid-template-columns: 1fr; } .home-act-name { flex-basis: 130px; } }
 `;
 
 function ensureHomeStyles(container: HTMLElement): void {
@@ -63,21 +82,6 @@ function ensureHomeStyles(container: HTMLElement): void {
 
 /** Cartão da home; título nulo = card sem heading (o conteúdo abre o card —
  *  ver card da conta, [8]). */
-function card(titulo: string | null, iconName: IconName, full = false): { box: HTMLDivElement; body: HTMLDivElement } {
-  const box = document.createElement('div');
-  box.className = full ? 'home-card home-card--full' : 'home-card';
-  const body = document.createElement('div');
-  if (titulo !== null) {
-    // [8] Título do card é heading legítimo (h3 16px/700), não eyebrow.
-    const head = document.createElement('h3');
-    head.className = 'home-kicker';
-    head.appendChild(icon(iconName, 15));
-    head.appendChild(document.createTextNode(titulo));
-    box.appendChild(head);
-  }
-  box.appendChild(body);
-  return { box, body };
-}
 
 function line(iconName: IconName, text: string): HTMLElement {
   const el = document.createElement('div');
@@ -87,11 +91,6 @@ function line(iconName: IconName, text: string): HTMLElement {
   return el;
 }
 
-function fmtDate(epoch: number): string {
-  const d = new Date(epoch);
-  const p = (n: number): string => String(n).padStart(2, '0');
-  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
-}
 
 // [1] Status terminais do histórico do agendador (mesmo critério de
 // vivos×histórico da tela Comandos — tsh-commands-ui.ts/scheduler-state):
@@ -102,6 +101,19 @@ interface CommandRecordLike {
   sendAt?: unknown;
   paused?: unknown;
   events?: unknown;
+  sourceVillageId?: unknown;
+  sourceName?: unknown;
+  source?: unknown;
+  kind?: unknown;
+  target?: unknown;
+  arrivalAt?: unknown;
+  units?: unknown;
+}
+
+/** Origem do próximo comando (para dizer QUAL aba precisa estar aberta). */
+export interface NextSource {
+  villageId: string;
+  label: string;
 }
 
 /**
@@ -109,9 +121,19 @@ interface CommandRecordLike {
  * [1] Conta só registros VIVOS: `paused !== true` e o ÚLTIMO evento de
  * `events` sem status terminal — o histórico (enviado/incerto/falhou/removido)
  * e os pausados deixaram de inflar o número. nextAt = menor sendAt futuro
- * ENTRE os vivos.
+ * ENTRE os vivos. Onda 1: devolve também a ORIGEM do próximo (o lock é por
+ * aldeia — cada origem precisa da própria aba) e quantos saem em 30 min.
  */
-function nextScheduled(world: string): { count: number; nextAt: number | null } {
+export function nextScheduled(world: string): {
+  count: number;
+  nextAt: number | null;
+  nextSource: NextSource | null;
+  soon30: number;
+  nextKind: string | null;
+  nextTarget: string | null;
+  nextArrivalAt: number | null;
+  nextUnits: Record<string, number>;
+} {
   const state = gm.get<{ commands?: unknown[] }>(`tsh-auto:${world}:command-scheduler:scheduler`, {});
   const commands = Array.isArray(state.commands) ? state.commands : [];
   const vivos = commands.filter((raw): raw is CommandRecordLike => {
@@ -122,192 +144,374 @@ function nextScheduled(world: string): { count: number; nextAt: number | null } 
     const ultimo = events.at(-1);
     return !(ultimo !== undefined && typeof ultimo.status === 'string' && EVENTOS_TERMINAIS.has(ultimo.status));
   });
+  // Onda C: sendAt está no relógio do SERVIDOR — compara com o "agora" dele.
+  const agora = serverNowMs();
   const future = vivos
-    .map((c) => Date.parse(typeof c.sendAt === 'string' ? c.sendAt : ''))
-    .filter((t) => Number.isFinite(t) && t > Date.now())
-    .sort((a, b) => a - b);
-  return { count: vivos.length, nextAt: future[0] ?? null };
+    .map((c) => ({ c, t: Date.parse(typeof c.sendAt === 'string' ? c.sendAt : '') }))
+    .filter((x) => Number.isFinite(x.t) && x.t > agora)
+    .sort((a, b) => a.t - b.t);
+  const first = future[0];
+  let nextSource: NextSource | null = null;
+  if (first !== undefined && typeof first.c.sourceVillageId === 'string') {
+    const src = first.c.source as { x?: unknown; y?: unknown } | undefined;
+    const coord = src !== undefined && typeof src.x === 'number' && typeof src.y === 'number' ? `${src.x}|${src.y}` : '';
+    const name = typeof first.c.sourceName === 'string' ? first.c.sourceName : '';
+    nextSource = {
+      villageId: first.c.sourceVillageId.replace(/^n/, ''),
+      label: name !== '' && coord !== '' ? `${name} (${coord})` : name !== '' ? name : coord !== '' ? coord : `aldeia ${first.c.sourceVillageId}`,
+    };
+  }
+  const soon30 = future.filter((x) => x.t - agora <= 30 * 60_000).length;
+  const tgt = first?.c.target as { x?: unknown; y?: unknown } | undefined;
+  const arrival = first !== undefined && typeof first.c.arrivalAt === 'string' ? Date.parse(first.c.arrivalAt) : NaN;
+  return {
+    count: vivos.length,
+    nextAt: first?.t ?? null,
+    nextSource,
+    soon30,
+    nextKind: first !== undefined && typeof first.c.kind === 'string' ? first.c.kind : null,
+    nextTarget: tgt !== undefined && typeof tgt.x === 'number' && typeof tgt.y === 'number' ? `${tgt.x}|${tgt.y}` : null,
+    nextArrivalAt: Number.isFinite(arrival) ? arrival : null,
+    nextUnits:
+      first !== undefined && typeof first.c.units === 'object' && first.c.units !== null
+        ? (first.c.units as Record<string, number>)
+        : {},
+  };
 }
 
-/** Seção "Início" — registrada em main.ts como primeira entrada da sidebar. */
-export function renderHome(container: HTMLElement): void {
+/** Assinatura do que a Início mostra (muda → redesenha; Onda B "ao vivo"). */
+function homeSignature(world: string): string {
+  const sched = nextScheduled(world);
+  const vanta = vantaLaunchers()
+    .map((l) => (isVantaEnabled(l.id) ? 1 : 0))
+    .join('');
+  const halt = haltState();
+  return `${tshPanelSignature(world)}#${vanta}#${sched.count}:${sched.nextAt ?? ''}#${halt?.at ?? ''}`;
+}
+
+/**
+ * Seção "Início" — registrada em main.ts como primeira entrada da sidebar.
+ * Onda B: o Painel de Atividades é AO VIVO (verifica a cada 3s e redesenha
+ * quando algo muda); devolve a limpeza do timer ao shell.
+ */
+export function renderHome(container: HTMLElement): () => void {
+  const world = currentWorld();
+  drawHome(container);
+  let signature = homeSignature(world);
+  const timer = window.setInterval(() => {
+    if (aimIsHot()) return; // reta final de um cravado nesta página
+    const now = homeSignature(world);
+    if (now === signature) return;
+    signature = now;
+    const scroller = container.closest('.shs-body');
+    const top = scroller?.scrollTop ?? 0;
+    drawHome(container);
+    if (scroller !== null) scroller.scrollTop = top;
+  }, 3_000);
+  // Contagem do próximo cravado em ms (só texto — o resto redesenha a cada 3 s).
+  const live = window.setInterval(() => {
+    if (aimIsHot()) return;
+    const el = container.querySelector<HTMLElement>('[data-home-count]');
+    if (el === null) return;
+    paintCountdown(el, Number(el.dataset.homeCount) - serverNowMs());
+  }, 100);
+  return () => {
+    window.clearInterval(timer);
+    window.clearInterval(live);
+  };
+}
+
+function paintCountdown(el: HTMLElement, ms: number): void {
+  const left = Math.max(0, ms);
+  const total = Math.floor(left / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  const p = (n: number): string => String(n).padStart(2, '0');
+  const main = h > 0 ? `${h}:${p(m)}:${p(sec)}` : `${p(m)}:${p(sec)}`;
+  const msPart = `.${String(Math.floor(left % 1000)).padStart(3, '0')}`;
+  const small = document.createElement('small');
+  small.textContent = msPart;
+  el.replaceChildren(document.createTextNode(main), small);
+}
+
+const KIND_LABELS: Record<string, string> = { attack: 'Ataque', support: 'Apoio', noble: 'Nobre', fake: 'Fake', cancel: 'Cancelamento' };
+
+function pill(text: string, cls: string): HTMLSpanElement {
+  const el = document.createElement('span');
+  el.className = `shs-pill ${cls}`;
+  el.textContent = text;
+  return el;
+}
+
+function btn(label: string, iconName: IconName, cls: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = cls;
+  b.append(icon(iconName, 15), document.createTextNode(label));
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function drawHome(container: HTMLElement): void {
   ensureHomeStyles(container);
   container.replaceChildren();
-  const grid = document.createElement('div');
-  grid.className = 'home-grid';
+  const root = document.createElement('div');
+  root.className = 'home';
+  const world = currentWorld();
 
-  const license = licenseState();
-  const gctx = gameContext();
-  const ctx = {
-    player: gctx.player,
-    world: gctx.world,
-    coord: (() => {
-      const gd = pageWindow().game_data as { village?: { x?: number; y?: number; name?: string } } | undefined;
-      const v = gd?.village;
-      return v !== undefined && typeof v.x === 'number' && typeof v.y === 'number'
-        ? { coord: `${v.x}|${v.y}`, name: v.name ?? null }
-        : null;
-    })(),
-  };
+  // ── Cabeçalho ──
+  const head = document.createElement('div');
+  head.className = 'home-head';
+  const titles = document.createElement('div');
+  const h = document.createElement('h2');
+  h.className = 'home-title';
+  h.textContent = 'Início';
+  const sub = document.createElement('div');
+  sub.className = 'home-sub';
+  sub.textContent = 'Tudo o que o script está fazendo neste mundo.';
+  titles.append(h, sub);
+  const info = clockInfo();
+  const clockPill = pill(`Relógio do servidor ±${info.uncertaintyMs} ms`, info.uncertaintyMs <= 60 ? '' : 'shs-pill--warn');
+  clockPill.prepend(icon('clock', 13));
+  head.append(titles, clockPill);
+  root.appendChild(head);
 
-  // ── Conta & licença ──
-  // [8] Kicker ban: sem eyebrow "SUA CONTA" sobre o heading — o NOME do
-  // jogador é o título do card e as linhas seguem direto.
-  const conta = card(null, 'user');
-  const player = document.createElement('h3');
-  player.className = 'home-player';
-  player.textContent = ctx.player !== '' ? ctx.player : '—';
-  conta.body.appendChild(player);
-  conta.body.appendChild(line('globe', `Mundo ${ctx.world}`));
-  if (ctx.coord !== null) {
-    const nome = ctx.coord.name !== null && ctx.coord.name !== '' ? `${ctx.coord.name} (${ctx.coord.coord})` : ctx.coord.coord;
-    conta.body.appendChild(line('target', `Aldeia atual: ${nome}`));
-  }
-  const licPill = document.createElement('span');
-  if (license.kind === 'valida') {
-    licPill.className = 'home-pill home-pill--ok';
-    licPill.appendChild(icon('check', 11));
-    licPill.appendChild(
-      document.createTextNode(
-        license.licenseExpiresAt !== null ? `Licença válida até ${fmtDate(license.licenseExpiresAt)}` : 'Licença válida',
-      ),
+  // ── Disjuntor (Onda 1): captcha/sessão pausaram TUDO — sempre o primeiro. ──
+  const halt = haltState();
+  if (halt !== null) {
+    const aviso = document.createElement('section');
+    aviso.className = 'home-card home-card--halt';
+    aviso.setAttribute('role', 'alert');
+    const title = document.createElement('h3');
+    title.className = 'home-halt-title';
+    const ic = document.createElement('span');
+    ic.className = 'home-halt-ic';
+    ic.appendChild(icon('pause', 15));
+    title.append(ic, document.createTextNode(`Script pausado: ${haltLabel(halt)}`));
+    aviso.appendChild(title);
+    aviso.appendChild(line('clock', `Desde ${new Date(halt.at).toLocaleTimeString('pt-BR')}. ${halt.detail} Nenhuma automação roda e nenhum pedido sai para o jogo.`));
+    const schedHalt = nextScheduled(world);
+    if (schedHalt.soon30 > 0 && schedHalt.nextAt !== null) {
+      aviso.appendChild(
+        line('alert', `${schedHalt.soon30} comando(s) nos próximos 30 min (o próximo às ${clockLabelMs(schedHalt.nextAt)}) não saem enquanto estiver pausado, e comando que passa da hora não é reenviado.`),
+      );
+    }
+    aviso.appendChild(
+      line('info', halt.reason === 'captcha' ? 'Aperte F5: o jogo vai mostrar o desafio. Resolva-o e depois clique abaixo.' : 'Faça login de novo no jogo e depois clique abaixo.'),
     );
-  } else if (license.kind === 'graca') {
-    licPill.className = 'home-pill home-pill--warn';
-    licPill.appendChild(icon('clock', 11));
-    licPill.appendChild(document.createTextNode('Licença em modo offline (revalida ao recarregar)'));
-  } else {
-    licPill.className = 'home-pill home-pill--err';
-    licPill.appendChild(icon('alert', 11));
-    licPill.appendChild(document.createTextNode('Sem licença ativa'));
+    const recusa = document.createElement('div');
+    recusa.className = 'home-resume-err';
+    recusa.hidden = true;
+    const retomar = btn('Já resolvi, retomar', 'check', 'shs-btn home-resume', () => {
+      const motivo = tryResume();
+      if (motivo === null) {
+        drawHome(container);
+        return;
+      }
+      recusa.textContent = motivo;
+      recusa.hidden = false;
+    });
+    aviso.append(retomar, recusa);
+    root.appendChild(aviso);
   }
-  const licRow = document.createElement('div');
-  licRow.style.marginTop = '10px';
-  licRow.appendChild(licPill);
-  conta.body.appendChild(licRow);
-  grid.appendChild(conta.box);
 
-  // ── Panorama das ferramentas ──
-  const panorama = card('Panorama', 'zap');
-  const vantaOn = vantaLaunchers().filter((l) => isVantaEnabled(l.id)).length;
+  // ── Destaque: próximo cravado (contagem ao vivo em ms) ──
+  const sched = nextScheduled(world);
+  const hero = document.createElement('section');
+  if (sched.nextAt !== null) {
+    const perto = sched.nextAt - serverNowMs() <= 30 * 60_000;
+    // Âmbar só para cravado PRÓXIMO (≤ 30 min); distante = cartão neutro.
+    hero.className = perto ? 'home-card home-hero home-hero--aim' : 'home-card home-hero';
+    const main = document.createElement('div');
+    main.className = 'home-hero-main';
+    const chips = document.createElement('div');
+    chips.className = 'home-chips';
+    const nextChip = pill(perto ? 'Próximo cravado' : 'Próximo comando', perto ? 'shs-pill--warn' : '');
+    nextChip.prepend(icon('clock', 13));
+    chips.appendChild(nextChip);
+    // v3.2.2: quem envia o próximo comando — a mesma verdade do Condutor.
+    const proximo = nextAliveRecord(world);
+    if (!isTshEnabled('command-scheduler')) chips.appendChild(pill('Agendador desligado', 'shs-pill--error'));
+    else if (proximo !== undefined) {
+      const r = readinessOf(proximo, world);
+      chips.appendChild(
+        r === 'aqui'
+          ? pill('Esta aba envia', 'shs-pill--ok')
+          : r === 'pronta'
+            ? pill('Pronta na Praça', 'shs-pill--ok')
+            : r === 'fundo'
+              ? pill('Sai em 2º plano', 'shs-pill--ok')
+              : r === 'automatico'
+              ? pill('Aba vai à Praça', '')
+              : pill('Sem aba na Praça', perto ? 'shs-pill--error' : ''),
+      );
+    }
+    const count = document.createElement('div');
+    count.className = 'home-count';
+    count.dataset.homeCount = String(sched.nextAt);
+    paintCountdown(count, sched.nextAt - serverNowMs());
+    const route = document.createElement('div');
+    route.className = 'home-route';
+    const m = (t: string): HTMLSpanElement => {
+      const el = document.createElement('span');
+      el.className = 'm';
+      el.textContent = t;
+      return el;
+    };
+    const dot = (): HTMLSpanElement => {
+      const el = document.createElement('span');
+      el.className = 'sep';
+      el.textContent = '·';
+      return el;
+    };
+    const kIcon = kindIcon(sched.nextKind ?? '', 18);
+    if (kIcon !== null) route.append(kIcon);
+    route.append(document.createTextNode(KIND_LABELS[sched.nextKind ?? ''] ?? 'Comando'));
+    const src = sched.nextSource;
+    if (src !== null && sched.nextTarget !== null) {
+      route.append(m(src.label.replace(/^.*\(([^)]+)\)$/, '$1')), icon('arrowRight', 14), m(sched.nextTarget));
+    }
+    route.append(dot(), document.createTextNode('sai'), m(clockLabelMs(sched.nextAt)));
+    if (sched.nextArrivalAt !== null) route.append(dot(), document.createTextNode('chega'), m(clockLabelMs(sched.nextArrivalAt)));
+    main.append(chips, count, route);
+    // v3.3.0: tropas do próximo com "Todas" (a faixa pura só via as fixas).
+    const nextRec = nextAliveRecord(world);
+    if (nextRec !== undefined && nextRec.kind !== 'cancel') main.appendChild(commandUnitStrip(nextRec, { size: 18 }));
+    else if (Object.values(sched.nextUnits).some((n) => n > 0)) main.appendChild(unitStrip(sched.nextUnits, { size: 18 }));
+    const side = document.createElement('div');
+    side.className = 'home-hero-side';
+    side.appendChild(btn('Abrir Comandos', 'crosshair', 'shs-btn shs-btn-ghost', () => openSection('comandos')));
+    hero.append(main, side);
+  } else {
+    hero.className = 'home-card home-hero';
+    const main = document.createElement('div');
+    main.className = 'home-hero-main';
+    const t = document.createElement('div');
+    t.className = 'home-empty-title';
+    t.textContent = 'Nenhum cravado agendado';
+    const d = document.createElement('div');
+    d.className = 'home-stat-hint';
+    d.textContent = 'Agende ataques, apoios e nobres pela hora do servidor, com milissegundos.';
+    main.append(t, d);
+    hero.append(
+      main,
+      btn('Agendar comando', 'plus', 'shs-btn', () => {
+        openSection('comandos');
+        void openSchedulerCommands(ensureHost(), currentWorld(), () => undefined, 'form');
+      }),
+    );
+  }
+  root.appendChild(hero);
+
+  // ── Três números ──
   const autos = tshAutomations();
-  const autoOn = autos.filter((a) => isTshEnabled(a.id));
-  const armados = autos.filter((a) => a.mutating && a.armExempt !== true && Date.now() < tshArmedUntil(a.id)).length;
-  const sched = nextScheduled(ctx.world);
-  const stat = (label: string, value: string): HTMLElement => {
-    const row = document.createElement('div');
-    row.className = 'home-stat';
+  const ativos = autos.filter((a) => isTshEnabled(a.id));
+  const precisaArmar = ativos.filter((a) => a.mutating && a.armExempt !== true && Date.now() >= tshArmedUntil(a.id));
+  const stats = document.createElement('div');
+  stats.className = 'home-stats';
+  const tile = (label: string, value: string, suffix: string, hint: string): HTMLElement => {
+    const box = document.createElement('div');
+    box.className = 'home-card home-stat';
     const l = document.createElement('span');
+    l.className = 'home-stat-lbl';
     l.textContent = label;
-    const v = document.createElement('strong');
+    const v = document.createElement('span');
+    v.className = 'home-stat-val';
     v.textContent = value;
-    row.append(l, v);
-    return row;
+    if (suffix !== '') {
+      const small = document.createElement('small');
+      small.textContent = suffix;
+      v.appendChild(small);
+    }
+    const hEl = document.createElement('span');
+    hEl.className = 'home-stat-hint';
+    hEl.textContent = hint;
+    box.append(l, v, hEl);
+    return box;
   };
-  panorama.body.appendChild(stat('Ferramentas Vanta ativas', `${vantaOn}/${vantaLaunchers().length}`));
-  panorama.body.appendChild(stat('Automações ativas', `${autoOn.length}/${autos.length}`));
-  panorama.body.appendChild(stat('Automações armadas', String(armados)));
-  panorama.body.appendChild(
-    stat(
-      'Comandos agendados',
-      sched.count === 0 ? '0' : sched.nextAt !== null ? `${sched.count} · próximo ${fmtDate(sched.nextAt)} ${new Date(sched.nextAt).toLocaleTimeString('pt-BR')}` : String(sched.count),
+  stats.appendChild(tile('Comandos agendados', String(sched.count), '', sched.soon30 > 0 ? `${sched.soon30} nos próximos 30 min` : 'nenhum nos próximos 30 min'));
+  stats.appendChild(
+    tile('Automações ativas', String(ativos.length), ` / ${autos.length}`, ativos.length === 0 ? 'nenhuma ligada' : precisaArmar.length > 0 ? `${precisaArmar.length} esperando sua autorização (armar)` : 'todas prontas'),
+  );
+  const erro = info.lastArrivalErrorMs;
+  stats.appendChild(
+    tile(
+      'Precisão dos cravados',
+      erro === null ? '—' : `${erro >= 0 ? '+' : ''}${erro} ms`,
+      '',
+      info.feedbackCount > 0 ? `última chegada conferida · ${info.feedbackCount} no total` : 'aparece após o 1º cravado conferido',
     ),
   );
-  grid.appendChild(panorama.box);
+  root.appendChild(stats);
 
-  // ── Painel de Atividades (status ao vivo das automações) ──
-  const atividades = card('Painel de Atividades', 'activity', true);
-  const ativos = autos.filter((a) => isTshEnabled(a.id));
-  const resumo = document.createElement('div');
-  resumo.className = 'home-note';
-  resumo.style.marginBottom = '6px';
-  resumo.textContent =
-    ativos.length === 0
-      ? 'Nenhuma automação ativa — ative módulos na aba Automações para acompanhá-los aqui.'
-      : `${ativos.length} de ${autos.length} automações ativas neste mundo. Mensagens do último ciclo aparecem ao lado de cada uma.`;
-  atividades.body.appendChild(resumo);
-  const fmtHora = (epoch: number): string => {
-    const d = new Date(epoch);
-    const p = (n: number): string => String(n).padStart(2, '0');
-    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-  };
+  // ── Atividade (automações ligadas) ──
+  const list = document.createElement('section');
+  list.className = 'home-card home-list';
+  const lh = document.createElement('div');
+  lh.className = 'home-list-head';
+  const lt = document.createElement('b');
+  lt.textContent = 'Atividade';
+  const ver = document.createElement('button');
+  ver.type = 'button';
+  ver.className = 'home-linkbtn';
+  ver.textContent = 'Ver automações';
+  ver.addEventListener('click', () => openSection('tsh'));
+  lh.append(lt, ver);
+  list.appendChild(lh);
+  if (ativos.length === 0) {
+    const e = document.createElement('div');
+    e.className = 'home-act-empty';
+    e.textContent = 'Nenhuma automação ligada. Ligue as que quiser em Automações.';
+    list.appendChild(e);
+  }
   for (const auto of ativos) {
     const row = document.createElement('div');
     row.className = 'home-act';
+    const schedule = loadSchedule(world, auto.id);
+    const status = tshStatus(auto.id, world);
+    const needsArm = precisaArmar.includes(auto);
+    const dotEl = document.createElement('span');
+    dotEl.className = `shs-dot${
+      isScheduleStopped(schedule) ? ' shs-dot--off' : status?.kind === 'warn' ? ' shs-dot--err' : needsArm ? ' shs-dot--off' : ''
+    }`;
     const name = document.createElement('span');
     name.className = 'home-act-name';
     name.textContent = auto.label;
-    row.appendChild(name);
-    const schedule = loadSchedule(ctx.world, auto.id);
-    const status = tshStatus(auto.id, ctx.world);
-    const pill = document.createElement('span');
-    if (isScheduleStopped(schedule)) {
-      pill.className = 'home-pill home-pill--warn';
-      pill.textContent = 'Parada';
-    } else if (status !== null && status.kind === 'warn') {
-      pill.className = 'home-pill home-pill--err';
-      pill.textContent = 'Atenção';
-    } else if (status !== null && status.kind === 'ok') {
-      pill.className = 'home-pill home-pill--ok';
-      pill.textContent = 'OK';
-    } else {
-      pill.className = 'home-pill home-pill--run';
-      pill.textContent = 'Em giro';
-    }
-    row.appendChild(pill);
-    if (status !== null && status.message !== '') {
-      const msg = document.createElement('span');
-      msg.className = 'home-act-msg';
-      msg.title = `${fmtHora(status.at)} — ${status.message}`;
-      msg.textContent = status.message;
-      row.appendChild(msg);
-    }
-    const nextAt = tshNextRunAt(auto.id, ctx.world);
+    const msg = document.createElement('span');
+    msg.className = 'home-act-msg';
+    msg.textContent = isScheduleStopped(schedule) ? 'Parada programada atingida' : needsArm ? 'Armar para autorizar ações' : (status?.message ?? 'Aguardando o primeiro ciclo');
+    if (status !== null) msg.title = status.message;
+    row.append(dotEl, name, msg);
+    const nextAt = tshNextRunAt(auto.id, world);
     if (nextAt !== null && nextAt > Date.now()) {
       const next = document.createElement('span');
       next.className = 'home-act-next';
-      next.textContent = `próx. ${fmtHora(nextAt)}`;
+      const falta = Math.max(0, Math.round((nextAt - Date.now()) / 1000));
+      const p = (n: number): string => String(n).padStart(2, '0');
+      next.textContent = `em ${p(Math.floor(falta / 60))}:${p(falta % 60)}`;
+      next.title = 'Próximo ciclo';
       row.appendChild(next);
     }
-    atividades.body.appendChild(row);
+    list.appendChild(row);
   }
-  grid.appendChild(atividades.box);
+  root.appendChild(list);
 
-  // ── Contato / suporte ──
-  const contato = card('Contato & suporte', 'phone');
-  const contactRow = document.createElement('div');
-  contactRow.className = 'home-contact';
+  // ── Suporte (discreto) ──
+  const support = document.createElement('div');
+  support.className = 'home-support';
+  support.appendChild(icon('message', 14));
+  support.appendChild(document.createTextNode('Suporte Toxic Squad:'));
   const phone = document.createElement('span');
   phone.className = 'home-phone';
   phone.textContent = SUPPORT_PHONE;
   const wa = document.createElement('a');
-  wa.className = 'home-wa';
   wa.href = SUPPORT_WA;
   wa.target = '_blank';
   wa.rel = 'noopener';
-  wa.appendChild(icon('message', 14));
-  wa.appendChild(document.createTextNode('Falar no WhatsApp'));
-  contactRow.append(phone, wa);
-  contato.body.appendChild(contactRow);
-  const note = document.createElement('div');
-  note.className = 'home-note';
-  note.textContent = 'Dúvidas, problemas ou sugestões: chame no WhatsApp da Toxic Squad. A chave de ativação é pessoal — não compartilhe.';
-  contato.body.appendChild(note);
-  grid.appendChild(contato.box);
+  wa.textContent = 'WhatsApp';
+  support.append(phone, wa);
+  root.appendChild(support);
 
-  // ── Dicas rápidas ──
-  const dicas = card('Dicas rápidas', 'info', true);
-  const tip = (iconName: IconName, text: string): void => {
-    const row = document.createElement('div');
-    row.className = 'home-tip';
-    row.appendChild(icon(iconName, 13));
-    row.appendChild(document.createTextNode(text));
-    dicas.body.appendChild(row);
-  };
-  tip('clock', 'A janela do painel pode ser arrastada pelo cabeçalho — e duplo clique nele maximiza/restaura.');
-  tip('check', 'Na aba Automações, cada módulo nasce desligado: ative, configure o intervalo em minutos e "arme" os que agem no jogo.');
-  tip('info', 'Cada módulo da Suite Vanta injeta na própria tela do jogo (incomings, mapa, academia…) — abra a tela e clique em "Montar".');
-  grid.appendChild(dicas.box);
-
-  container.appendChild(grid);
+  container.appendChild(root);
 }
