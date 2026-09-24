@@ -9,14 +9,14 @@ describe('tema único (Onda D)', () => {
     expect(css).toContain('--shs-radius:');
   });
   it('hex → token (sem diferenciar maiúsculas)', () => {
-    expect(tokenForHex('#6D3C14')).toBe('action');
+    expect(tokenForHex('#2E6B3E')).toBe('action');
     expect(tokenForHex('#123456')).toBeNull();
   });
-  it('fora os aliases de texto (on-*), não há duas variáveis com a mesma cor', () => {
-    const values = Object.entries(THEME_TOKENS)
-      .filter(([name]) => !name.startsWith('on-'))
-      .map(([, value]) => value);
-    expect(new Set(values).size).toBe(values.length);
-    expect(tokenForHex('#f5ecd0')).toBe('warn-bg');
+  it('papéis de cor do "Instrumento": acento, mira e pausa são cores DISTINTAS', () => {
+    // Tokens podem compartilhar valor (superfícies brancas, ok = acento), mas
+    // os três significados que o jogador precisa distinguir nunca colidem.
+    const roles = [THEME_TOKENS.action, THEME_TOKENS.brass, THEME_TOKENS.danger];
+    expect(new Set(roles).size).toBe(3);
+    expect(tokenForHex('#fbf0dc')).toBe('warn-bg');
   });
 });

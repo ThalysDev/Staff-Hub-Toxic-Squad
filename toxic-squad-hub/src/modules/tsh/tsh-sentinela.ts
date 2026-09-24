@@ -24,6 +24,8 @@ import { icon } from '../../core/icons';
 import type { ModuleScope } from '../vanta/vanta-lifecycle';
 import { currentVillageId } from '../vanta/vanta-net';
 import { activeTshCount } from './tsh-runtime';
+import { tshConfirm } from './tsh-settings-ui';
+import { ensureHost } from '../../core/shell';
 
 // ── Registro dos plugins novos da Onda 5 (efeito colateral) ────────────────
 // O index da suíte (./index) não é desta onda, então o registro dos módulos
@@ -102,16 +104,18 @@ function ensureFabStyle(): void {
   if (document.getElementById(FAB_STYLE_ID) !== null) return;
   const style = document.createElement('style');
   style.id = FAB_STYLE_ID;
+  // Instrumento (v3.2): à DIREITA do escudo (60 + 44 + 8 px), branco e discreto.
   style.textContent = `
-    #${FAB_ID} { position: fixed; left: 62px; bottom: 14px; z-index: 2147482999;
-      display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px;
-      border-radius: 9px; cursor: pointer; opacity: .72;
-      border: 1px solid var(--shs-action-dark, #4a2708); background: rgba(74,39,8,.92); color: #e6d6ae;
-      font: 600 11px/1 system-ui, -apple-system, Segoe UI, sans-serif;
-      letter-spacing: .3px; box-shadow: 0 2px 8px rgba(40,24,6,.35); }
-    #${FAB_ID}:hover { opacity: 1; border-color: #b8933f; color: var(--shs-on-dark, #f5ecd0); }
-    #${FAB_ID}:focus-visible { outline: 2px solid #b8933f; outline-offset: 2px; opacity: 1; }
+    #${FAB_ID} { position: fixed; left: 112px; bottom: 16px; z-index: 2147482999;
+      display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 11px; box-sizing: border-box;
+      border-radius: 9px; cursor: pointer; border: 1px solid var(--shs-border-strong, #d4d0c7);
+      background: var(--shs-bg-card, #ffffff); color: var(--shs-ink, #34312c);
+      font: 500 12.5px/1 var(--shs-font, 'Segoe UI', system-ui, sans-serif);
+      box-shadow: 0 2px 8px rgba(20,18,14,.18); }
+    #${FAB_ID}:hover { color: var(--shs-ink-strong, #1b1a17); border-color: var(--shs-ink-disabled, #a9a49a); }
+    #${FAB_ID}:focus-visible { outline: 2px solid var(--shs-action, #2e6b3e); outline-offset: 2px; }
   `;
+
   document.head.appendChild(style);
 }
 
@@ -135,15 +139,15 @@ export function mountSentinelaLauncher(): void {
   rotulo.textContent = 'Sentinela';
   fab.appendChild(rotulo);
   fab.addEventListener('click', () => {
-    const confirmado = window.confirm(
-      'Abrir o Modo Sentinela?\n\n' +
-        'Isso abre uma ABA DE FUNDO do jogo (Visão das Aldeias) com o Toxic Squad Hub em modo Sentinela: ' +
-        'ela mantém as automações que você já ativou ciclando mesmo com o painel fechado.\n\n' +
-        'Deixe UMA aba do mundo aberta por vez — o próprio script trava por mundo e nenhuma ação é duplicada.\n\n' +
-        'Módulos presos a uma tela (Academia, Mercado, Inventário…) só rodam quando essa tela estiver aberta na Sentinela.',
-    );
-    if (!confirmado) return;
-    openSentinelaTab(currentVillageId());
+    // Mesmo diálogo do painel (antes: window.confirm nativo do navegador).
+    void tshConfirm(
+      ensureHost(),
+      'Abrir o Modo Sentinela',
+      'Abre uma aba de fundo do jogo que mantém as automações ligadas rodando, mesmo com o painel fechado. ' +
+        'Nada é duplicado: o script trava por mundo. Automações presas a uma tela (Academia, Mercado, Inventário) só rodam quando essa tela estiver aberta na Sentinela.',
+    ).then((confirmado) => {
+      if (confirmado) openSentinelaTab(currentVillageId());
+    });
   });
   document.body.appendChild(fab);
 }

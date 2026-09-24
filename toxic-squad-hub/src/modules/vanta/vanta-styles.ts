@@ -34,7 +34,7 @@ export function ensureVantaStyles(): void {
             font-weight: 700;
             letter-spacing: 2px;
             color: var(--shs-ink-strong, #3c250a);
-            text-transform: uppercase;
+            text-transform: none;
         }
         #vanta-apoio-body {
             padding: 12px 14px;
@@ -134,7 +134,7 @@ export function ensureVantaStyles(): void {
         .vanta-apoio-input-group span {
             font-size: 9px;
             color: var(--shs-muted, #6f5e40);
-            text-transform: uppercase;
+            text-transform: none;
             letter-spacing: 0.8px;
         }
         .vanta-apoio-datetime {
@@ -184,7 +184,7 @@ export function ensureVantaStyles(): void {
         .vanta-apoio-select-label {
             font-size: 9px;
             color: var(--shs-muted, #6f5e40);
-            text-transform: uppercase;
+            text-transform: none;
             letter-spacing: 0.8px;
         }
         .vanta-apoio-select {
@@ -306,7 +306,7 @@ export function ensureVantaStyles(): void {
             text-align: left !important;
             color: var(--shs-muted, #6f5e40) !important;
             font-size: 10px;
-            text-transform: uppercase;
+            text-transform: none;
             letter-spacing: 0.6px;
             white-space: nowrap;
         }
@@ -412,7 +412,7 @@ export function ensureVantaStyles(): void {
             font-weight: 700;
             letter-spacing: 2px;
             color: var(--shs-ink-strong, #3c250a);
-            text-transform: uppercase;
+            text-transform: none;
         }
         #vanta-coletor-close {
             background: none;
@@ -630,7 +630,7 @@ export function ensureVantaStyles(): void {
             font-weight: 700;
             letter-spacing: 2px;
             color: var(--shs-accent-ink, #8a5a1e);
-            text-transform: uppercase;
+            text-transform: none;
         }
         #vanta-blindagem-table-wrap {
             padding: 10px 12px 12px;
@@ -708,7 +708,7 @@ export function ensureVantaStyles(): void {
         .vanta-b-devolver-btn:last-child, .vanta-b-devolver-parcial-btn:last-child, .vanta-b-analise-grupo-btn:last-child { border-bottom: none; }
         .vanta-b-devolver-btn:hover, .vanta-b-devolver-parcial-btn:hover, .vanta-b-analise-grupo-btn:hover { background: var(--shs-bg-head, #efe2ba); color: var(--shs-action-hover, #834a1a); }
         #vanta-analise-section { margin-top: 8px; border-top: 1px solid var(--shs-border, #e0cda0); }
-        #vanta-analise-header { background: var(--shs-bg-head, #efe2ba); padding: 6px 12px; font-size: 11px; font-weight: 700; color: var(--shs-accent-ink, #8a5a1e); text-transform: uppercase; letter-spacing: 0.5px; }
+        #vanta-analise-header { background: var(--shs-bg-head, #efe2ba); padding: 6px 12px; font-size: 11px; font-weight: 700; color: var(--shs-accent-ink, #8a5a1e); text-transform: none; letter-spacing: 0.5px; }
         #vanta-ag-summary { padding: 6px 12px; font-size: 11px; color: var(--shs-muted, #6f5e40); cursor: pointer; display: flex; align-items: center; gap: 6px; }
         #vanta-ag-summary:hover { color: var(--shs-action-hover, #834a1a); }
         #vanta-ag-summary .vanta-ag-arrow { font-size: 9px; transition: transform 0.15s; }
@@ -807,7 +807,7 @@ export function ensureVantaStyles(): void {
             font-weight: 700;
             letter-spacing: 2px;
             color: var(--shs-accent-ink, #8a5a1e);
-            text-transform: uppercase;
+            text-transform: none;
         }
         #vanta-ao-table-wrap {
             padding: 10px 12px 12px;
@@ -929,7 +929,7 @@ export function ensureVantaStyles(): void {
             background: var(--shs-bg-head, #efe2ba); padding: 6px 10px; display: flex; align-items: center; justify-content: space-between;
         }
         #vanta-etiquetador-header-title {
-            color: var(--shs-accent-ink, #8a5a1e); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+            color: var(--shs-accent-ink, #8a5a1e); font-weight: 700; font-size: 12px; text-transform: none; letter-spacing: 1px;
         }
         #vanta-etiquetador-body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
         #vanta-etiquetador-body label { color: var(--shs-ink, #5a3a16); font-size: 12px; display: flex; align-items: center; gap: 8px; }
@@ -960,7 +960,7 @@ export function ensureVantaStyles(): void {
             background: var(--shs-bg-head, #efe2ba); padding: 6px 10px; display: flex; align-items: center; justify-content: space-between;
         }
         #vanta-cunhar-header-title {
-            color: var(--shs-accent-ink, #8a5a1e); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+            color: var(--shs-accent-ink, #8a5a1e); font-weight: 700; font-size: 12px; text-transform: none; letter-spacing: 1px;
         }
         #vanta-cunhar-body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
         #vanta-cunhar-body label { color: var(--shs-ink, #5a3a16); font-size: 12px; display: flex; align-items: center; gap: 8px; }

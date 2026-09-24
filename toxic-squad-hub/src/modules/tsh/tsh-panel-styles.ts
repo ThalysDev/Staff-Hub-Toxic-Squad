@@ -4,6 +4,8 @@
 // antes/sem o re-theme do shell) + constantes exclusivas do Nexus (lavanda,
 // divisória tracejada, gradiente do cabeçalho do modal). Prefixo tsh-*.
 
+import { TSH_INSTRUMENTO_CSS } from './tsh-instrumento-styles';
+
 export function ensureTshPanelStyles(shadow: ShadowRoot): void {
   if (shadow.getElementById('tsh-panel-styles') !== null) return;
   const style = document.createElement('style');
@@ -804,6 +806,6 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
       padding: 4px 0; list-style-position: inside;
     }
     .tsh-history > summary:hover { color: var(--shs-ink, #5a3a16); }
-  `;
+  ` + TSH_INSTRUMENTO_CSS; // redesign v3.2 — vem por último e vence
   shadow.appendChild(style);
 }

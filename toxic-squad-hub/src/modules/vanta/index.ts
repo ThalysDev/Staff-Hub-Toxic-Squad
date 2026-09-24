@@ -133,6 +133,29 @@ const VTS_STYLES = `
   .vts-open:disabled { color: #b3a37f; cursor: not-allowed; }
   .vts-foot { margin-top: 10px; font-size: 10.5px; color: var(--shs-muted, #6f5e40); }
   .vts-empty { padding: 10px 2px; font-size: 12px; color: var(--shs-muted, #6f5e40); }
+
+  /* ---- Instrumento (redesign v3.2): mesma linguagem de Automações ---- */
+  .vts-wrap { background: transparent; border: 0; border-radius: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+  .vts-head { gap: 10px; }
+  .vts-title { font-size: 20px; font-weight: 600; letter-spacing: -.015em; color: var(--shs-ink-strong); }
+  .vts-count { height: 24px; padding: 0 9px; display: inline-flex; align-items: center; border: 0; border-radius: 999px;
+    background: var(--shs-bg-inset); color: var(--shs-ink); font-size: 12px; font-weight: 500; font-family: var(--shs-font-mono); }
+  .vts-group { margin: 6px 0 0; font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--shs-ink-strong); }
+  .vts-group .shs-ic { color: var(--shs-muted); }
+  .vts-group-count { background: none; padding: 0; font-family: var(--shs-font-mono); font-size: 12px; font-weight: 400; color: var(--shs-muted); }
+  .vts-rows { background: var(--shs-bg-card); border: 1px solid var(--shs-border); border-radius: 12px; overflow: hidden; }
+  .vts-row { min-height: 56px; box-sizing: border-box; padding: 8px 12px 8px 16px; gap: 12px; background: var(--shs-bg-card); }
+  .vts-row + .vts-row { border-top: 1px solid var(--shs-bg-inset); }
+  .vts-row:hover { background: var(--shs-bg-side); }
+  .vts-ic { width: 32px; height: 32px; border-radius: 8px; background: var(--shs-bg-inset); color: var(--shs-ink) !important; }
+  .vts-name { font-size: 13.5px; font-weight: 500; color: var(--shs-ink-strong); }
+  .vts-desc { font-size: 12px; color: var(--shs-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .vts-chip { height: 24px; padding: 0 9px; display: inline-flex; align-items: center; font-size: 12px; font-weight: 500; }
+  .vts-chip--here { background: var(--shs-ok-bg); color: var(--shs-ok-ink); }
+  .vts-go { width: 32px; height: 32px; background: var(--shs-action); }
+  .vts-go:hover:not(:disabled) { background: var(--shs-action-hover); }
+  .vts-open { width: 32px; height: 32px; border-radius: 9px; }
+  .vts-foot { font-size: 12px; }
 `;
 
 /** Injeta (1×, idempotente por id) o <style> da seção no root do container. */
@@ -283,7 +306,7 @@ export function renderVantaSuite(container: HTMLElement): void {
   head.className = 'vts-head';
   const title = document.createElement('div');
   title.className = 'vts-title';
-  title.textContent = 'Suite Vanta';
+  title.textContent = 'Ferramentas';
   const ativos = all.filter((launcher) => isVantaEnabled(launcher.id)).length;
   const count = document.createElement('span');
   count.className = 'vts-count';
@@ -296,7 +319,7 @@ export function renderVantaSuite(container: HTMLElement): void {
     if (items.length === 0) return;
     const ghead = document.createElement('div');
     ghead.className = 'vts-group';
-    ghead.appendChild(icon(GROUP_ICONS[group], 12));
+    ghead.appendChild(icon(GROUP_ICONS[group], 14));
     const glabel = document.createElement('span');
     glabel.textContent = groupLabel(group);
     const gcount = document.createElement('span');
@@ -306,7 +329,10 @@ export function renderVantaSuite(container: HTMLElement): void {
     wrap.appendChild(ghead);
     // Onda C: as ferramentas desta página primeiro (o resto mantém a ordem).
     const ordenados = [...items].sort((a, b) => Number(b.match()) - Number(a.match()));
-    ordenados.forEach((launcher) => wrap.appendChild(launcherRow(launcher, rerender)));
+    const rows = document.createElement('div');
+    rows.className = 'vts-rows'; // cartão do grupo (Instrumento)
+    ordenados.forEach((launcher) => rows.appendChild(launcherRow(launcher, rerender)));
+    wrap.appendChild(rows);
   });
 
   const foot = document.createElement('div');

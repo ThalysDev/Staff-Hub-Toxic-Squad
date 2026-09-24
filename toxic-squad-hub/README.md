@@ -4,9 +4,19 @@ Automação do **jogo individual** do jogador no Tribal Wars BR — fusão da **
 
 > Escopo: ferramenta do JOGADOR. Gestão de tribo/OPs é papel do **Staff Hub Toxic Squad** (app + userscript In-Game `../userscript`) — produto separado, que segue intacto.
 
-- **Versão:** 3.1.0 "Precisão & Polimento" (ver `version.json` — o header TM precisa bater, o build valida)
+- **Versão:** 3.2.0 "Instrumento" (ver `version.json` — o header TM precisa bater, o build valida)
 - **Canal:** `http://74.0.5.75/staffhub/scripts/toxic-squad-hub.user.js` (+ `.meta.js` para update check)
 - **Artefato:** `dist/toxic-squad-hub.user.js` — **ofuscado** (o header TM fica limpo; o corpo passa por `javascript-obfuscator` determinístico, seed fixa)
+
+## v3.2.0 — Instrumento (redesign)
+
+Redesenho completo aprovado no Claude Design: painel neutro claro, **um** acento verde, âmbar só para cravado próximo e vermelho só para pausa/falha; horários, coordenadas e ms em fonte mono (Cascadia/Consolas); fontes do sistema (nada baixado a cada página).
+
+- **Navegação por tarefa:** Início · **Comandos** (seção própria: relógio do servidor, aviso de aldeias de origem, próximos comandos ao vivo) · Automações · **Ferramentas** (ex-Suite Vanta) · Ajuda — com contadores na barra lateral e licença/aldeia no rodapé dela.
+- **Início:** próximo cravado em destaque com contagem em ms, 3 indicadores (comandos, automações, precisão real das chegadas conferidas) e atividade.
+- **Automações:** uma linha por automação (nome, estado, próximo ciclo, configurar, liga/desliga), grupos em cartões, "Armar" só nas ligadas.
+- Diálogos, Central de comandos, Ferramentas, faixa de pausa, escudo (tinta · âmbar · vermelho) e botão Sentinela no mesmo sistema; ícones oficiais do jogo nas grades de tropas.
+- Inclui a **3.1.2** (Onda 1: viagem corrigida, lock por aldeia, disjuntor de captcha).
 
 ## v3.1.0 — Precisão & Polimento (23/09/2026)
 

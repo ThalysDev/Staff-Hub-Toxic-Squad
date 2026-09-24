@@ -1505,7 +1505,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   // Relógio vivo (Onda A): UM interval de 250ms enquanto a tela está aberta —
   // atualiza a hora do servidor e as contagens [data-tsh-eta]; some ao fechar.
   let liveTimer: number | undefined;
-  const { body, foot, requestClose, markClean } = buildTshModal(shadow, 'Comandos — Agendador', 'clock', {
+  const { body, foot, requestClose, markClean } = buildTshModal(shadow, 'Central de comandos', 'crosshair', {
     onClose: () => {
       if (liveTimer !== undefined) window.clearInterval(liveTimer);
     },

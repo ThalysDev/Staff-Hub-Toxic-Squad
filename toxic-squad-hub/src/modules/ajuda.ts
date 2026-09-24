@@ -11,7 +11,7 @@ const AJUDA_CSS = `
   .ajuda-card { background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border, #e0cda0); border-radius: 10px; padding: 14px 16px; }
   .ajuda-card--full { grid-column: 1 / -1; }
   .ajuda-title { display: flex; align-items: center; gap: 7px; margin: 0 0 10px;
-    font-family: var(--shs-font-display, Georgia, serif); font-size: 16px; font-weight: 700;
+    font-family: var(--shs-font); font-size: 15px; font-weight: 600;
     color: var(--shs-ink-strong, #3c250a); }
   .ajuda-item { padding: 6px 0; border-bottom: 1px dashed var(--shs-border, #e0cda0); font-size: 12.5px; color: var(--shs-ink, #5a3a16); line-height: 1.55; }
   .ajuda-item:last-child { border-bottom: none; }
@@ -95,7 +95,7 @@ export function renderAjuda(container: HTMLElement): void {
   const sentinela = card('Modo Sentinela', 'eye');
   item(sentinela.body, 'O botão da Sentinela abre **uma aba de fundo do jogo** que mantém as automações ciclando enquanto você faz outra coisa.');
   item(sentinela.body, 'O cadeado impede duas abas de enviarem a mesma coisa: no **Agendador** ele vale **por aldeia** (uma aba por origem); nas outras automações vale por mundo, e a Sentinela e a aba normal se revezam sem duplicar.');
-  item(sentinela.body, '**Captcha ou sessão expirada pausam tudo** (automações e pedidos ao jogo) no mundo afetado. Resolva no jogo e clique em **Já resolvi — retomar** (faixa vermelha no topo ou aba Início).');
+  item(sentinela.body, '**Captcha ou sessão expirada pausam tudo** (automações e pedidos ao jogo) no mundo afetado. Resolva no jogo e clique em **Já resolvi, retomar** (faixa vermelha no topo ou aba Início).');
   grid.appendChild(sentinela.box);
 
   const seguranca = card('Uso consciente', 'alert');

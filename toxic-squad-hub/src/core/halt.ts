@@ -1,6 +1,6 @@
 // Disjuntor global (Onda 1 · 3.1.2): captcha ou sessão expirada PARAM o
 // script inteiro — nenhuma automação roda e nenhum pedido sai para o jogo até
-// o jogador resolver no próprio navegador e clicar em "Já resolvi — retomar".
+// o jogador resolver no próprio navegador e clicar em "Já resolvi, retomar".
 // Antes cada módulo só lançava erro e tentava de novo no ciclo seguinte
 // (inclusive a Sentinela), martelando o jogo com a proteção aberta.
 // Estado em GM storage POR MUNDO: vale para todas as abas daquele mundo.
@@ -27,7 +27,7 @@ const haltKey = (): string => `tsh:${worldOf()}:halt`;
 /** Lançado por quem tenta usar a rede com o disjuntor aberto. */
 export class HaltedError extends Error {
   constructor(state: HaltState) {
-    super(`${haltLabel(state)} — o script está pausado. Resolva no jogo e clique em "Já resolvi — retomar" na aba Início do painel.`);
+    super(`${haltLabel(state)} — o script está pausado. Resolva no jogo e clique em "Já resolvi, retomar" na aba Início do painel.`);
     this.name = 'HaltedError';
   }
 }

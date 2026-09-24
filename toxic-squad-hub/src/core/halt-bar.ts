@@ -5,22 +5,29 @@
 // Todo texto entra por textContent.
 
 import { ensureHost } from './shell';
+import { icon } from './icons';
 import { clearHalt, haltLabel, pageShowsBotProtection, type HaltState } from './halt';
 
 const BAR_CLASS = 'tsh-halt-bar';
 const STYLE_ID = 'tsh-halt-bar-style';
 
 const STYLES = `
-  .${BAR_CLASS} { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 2147483001;
-    max-width: min(760px, calc(100vw - 32px)); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-    padding: 10px 14px; border-radius: 10px; border: 2px solid var(--shs-danger, #c04038);
-    background: var(--shs-danger-bg, #fceaea); color: var(--shs-ink-strong, #3c250a);
-    font: 13px/1.35 var(--shs-font-body, system-ui, sans-serif); box-shadow: 0 6px 20px rgba(40,24,6,.35); }
-  .${BAR_CLASS} strong { color: var(--shs-danger, #c04038); }
-  .${BAR_CLASS} .tsh-halt-txt { flex: 1 1 320px; }
-  .${BAR_CLASS} button { flex: none; padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 700;
-    border: 1px solid var(--shs-action-dark, #4a2708); background: var(--shs-action, #6d3c14); color: var(--shs-on-dark, #f5ecd0); }
-  .${BAR_CLASS} .tsh-halt-err { flex-basis: 100%; color: var(--shs-danger, #c04038); font-weight: 600; }
+  .${BAR_CLASS} { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483001;
+    width: min(760px, calc(100vw - 32px)); box-sizing: border-box; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 14px; border-radius: 12px; border: 1.5px solid var(--shs-danger, #b3261e);
+    background: #ffffff; color: var(--shs-ink-strong, #1b1a17);
+    font: 13px/1.4 var(--shs-font, system-ui, sans-serif); box-shadow: 0 10px 28px rgba(20,18,14,.22); }
+  .${BAR_CLASS} .tsh-halt-ic { width: 32px; height: 32px; border-radius: 9px; background: var(--shs-danger, #b3261e); color: #fff;
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .${BAR_CLASS} .tsh-halt-txt { flex: 1 1 320px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .${BAR_CLASS} strong { font-size: 13.5px; font-weight: 600; color: var(--shs-ink-strong, #1b1a17); }
+  .${BAR_CLASS} .tsh-halt-body { font-size: 12.5px; color: var(--shs-ink, #34312c); }
+  .${BAR_CLASS} button { flex: none; display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 14px;
+    border-radius: 9px; cursor: pointer; font: 600 13px var(--shs-font, system-ui, sans-serif);
+    border: 0; background: var(--shs-action, #2e6b3e); color: #ffffff; }
+  .${BAR_CLASS} button:hover { background: var(--shs-action-hover, #255833); }
+  .${BAR_CLASS} button:focus-visible { outline: 2px solid var(--shs-action, #2e6b3e); outline-offset: 2px; }
+  .${BAR_CLASS} .tsh-halt-err { flex-basis: 100%; color: var(--shs-danger, #b3261e); font-weight: 600; font-size: 12.5px; }
 `;
 
 /**
@@ -55,14 +62,18 @@ export function renderHaltBar(state: HaltState | null, pending: string | null): 
     bar = document.createElement('div');
     bar.className = BAR_CLASS;
     bar.setAttribute('role', 'alert');
+    const ic = document.createElement('span');
+    ic.className = 'tsh-halt-ic';
+    ic.appendChild(icon('pause', 16));
     const txt = document.createElement('div');
     txt.className = 'tsh-halt-txt';
     const title = document.createElement('strong');
     const body = document.createElement('span');
-    txt.append(title, document.createTextNode(' '), body);
+    body.className = 'tsh-halt-body';
+    txt.append(title, body);
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.textContent = 'Já resolvi — retomar';
+    btn.append(icon('check', 15), document.createTextNode('Já resolvi, retomar'));
     const err = document.createElement('div');
     err.className = 'tsh-halt-err';
     err.hidden = true;
@@ -75,12 +86,12 @@ export function renderHaltBar(state: HaltState | null, pending: string | null): 
       err.textContent = recusa;
       err.hidden = false;
     });
-    bar.append(txt, btn, err);
+    bar.append(ic, txt, btn, err);
     shadow.appendChild(bar);
   }
   const title = bar.querySelector('strong');
-  const body = bar.querySelector('.tsh-halt-txt span');
-  const tituloTxt = `⚠ Toxic Squad Hub PAUSADO — ${haltLabel(state)}.`;
+  const body = bar.querySelector('.tsh-halt-body');
+  const tituloTxt = `Script pausado: ${haltLabel(state)}`;
   if (title !== null && title.textContent !== tituloTxt) title.textContent = tituloTxt;
   if (body !== null && body.textContent !== texto) body.textContent = texto;
 }

@@ -1,64 +1,67 @@
-// Tema ÚNICO do Toxic Squad Hub (Onda D): pergaminho/latão "Nexus".
-// Uma só fonte de verdade para as cores/fontes — o shell (Shadow DOM), a aba
-// Automações, a Início/Ajuda e as injeções da Suite Vanta nas telas do jogo
-// usam as MESMAS variáveis --shs-*. Antes eram 3 sistemas de estilo e ~80
-// cores escritas à mão (e fontes diferentes: Verdana × Segoe UI).
+// Tema ÚNICO do Toxic Squad Hub — "Instrumento" (v3.2, redesign aprovado no
+// Claude Design): painel neutro claro, UM acento verde, âmbar só para cravado
+// próximo e vermelho só para pausa/falha. Uma só fonte de verdade — o shell
+// (Shadow DOM), Automações, Início/Ajuda e as injeções da Suite Vanta nas
+// telas do jogo usam as MESMAS variáveis --shs-*. Os NOMES dos tokens
+// seguem os da Onda D (brass = mira, action = acento) para nada quebrar.
 
 export const THEME_TOKENS = {
   // Superfícies
-  bg: '#f8f0d4',
-  'bg-card': '#fffdf3',
-  'bg-inset': '#f4ead0',
-  'bg-head': '#efe2ba',
-  'bg-side': '#ece0b6',
-  'bg-hover': '#f2e6c4',
-  'bg-active': '#f7ecd2',
-  'bg-field': '#fbf4de',
+  bg: '#f4f3ef',
+  'bg-card': '#ffffff',
+  'bg-inset': '#efede7',
+  'bg-head': '#ffffff',
+  'bg-side': '#f9f8f5',
+  'bg-hover': '#f1efea',
+  'bg-active': '#ffffff',
+  'bg-field': '#ffffff',
   // Tinta
-  ink: '#5a3a16',
-  'ink-strong': '#3c250a',
-  muted: '#6f5e40',
-  'ink-disabled': '#b3a27d',
+  ink: '#34312c',
+  'ink-strong': '#1b1a17',
+  muted: '#6b665d',
+  'ink-disabled': '#a9a49a',
   // Bordas
-  border: '#e0cda0',
-  'border-strong': '#cbb384',
-  'border-head': '#d9c48f',
-  // Ação
-  action: '#6d3c14',
-  'action-hover': '#834a1a',
-  'action-dark': '#4a2708',
-  'action-deep': '#5a3110',
-  'accent-ink': '#8a5a1e',
-  'switch-off': '#d8cbb0',
-  // Latão
-  brass: '#b8860b',
-  'brass-bright': '#d9a520',
-  'brass-soft': '#e8c040',
+  border: '#e5e2db',
+  'border-strong': '#d4d0c7',
+  'border-head': '#e5e2db',
+  // Ação (acento verde)
+  action: '#2e6b3e',
+  'action-hover': '#255833',
+  'action-dark': '#1f4d2c',
+  'action-deep': '#1f4d2c',
+  'accent-ink': '#2e6b3e',
+  'switch-off': '#d4d0c7',
+  // Mira (âmbar) — só para cravado próximo
+  brass: '#9a6512',
+  'brass-bright': '#b7791f',
+  'brass-soft': '#f3ddb0',
   // Estados
-  danger: '#c04038',
-  'danger-bg': '#fceaea',
-  ok: '#3f8f43',
-  'ok-bg': '#e8f4e2',
-  'ok-border': '#b5d4a8',
-  'ok-ink': '#2e5b2a',
-  'ok-hover': '#357a39',
-  info: '#2f66c0',
-  'info-bg': '#e2ebfa',
-  warn: '#8a6d1f',
-  'warn-bg': '#f5ecd0',
-  'warn-soft': '#fdf6d8',
-  // Texto SOBRE fundo escuro/ação (mesmo tom de superfícies claras, mas com
-  // SIGNIFICADO próprio — mudar warn-bg não recolore esses textos).
-  'on-dark': '#f5ecd0',
-  'on-action': '#f7ecd2',
+  danger: '#b3261e',
+  'danger-bg': '#fcebe9',
+  ok: '#2e6b3e',
+  'ok-bg': '#e6efe8',
+  'ok-border': '#b9d3bf',
+  'ok-ink': '#1f4d2c',
+  'ok-hover': '#255833',
+  info: '#2f5fa8',
+  'info-bg': '#e7eef8',
+  warn: '#7a4f0e',
+  'warn-bg': '#fbf0dc',
+  'warn-soft': '#fdf7ec',
+  // Texto SOBRE fundo escuro/ação (significado próprio — nunca por valor).
+  'on-dark': '#ffffff',
+  'on-action': '#ffffff',
 } as const;
 
 export type ThemeToken = keyof typeof THEME_TOKENS;
 
+// Fontes do SISTEMA (sem baixar nada a cada página do jogo): Segoe UI no
+// texto, Cascadia/Consolas nos números — horários, coordenadas e ms em mono
+// tabular para os dígitos não mudarem de largura.
 export const THEME_FONTS = {
-  font: "Verdana, Geneva, 'DejaVu Sans', sans-serif",
-  'font-display': "Georgia, 'Times New Roman', serif",
-  'font-mono': "ui-monospace, Consolas, 'Courier New', monospace",
+  font: "'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif",
+  'font-display': "'Segoe UI Variable Display', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif",
+  'font-mono': "'Cascadia Mono', 'Cascadia Code', Consolas, 'SF Mono', ui-monospace, monospace",
 } as const;
 
 /** Declarações `--shs-*` (sem seletor) — para :host, :root ou outro escopo. */
@@ -67,7 +70,9 @@ export function themeDeclarations(): string {
   for (const [name, value] of Object.entries(THEME_TOKENS)) lines.push(`--shs-${name}: ${value};`);
   for (const [name, value] of Object.entries(THEME_FONTS)) lines.push(`--shs-${name}: ${value};`);
   lines.push('--shs-radius: 10px;');
-  lines.push('--shs-shadow: 0 14px 40px rgba(40, 24, 6, .38), 0 2px 8px rgba(40, 24, 6, .22);');
+  lines.push('--shs-radius-sm: 8px;');
+  lines.push('--shs-shadow: 0 24px 60px rgba(20, 18, 14, .18), 0 2px 6px rgba(20, 18, 14, .08);');
+  lines.push('--shs-shadow-sm: 0 1px 2px rgba(20, 18, 14, .06);');
   return lines.join('\n      ');
 }
 

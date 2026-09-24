@@ -10,7 +10,8 @@ import { icon } from './core/icons';
 import { renderVantaSuite, runVantaOnLoad } from './modules/vanta';
 import { vantaLaunchers } from './modules/vanta/vanta-registry';
 import { renderTshPanel, startTshHeartbeat } from './modules/tsh';
-import { isTshEnabled, tshAutomations } from './modules/tsh/tsh-runtime';
+import { activeTshCount, isTshEnabled, tshAutomations } from './modules/tsh/tsh-runtime';
+import { comandosBadge, renderComandosSection } from './modules/tsh/comandos-section';
 import { revealTshAutomation } from './modules/tsh/tsh-panel';
 import {
   isSentinelaTab,
@@ -255,23 +256,36 @@ function main(): void {
 
   // Registro das seções ANTES do gate: após a 1ª ativação o painel já nasce
   // completo, sem recarregar a página. "Início" é a entrada padrão (1ª).
+  // Redesign "Instrumento" (v3.2): navegação por tarefa — Comandos ganha
+  // seção própria e a Suite Vanta vira "Ferramentas".
   registerSection({ id: 'inicio', label: 'Início', icon: 'home', render: renderHome });
-  registerSection({ id: 'vanta', label: 'Suite Vanta', icon: 'sword', render: renderVantaSuite });
-  registerSection({ id: 'tsh', label: 'Automações', icon: 'zap', render: renderTshPanel });
-  registerSection({ id: 'ajuda', label: 'Ajuda & Sobre', icon: 'info', render: renderAjuda });
+  registerSection({ id: 'comandos', label: 'Comandos', icon: 'crosshair', render: renderComandosSection, badge: comandosBadge });
+  registerSection({
+    id: 'tsh',
+    label: 'Automações',
+    icon: 'zap',
+    render: renderTshPanel,
+    badge: () => {
+      const ativas = activeTshCount();
+      return ativas > 0 ? String(ativas) : null;
+    },
+  });
+  registerSection({ id: 'vanta', label: 'Ferramentas', icon: 'grid', render: renderVantaSuite });
+  registerSection({ id: 'ajuda', label: 'Ajuda', icon: 'info', render: renderAjuda });
 
   // Busca rápida (Onda 6): seções + ferramentas Vanta + automações TSH.
   registerSearchEntries([
     { id: 'sec:inicio', label: 'Início', hint: 'Painel', sectionId: 'inicio', icon: 'home' },
-    { id: 'sec:vanta', label: 'Suite Vanta', hint: 'Painel', sectionId: 'vanta', icon: 'sword' },
+    { id: 'sec:comandos', label: 'Comandos', hint: 'Painel', sectionId: 'comandos', icon: 'crosshair' },
+    { id: 'sec:vanta', label: 'Ferramentas', hint: 'Painel', sectionId: 'vanta', icon: 'grid' },
     { id: 'sec:tsh', label: 'Automações', hint: 'Painel', sectionId: 'tsh', icon: 'zap' },
-    { id: 'sec:ajuda', label: 'Ajuda & Sobre', hint: 'Painel', sectionId: 'ajuda', icon: 'info' },
+    { id: 'sec:ajuda', label: 'Ajuda', hint: 'Painel', sectionId: 'ajuda', icon: 'info' },
   ]);
   registerSearchEntries(
     vantaLaunchers().map((launcher) => ({
       id: `vanta:${launcher.id}`,
       label: launcher.label,
-      hint: 'Suite Vanta',
+      hint: 'Ferramentas',
       sectionId: 'vanta',
       icon: launcher.icon ?? 'sword',
       keywords: launcher.desc,

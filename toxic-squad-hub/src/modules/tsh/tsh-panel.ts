@@ -166,17 +166,11 @@ interface TshGroup {
 
 const GROUPS: readonly TshGroup[] = [
   { category: 'economia', label: 'Economia', iconName: 'crown' },
-  { category: 'producao', label: 'Produção & Militar', iconName: 'sword' },
+  { category: 'producao', label: 'Tropas e produção', iconName: 'sword' },
   { category: 'planejamento', label: 'Planejamento', iconName: 'target' },
   { category: undefined, label: 'Outros', iconName: 'list' },
 ];
 
-/** Cor do quadrado do ícone por categoria (Nexus). */
-const CATEGORY_BOX: Record<TshCategory, string> = {
-  economia: 'tsh-ic-box tsh-ic-box--eco',
-  producao: 'tsh-ic-box tsh-ic-box--prod',
-  planejamento: 'tsh-ic-box tsh-ic-box--plan',
-};
 
 // ── Prévia: dado publicado pelo plugin via ctx.storage ──
 
@@ -200,24 +194,24 @@ function statusChip(automation: TshAutomation, enabled: boolean, world: string):
     chip.classList.add('tsh-statuschip--off');
     chip.title = 'Desligada — ative o switch para agendar ciclos.';
     chip.appendChild(icon('minus', 11));
-    chip.appendChild(document.createTextNode('off'));
+    chip.appendChild(document.createTextNode('Desligada'));
   } else if (status === null) {
     chip.classList.add('tsh-statuschip--wait');
     chip.title = 'Sem ciclo ainda neste mundo.';
     chip.appendChild(icon('clock', 11));
-    chip.appendChild(document.createTextNode('aguardando'));
+    chip.appendChild(document.createTextNode('Aguardando'));
   } else if (status.kind === 'ok') {
     chip.classList.add('tsh-statuschip--ok');
     chip.appendChild(icon('check', 11));
-    chip.appendChild(document.createTextNode('ativo'));
+    chip.appendChild(document.createTextNode('Ativa'));
   } else if (status.kind === 'warn') {
     chip.classList.add('tsh-statuschip--err');
     chip.appendChild(icon('alert', 11));
-    chip.appendChild(document.createTextNode('atenção'));
+    chip.appendChild(document.createTextNode('Atenção'));
   } else {
     chip.classList.add('tsh-statuschip--wait');
     chip.appendChild(icon('clock', 11));
-    chip.appendChild(document.createTextNode('agendado'));
+    chip.appendChild(document.createTextNode('Agendada'));
   }
   return chip;
 }
@@ -230,32 +224,16 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   rowEl.className = enabled ? 'tsh-row' : 'tsh-row tsh-row--off';
   rowEl.dataset.searchId = `tsh:${automation.id}`; // alvo da busca rápida (Onda C)
 
-  // ── coluna esquerda: título + badges + descrição + meta + status ──
+  // ── coluna esquerda (Instrumento): nome (+ armado) e UMA linha de estado ──
   const main = document.createElement('div');
   main.className = 'tsh-row-main';
 
   const titleline = document.createElement('div');
   titleline.className = 'tsh-row-titleline';
-  const iconBox = document.createElement('span');
-  iconBox.className =
-    automation.category !== undefined ? CATEGORY_BOX[automation.category] : 'tsh-ic-box';
-  iconBox.appendChild(icon(automation.mutating ? 'lock' : 'eye', 16));
   const name = document.createElement('span');
   name.className = 'tsh-row-name';
   name.textContent = automation.label;
-  titleline.append(iconBox, name);
-
-  const badgeKind = document.createElement('span');
-  badgeKind.className = automation.mutating ? 'tsh-badge tsh-badge--muta' : 'tsh-badge tsh-badge--previa';
-  badgeKind.textContent = automation.mutating ? 'muta' : 'prévia';
-  titleline.appendChild(badgeKind);
-
-  if (automation.screen !== null) {
-    const badgeScreen = document.createElement('span');
-    badgeScreen.className = 'tsh-badge';
-    badgeScreen.textContent = `tela: ${automation.screen}`;
-    titleline.appendChild(badgeScreen);
-  }
+  titleline.appendChild(name);
   if (automation.mutating && automation.armExempt !== true) {
     const until = tshArmedUntil(automation.id);
     const minLeft = Math.ceil((until - Date.now()) / 60_000);
@@ -263,7 +241,6 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
       const badgeArmed = document.createElement('span');
       badgeArmed.className = 'tsh-badge tsh-badge--armed';
       badgeArmed.dataset.tshArmed = String(until); // atualizado pelo countdown vivo
-      badgeArmed.appendChild(icon('key', 9));
       const txt = document.createElement('span');
       txt.className = 'tsh-chip-txt';
       txt.textContent = `Armado ${minLeft}m`;
@@ -273,56 +250,20 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   }
   main.appendChild(titleline);
 
-  const desc = document.createElement('div');
-  desc.className = 'tsh-row-desc';
-  desc.textContent = automation.desc;
-  main.appendChild(desc);
-
-  // ── meta: cooldown efetivo + janela + próximo ──
+  // Linha de estado: a mensagem do último ciclo (ou a descrição, sem ciclo).
+  // Descrição completa + agenda ficam na dica ao passar o mouse.
   const schedule = loadSchedule(world, automation.id);
   const cooldownMin = Math.max(1, Math.round(effectiveCooldownMs(automation, schedule) / 60_000));
-  const metaRow = document.createElement('div');
-  metaRow.className = 'tsh-row-meta';
-  const metaCiclos = document.createElement('span');
-  metaCiclos.textContent = `Ciclos: a cada ${cooldownMin}min`;
-  const metaJanela = document.createElement('span');
   const from = schedule.activeFrom ?? '';
   const to = schedule.activeTo ?? '';
-  metaJanela.textContent = from !== '' && to !== '' ? `Janela: ${from}–${to}` : 'Janela: sempre';
-  const metaProx = document.createElement('span');
-  metaProx.appendChild(document.createTextNode('Próximo: '));
-  const proxVal = document.createElement('span');
-  const next = tshNextRunAt(automation.id, world);
-  const telaCerta =
-    automation.screen === null || new URLSearchParams(window.location.search).get('screen') === automation.screen;
-  if (next === null) {
-    // P3 (revisão Onda 8): "livre" confundia — módulo fora da tela dele avisa.
-    proxVal.textContent = telaCerta ? 'livre' : `quando abrir a tela ${automation.screen}`;
-  } else {
-    proxVal.dataset.tshNext = String(next); // atualizado pelo countdown vivo
-    proxVal.textContent = nextLabel(next, Date.now());
-  }
-  metaProx.appendChild(proxVal);
-  metaRow.append(metaCiclos, metaJanela, metaProx);
-  main.appendChild(metaRow);
-
-  // ── status do último ciclo: chip+texto inline (mensagem inteira no title) ──
-  const statusLine = document.createElement('div');
-  statusLine.className = 'tsh-status-line';
-  const msg = document.createElement('span');
-  msg.className = 'tsh-status-msg';
-  const when = document.createElement('span');
-  when.className = 'tsh-status-when';
   const status = tshStatus(automation.id, world);
-  if (status === null) {
-    msg.textContent = 'Sem ciclo ainda neste mundo.';
-  } else {
-    msg.textContent = status.message; // SEMPRE textContent — nunca HTML
-    msg.title = `${status.message} · ${fmtAgo(status.at)}`;
-    when.textContent = fmtAgo(status.at);
-  }
-  statusLine.append(msg, when);
-  main.appendChild(statusLine);
+  const sub = document.createElement('div');
+  sub.className = 'tsh-row-desc';
+  sub.textContent = status !== null && enabled ? `${status.message} · ${fmtAgo(status.at)}` : automation.desc;
+  main.title = `${automation.desc}\nCiclo a cada ${cooldownMin} min · ${from !== '' && to !== '' ? `ativa das ${from} às ${to}` : 'ativa o dia todo'}${
+    automation.screen !== null ? ` · roda na tela "${automation.screen}"` : ''
+  }`;
+  main.appendChild(sub);
 
   rowEl.appendChild(main);
 
@@ -330,6 +271,22 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   const side = document.createElement('div');
   side.className = 'tsh-row-side';
   side.appendChild(statusChip(automation, enabled, world));
+  // Próximo ciclo em mono (contagem viva pelo tick de 1 s).
+  const proxVal = document.createElement('span');
+  proxVal.className = 'tsh-row-next';
+  const next = tshNextRunAt(automation.id, world);
+  const telaCerta =
+    automation.screen === null || new URLSearchParams(window.location.search).get('screen') === automation.screen;
+  if (!enabled) {
+    proxVal.textContent = '—';
+  } else if (next === null) {
+    proxVal.textContent = telaCerta ? 'livre' : 'outra tela';
+    if (!telaCerta) proxVal.title = `Roda quando você abrir a tela "${automation.screen}".`;
+  } else {
+    proxVal.dataset.tshNext = String(next);
+    proxVal.textContent = nextLabel(next, Date.now());
+  }
+  side.appendChild(proxVal);
 
   // Ações extras declaradas pelo módulo (ex.: "Comandos" do agendador).
   for (const extra of automation.extraActions ?? []) {
@@ -359,16 +316,16 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
     side.appendChild(ver);
   }
 
-  if (automation.mutating && automation.armExempt !== true) {
+  // Armar só faz sentido com a automação LIGADA (desligada, era ruído).
+  if (automation.mutating && automation.armExempt !== true && enabled) {
     const until = tshArmedUntil(automation.id);
     const armed = Date.now() < until;
     const armar = document.createElement('button');
     armar.type = 'button';
-    armar.className = 'tsh-btn tsh-btn--danger';
-    armar.appendChild(icon('key', 12));
+    armar.className = 'tsh-btn tsh-btn--ghost tsh-btn--sm';
     const txt = document.createElement('span');
     txt.className = 'tsh-btn-txt';
-    txt.textContent = armed ? `Armado ${Math.max(1, Math.ceil((until - Date.now()) / 60_000))}min` : 'Armar 30min';
+    txt.textContent = armed ? `Armado ${Math.max(1, Math.ceil((until - Date.now()) / 60_000))} min` : 'Armar';
     armar.appendChild(txt);
     armar.disabled = armed;
     // P2 (revisão Onda 8): o tick de 1s destrava o botão quando a armação vence.
@@ -397,7 +354,7 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   configurar.classList.add('tsh-tip');
   configurar.setAttribute('data-tip', 'Configurar');
   configurar.setAttribute('aria-label', 'Configurar');
-  configurar.appendChild(icon('settings', 15));
+  configurar.appendChild(icon('settings', 16));
   configurar.addEventListener('click', () => openTshSettingsModal(shadow, automation, world, rerender));
   side.appendChild(configurar);
 
@@ -458,37 +415,17 @@ function panelHeader(all: readonly TshAutomation[]): HTMLElement {
   const ativas = all.filter((a) => isTshEnabled(a.id)).length;
   const now = Date.now();
   const armadas = all.filter((a) => a.mutating && a.armExempt !== true && now < tshArmedUntil(a.id)).length;
-  const licencaOk = licenseState().kind !== 'ausente';
-
   const head = document.createElement('div');
   head.className = 'tsh-head';
-
-  const title = document.createElement('div');
+  const title = document.createElement('h2');
   title.className = 'tsh-head-title';
-  title.appendChild(icon('zap', 16));
-  title.appendChild(document.createTextNode('Automações'));
-  head.appendChild(title);
-
-  const pills = document.createElement('div');
-  pills.className = 'tsh-head-pills';
-  const pillAtivas = document.createElement('span');
-  pillAtivas.className = 'tsh-pill';
-  pillAtivas.appendChild(icon('zap', 11));
-  pillAtivas.appendChild(document.createTextNode(`${ativas} ativas`));
-  pills.appendChild(pillAtivas);
-  if (all.some((a) => a.mutating)) {
-    const pillArmados = document.createElement('span');
-    pillArmados.className = armadas > 0 ? 'tsh-pill tsh-pill--danger' : 'tsh-pill';
-    pillArmados.appendChild(icon('lock', 11));
-    pillArmados.appendChild(document.createTextNode(`${armadas} armados`));
-    pills.appendChild(pillArmados);
-  }
-  const pillLicenca = document.createElement('span');
-  pillLicenca.className = licencaOk ? 'tsh-pill tsh-pill--ok' : 'tsh-pill tsh-pill--danger';
-  pillLicenca.appendChild(icon(licencaOk ? 'shieldCheck' : 'alert', 11));
-  pillLicenca.appendChild(document.createTextNode(licencaOk ? 'licença OK' : 'licença inativa'));
-  pills.appendChild(pillLicenca);
-  head.appendChild(pills);
+  title.textContent = 'Automações';
+  const sub = document.createElement('div');
+  sub.className = 'tsh-head-desc';
+  sub.textContent = `${ativas} de ${all.length} ligadas${armadas > 0 ? ` · ${armadas} armada(s)` : ''}${
+    licenseState().kind === 'ausente' ? ' · licença inativa' : ''
+  }. Nada roda até você ligar; as que agem no jogo pedem Armar (30 min).`;
+  head.append(title, sub);
   return head;
 }
 
@@ -547,14 +484,9 @@ function drawTshPanel(container: HTMLElement, rerender: () => void): void {
   const all = tshAutomations();
 
   const cardEl = document.createElement('div');
-  cardEl.className = 'shs-card';
+  cardEl.className = 'tsh-page';
 
   cardEl.appendChild(panelHeader(all));
-  const desc = document.createElement('div');
-  desc.className = 'tsh-head-desc';
-  desc.textContent =
-    'Você está no controle: nada roda enquanto você não ativar. Os módulos que agem no jogo pedem "Armar" (autorização de 30 minutos) e fazem no máximo 1 ação por verificação. A verificação roda a cada 30 segundos com o jogo aberto — deixe apenas uma aba do mundo aberta para evitar duplicidade.';
-  cardEl.appendChild(desc);
 
   if (all.length === 0) {
     // P3 (auditoria impeccable): empty state no padrão do shell (.shs-empty —
@@ -614,7 +546,7 @@ function drawTshPanel(container: HTMLElement, rerender: () => void): void {
   if (ligadasAgora.length > 0) {
     const desligar = document.createElement('button');
     desligar.type = 'button';
-    desligar.className = 'tsh-btn tsh-btn--danger tsh-btn--sm';
+    desligar.className = 'tsh-btn tsh-btn--ghost tsh-btn--sm';
     desligar.appendChild(icon('pause', 12));
     desligar.appendChild(document.createTextNode(`Desligar todas (${ligadasAgora.length})`));
     desligar.addEventListener('click', async () => {
@@ -651,8 +583,7 @@ function drawTshPanel(container: HTMLElement, rerender: () => void): void {
     groupTitle.type = 'button';
     groupTitle.className = temAtivos ? 'tsh-group-title tsh-group-title--on' : 'tsh-group-title';
     groupTitle.setAttribute('aria-expanded', String(!fechado));
-    groupTitle.appendChild(icon(fechado ? 'arrowRight' : 'chevronDown', 12));
-    groupTitle.appendChild(icon(group.iconName, 12));
+    groupTitle.appendChild(icon(fechado ? 'arrowRight' : 'chevronDown', 14));
     groupTitle.appendChild(document.createTextNode(group.label));
     const count = document.createElement('span');
     count.className = temAtivos ? 'tsh-group-count tsh-group-count--on' : 'tsh-group-count';
@@ -665,7 +596,10 @@ function drawTshPanel(container: HTMLElement, rerender: () => void): void {
       gm.set(COLLAPSED_KEY, [...atual]);
       rerender();
     });
-    cardEl.appendChild(groupTitle);
+    const gcard = document.createElement('section');
+    gcard.className = 'tsh-gcard';
+    gcard.appendChild(groupTitle);
+    cardEl.appendChild(gcard);
     if (fechado) continue;
 
     const rows = document.createElement('div');
@@ -673,7 +607,7 @@ function drawTshPanel(container: HTMLElement, rerender: () => void): void {
     for (const automation of items) {
       rows.appendChild(automationRow(automation, shadow, world, rerender));
     }
-    cardEl.appendChild(rows);
+    gcard.appendChild(rows);
   }
   if (visiveis === 0) {
     const vazio = document.createElement('div');

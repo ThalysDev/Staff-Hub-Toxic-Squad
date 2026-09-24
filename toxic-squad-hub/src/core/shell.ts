@@ -7,7 +7,7 @@ import { licenseState } from './license';
 import { gameContextFrom, pageWindow } from './page';
 import { gm } from './storage';
 import { icon, type IconName } from './icons';
-import { themeDeclarations } from './theme';
+import { shellStyles } from './shell-styles';
 import { isHalted } from './halt';
 
 export interface SectionDef {
@@ -23,12 +23,20 @@ export interface SectionDef {
    * re-renderizar e ao fechar o painel (Onda B: nada de timer órfão).
    */
   render: (container: HTMLElement) => void | (() => void);
+  /** Contador curto na barra lateral (ex.: "12"); null/'' = sem contador. */
+  badge?: () => string | null;
 }
 
 const sections: SectionDef[] = [];
 
 export function registerSection(section: SectionDef): void {
   sections.push(section);
+}
+
+/** Troca de seção a partir do CONTEÚDO (ex.: "Abrir Comandos" na Início). */
+let sectionSwitcher: ((sectionId: string) => void) | null = null;
+export function openSection(sectionId: string): void {
+  sectionSwitcher?.(sectionId);
 }
 
 // ── Busca rápida (Onda 6): provedores registram entradas; o shell desenha ──
@@ -140,344 +148,7 @@ export function gameContext(): { player: string; world: string; villageId: strin
 }
 
 function styles(): string {
-  return `
-    /* ===== Staff Hub In-Game — tema "Nexus" (pergaminho premium, v2.0) =====
-       Janela flutuante: header de marca no topo, sidebar de navegação à
-       esquerda, conteúdo rolável à direita e faixa de licença no rodapé do
-       conteúdo. Tudo em Shadow DOM — zero conflito com o jogo. */
-    :host {
-      ${themeDeclarations()}
-      all: initial;
-      font-family: var(--shs-font, Verdana, sans-serif);
-      font-size: 12px;
-      color: var(--shs-ink);
-    }
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { transition: none !important; animation: none !important; }
-    }
-    /* [3] Superfícies do browser dentro do painel: seleção em latão translúcido. */
-    ::selection { background: #e8c04066; }
-
-    /* ---- FAB (botão escudo flutuante — mesmo gradiente chocolate do badge) ---- */
-    .shs-fab { position: fixed; left: 60px; bottom: 10px; z-index: 2147483000;
-      width: 44px; height: 44px; border-radius: 12px; cursor: pointer;
-      border: 2px solid var(--shs-action-dark, #4a2708); background: linear-gradient(180deg, var(--shs-action, #6d3c14), var(--shs-action-dark, #4a2708));
-      color: var(--shs-brass-soft); font-family: var(--shs-font-display); font-size: 15px;
-      font-weight: 700; letter-spacing: .5px;
-      box-shadow: 0 3px 10px rgba(40,24,6,.45), inset 0 1px 0 rgba(255,255,255,.12); }
-    .shs-fab:hover { border-color: var(--shs-brass); color: var(--shs-on-dark, #f5ecd0); }
-    .shs-fab:focus-visible { outline: 2px solid var(--shs-brass); outline-offset: 2px; }
-    @keyframes shs-fab-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(217,165,32,.0), 0 3px 10px rgba(40,24,6,.45); }
-      50% { box-shadow: 0 0 0 6px rgba(217,165,32,.55), 0 3px 10px rgba(40,24,6,.45); } }
-    .shs-fab--alert { border-color: var(--shs-brass-bright); animation: shs-fab-pulse 1.2s ease-in-out infinite; }
-    @keyframes shs-fab-halt { 0%, 100% { box-shadow: 0 0 0 0 rgba(192,64,56,0), 0 3px 10px rgba(40,24,6,.45); }
-      50% { box-shadow: 0 0 0 7px rgba(192,64,56,.6), 0 3px 10px rgba(40,24,6,.45); } }
-    .shs-fab--halt { border-color: var(--shs-danger, #c04038); background: var(--shs-danger, #c04038);
-      animation: shs-fab-halt 1s ease-in-out infinite; }
-    .shs-fab[data-tip]:hover::after { left: 0; transform: none; bottom: calc(100% + 8px); }
-    .shs-fab[data-tip]:hover::before { left: 16px; transform: none; }
-
-    /* ---- Painel (janela Nexus) ---- */
-    .shs-panel { position: fixed; left: 10px; bottom: 62px; z-index: 2147483000;
-      display: flex; flex-direction: column; overflow: hidden;
-      background: var(--shs-bg); color: var(--shs-ink);
-      border: 1px solid var(--shs-border-strong); border-radius: var(--shs-radius);
-      box-shadow: var(--shs-shadow);
-      font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; line-height: 1.45;
-      transition: width .18s ease, height .18s ease, max-height .18s ease,
-        left .18s ease, bottom .18s ease, transform .18s ease; }
-    /* Painel do hub (o diálogo de ativação reutiliza .shs-panel sem altura fixa). */
-    .shs-panel--app { width: min(1060px, calc(100vw - 24px));
-      height: min(720px, calc(100vh - 86px)); }
-    /* Maximizado (botão ⤢ do cabeçalho; preferência persistida). */
-    .shs-panel--app.shs-panel--max { width: 92vw; height: 86vh;
-      left: 50%; transform: translateX(-50%); bottom: 7vh; }
-    /* Minimizado: recolhe TUDO exceto o header (a janela encolhe com ele);
-       o ⤢ de maximizar some — não faz sentido com o corpo escondido. */
-    .shs-panel--min > :not(.shs-head) { display: none !important; }
-    /* Minimizado = só o cabeçalho: sem recorte, para tooltips e a lista da
-       busca não serem cortados (revisão Onda C). */
-    .shs-panel--min { overflow: visible; }
-    .shs-panel--app.shs-panel--min { height: auto; }
-    .shs-panel--min .shs-headbtn[data-max] { display: none; }
-    /* [11] Momento autoral ÚNICO do shell: entrada do painel ao abrir (FAB ou
-       1º mount) — 140ms ease-out; a classe é efêmera (removida no animationend).
-       Variante para o maximizado, que é centrado via transform. */
-    .shs-panel.shs-open { animation: shs-open .14s ease-out; }
-    .shs-panel--max.shs-open { animation-name: shs-open-max; }
-    @keyframes shs-open { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: scale(1); } }
-    @keyframes shs-open-max {
-      from { opacity: 0; transform: translateX(-50%) scale(.98); }
-      to { opacity: 1; transform: translateX(-50%) scale(1); }
-    }
-
-    /* ---- Header: badge chocolate + wordmark + botões-ícone ---- */
-    .shs-head { display: flex; align-items: center; gap: 10px; flex-shrink: 0;
-      height: 52px; padding: 0 12px;
-      background: var(--shs-bg-head); border-bottom: 1px solid var(--shs-border-head, #d9c48f);
-      border-radius: var(--shs-radius) var(--shs-radius) 0 0; }
-    .shs-brand-badge { width: 34px; height: 34px; flex-shrink: 0; border-radius: 9px;
-      display: inline-flex; align-items: center; justify-content: center;
-      background: linear-gradient(180deg, var(--shs-action, #6d3c14), var(--shs-action-dark, #4a2708));
-      color: var(--shs-brass-soft);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 1px 2px rgba(40,24,6,.25); }
-    .shs-head-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-    .shs-head strong { font-family: var(--shs-font, Verdana, sans-serif); font-size: 15px; font-weight: 700;
-      letter-spacing: 2.5px; line-height: 1.2; color: var(--shs-ink-strong);
-      white-space: nowrap; }
-    .shs-head-sub { display: inline-flex; align-items: center; gap: 5px;
-      font-size: 10px; color: var(--shs-muted); white-space: nowrap;
-      overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
-    .shs-head .shs-muted { color: var(--shs-muted); }
-    .shs-headbtn { margin-left: 4px; width: 30px; height: 30px; flex-shrink: 0;
-      display: inline-flex; align-items: center; justify-content: center;
-      background: transparent; border: 1px solid transparent; border-radius: 8px;
-      color: var(--shs-ink); cursor: pointer; padding: 0; line-height: 1;
-      position: relative; }
-    .shs-headbtn:hover { background: #e5d5a8; }
-    .shs-headbtn:focus-visible { outline: 2px solid var(--shs-brass); }
-    .shs-head-spacer { margin-left: auto; }
-    /* Onda B: tooltips do cabeçalho abrem PARA BAIXO (para cima eram cortados
-       pela borda do painel). */
-    .shs-head [data-tip]:hover::after, .shs-head [data-tip]:focus-visible::after {
-      bottom: auto; top: calc(100% + 7px); }
-    .shs-head [data-tip]:hover::before, .shs-head [data-tip]:focus-visible::before {
-      bottom: auto; top: calc(100% + 2px); border-top-color: transparent;
-      border-bottom-color: var(--shs-ink-strong); }
-    .shs-head [data-tip]:last-child:hover::after, .shs-head [data-tip]:last-child:focus-visible::after {
-      left: auto; right: 0; transform: none; }
-    /* Onda C: destaque do item encontrado pela busca. */
-    @keyframes shs-flash { 0%, 100% { box-shadow: 0 0 0 0 rgba(217,165,32,0); }
-      30% { box-shadow: 0 0 0 3px rgba(217,165,32,.75); } }
-    .shs-flash { animation: shs-flash 1.6s ease-in-out 2; border-radius: 8px; }
-
-    /* Busca rápida (Onda 6): campo no header + dropdown ancorado. */
-    .shs-searchwrap { position: relative; margin-left: 8px; }
-    .shs-search { width: 180px; height: 28px; padding: 0 10px; font-size: 11.5px;
-      font-family: var(--shs-font, Verdana, sans-serif); color: var(--shs-ink); background: #fbf5e2;
-      border: 1px solid var(--shs-border-strong); border-radius: 8px; outline: none; }
-    .shs-search:focus { border-color: var(--shs-brass); background: var(--shs-bg-card, #fffdf3); }
-    .shs-search::placeholder { color: var(--shs-muted); }
-    .shs-searchpop { display: none; position: absolute; top: 32px; left: 0; width: 300px;
-      max-height: 320px; overflow-y: auto; background: var(--shs-bg-card);
-      border: 1px solid var(--shs-border-strong); border-radius: 10px;
-      box-shadow: var(--shs-shadow); z-index: 40; padding: 4px; }
-    .shs-searchpop--open { display: block; }
-    .shs-searchitem { display: flex; align-items: center; gap: 8px; width: 100%;
-      padding: 7px 9px; background: transparent; border: none; border-radius: 7px;
-      font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; color: var(--shs-ink);
-      cursor: pointer; text-align: left; }
-    .shs-searchitem:hover, .shs-searchitem:focus-visible,
-    .shs-searchitem[data-active='true'] { background: var(--shs-bg-hover, #f2e6c4); outline: none; }
-    .shs-searchitem-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .shs-searchitem-hint { font-size: 10.5px; color: var(--shs-muted); flex-shrink: 0; }
-    .shs-searchempty { padding: 9px; font-size: 11.5px; color: var(--shs-muted); }
-
-    /* Faixa de estado da licença em modo graça (rede caiu / revalidação 24h). */
-    .shs-license { flex-shrink: 0; padding: 4px 12px; background: var(--shs-warn-bg);
-      color: var(--shs-warn); border-bottom: 1px solid var(--shs-border);
-      font-size: 11px; }
-
-    /* ---- Layout em colunas: sidebar + conteúdo ---- */
-    .shs-layout { display: flex; flex: 1; min-height: 0; }
-
-    /* Sidebar de navegação (um item por seção registrada). */
-    .shs-side { width: 200px; flex-shrink: 0; display: flex; flex-direction: column;
-      min-height: 0; background: var(--shs-bg-side, #ece0b6); border-right: 1px solid var(--shs-border-head, #d9c48f); }
-    .shs-nav { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 0;
-      display: flex; flex-direction: column; overscroll-behavior: contain; }
-    .shs-nav::-webkit-scrollbar { width: 8px; }
-    .shs-nav::-webkit-scrollbar-thumb { background: var(--shs-border-strong);
-      border-radius: 4px; }
-    .shs-nav::-webkit-scrollbar-track { background: var(--shs-bg-side, #ece0b6); }
-    .shs-navitem { display: flex; align-items: center; gap: 8px; height: 40px;
-      flex-shrink: 0; margin-right: 6px; padding: 0 12px; border: none;
-      border-radius: 0 8px 8px 0; background: transparent; color: var(--shs-ink);
-      cursor: pointer; font-family: var(--shs-font, Verdana, sans-serif); font-size: 12.5px;
-      font-weight: 600; text-align: left; }
-    .shs-navitem:hover { background: var(--shs-bg-hover, #f2e6c4); }
-    /* Ativo: fundo claro + barra vertical 3px vermelho-escuro colada na borda
-       esquerda da sidebar (inset = sem deslocar o conteúdo).
-       [12] EXCEÇÃO de mundo comprometido mantida de propósito: a barra de 3px
-       do item ativo é a gramática visual do Nexus (a esteira irmã mostra
-       exatamente isto) — não remover. */
-    .shs-navitem[data-active='true'] { background: var(--shs-bg-active, #f7ecd2);
-      color: var(--shs-ink-strong); box-shadow: inset 3px 0 0 #8a2f1e; }
-    .shs-navitem[data-active='true'] .shs-ic { color: var(--shs-danger); }
-    .shs-navitem:focus-visible { outline: 2px solid var(--shs-brass); outline-offset: -2px; }
-    /* [11] Feedback de toque nos controles (único :active do shell). */
-    .shs-navitem:active, .shs-headbtn:active { transform: translateY(1px); }
-
-    /* Coluna de conteúdo. */
-    .shs-main { flex: 1; min-width: 0; min-height: 0; display: flex;
-      flex-direction: column; background: var(--shs-bg); }
-    .shs-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px;
-      overscroll-behavior: contain; }
-    .shs-body::-webkit-scrollbar { width: 8px; height: 8px; }
-    .shs-body::-webkit-scrollbar-thumb { background: var(--shs-border-strong);
-      border-radius: 4px; }
-    .shs-body::-webkit-scrollbar-track { background: var(--shs-bg-side, #ece0b6); }
-    /* [3] Mesmo scrollbar custom para os wrappers de tabela roláveis. */
-    .shs-tablewrap::-webkit-scrollbar { width: 8px; height: 8px; }
-    .shs-tablewrap::-webkit-scrollbar-thumb { background: var(--shs-border-strong);
-      border-radius: 4px; }
-    .shs-tablewrap::-webkit-scrollbar-track { background: var(--shs-bg-side, #ece0b6); }
-    .shs-body:focus-visible { outline: none; }
-    .shs-body table { border-collapse: collapse; width: 100%; margin: 8px 0;
-      background: var(--shs-bg-card); }
-    .shs-body th, .shs-body td { border: 1px solid var(--shs-border);
-      padding: 4px 8px; text-align: left; vertical-align: top; }
-    .shs-body thead th { background: var(--shs-bg-inset); color: var(--shs-ink-strong);
-      font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
-    .shs-body tbody tr:nth-child(even) { background: rgba(236, 224, 182, .5); }
-    .shs-body tbody tr:hover { background: rgba(232, 192, 64, .25); }
-    .shs-body tfoot td { font-weight: 700; background: var(--shs-bg-inset); }
-    .shs-tabular { font-variant-numeric: tabular-nums; }
-
-    /* ---- Rodapé do conteúdo: faixa fina de licença + versão ---- */
-    .shs-foot { display: flex; align-items: center; gap: 8px; flex-shrink: 0;
-      padding: 4px 12px; font-size: 11px; flex-wrap: wrap;
-      background: var(--shs-ok-bg); border-top: 1px solid var(--shs-ok-border, #b5d4a8); color: var(--shs-ok-ink, #2e5b2a);
-      font-variant-numeric: tabular-nums; }
-    .shs-foot--warn { background: var(--shs-warn-bg);
-      border-top-color: var(--shs-border-strong); color: var(--shs-warn); }
-    .shs-selo { display: inline-flex; align-items: center; gap: 6px;
-      font-weight: 600; min-width: 0; }
-    .shs-selo--ok { color: inherit; }
-    .shs-selo--warn { color: var(--shs-warn); }
-    .shs-foot-ver { margin-left: auto; color: inherit; opacity: .75;
-      font-size: 10.5px; white-space: nowrap; }
-
-    /* ---- Cartões / seções ---- */
-    .shs-card { background: var(--shs-bg-card); border: 1px solid var(--shs-border);
-      border-radius: var(--shs-radius); padding: 10px 12px; margin: 0 0 12px;
-      box-shadow: 0 1px 2px rgba(40, 24, 6, .06); }
-    .shs-card:last-child { margin-bottom: 0; }
-    .shs-card-title { display: flex; align-items: center; gap: 6px; margin: 0 0 8px;
-      font-family: var(--shs-font-display); font-size: 13.5px; font-weight: 700;
-      color: var(--shs-ink-strong); }
-    /* [9] Sem glifo decorativo (◆ era Unicode como ícone) — o peso/tamanho do
-       título já basta. */
-    .shs-card-title--icon .shs-ic { color: var(--shs-brass); }
-
-    /* ---- Campos ---- */
-    .shs-field { display: flex; flex-direction: column; gap: 3px; min-width: 0;
-      margin: 0 0 8px; }
-    .shs-field-label, .shs-field > .shs-label { font-size: 10.5px; font-weight: 700;
-      text-transform: uppercase; letter-spacing: .4px; color: var(--shs-muted); }
-    .shs-input, .shs-body select, .shs-body textarea { padding: 5px 8px;
-      border: 1px solid var(--shs-border-strong); border-radius: 5px;
-      background: var(--shs-bg-card); color: var(--shs-ink-strong);
-      font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; width: 100%;
-      box-sizing: border-box; caret-color: var(--shs-action); }
-    .shs-body textarea { resize: vertical; min-height: 56px;
-      font-family: var(--shs-font, Verdana, sans-serif); line-height: 1.4; }
-    .shs-input:focus, .shs-body select:focus, .shs-body textarea:focus {
-      outline: 2px solid var(--shs-brass); outline-offset: -1px; }
-    /* [2] Placeholder com contraste ≥4.5:1 sobre var(--shs-bg-card, #fffdf3) (era #b3a17c ≈2,5:1). */
-    .shs-input::placeholder, .shs-body textarea::placeholder { color: var(--shs-muted); }
-
-    /* ---- Botões ---- */
-    .shs-btn { display: inline-flex; align-items: center; gap: 6px;
-      padding: 5px 12px; border: 1px solid var(--shs-action-dark, #4a2708); border-radius: 6px;
-      background: var(--shs-action); color: var(--shs-on-action, #f7ecd2); cursor: pointer;
-      font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; font-weight: 600; }
-    .shs-btn:hover:not([disabled]) { background: var(--shs-action-hover); }
-    .shs-btn[disabled] { opacity: .55; cursor: default; }
-    .shs-btn:focus-visible { outline: 2px solid var(--shs-brass); outline-offset: 1px; }
-    .shs-btn-ghost { background: transparent; color: var(--shs-ink);
-      border-color: var(--shs-border-strong); }
-    .shs-btn-ghost:hover:not([disabled]) { background: var(--shs-bg-inset); }
-    .shs-btn-danger { background: transparent; color: var(--shs-danger);
-      border-color: var(--shs-danger); }
-    .shs-btn-danger:hover:not([disabled]) { background: var(--shs-danger-bg); }
-    .shs-btn-sm { padding: 3px 8px; font-size: 11px; }
-    .shs-ic { flex-shrink: 0; }
-
-    /* ---- Tooltips (CSS puro: hover/focus via data-tip) ---- */
-    [data-tip] { position: relative; }
-    [data-tip]:hover::after, [data-tip]:focus-visible::after {
-      content: attr(data-tip); position: absolute; bottom: calc(100% + 7px);
-      left: 50%; transform: translateX(-50%); z-index: 2147483600;
-      background: var(--shs-ink-strong); color: var(--shs-on-dark, #f5ecd0);
-      border: 1px solid var(--shs-brass);
-      padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 400;
-      font-family: var(--shs-font, Verdana, sans-serif); line-height: 1.35;
-      white-space: normal; max-width: min(260px, 90vw); text-align: center;
-      pointer-events: none; box-shadow: 0 3px 10px rgba(40,24,6,.35); }
-    [data-tip]:hover::before, [data-tip]:focus-visible::before {
-      content: ''; position: absolute; bottom: calc(100% + 2px); left: 50%;
-      transform: translateX(-50%); z-index: 2147483600;
-      border: 5px solid transparent; border-top-color: var(--shs-ink-strong);
-      pointer-events: none; }
-    /* P0 revisão Onda C: o [data-tip] acima (position: relative) NÃO pode
-       tirar o botão flutuante do canto quando ele ganha tooltip de alerta. */
-    .shs-fab, .shs-fab[data-tip] { position: fixed; }
-
-    /* ---- Spinner (currentColor: visível em botão primário E ghost/danger) ---- */
-    .shs-spinner { width: 13px; height: 13px; display: inline-block;
-      border: 2px solid color-mix(in srgb, currentColor 35%, transparent);
-      border-top-color: currentColor;
-      border-radius: 50%; animation: shs-spin .7s linear infinite; }
-    @keyframes shs-spin { to { transform: rotate(360deg); } }
-
-    /* ---- Ativação (tela de licença — reutiliza .shs-panel sem .shs-panel--app,
-       então continua com altura por conteúdo sobre o layout Nexus) ---- */
-    .shs-activate { left: 50%; transform: translateX(-50%); bottom: auto;
-      top: max(9vh, 48px); width: min(440px, calc(100vw - 28px)); max-height: none; }
-    .shs-activate .shs-brand-badge { width: 40px; height: 40px; border-radius: 10px; }
-    .shs-activate .shs-brand { display: flex; align-items: center; gap: 12px;
-      padding: 14px 16px; }
-    .shs-activate .shs-brand-txt { display: flex; flex-direction: column; gap: 2px; }
-    .shs-activate .shs-brand-txt strong { font-family: var(--shs-font, Verdana, sans-serif);
-      font-size: 15px; letter-spacing: 2px; color: var(--shs-ink-strong); }
-    .shs-activate .shs-brand-txt span { font-size: 11px; color: var(--shs-muted); }
-    .shs-input--key { font-family: ui-monospace, Consolas, 'Courier New', monospace;
-      letter-spacing: 2px; text-transform: uppercase; font-size: 13px !important; }
-    .shs-activate-foot { display: flex; align-items: flex-start; gap: 7px;
-      margin: 10px 0 0; color: var(--shs-muted); font-size: 11px; line-height: 1.4; }
-    .shs-activate-foot .shs-ic { color: var(--shs-brass); margin-top: 1px; }
-
-    /* ---- Linhas / textos ---- */
-    .shs-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
-    .shs-muted { color: var(--shs-muted); }
-    .shs-danger { color: var(--shs-danger); font-weight: 700; }
-    .shs-ok { color: var(--shs-ok); font-weight: 700; }
-    .shs-warn { color: var(--shs-warn); font-weight: 600; }
-    .shs-strong { color: var(--shs-ink-strong); font-weight: 700; }
-
-    /* ---- Pills ---- */
-    .shs-pill { display: inline-block; padding: 1px 8px; border-radius: 999px;
-      border: 1px solid var(--shs-border); background: var(--shs-bg-inset);
-      font-size: 10.5px; font-weight: 600;
-      font-variant-numeric: tabular-nums; }
-    .shs-pill--error { background: var(--shs-danger-bg); border-color: var(--shs-danger); color: var(--shs-danger); }
-    .shs-pill--ok { background: var(--shs-ok-bg); border-color: var(--shs-ok); color: var(--shs-ok); }
-    .shs-pill--warn { background: var(--shs-warn-bg); border-color: var(--shs-warn); color: var(--shs-warn); }
-    .shs-pill--info { background: var(--shs-info-bg); border-color: var(--shs-info); color: var(--shs-info); }
-    .shs-pill--muted { background: var(--shs-bg-inset); color: var(--shs-muted); }
-
-    /* ---- Estados / utilitários ---- */
-    .shs-empty { padding: 18px 12px; text-align: center; color: var(--shs-muted); }
-    .shs-progress { margin: 8px 0; }
-    .shs-progress-bar { height: 6px; border-radius: 4px; overflow: hidden;
-      background: var(--shs-bg-inset); border: 1px solid var(--shs-border); }
-    .shs-progress-fill { height: 100%; background: var(--shs-ok); transition: width .3s; }
-    .shs-warnbox { padding: 6px 10px; background: var(--shs-warn-bg);
-      border: 1px solid var(--shs-warn); border-radius: 6px; color: var(--shs-warn);
-      font-weight: 600; margin: 8px 0; }
-    .shs-divider { border: none; border-top: 1px solid var(--shs-border); margin: 10px 0; }
-    .shs-tablewrap { overflow-x: auto; }
-    .shs-notification { margin: 0 0 10px; padding: 6px 10px; border-radius: 6px;
-      font-weight: 600; }
-    .shs-notification--ok { background: var(--shs-ok-bg); color: var(--shs-ok);
-      border: 1px solid var(--shs-ok); }
-    .shs-notification--error { background: var(--shs-danger-bg); color: var(--shs-danger);
-      border: 1px solid var(--shs-danger); }
-    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
-      outline: 2px solid var(--shs-brass); outline-offset: 1px; }
-    a { color: inherit; }
-  `;
+  return shellStyles();
 }
 
 /** Cria o host+estilo se ainda não existem e devolve o ShadowRoot
@@ -582,27 +253,20 @@ export function mountShell(): void {
   head.className = 'shs-head';
   const badge = document.createElement('span');
   badge.className = 'shs-brand-badge';
-  badge.appendChild(icon('shield', 18));
+  badge.appendChild(icon('shield', 17));
   const headTxt = document.createElement('span');
   headTxt.className = 'shs-head-txt';
   const strong = document.createElement('strong');
-  strong.textContent = 'TOXIC SQUAD';
+  strong.textContent = 'Toxic Squad Hub';
   const sub = document.createElement('span');
   sub.className = 'shs-head-sub';
-  sub.appendChild(icon('user', 11));
-  sub.appendChild(document.createTextNode(ctx.player));
-  sub.appendChild(document.createTextNode('·'));
-  sub.appendChild(icon('globe', 11));
-  sub.appendChild(document.createTextNode(ctx.world));
+  sub.textContent = `${ctx.world.toUpperCase()} · v${__SHS_VERSION__}`;
   headTxt.append(strong, sub);
   head.append(badge, headTxt);
   // Busca rápida logo após a marca (Onda B: antes ficava à direita do X).
   const searchWrap = document.createElement('div');
   searchWrap.className = 'shs-searchwrap';
   head.appendChild(searchWrap);
-  const spacer = document.createElement('span');
-  spacer.className = 'shs-head-spacer';
-  head.appendChild(spacer);
 
   // Maximizar/restaurar (⤢): painel largo persistido em GM storage.
   const maximize = document.createElement('button');
@@ -668,11 +332,14 @@ export function mountShell(): void {
   const searchInput = document.createElement('input');
   searchInput.type = 'search';
   searchInput.className = 'shs-search';
-  searchInput.placeholder = 'Buscar (Ctrl+K)';
+  searchInput.placeholder = 'Buscar ferramenta ou automação  (Ctrl K)';
   searchInput.setAttribute('aria-label', 'Busca rápida de ferramentas');
   const searchPop = document.createElement('div');
   searchPop.className = 'shs-searchpop';
-  searchWrap.append(searchInput, searchPop);
+  const searchIcon = document.createElement('span');
+  searchIcon.className = 'shs-search-ic';
+  searchIcon.appendChild(icon('search', 15));
+  searchWrap.append(searchIcon, searchInput, searchPop);
   // Clique na lista (inclusive na barra de rolagem) não tira o foco do campo.
   searchPop.addEventListener('mousedown', (event) => event.preventDefault());
 
@@ -714,6 +381,7 @@ export function mountShell(): void {
     body.scrollTop = 0;
     if (targetId !== undefined) highlightTarget(targetId);
   };
+  sectionSwitcher = (sectionId: string): void => switchToSection(sectionId);
   /** Rola até o item da busca e pisca o destaque (Onda C). */
   const highlightTarget = (targetId: string): void => {
     const alvo = Array.from(body.querySelectorAll<HTMLElement>('[data-search-id]')).find(
@@ -910,8 +578,35 @@ export function mountShell(): void {
   nav.role = 'tablist';
   nav.setAttribute('aria-orientation', 'vertical');
   side.appendChild(nav);
-  // (Onda 23: chip decorativo "Busca rápida Ctrl K" removido a pedido do dono
-  //  — não havia filtro vinculado e afetava a honestidade da UI.)
+  // Rodapé da barra lateral: licença (ponto de estado) + aldeia atual.
+  const sideFoot = document.createElement('div');
+  sideFoot.className = 'shs-sidefoot';
+  const licRow = document.createElement('div');
+  licRow.className = 'shs-sidefoot-row';
+  const licDot = document.createElement('span');
+  licDot.className = `shs-dot${license.kind === 'valida' ? '' : license.kind === 'graca' ? ' shs-dot--warn' : ' shs-dot--err'}`;
+  const licTxt = document.createElement('span');
+  licTxt.textContent =
+    license.kind === 'valida'
+      ? license.licenseExpiresAt !== null
+        ? `Licença até ${new Date(license.licenseExpiresAt).toLocaleDateString('pt-BR')}`
+        : 'Licença ativa'
+      : license.kind === 'graca'
+        ? 'Licença offline'
+        : 'Licença inativa';
+  if (license.kind === 'valida') licRow.setAttribute('data-tip', `Chave de ${license.accountName}. Renove com o líder antes de vencer.`);
+  licRow.append(licDot, licTxt);
+  sideFoot.appendChild(licRow);
+  const village = (pageWindow().game_data as { village?: { name?: string; x?: number; y?: number } } | undefined)?.village;
+  if (village !== undefined && typeof village.x === 'number' && typeof village.y === 'number') {
+    const vRow = document.createElement('div');
+    vRow.className = 'shs-sidefoot-row shs-sidefoot-muted';
+    const vTxt = document.createElement('span');
+    vTxt.textContent = `${village.name ?? 'Aldeia'} · ${village.x}|${village.y}`;
+    vRow.appendChild(vTxt);
+    sideFoot.appendChild(vRow);
+  }
+  side.appendChild(sideFoot);
   layout.appendChild(side);
 
   const main = document.createElement('div');
@@ -952,7 +647,9 @@ export function mountShell(): void {
   versao.className = 'shs-foot-ver';
   versao.textContent = `v${__SHS_VERSION__}`;
   foot.append(selo, versao);
-  main.appendChild(foot);
+  // Instrumento: licença válida já aparece na barra lateral — a faixa do
+  // rodapé só existe quando há algo a avisar (offline/inativa).
+  if (license.kind !== 'valida') main.appendChild(foot);
 
   layout.appendChild(main);
   panel.appendChild(layout);
@@ -980,8 +677,17 @@ export function mountShell(): void {
       const item = document.createElement('button');
       item.className = 'shs-navitem';
       item.type = 'button';
-      if (section.icon !== undefined) item.appendChild(icon(section.icon, 15));
-      item.appendChild(document.createTextNode(section.label));
+      if (section.icon !== undefined) item.appendChild(icon(section.icon, 17));
+      const labelEl = document.createElement('span');
+      labelEl.textContent = section.label;
+      item.appendChild(labelEl);
+      const badgeText = section.badge?.() ?? null;
+      if (badgeText !== null && badgeText !== '') {
+        const count = document.createElement('span');
+        count.className = 'shs-navcount';
+        count.textContent = badgeText;
+        item.appendChild(count);
+      }
       item.role = 'tab';
       item.dataset.sectionId = section.id;
       const selected = String(body.dataset.section === section.id);
