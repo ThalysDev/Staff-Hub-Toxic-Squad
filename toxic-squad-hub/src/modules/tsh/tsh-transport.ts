@@ -22,6 +22,7 @@
 //   submit DOM que navega) é enfileirado individualmente.
 
 import { enqueue, enqueueUrgent, pacedGet } from '../../core/net';
+import { tripHalt } from '../../core/halt';
 import { pageWindow } from '../../core/page';
 import { currentCsrf, currentVillageId } from '../vanta/vanta-net';
 import { awaitRoutineMutation } from './tsh-humanize';
@@ -222,10 +223,14 @@ function isSessionPage(doc: Document): boolean {
 
 /** Gates de página da origem (assertMutable, sem o flag "armed" — transporte stateless). */
 function assertMutablePage(doc: Document): void {
-  if (isChallengePage(doc))
+  if (isChallengePage(doc)) {
+    tripHalt('captcha', 'A página do jogo mostrou o desafio anti-bot antes de um envio.');
     throw transportError('Captcha detectado; a automação foi pausada para intervenção manual.', 'CAPTCHA_DETECTED');
-  if (isSessionPage(doc))
+  }
+  if (isSessionPage(doc)) {
+    tripHalt('sessao', 'A página do jogo pediu login antes de um envio.');
     throw transportError('A sessão do Tribal Wars precisa ser atualizada manualmente.', 'SESSION_REQUIRED');
+  }
 }
 
 function fillFormFields(form: HTMLFormElement, fields: Record<string, number | string>): void {
@@ -766,13 +771,23 @@ export async function prepareNativeTrain(rows: ReadonlyArray<Partial<Record<stri
  * Fail-closed: re-lê a tela e passa o matcher (tipo/alvo/tropas/catapulta)
  * imediatamente antes; qualquer divergência lança SEM clicar.
  */
+/**
+ * Gate de página (captcha/sessão) da tela de confirmação — CARO (varre o
+ * texto do documento). O agendador chama ANTES da mira; o clique em si
+ * (`clickCommandConfirmNow` com `prechecked`) não repete a varredura.
+ */
+export function assertCommandPageSafe(): void {
+  assertMutablePage(document);
+}
+
 export function clickCommandConfirmNow(
   target: string,
   units: Record<string, number>,
   opts: CommandOptions,
   train?: ReadonlyArray<Partial<Record<string, number>>>,
+  prechecked = false,
 ): void {
-  assertMutablePage(document);
+  if (!prechecked) assertMutablePage(document);
   // Trem nativo: a tela precisa ter EXATAMENTE os adicionais planejados — e
   // sem trem, nenhum adicional preenchido (senão o jogo mandaria a mais).
   if (!nativeTrainMatches(train ?? []))

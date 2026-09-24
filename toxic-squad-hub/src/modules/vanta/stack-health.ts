@@ -295,10 +295,10 @@ registerVanta({
     widget.id = 'vanta-stackhealth-widget';
     widget.className = 'vis moveable widget';
     widget.innerHTML = `
-            <h4 class="head with-button">Saúde do Stack: <span class="vanta-sh-loading">carregando...</span></h4>
+            <h4 class="head with-button">Saúde do Stack: <span class="vanta-sh-loading">não calculada</span></h4>
             <div class="widget_content" style="display:block">
                 <table style="width:100%"><tbody id="vanta-sh-body">
-                    <tr><td class="vanta-sh-loading">Calculando...</td></tr>
+                    <tr><td><a id="vanta-sh-calc" href="#">Calcular agora</a> <small>(lê apoios e roda o simulador)</small></td></tr>
                 </tbody></table>
                 <div style="margin-top:4px">
                     <a id="vanta-sh-settings-toggle" href="#" style="font-size:10px">Configurações ▶</a>
@@ -456,7 +456,19 @@ registerVanta({
       }
     }
 
-    void calculate();
+    // Onda 1: sob demanda. Antes calculava em TODA visita à Visão geral
+    // (info_village fresco + N detalhes de comando + simulador) — rede e CPU
+    // gastos a cada clique na aldeia, mesmo sem ninguém olhar o widget.
+    const calcLink = document.getElementById('vanta-sh-calc');
+    if (calcLink !== null) {
+      scope.on(calcLink, 'click', (event) => {
+        event.preventDefault();
+        headerSpan.className = 'vanta-sh-loading';
+        headerSpan.textContent = 'calculando...';
+        bodyEl.innerHTML = '<tr><td class="vanta-sh-loading">Calculando...</td></tr>';
+        void calculate();
+      });
+    }
 
     // Salvar configurações e recalcular (porta do original 5795-5828).
     scope.on(saveBtn, 'click', () => {

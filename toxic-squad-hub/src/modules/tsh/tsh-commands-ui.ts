@@ -45,7 +45,6 @@ import {
   type SchedulerTimingStrategy,
 } from '../../ext/core/scheduler-state';
 import {
-  NOBLE_TRAIN_DEFAULT_GAP_MS,
   NOBLE_TRAIN_SIZES,
   planNobleTrain,
   validateNobleTrain,
@@ -76,7 +75,7 @@ import {
   type ViewerStatusFilter,
 } from '../../ext/modules/features/ops-viewer/ops-viewer';
 import type { UnitType } from '../../ext/modules/shared/module-types';
-import { calibrateClock, clockInfo, serverNowMs, serverOffsetMs } from '../../core/game-clock';
+import { aimIsHot, calibrateClock, clockInfo, serverNowMs, serverOffsetMs } from '../../core/game-clock';
 import { clockSourceLabel } from '../../ext/core/timing/clock-source';
 import { clockLabelMs, travelDurationMs } from '../../ext/core/timing/precise-fire';
 import { createScheduledCommand, UNIT_POPULATION, type NewScheduledCommandInput } from './plugins/command-scheduler';
@@ -226,7 +225,11 @@ export function formatDecimalPtBr(n: number): string {
 
 /** Leitura defensiva de caixa numérica de tropas: inteiro ≥ 1 (vazio/lixo = 0). */
 export function parseUnitCount(raw: string): number {
-  const n = Number(raw.trim().replace(',', '.'));
+  const trimmed = raw.trim();
+  // Onda 1: "1.500" é MIL E QUINHENTAS (separador de milhar pt-BR) — antes
+  // virava 1,5 → 1 unidade. Tropas nunca são fracionárias.
+  if (/^\d{1,3}(\.\d{3})+$/.test(trimmed)) return Math.min(1_000_000, Number(trimmed.replace(/\./g, '')));
+  const n = Number(trimmed.replace(',', '.'));
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.min(1_000_000, Math.floor(n));
 }
@@ -552,7 +555,7 @@ export interface BlockRecordInput {
   readonly timing: BlockTiming;
   /** Agora em hora do SERVIDOR (partida no passado é recusada sem `forceLate`). */
   readonly nowMs: number;
-  /** Separa partidas da MESMA origem em ≥ 300 ms (conflito de precisão). */
+  /** Separa partidas da MESMA origem em ≥ 5 s (cada envio abre a própria confirmação). */
   readonly avoidMsConflicts: boolean;
   /** "Forçar atraso": aceita partida no passado e marca o registro como `forced`. */
   readonly forceLate: boolean;
@@ -573,7 +576,7 @@ const BLOCK_ASAP_LEAD_MS = 5_000;
  * chegada desejada vem do `timing` (única / distribuída na janela / o quanto
  * antes) e a partida = chegada − viagem do par (injetada pelo plano). Com
  * `avoidMsConflicts`, partidas da mesma origem são empurradas para frente até
- * ficarem ≥ 300 ms entre si; sem `forceLate`, partida no passado é ignorada com
+ * ficarem ≥ 5 s entre si; sem `forceLate`, partida no passado é ignorada com
  * aviso (nada de comando que já nasce atrasado).
  */
 export function buildBlockRecords(input: BlockRecordInput): BlockRecordsResult {
@@ -1509,6 +1512,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   const clock = clockBarEl(() => refreshList());
   body.appendChild(clock.bar);
   const tickLive = (): void => {
+    if (aimIsHot()) return; // reta final de um cravado nesta página
     clock.tick();
     const nowServer = serverNowMs();
     for (const el of body.querySelectorAll<HTMLElement>('[data-tsh-eta]')) {
@@ -1726,7 +1730,9 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
     { value: 'separado', label: 'Comandos separados — gap livre (um envio por ataque)' },
   ]);
   trainModeSelect.value = 'nativo';
-  const trainGapInput = numberInputEl(String(NOBLE_TRAIN_DEFAULT_GAP_MS), 100, 60_000, 50);
+  // Só vale no modo SEPARADO: cada nobre é um envio próprio da mesma aldeia
+  // (confirmação por envio) — abaixo de ~5 s o segundo perde a janela.
+  const trainGapInput = numberInputEl(String(VIEWER_CONFLICT_WINDOW_MS), VIEWER_CONFLICT_WINDOW_MS, 60_000, 500);
   const trainGapRow = document.createElement('div');
   trainGapRow.className = 'tsh-field';
   trainGapRow.append(labelEl('Gap entre chegadas (ms)'), trainGapInput);
@@ -1742,7 +1748,7 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
     loneSnobCheck.row.style.display = nativo ? 'none' : '';
     trainModeHelp.textContent = nativo
       ? 'Todos os ataques levam nobre e saem num ÚNICO clique na confirmação; o jogo espaça as chegadas em 100 ms. O horário é a chegada do 1º. Precisa de 1 nobre por ataque na grade.'
-      : 'Um comando por ataque, cada um com sua própria confirmação — o gap é livre, mas cada envio precisa de alguns segundos entre si.';
+      : `Um comando por ataque, cada um com sua própria confirmação — o gap mínimo é ${VIEWER_CONFLICT_WINDOW_MS / 1000} s (cada envio precisa abrir e confirmar a tela). Para chegadas coladas (100 ms), use o trem do jogo.`;
   };
   trainModeSelect.addEventListener('change', () => {
     applyTrainMode();
@@ -2271,7 +2277,13 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
         return;
       }
       const trainSize = Number(trainSizeSelect.value) as NobleTrainSize;
-      const gapMs = Math.max(100, Math.floor(Number(trainGapInput.value) || NOBLE_TRAIN_DEFAULT_GAP_MS));
+      const gapMs = Math.floor(Number(trainGapInput.value) || VIEWER_CONFLICT_WINDOW_MS);
+      if (trainModeSelect.value !== 'nativo' && gapMs < VIEWER_CONFLICT_WINDOW_MS) {
+        showError(
+          `Comandos separados precisam de pelo menos ${VIEWER_CONFLICT_WINDOW_MS / 1000} s entre chegadas (cada nobre abre a própria confirmação). Para chegadas coladas, use "Trem do jogo".`,
+        );
+        return;
+      }
       const noblesAvailable = absolute.snob ?? 0;
       const escort: Partial<Record<UnitType, number>> = { ...absolute };
       delete escort.snob;
@@ -2591,7 +2603,7 @@ function appendBlockSection(parent: HTMLElement, ctx: SchedulerUiContext): void 
     'Aceita partida no passado e marca o registro como forçado (o motor envia mesmo fora da janela).',
   );
   const distributeCheck = checkboxEl('Distribuir excedente', 'Anotado no detalhe do plano: cotas sobrando aparecem nos avisos do preview.');
-  const avoidMsCheck = checkboxEl('Evitar conflito de ms', 'Separa as partidas da MESMA origem em pelo menos 300 ms.');
+  const avoidMsCheck = checkboxEl('Evitar conflito de ms', `Separa as partidas da MESMA origem em pelo menos ${VIEWER_CONFLICT_WINDOW_MS / 1000} s — cada envio abre a própria confirmação.`);
   avoidMsCheck.input.checked = true;
   for (const check of [markFakeCheck, fillAllCheck, autoSplitCheck, nightBonusCheck, forceLateCheck, distributeCheck, avoidMsCheck]) {
     body.appendChild(check.row);
@@ -2892,7 +2904,7 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
   const statusSelect = selectEl(VIEWER_STATUS_ROWS.map((row) => ({ value: row.value, label: row.label })));
   const sortSelect = selectEl(VIEWER_SORT_ROWS.map((row) => ({ value: row.value, label: row.label })));
   const groupSelect = selectEl([{ value: '', label: '— todos —' }]);
-  const conflictsCheck = checkboxEl('Só conflitos de ms', 'Comandos da MESMA origem com partidas a menos de 300 ms entre si.');
+  const conflictsCheck = checkboxEl('Só conflitos de ms', `Comandos da MESMA origem com partidas a menos de ${VIEWER_CONFLICT_WINDOW_MS / 1000} s entre si (a aba não consegue enviar os dois).`);
   const kindChecks = VIEWER_KINDS.map((kind) => {
     const check = checkboxEl(VIEWER_KIND_LABELS[kind]);
     check.input.checked = true;

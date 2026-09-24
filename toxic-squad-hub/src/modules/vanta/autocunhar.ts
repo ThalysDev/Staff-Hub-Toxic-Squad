@@ -14,6 +14,7 @@
 //   confirmação por ciclo).
 // - P1-4: listeners/timers/node via ModuleScope.
 
+import { isHalted } from '../../core/halt';
 import { gm } from '../../core/storage';
 import type { ModuleScope } from './vanta-lifecycle';
 import { registerVanta } from './vanta-registry';
@@ -132,7 +133,7 @@ registerVanta({
       const secs = gm.get<number>(INTERVAL_KEY, 30);
       setStatus('#5a3a16', `Próxima cunhagem em ${secs} segundo${secs !== 1 ? 's' : ''}...`);
       scope.after(() => {
-        if (isEnabled()) window.location.reload();
+        if (isEnabled() && !isHalted()) window.location.reload(); // disjuntor: não recarrega em loop com captcha aberto
       }, secs * 1000);
     }
 

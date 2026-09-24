@@ -131,6 +131,10 @@ describe('formatação pt-BR', () => {
     expect(parseUnitCount('-3')).toBe(0);
     expect(parseUnitCount('50')).toBe(50);
     expect(parseUnitCount('50,7')).toBe(50);
+    // Separador de milhar pt-BR (Onda 1): '1.500' = 1500, não 1.
+    expect(parseUnitCount('1.500')).toBe(1500);
+    expect(parseUnitCount('12.000')).toBe(12000);
+    expect(parseUnitCount('1.5')).toBe(1);
   });
 });
 
@@ -389,7 +393,7 @@ describe('buildBlockRecords (plano em bloco)', () => {
     const from500 = built.records.filter((record) => record.source?.x === 500);
     expect(from500).toHaveLength(2);
     const departures = from500.map((record) => Date.parse(record.sendAt)).sort((a, b) => a - b);
-    expect(departures[1]! - departures[0]!).toBe(300);
+    expect(departures[1]! - departures[0]!).toBe(5_000);
     // A outra origem não é afetada pelo espaçamento da primeira.
     const from600 = built.records.find((record) => record.source?.x === 600);
     expect(Date.parse(from600?.sendAt ?? '')).toBe(arrivalMs - 30 * 60_000);

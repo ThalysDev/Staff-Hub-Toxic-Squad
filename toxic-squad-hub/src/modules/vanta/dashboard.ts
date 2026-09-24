@@ -911,14 +911,20 @@ function mountDashboard(scope: ModuleScope): void {
     // Atualização ao vivo — Duração (col 6), Torre (col 7) e lead time
     function updateCountdowns(): void {
       const cmdData: Record<string, { duracao?: string; torre?: string }> = {};
+      // Onda 1: UMA passada na tabela por segundo (id → células). Antes cada
+      // span fazia um querySelector na tabela inteira — com 700 ataques eram
+      // ~1.400 varreduras por segundo e a página travava.
+      const rowCells = new Map<string, NodeListOf<HTMLTableCellElement>>();
+      table.querySelectorAll<HTMLElement>('tr.nowrap span.quickedit[data-id]').forEach((qe) => {
+        const id = qe.getAttribute('data-id');
+        const tr = qe.closest('tr');
+        if (id !== null && id !== '' && tr !== null && !rowCells.has(id)) rowCells.set(id, tr.querySelectorAll('td'));
+      });
       container.querySelectorAll('.vanta-cmd-duracao, .vanta-cmd-torre').forEach((span) => {
         const cmdId = span.getAttribute('data-command-id');
         if (cmdId === null || cmdId === '') return;
-        const origQe = table.querySelector(`tr.nowrap span.quickedit[data-id="${CSS.escape(cmdId)}"]`);
-        if (origQe === null) return;
-        const tr = origQe.closest('tr');
-        if (tr === null) return;
-        const tds = tr.querySelectorAll('td');
+        const tds = rowCells.get(cmdId);
+        if (tds === undefined) return;
         const colIdx = span.classList.contains('vanta-cmd-duracao') ? 6 : 7;
         const td = tds[colIdx];
         if (td !== undefined) {

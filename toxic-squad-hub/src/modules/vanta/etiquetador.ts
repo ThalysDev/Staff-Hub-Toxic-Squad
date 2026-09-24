@@ -14,6 +14,7 @@
 //   configurado (qualquer ataque / nobre+aríete / apenas nobre) quando o
 //   etiquetador encontra novidades.
 
+import { isHalted } from '../../core/halt';
 import { gm } from '../../core/storage';
 import type { ModuleScope } from './vanta-lifecycle';
 import { registerVanta } from './vanta-registry';
@@ -208,7 +209,7 @@ registerVanta({
       if (!toggle.checked) return;
       setStatus('#5a3a16', label);
       scope.after(() => {
-        if (isEnabled()) window.location.reload();
+        if (isEnabled() && !isHalted()) window.location.reload(); // disjuntor: não recarrega em loop com captcha aberto
       }, ms);
     }
 

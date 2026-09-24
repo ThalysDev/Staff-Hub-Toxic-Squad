@@ -9,6 +9,7 @@
 //   urgente NUNCA espera a normal — um GET pendurado não pode atrasar um
 //   cravado em segundos; cada cadeia mantém o gap de ≥200ms dentro de si.
 
+import { assertNotHalted, tripHalt } from './halt';
 import { pageWindow } from './page';
 
 export class CaptchaDetectedError extends Error {
@@ -29,6 +30,26 @@ const MIN_GAP_MS = 200;
 const CACHE_TTL_MS = 60_000;
 
 const cache = new Map<string, { at: number; body: string }>();
+/**
+ * Teto do cache (Onda 1): sem limite, cada URL única (info_village&id=N,
+ * info_command&id=N, overview com page=-1 de vários MB) ficava para sempre —
+ * na Sentinela, que não recarrega, a memória crescia por dias.
+ */
+const CACHE_MAX_ENTRIES = 40;
+
+function cachePut(url: string, body: string): void {
+  const now = Date.now();
+  for (const [key, entry] of cache) {
+    if (now - entry.at >= CACHE_TTL_MS) cache.delete(key);
+  }
+  cache.delete(url); // reinsere no fim (mais recente)
+  cache.set(url, { at: now, body });
+  while (cache.size > CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -70,7 +91,12 @@ const urgentQueue = createSerialQueue(MIN_GAP_MS);
  * entre elas. Pode ficar pendurada num GET lento sem afetar a urgente.
  */
 export function enqueue<T>(operation: () => Promise<T>): Promise<T> {
-  return normalQueue.enqueue(operation);
+  // Disjuntor (Onda 1): conferido na HORA de rodar — pedidos já na fila
+  // também param quando o captcha aparece no meio.
+  return normalQueue.enqueue(() => {
+    assertNotHalted();
+    return operation();
+  });
 }
 
 /**
@@ -84,16 +110,21 @@ export function enqueue<T>(operation: () => Promise<T>): Promise<T> {
  * fila corrige).
  */
 export function enqueueUrgent<T>(operation: () => Promise<T>): Promise<T> {
-  return urgentQueue.enqueue(operation);
+  return urgentQueue.enqueue(() => {
+    assertNotHalted();
+    return operation();
+  });
 }
 
 /** Detecta página de login/captcha no corpo (mesmos sentinelas do hub). */
 function assertGameBody(body: string): void {
   const head = body.slice(0, 4000).toLowerCase();
   if (head.includes('name="password"') || head.includes('id="login"')) {
+    tripHalt('sessao', 'Uma leitura do jogo devolveu a tela de login.');
     throw new SessionRequiredError();
   }
   if (head.includes('captcha')) {
+    tripHalt('captcha', 'Uma leitura do jogo devolveu o desafio anti-bot.');
     throw new CaptchaDetectedError();
   }
 }
@@ -129,7 +160,7 @@ export async function pacedGet(path: string, opts?: { fresh?: boolean }): Promis
       window.clearTimeout(timer);
     }
     assertGameBody(body);
-    cache.set(url, { at: Date.now(), body });
+    cachePut(url, body);
     return body;
   });
 }

@@ -19,10 +19,11 @@ import {
 } from './modules/tsh/tsh-sentinela';
 import { nextScheduled, renderHome } from './modules/home';
 import { currentWorld } from './core/page';
-import { serverNowMs } from './core/game-clock';
+import { aimIsHot, serverNowMs } from './core/game-clock';
 import { clockLabelMs } from './ext/core/timing/precise-fire';
 import { renderAjuda } from './modules/ajuda';
-import { createModuleScope } from './modules/vanta/vanta-lifecycle';
+import { createModuleScope, type ModuleScope } from './modules/vanta/vanta-lifecycle';
+import { haltLabel, haltState, pageShowsBotProtection, tripHalt } from './core/halt';
 
 /** Diálogo de ativação (renderiza dentro do host até a licença validar). */
 function renderActivation(onActivate: () => void): void {
@@ -201,8 +202,16 @@ function renderActivation(onActivate: () => void): void {
  * escudo flutuante pulsa e o tooltip mostra o horário (quem está com o
  * painel fechado sabe que NÃO deve fechar a aba agora).
  */
-function startAimWatcher(): void {
-  window.setInterval(() => {
+function startAimWatcher(scope: ModuleScope): void {
+  // Timer RASTREADO (regra do projeto: nada de setInterval cru nos módulos).
+  scope.every(() => {
+    if (aimIsHot()) return; // reta final do clique: nada de trabalho de UI
+    // Disjuntor aberto vence qualquer outro aviso: o jogador precisa agir.
+    const halt = haltState();
+    if (halt !== null) {
+      setFabAlert(`${haltLabel(halt)} — script pausado; abra a Início para retomar`);
+      return;
+    }
     // Agendador desligado não envia nada — sem alerta enganoso.
     if (!isTshEnabled('command-scheduler')) {
       setFabAlert(null);
@@ -270,6 +279,12 @@ function main(): void {
     })),
   );
 
+  // Disjuntor (Onda 1): o jogo mostrou o desafio anti-bot NESTA página —
+  // pausa tudo antes de qualquer automação tentar agir.
+  if (pageShowsBotProtection()) {
+    tripHalt('captcha', 'O jogo mostrou o desafio anti-bot nesta página.');
+  }
+
   const state: LicenseState = gate();
   if (state.kind === 'ausente') {
     renderActivation(() => {
@@ -277,7 +292,7 @@ function main(): void {
       runVantaOnLoad();
       startTshHeartbeat(createModuleScope('tsh-heartbeat'));
       mountSentinelaLauncher();
-      startAimWatcher();
+      startAimWatcher(createModuleScope('tsh-aim-watcher'));
     });
     return;
   }
@@ -286,7 +301,7 @@ function main(): void {
   runVantaOnLoad();
   startTshHeartbeat(createModuleScope('tsh-heartbeat'));
   mountSentinelaLauncher();
-  startAimWatcher();
+  startAimWatcher(createModuleScope('tsh-aim-watcher'));
   void logout;
   void licenseState;
 }

@@ -5,6 +5,7 @@
 
 import { icon, type IconName } from '../core/icons';
 import { gm } from '../core/storage';
+import { clearHalt, haltLabel, haltState } from '../core/halt';
 import { licenseState } from '../core/license';
 import { currentWorld, pageWindow } from '../core/page';
 import { gameContext } from '../core/shell';
@@ -12,7 +13,7 @@ import { isVantaEnabled, vantaLaunchers } from './vanta/vanta-registry';
 import { isTshEnabled, tshArmedUntil, tshAutomations, tshNextRunAt, tshStatus } from './tsh/tsh-runtime';
 import { loadSchedule, isScheduleStopped } from './tsh/tsh-settings';
 import { tshPanelSignature } from './tsh/tsh-panel';
-import { serverNowMs } from '../core/game-clock';
+import { aimIsHot, serverNowMs } from '../core/game-clock';
 import { clockLabelMs } from '../ext/core/timing/precise-fire';
 
 export const SUPPORT_PHONE = '+55 81 99413-1872';
@@ -23,6 +24,11 @@ const HOME_CSS = `
   .home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
   .home-card { background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border, #e0cda0); border-radius: 10px; padding: 14px 16px; }
   .home-card--full { grid-column: 1 / -1; }
+  .home-card--halt { border: 2px solid var(--shs-danger, #c04038); background: var(--shs-danger-bg, #fceaea); }
+  .home-resume { margin-top: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px;
+    border: 1px solid var(--shs-action-dark, #4a2708); background: var(--shs-action, #6d3c14); color: var(--shs-on-dark, #f5ecd0);
+    font-weight: 700; cursor: pointer; }
+  .home-resume:hover { filter: brightness(1.1); }
   /* [8] O kicker virou TÍTULO do card: heading legítimo (h3) 16px/700, sem
      estilo de eyebrow (nada de uppercase minúsculo sobre um heading). */
   .home-kicker { display: flex; align-items: center; gap: 7px; margin: 0 0 10px;
@@ -140,7 +146,8 @@ function homeSignature(world: string): string {
   const vanta = vantaLaunchers()
     .map((l) => (isVantaEnabled(l.id) ? 1 : 0))
     .join('');
-  return `${tshPanelSignature(world)}#${vanta}#${sched.count}:${sched.nextAt ?? ''}`;
+  const halt = haltState();
+  return `${tshPanelSignature(world)}#${vanta}#${sched.count}:${sched.nextAt ?? ''}#${halt?.at ?? ''}`;
 }
 
 /**
@@ -153,6 +160,7 @@ export function renderHome(container: HTMLElement): () => void {
   drawHome(container);
   let signature = homeSignature(world);
   const timer = window.setInterval(() => {
+    if (aimIsHot()) return; // reta final de um cravado nesta página
     const now = homeSignature(world);
     if (now === signature) return;
     signature = now;
@@ -169,6 +177,38 @@ function drawHome(container: HTMLElement): void {
   container.replaceChildren();
   const grid = document.createElement('div');
   grid.className = 'home-grid';
+
+  // ── Disjuntor (Onda 1): captcha/sessão pausaram TUDO — o primeiro card. ──
+  const halt = haltState();
+  if (halt !== null) {
+    const aviso = card(`Script pausado: ${haltLabel(halt)}`, 'alert', true);
+    aviso.box.classList.add('home-card--halt');
+    aviso.body.appendChild(
+      line(
+        'clock',
+        `Desde ${new Date(halt.at).toLocaleTimeString('pt-BR')} — ${halt.detail} Nenhuma automação roda e nenhum pedido sai para o jogo enquanto isto estiver aqui.`,
+      ),
+    );
+    aviso.body.appendChild(
+      line(
+        'info',
+        halt.reason === 'captcha'
+          ? 'Resolva o desafio na janela do jogo (recarregue a página se precisar) e depois clique abaixo.'
+          : 'Faça login de novo no jogo e depois clique abaixo.',
+      ),
+    );
+    const retomar = document.createElement('button');
+    retomar.type = 'button';
+    retomar.className = 'home-resume';
+    retomar.appendChild(icon('check', 13));
+    retomar.appendChild(document.createTextNode('Já resolvi — retomar'));
+    retomar.addEventListener('click', () => {
+      clearHalt();
+      drawHome(container);
+    });
+    aviso.body.appendChild(retomar);
+    grid.appendChild(aviso.box);
+  }
 
   const license = licenseState();
   const gctx = gameContext();

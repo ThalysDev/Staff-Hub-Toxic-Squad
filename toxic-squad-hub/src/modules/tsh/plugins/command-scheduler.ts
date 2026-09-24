@@ -28,6 +28,7 @@ import { registerTsh, releaseTshLock, renewTshLock, tshTabId, type TshAutomation
 import { awaitRoutineMutation } from '../tsh-humanize';
 import {
   cancelGameCommandsAtTarget,
+  assertCommandPageSafe,
   clickCommandConfirmNow,
   commandConfirmScreenState,
   isUncertainMutationError,
@@ -48,6 +49,7 @@ import {
 } from '../../../ext/core/scheduler-state';
 import { laneForSchedulerRecord } from '../../../ext/core/humanize/humanize-policy';
 import {
+  markAimHot,
   clockInfo,
   ensureClockCalibrated,
   recordArrivalFeedback,
@@ -885,6 +887,17 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
       ctx.status(`Comando ${due.id} vence em ${Math.round(deltaMs / 1000)}s — próximo ciclo mira o envio.`, 'info');
       return;
     }
+    // Onda 1: a pré-leitura da Visão de Comandos (vários MB) rodava só no
+    // ramo da "mira antecipada" — quando o ciclo já caía na janela, a página
+    // era baixada DEPOIS do instante marcado. Agora sempre pré-lê antes da
+    // mira, com teto: deixa ≥1 s livre antes do disparo.
+    const cancelTarget = `${due.target.x}|${due.target.y}`;
+    if (deltaMs > 1_500 && freshCancelPreread(cancelTarget, Date.now()) === undefined) {
+      await Promise.race([
+        prereadCancelPage(ctx, cancelTarget),
+        new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, deltaMs - 1_000))),
+      ]);
+    }
     if (deltaMs > 0) {
       ctx.status(
         `Cancelamento ${due.id} na mira: dispara às ${clockLabelMs(fireAt)}${hiddenTabNote()}.`,
@@ -892,6 +905,7 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
       );
       renewTshLock('command-scheduler', ctx.world);
       const dueId = due.id;
+      markAimHot(fireAt);
       const ok = await waitUntilServerMs(
         fireAt,
         () => !stillFirable(findRecord(ctx, dueId), windowCfg, readServerNow(document)),
@@ -1377,6 +1391,10 @@ async function aimAndConfirm(
       'info',
     );
     renewTshLock('command-scheduler', ctx.world);
+    // Onda 1: captcha/sessão conferidos AGORA (varredura cara) — no instante
+    // do clique sobra só a conferência leve do formulário.
+    assertCommandPageSafe();
+    markAimHot(decision.fireAtMs);
     const ok = await waitUntilServerMs(decision.fireAtMs, () => !aliveRecord(findRecord(ctx, record.id)), {
       precise: opts.lane === 'precisao',
     });
@@ -1403,7 +1421,7 @@ async function aimAndConfirm(
     // travada e o próximo cravado da mesma aldeia podia ser perdido (Onda E).
     // Se o clique falhar, o `finally` do runtime renova o lock.
     releaseTshLock('command-scheduler', ctx.world);
-    clickCommandConfirmNow(target, units, opts, record.trainUnits ?? []);
+    clickCommandConfirmNow(target, units, opts, record.trainUnits ?? [], aimed);
   } catch (error) {
     renewTshLock('command-scheduler', ctx.world); // nada navegou: a aba retoma o lock
     if (isUncertainMutationError(error)) {
@@ -1458,6 +1476,8 @@ export const commandSchedulerAutomation: TshAutomation = {
   armExempt: true,
   // Onda A: a tela de confirmação aberta pelo pré-arme mira LOGO ao carregar.
   bootOnLoad: true,
+  // Uma aba por aldeia de origem (cada aba só envia os comandos da aldeia dela).
+  lockPerVillage: true,
   extraActions: [
     {
       label: 'Comandos',

@@ -13,6 +13,8 @@
 
 import { gm } from '../../core/storage';
 import { licenseState } from '../../core/license';
+import { pageWindow } from '../../core/page';
+import { haltLabel, haltState } from '../../core/halt';
 import type { ModuleScope } from '../vanta/vanta-lifecycle';
 import { loadSchedule, withinActiveWindow, isScheduleStopped, stopLabel, type SettingsField, type TshSchedule } from './tsh-settings';
 
@@ -61,6 +63,8 @@ export interface TshAutomation {
    * lock/armação/tela/janela seguem valendo.
    */
   bootOnLoad?: boolean;
+  /** Lock entre abas por ALDEIA (não por mundo): várias abas, uma por origem. */
+  lockPerVillage?: boolean;
   /** Um ciclo: ler → planejar → NO MÁXIMO 1 mutação (F2). */
   runCycle(ctx: TshCycleContext): Promise<void>;
 }
@@ -99,7 +103,27 @@ const enabledKey = (id: string): string => `tsh-auto:${id}:enabled`;
 const stateKey = (id: string, world: string): string => `tsh-auto:${world}:${id}:state`;
 const statusKey = (id: string, world: string): string => `tsh-auto:${world}:${id}:status`;
 const armKey = (id: string): string => `tsh-auto:${id}:armed-until`;
-const lockKey = (id: string, world: string): string => `tsh-auto:${world}:${id}:lock`;
+/**
+ * Aldeia desta página: `game_data` do jogo primeiro (a URL pode não trazer
+ * `village=` — `game.php?screen=place` abre a aldeia atual), URL de reserva;
+ * sem o prefixo `n` das aldeias novas.
+ */
+export function currentVillageId(): string {
+  const fromGame = pageWindow().game_data?.village?.id;
+  const raw = fromGame !== undefined && fromGame !== null ? String(fromGame) : (new URLSearchParams(window.location.search).get('village') ?? '');
+  return raw.replace(/^n/, '');
+}
+
+/**
+ * Chave do lock entre abas. Módulos com `lockPerVillage` travam POR ALDEIA:
+ * o Agendador só envia comandos da aldeia aberta na aba, então numa OP com
+ * várias origens cada aba (uma por aldeia) precisa rodar ao mesmo tempo — o
+ * lock por mundo deixava só UMA aba viva e as outras origens nunca enviavam.
+ */
+const lockKey = (id: string, world: string): string => {
+  const perVillage = automations.get(id)?.lockPerVillage === true;
+  return perVillage ? `tsh-auto:${world}:${id}:v${currentVillageId()}:lock` : `tsh-auto:${world}:${id}:lock`;
+};
 
 export function isTshEnabled(id: string): boolean {
   return gm.get<boolean>(enabledKey(id), false); // OPT-IN: nada muta por padrão.
@@ -233,10 +257,17 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
   if (automation === undefined) return;
   // Mundo = subdomínio (br144.tribalwars.com.br → br144); aldeia da URL.
   const worldId = window.location.hostname.split('.')[0] ?? 'mundo';
-  const villageId = new URLSearchParams(window.location.search).get('village') ?? '';
+  const villageId = currentVillageId();
 
   if (inFlight.has(id)) return; // ciclo do mesmo módulo já em voo nesta aba
   if (!isTshEnabled(id)) return;
+  // Disjuntor (Onda 1): captcha/sessão param TODAS as automações até o
+  // jogador retomar na Início — nada de tentar de novo a cada ciclo.
+  const halt = haltState();
+  if (halt !== null) {
+    gm.set<CycleStatus>(statusKey(id, worldId), { message: `${haltLabel(halt)} — pausado até você retomar na Início.`, kind: 'warn', at: Date.now() });
+    return;
+  }
   if (!licenseOk()) {
     gm.set<CycleStatus>(statusKey(id, worldId), { message: 'Licença inativa — ciclos pausados.', kind: 'warn', at: Date.now() });
     return;
@@ -322,6 +353,17 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
  * normal executarem o mesmo módulo ao mesmo tempo.
  */
 export function startTshHeartbeat(scope: ModuleScope): void {
+  // Cada carga de página tem id de aba NOVO: sem soltar o lock ao sair, a
+  // página seguinte (o jogador navegou na Praça, enviou um ataque à mão)
+  // ficava até LOCK_TTL_MS sem poder rodar — cravado nessa janela falhava.
+  // pagehide dispara 1× no fim da página (vale também para o bfcache).
+  window.addEventListener('pagehide', () => {
+    const world = window.location.hostname.split('.')[0] ?? 'mundo';
+    for (const id of automations.keys()) {
+      const lock = gm.get<{ tab: string; at: number } | null>(lockKey(id, world), null);
+      if (lock !== null && lock.tab === TAB_ID) gm.set(lockKey(id, world), null);
+    }
+  });
   // Boot (Onda A): módulos que pedem ciclo imediato rodam ~0,4s após o load.
   scope.after(() => {
     for (const automation of automations.values()) {

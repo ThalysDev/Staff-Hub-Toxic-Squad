@@ -15,6 +15,7 @@
 // Segurança: zero innerHTML com dado dinâmico — mensagem de status, labels e
 // JSON de prévia entram sempre por textContent/createTextNode.
 
+import { aimIsHot } from '../../core/game-clock';
 import { licenseState } from '../../core/license';
 import { icon, type IconName } from '../../core/icons';
 import { ensureHost } from '../../core/shell';
@@ -522,6 +523,7 @@ export function renderTshPanel(container: HTMLElement): () => void {
   };
   drawTshPanel(container, redraw);
   const timer = window.setInterval(() => {
+    if (aimIsHot()) return; // reta final de um cravado nesta página
     tickCountdown(shadow);
     const pressionado = pointerDownAt !== 0 && Date.now() - pointerDownAt < 3_000;
     if (pressionado || shadow.querySelector('.tsh-overlay') !== null) return;

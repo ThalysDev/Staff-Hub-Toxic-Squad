@@ -91,7 +91,8 @@ export function decideConfirmAction(opts: {
  * alinhado a ~1s numa aba em 2º plano.
  */
 export function spinBudgetMs(hidden: boolean): number {
-  return hidden ? 1_100 : 25;
+  // Visível: 60 ms (era 25) — folga contra o jitter do timer + tarefas do jogo.
+  return hidden ? 1_100 : 60;
 }
 
 /** Máximo de tentativas de pré-armar o mesmo comando (tela que não abre = tropas/alvo inválidos). */

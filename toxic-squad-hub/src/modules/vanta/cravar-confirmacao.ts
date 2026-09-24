@@ -12,7 +12,7 @@
 import { registerVanta } from './vanta-registry';
 import type { ModuleScope } from './vanta-lifecycle';
 import { icon } from '../../core/icons';
-import { calibrateClock, clockInfo, serverNowMs } from '../../core/game-clock';
+import { aimIsHot, calibrateClock, clockInfo, serverNowMs } from '../../core/game-clock';
 import { clockLabelMs } from '../../ext/core/timing/precise-fire';
 import { deriveSchedulerCommandStatus, parseSchedulerCommandRecord, SCHEDULER_DEFAULT_WINDOW } from '../../ext/core/scheduler-state';
 import type { UnitType } from '../../ext/modules/shared/module-types';
@@ -204,6 +204,7 @@ function mount(scope: ModuleScope): void {
   };
 
   const render = (): void => {
+    if (aimIsHot()) return; // reta final do clique: a interface espera
     const id = sessionStorage.getItem(RECORD_KEY);
     if (id === null) return;
     const record = loadSchedulerState(world).commands.find((command) => command.id === id);

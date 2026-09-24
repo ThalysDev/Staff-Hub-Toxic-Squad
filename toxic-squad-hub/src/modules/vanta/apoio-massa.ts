@@ -1013,8 +1013,10 @@ registerVanta({
       if (raw === null) setStatus('Velocidades das unidades indisponíveis — usando a tabela clássica do jogo.', 'warn');
       let reference = 0;
       for (const unit of TROOP_UNITS) reference = Math.max(reference, speeds[unit] ?? 0);
-      // Mesma fórmula do tsh-game-data: dist × min/campo / (velocidade do mundo).
-      const divisor = world.speed * world.unitSpeed;
+      // get_unit_info já vem com a velocidade do mundo aplicada: só a tabela
+      // CLÁSSICA de fallback divide pelos fatores (antes dividia sempre e a
+      // viagem saía 11% curta no BR142 — apoio cravado chegava atrasado).
+      const divisor = raw === null ? world.speed * world.unitSpeed : 1;
       const travel = (from: Coord, to: Coord): number => {
         if (divisor <= 0 || reference <= 0) return 0;
         return (Math.hypot(to.x - from.x, to.y - from.y) * reference) / divisor;

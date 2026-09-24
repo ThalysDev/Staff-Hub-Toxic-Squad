@@ -181,6 +181,26 @@ export function serverNowMs(): number {
   return Date.now() + serverOffsetMs();
 }
 
+/**
+ * Mira quente (Onda 1): instante (hora do servidor) de um clique cravado
+ * iminente NESTA página. Nos 2 s antes (e 0,5 s depois) os redesenhos
+ * periódicos da interface se calam — uma tarefa longa de render atrasava a
+ * mensagem do Worker e o clique saía tarde.
+ */
+let aimFireAtServerMs = 0;
+const AIM_HOT_BEFORE_MS = 2_000;
+const AIM_HOT_AFTER_MS = 500;
+
+export function markAimHot(fireAtServerMs: number): void {
+  aimFireAtServerMs = fireAtServerMs;
+}
+
+export function aimIsHot(): boolean {
+  if (aimFireAtServerMs === 0) return false;
+  const now = serverNowMs();
+  return now >= aimFireAtServerMs - AIM_HOT_BEFORE_MS && now <= aimFireAtServerMs + AIM_HOT_AFTER_MS;
+}
+
 /** Estado do relógio para a UI e para a compensação de latência. */
 export function clockInfo(): ClockInfo {
   const choice = currentChoice();
