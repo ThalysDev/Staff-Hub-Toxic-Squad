@@ -25,6 +25,8 @@
 import { isHalted, pageShowsBotProtection, tripHalt } from '../../../core/halt';
 import { z } from 'zod';
 import { alert } from '../tsh-alerts';
+import { gm } from '../../../core/storage';
+import { durationVerdict, formatHms, readConfirmDurationMs, readGameErrorText } from '../tsh-confirm-read';
 import { registerTsh, releaseTshLock, renewTshLock, tshTabId, type TshAutomation, type TshCycleContext } from '../tsh-runtime';
 import { awaitRoutineMutation } from '../tsh-humanize';
 import {
@@ -99,6 +101,8 @@ export interface NewScheduledCommandInput {
   unitsPercent?: Partial<Record<string, number>>;
   /** v3.3.0: unidades que saem com TUDO o que houver no disparo. */
   allUnits?: ReadonlyArray<UnitType>;
+  /** v3.5.0: Sinal de Aflição do alvo (%), só apoio. */
+  sigilPct?: number;
   /** Onda E: ataques adicionais do trem nativo (#2..#5). */
   trainUnits?: ReadonlyArray<Partial<Record<UnitType, number>>>;
   /** Texto do primeiro evento (o que o plano pediu — aparece na lista/histórico). */
@@ -228,8 +232,9 @@ export function commandPopulation(units: Partial<Record<UnitType, number>>): num
 }
 
 /** População mínima de um ataque que respeita o limite de fakes (fração do mundo). */
-export function minimumAttackPopulation(targetPoints: number, fraction: number = FAKE_LIMIT_FRACTION): number {
-  return Math.ceil(targetPoints * fraction);
+/** População mínima de um ataque: fração dos pontos da aldeia ATACANTE (só referência — o motor não bloqueia; o jogo decide). */
+export function minimumAttackPopulation(attackerPoints: number, fraction: number = FAKE_LIMIT_FRACTION): number {
+  return Math.ceil(attackerPoints * fraction);
 }
 
 // ---------------------------------------------------------------------------
@@ -877,6 +882,30 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
   const own = schedulableSchedulerRecords(state, ctx.villageId, now, windowCfg);
   const pending = readPendingCommandConfirmation(document);
 
+  // v3.5.0: o passo 1 voltou com a caixa de ERRO do jogo (tropas
+  // insuficientes, alvo inválido, fora da tribo…): a mensagem DELE vira o
+  // motivo do comando pré-armado — 1 tentativa, sem insistir.
+  if (pending === undefined && /[?&]try=confirm/.test(window.location.search)) {
+    const erro = readGameErrorText(document);
+    const claim = ctx.storage.get<PrearmRecord | null>(prearmKey(ctx.villageId), null);
+    if (erro !== null && claim !== null && Date.now() - claim.at < PREARM_CLAIM_TTL_MS) {
+      const recusado = state.commands.find((record) => record.id === claim.id);
+      // O formulário devolvido com o erro traz o alvo digitado: só atribui a
+      // recusa se for o alvo DESTE comando (envio manual da mesma aldeia não conta).
+      const tx = Number(document.querySelector<HTMLInputElement>('#inputx')?.value ?? NaN);
+      const ty = Number(document.querySelector<HTMLInputElement>('#inputy')?.value ?? NaN);
+      const mesmoAlvo = !Number.isFinite(tx) || !Number.isFinite(ty) || (recusado !== undefined && tx === recusado.target.x && ty === recusado.target.y);
+      if (recusado !== undefined && aliveRecord(recusado) && mesmoAlvo) {
+        const motivo = `O jogo recusou o comando: "${erro}" — nada foi enviado.`;
+        ctx.storage.set(SCHEDULER_STORAGE_KEY, appendSchedulerEvent(readSchedulerState(ctx), recusado.id, 'falhou', new Date().toISOString(), motivo));
+        clearPrearm(ctx, recusado.id);
+        ctx.status(`Comando ${recusado.id}: ${motivo}`, 'warn');
+        alert('comando_falhou', `Comando para ${recusado.target.x}|${recusado.target.y}: ${motivo}`);
+        return;
+      }
+    }
+  }
+
   // P1-1 (revisão): Envio automático desligado SEGURA o disparo — o caminho
   // principal nunca envia com o toggle desligado (o hold/vencimento é o único
   // efeito do ciclo).
@@ -974,23 +1003,11 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
   const fireUnits = await resolveFireUnits(ctx, due);
   if (fireUnits === undefined) return;
 
-  // FAKE protection: ataque/fake com pontos do alvo precisa de população
-  // mínima (fração do mundo via get_config; mundo sem limite = sem checagem).
-  if ((due.kind === 'attack' || due.kind === 'fake') && due.targetPoints !== undefined) {
-    const fraction = await worldFakeLimitFraction();
-    if (fraction > 0) {
-      const minimum = minimumAttackPopulation(due.targetPoints, fraction);
-      const population = commandPopulation(fireUnits);
-      if (population < minimum) {
-        const percent = `${Math.round(fraction * 1000) / 10}%`;
-        ctx.status(
-          `População do ataque (${population}) abaixo do limite de fakes do mundo (${minimum} = ${percent} dos pontos do alvo).`,
-          'warn',
-        );
-        return;
-      }
-    }
-  }
+  // LIMITE DE ATAQUES FALSOS / TRIBO / DISTÂNCIA (v3.5.0): o script NÃO
+  // bloqueia pelo que o próprio jogo confere (decisão do dono): a regra pode
+  // mudar na última hora (tribo, pontos) e quem decide é o jogo. O formulário
+  // AVISA; se o jogo recusar, o erro dele vira o motivo do comando (ver
+  // recordGameRefusal). Antes: bloqueio pelos pontos do ALVO (regra errada).
 
   // Cancelamento cronometrado: não usa a Praça — mira de precisão até o ms
   // planejado (menos a compensação de latência) e dispara os POSTs.
@@ -1240,7 +1257,93 @@ async function handlePendingConfirmation(
     );
     return;
   }
-  await aimAndConfirm(ctx, matching, unitsFor(matching) ?? commandUnitsRecord(matching), settings);
+  const conferido = verifyRealDuration(ctx, matching);
+  if (conferido === 'parar') return;
+  const alvo = conferido ?? matching;
+  await aimAndConfirm(ctx, alvo, unitsFor(matching) ?? commandUnitsRecord(matching), settings);
+}
+
+/** Aflição aprendida por alvo vale por isso (o sinal é de evento/temporário). */
+const SIGIL_TTL_MS = 6 * 60 * 60_000;
+
+/**
+ * v3.5.0 — DURAÇÃO REAL na confirmação (Sinal de Aflição do alvo ou outro
+ * bônus). Por chegada, viagem mais curta: novo envio em até 60 s → mira o novo
+ * horário nesta mesma confirmação; mais tarde → reagenda e arma de novo;
+ * novo horário já passou → falha com o motivo. Mais longa: não chega na hora.
+ * Por envio: só atualiza a chegada. Ilegível: segue como antes.
+ * Só APOIO aprende a % do alvo (o Sinal de Aflição vale para apoios).
+ * Devolve 'parar' (não mirar), o registro atualizado (mirar nele) ou null.
+ */
+function verifyRealDuration(ctx: TshCycleContext, record: ScheduledCommandRecord): 'parar' | ScheduledCommandRecord | null {
+  if (record.arrivalAt === undefined) return null;
+  const realMs = readConfirmDurationMs(document);
+  if (realMs === null) return null;
+  const verdict = durationVerdict({
+    sendAtMs: Date.parse(record.sendAt),
+    arrivalAtMs: Date.parse(record.arrivalAt),
+    realMs,
+    arrivalLocked: record.timingMode === 'arrival',
+    nowMs: serverNowMs(),
+  });
+  if (verdict.kind === 'ok') return null;
+  const agora = new Date().toISOString();
+  const patch = (fn: (r: ScheduledCommandRecord) => ScheduledCommandRecord, status: ScheduledCommandRecord['events'][number]['status'], detail: string): ScheduledCommandRecord | undefined => {
+    const state = readSchedulerState(ctx);
+    let updated: ScheduledCommandRecord | undefined;
+    ctx.storage.set(SCHEDULER_STORAGE_KEY, {
+      ...state,
+      commands: state.commands.map((c) => {
+        if (c.id !== record.id) return c;
+        updated = { ...fn(c), events: [...c.events, { status, at: agora, detail }] };
+        return updated;
+      }),
+    });
+    return updated;
+  };
+  const real = formatHms(verdict.realMs);
+  const plan = formatHms(verdict.plannedMs);
+  if (verdict.kind === 'nova-chegada') {
+    patch((c) => ({ ...c, arrivalAt: new Date(verdict.newArrivalAtMs).toISOString() }), 'agendado', `Duração real ${real} (planejada ${plan}) — chegada prevista ${clockLabelMs(verdict.newArrivalAtMs)}.`);
+    return null;
+  }
+  const leavePlace = (): void => {
+    clearPrearm(ctx, record.id);
+    // Sai da confirmação velha: o próximo ciclo arma de novo no horário certo.
+    window.location.href = `/game.php?village=${encodeURIComponent(normalizeVillageId(ctx.villageId))}&screen=place`;
+  };
+  if (verdict.kind === 'mirar-novo' || verdict.kind === 'reagendar') {
+    const apoio = record.kind === 'support';
+    // % do alvo = composta sobre o que ESTE comando já planejou (nunca sobre o valor guardado).
+    const total = Math.round(((1 + (record.sigilPct ?? 0) / 100) * (1 + verdict.boostPct / 100) - 1) * 100);
+    const causa = apoio ? `Sinal de Aflição de ~${total}% no alvo` : `viagem ${verdict.boostPct}% mais rápida que a calculada`;
+    const acao = verdict.kind === 'mirar-novo' ? 'o clique espera o novo horário' : 'reagendado';
+    const updated = patch(
+      (c) => ({ ...c, sendAt: new Date(verdict.newSendAtMs).toISOString(), ...(apoio ? { sigilPct: total } : {}) }),
+      'agendado',
+      `Duração real ${real} na confirmação (planejada ${plan}): ${causa} — ${acao} de ${clockLabelMs(Date.parse(record.sendAt))} para ${clockLabelMs(verdict.newSendAtMs)} para chegar na hora.`,
+    );
+    if (apoio) ctx.storage.set(`sigil:${record.target.x}|${record.target.y}`, { pct: total, at: Date.now() });
+    ctx.status(`Comando ${record.id}: ${causa} — envio às ${clockLabelMs(verdict.newSendAtMs)}.`, 'ok');
+    if (verdict.kind === 'mirar-novo') return updated ?? 'parar';
+    leavePlace();
+    return 'parar';
+  }
+  const motivo =
+    verdict.kind === 'curta-demais'
+      ? `A viagem real (${real}) é mais curta que a planejada (${plan}), mas o novo horário de envio já tinha passado há ${Math.max(1, Math.round(verdict.lateByMs / 1000))} s — nada foi enviado. Use "Usar de novo" para reagendar.`
+      : `A viagem real (${real}) é ${Math.round(verdict.lateMs / 1000)} s mais longa que a planejada (${plan}) — chegaria atrasado; nada foi enviado. Para mandar mesmo assim, use "Usar de novo" com a nova hora.`;
+  patch((c) => c, 'falhou', motivo);
+  ctx.status(`Comando ${record.id}: ${motivo}`, 'warn');
+  alert('comando_falhou', `Comando para ${record.target.x}|${record.target.y}: ${motivo}`);
+  leavePlace();
+  return 'parar';
+}
+
+/** Aflição aprendida para um alvo (%, null = nenhuma recente). */
+export function learnedSigilPct(world: string, target: { x: number; y: number }): number | null {
+  const v = gm.get<{ pct: number; at: number } | null>(`tsh-auto:${world}:command-scheduler:sigil:${target.x}|${target.y}`, null);
+  return v !== null && Date.now() - v.at < SIGIL_TTL_MS && v.pct > 0 ? v.pct : null;
 }
 
 function findRecord(ctx: TshCycleContext, id: string): ScheduledCommandRecord | undefined {

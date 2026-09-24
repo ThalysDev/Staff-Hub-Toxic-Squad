@@ -26,6 +26,10 @@ import { registerTsh } from '../tsh-runtime';
 import { pacedGet } from '../../../core/net';
 import { gm } from '../../../core/storage';
 import { ownVillages } from '../tsh-game-data';
+import { reservationForVillage, reservationNote, subtractReservation } from '../tsh-reserva';
+import { currentWorld } from '../../../core/page';
+import { serverNowMs as clockServerNowMs } from '../../../core/game-clock';
+import type { UnitType } from '../../../ext/modules/shared/module-types';
 import { isUncertainMutationError, submitCommand2Step } from '../tsh-transport';
 import { serverNowIso } from './op-generator';
 import {
@@ -401,6 +405,22 @@ function remainingPagePaths(document: Document): string[] {
   return [...unique];
 }
 
+/** Horizonte da reserva no farm: ida+volta de um farm cabe folgado nisso. */
+const FARM_RESERVE_HORIZON_MS = 6 * 60 * 60_000;
+
+/**
+ * v3.5.0 — o farm só usa o EXCEDENTE: tropas que um comando agendado desta
+ * aldeia vai precisar nas próximas horas ficam em casa ("Todas" reserva o
+ * tipo inteiro). Sem comando agendado, nada muda.
+ */
+let lastFarmReserveNote = '';
+function reserveFarmTroops(villageId: string, troops: AutoFarmUnitAmounts): AutoFarmUnitAmounts {
+  const res = reservationForVillage(currentWorld(), villageId, clockServerNowMs() + FARM_RESERVE_HORIZON_MS);
+  lastFarmReserveNote = res.commands.length === 0 ? '' : ` Farm usou só o excedente:${reservationNote(res)}`;
+  if (res.commands.length === 0) return troops;
+  return subtractReservation(troops as Partial<Record<UnitType, number>>, res) as AutoFarmUnitAmounts;
+}
+
 interface ReadPageResult {
   source: { villageId: string; x: number; y: number; troops: AutoFarmUnitAmounts };
   plunderFilters: AutoFarmPlunderFilters;
@@ -418,7 +438,7 @@ function readPage(document: Document, expectedVillageId: string, capturedAt: Dat
   }
   const coordinates = sourceCoordinates(document);
   return {
-    source: { villageId: expectedVillageId, ...coordinates, troops: readTroops(document) },
+    source: { villageId: expectedVillageId, ...coordinates, troops: reserveFarmTroops(expectedVillageId, readTroops(document)) },
     plunderFilters: readPlunderFilters(document),
     templates: AUTO_FARM_TEMPLATE_IDS.map((id) => templateFor(document, id)),
     targets: readTargets(document, capturedAt),
@@ -1112,7 +1132,7 @@ registerTsh({
       const status = autoFarmStatusMessage(buildAutoFarmReport(preview, villageId, generatedAt, rotation, extras), rotation, {
         templateC,
       });
-      ctx.status(status.message, status.kind);
+      ctx.status(`${status.message}${lastFarmReserveNote}`, status.kind);
       return;
     }
 
@@ -1165,6 +1185,6 @@ registerTsh({
     const report = buildAutoFarmReport(preview, villageId, generatedAt, rotation, { ...extras, execution });
     ctx.storage.set('last-report', report);
     const status = autoFarmStatusMessage(report, rotation, { mode: settings.mode, execution, templateC });
-    ctx.status(status.message, status.kind);
+    ctx.status(`${status.message}${lastFarmReserveNote}`, status.kind);
   },
 });

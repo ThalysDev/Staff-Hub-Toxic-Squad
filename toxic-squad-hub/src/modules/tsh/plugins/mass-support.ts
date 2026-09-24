@@ -35,6 +35,7 @@
 import { z } from 'zod';
 import { registerTsh, isTshEnabled, type TshCycleContext } from '../tsh-runtime';
 import { isUncertainMutationError, normalizeVillageId, submitCommand2Step } from '../tsh-transport';
+import { automationReserveBlock } from '../tsh-reserva';
 import { gm } from '../../../core/storage';
 import type { TimingLane } from '../../../ext/core/humanize/humanize-policy';
 import {
@@ -929,6 +930,13 @@ registerTsh({
     }
     const command = selection.command;
     const transport = commandToTransport(command);
+    // v3.5.0: apoio não volta — tropas reservadas para um comando agendado
+    // desta aldeia ficam em casa.
+    const reserva = automationReserveBlock(ctx.world, ctx.villageId, transport.units as Partial<Record<string, number>>);
+    if (reserva !== null) {
+      ctx.status(withNotes(reserva), 'warn');
+      return;
+    }
     ctx.status(
       `Enviando apoio de ${command.sourceCoordinate} para ${transport.target} (pop ${command.population}) — 1 comando neste ciclo.`,
       'info',

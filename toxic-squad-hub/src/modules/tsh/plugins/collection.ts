@@ -28,10 +28,13 @@ import type { SettingsField } from '../tsh-settings';
 import {
   normalizeVillageId,
   sendScavengingMass,
+  scavengeOptionId,
   sendScavengingSquads,
   type ScavengeDuration,
 } from '../tsh-transport';
 import { groupIdForVillage } from './recruitment';
+import { estimateScavengeSeconds, readScavengeOptionCfg, reservationForVillage, reservationNote, subtractReservation } from '../tsh-reserva';
+import { serverNowMs } from '../../../core/game-clock';
 import type { UnitType } from '../../../ext/modules/shared/module-types';
 
 const UNIT_TYPES: readonly UnitType[] = [
@@ -462,12 +465,32 @@ async function runCycle(ctx: TshCycleContext): Promise<void> {
   // Reservas por unidade (Onda 5b): o lote nunca toca as tropas reservadas.
   // Lote efetivo (puro): 'tudo' = todas as disponíveis (original); 'fixo' =
   // lote por unidade, caindo para todas as disponíveis quando vazio (hoje).
-  const decision = decideCollectionLot(usable, effective.units, {
-    lotMode: effective.lotMode,
-    minUnits: effective.minUnits,
-  });
+  // v3.5.0 — RESERVA dos comandos agendados desta aldeia: estima a VOLTA do
+  // lote (fórmula da própria tela de coleta) e tira as tropas que um comando
+  // precisa antes disso ("Todas" reserva o tipo inteiro). Sem os parâmetros
+  // da tela, reserva tudo o que sai nas próximas 24 h (conservador).
+  const lotOpts = { lotMode: effective.lotMode, minUnits: effective.minUnits };
+  let usableFinal = usable;
+  let reserveNote = '';
+  const draft = decideCollectionLot(usable, effective.units, lotOpts);
+  if (draft.kind !== 'skip') {
+    const scripts = Array.from(document.scripts).map((el) => el.textContent ?? '').join('\n');
+    const cfg = readScavengeOptionCfg(scripts)?.[String(scavengeOptionId(effective.duration))];
+    const estSec = cfg !== undefined ? estimateScavengeSeconds(draft.units, cfg) * 1.1 : 24 * 3600;
+    const res = reservationForVillage(ctx.world, ctx.villageId, serverNowMs() + estSec * 1000);
+    if (res.commands.length > 0) {
+      usableFinal = subtractReservation(usable, res);
+      reserveNote = reservationNote(res);
+    }
+  }
+  const decision = decideCollectionLot(usableFinal, effective.units, lotOpts);
   if (decision.kind === 'skip') {
-    ctx.status(`${decision.reason}${groupNote}`, 'info');
+    ctx.status(
+      draft.kind !== 'skip' && reserveNote !== ''
+        ? `Coleta não enviada: as tropas livres ficaram abaixo do mínimo porque comandos agendados desta aldeia saem antes da volta estimada.${reserveNote}${groupNote}`
+        : `${decision.reason}${groupNote}${reserveNote}`,
+      'info',
+    );
     return;
   }
   const units = decision.units;
@@ -481,7 +504,7 @@ async function runCycle(ctx: TshCycleContext): Promise<void> {
     await sendScavengingSquads(ctx.villageId, [{ duration, units }]);
   }
   const total = Object.values(units).reduce((sum, amount) => sum + amount, 0);
-  ctx.status(`Coleta enviada (${duration}): ${total} unidades em ${Object.keys(units).length} tipo(s).${groupNote}`, 'ok');
+  ctx.status(`Coleta enviada (${duration}): ${total} unidades em ${Object.keys(units).length} tipo(s).${groupNote}${reserveNote}`, 'ok');
 }
 
 export const collectionAutomation: TshAutomation = {

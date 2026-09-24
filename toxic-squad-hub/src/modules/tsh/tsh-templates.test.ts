@@ -28,8 +28,13 @@ describe('modelos de tropas do jogo', () => {
 
 describe('bônus noturno', () => {
   const nb = parseNightBonus('<config><night><active>1</active><start_hour>23</start_hour><end_hour>7</end_hour></night></config>');
-  it('lê o get_config', () => {
-    expect(nb).toEqual({ active: true, startHour: 23, endHour: 7 });
+  it('lê o get_config (modo fixo)', () => {
+    expect(nb).toMatchObject({ mode: 'fixo', active: true, startHour: 23, endHour: 7 });
+  });
+  it('modo 2 = cada jogador escolhe o período (BR143/BR144): nunca avisa por hora', () => {
+    const porJogador = parseNightBonus('<config><night><active>2</active><start_hour>24</start_hour><end_hour>8</end_hour></night></config>');
+    expect(porJogador).toMatchObject({ mode: 'jogador', active: true });
+    expect(inNightBonus(new Date(2026, 8, 25, 1, 0).getTime(), porJogador)).toBe(false);
   });
   it('janela que vira a meia-noite', () => {
     expect(inNightBonus(new Date(2026, 8, 24, 23, 30).getTime(), nb)).toBe(true);
@@ -38,7 +43,7 @@ describe('bônus noturno', () => {
     expect(inNightBonus(new Date(2026, 8, 25, 12, 0).getTime(), nb)).toBe(false);
   });
   it('desligado ou desconhecido nunca avisa', () => {
-    expect(inNightBonus(new Date(2026, 8, 24, 23, 30).getTime(), { active: false, startHour: 23, endHour: 7 })).toBe(false);
+    expect(inNightBonus(new Date(2026, 8, 24, 23, 30).getTime(), { mode: 'desligado', active: false, startHour: 23, endHour: 7, defFactor: 2 })).toBe(false);
     expect(inNightBonus(Date.now(), null)).toBe(false);
   });
 });

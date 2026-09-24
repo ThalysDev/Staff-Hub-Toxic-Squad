@@ -135,6 +135,12 @@ export interface ScheduledCommandRecord {
    */
   allUnits?: ReadonlyArray<UnitType>;
   /**
+   * v3.5.0 — Sinal de Aflição do ALVO (%), só apoio: a viagem planejada já o
+   * desconta. Informado pelo jogador ou aprendido na confirmação (a duração
+   * real revela a %) — o motor reagenda se divergir.
+   */
+  sigilPct?: number;
+  /**
    * Onda E — TREM NATIVO do jogo: ataques ADICIONAIS (#2..#5) da tela de
    * confirmação ("Adicionar ataque adicional"). `units` é o ataque #1; o jogo
    * envia todos num único clique, com chegadas espaçadas em 100 ms.
@@ -247,6 +253,7 @@ const scheduledCommandRecordInputSchema = z
     // Mesmo elenco do jogo do `units` (typo de UI nunca é gravado), valores 0..100.
     unitsPercent: z.partialRecord(z.enum(SCHEDULER_UNIT_TYPES), z.number().min(0).max(100)).optional(),
     allUnits: z.array(z.enum(SCHEDULER_UNIT_TYPES)).min(1).max(12).optional(),
+    sigilPct: z.number().min(0).max(1000).optional(),
     // Onda E: trem nativo — até 4 ataques adicionais (o jogo aceita 5 no total).
     trainUnits: z
       .array(z.partialRecord(z.enum(SCHEDULER_UNIT_TYPES), z.number().int().positive()))

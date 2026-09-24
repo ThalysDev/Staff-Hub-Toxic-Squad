@@ -247,6 +247,9 @@ export const TSH_INSTRUMENTO_CSS = `
   .tsh-unit-avail { display: block; min-height: 14px; text-align: center; font-size: 10.5px; color: var(--shs-muted);
     font-family: var(--shs-font-mono); line-height: 14px; }
   .tsh-unit-cell.is-empty .tsh-unit-avail { color: var(--shs-danger); }
+  .tsh-unit-forecast { display: block; min-height: 14px; text-align: center; font-size: 10.5px; line-height: 14px;
+    font-family: var(--shs-font-mono); color: var(--shs-action); cursor: help; }
+  .tsh-unit-forecast.is-short { color: var(--shs-danger); font-weight: 600; }
   .tsh-edit-banner { display: flex; align-items: center; gap: 8px; padding: 10px 12px; margin-bottom: 12px; border-radius: 10px;
     border: 1.5px solid var(--shs-warn); background: color-mix(in srgb, var(--shs-warn) 10%, var(--shs-bg-card)); font-size: 13px; }
   .tsh-edit-banner[hidden] { display: none; }

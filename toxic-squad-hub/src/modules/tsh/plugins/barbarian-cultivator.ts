@@ -24,6 +24,7 @@ import { z } from 'zod';
 import { registerTsh } from '../tsh-runtime';
 import { gm } from '../../../core/storage';
 import { isUncertainMutationError, submitCommand2Step } from '../tsh-transport';
+import { automationReserveBlock } from '../tsh-reserva';
 import { coordinateLinesNote, parseCoordinateLines, serverNowIso } from './op-generator';
 import {
   mapperTargetListSchema,
@@ -466,8 +467,12 @@ registerTsh({
         mapper,
         nowMs,
       });
+      const reserva = decision.kind === 'SKIP' ? null : automationReserveBlock(ctx.world, ctx.villageId, { catapult: decision.catapult });
       if (decision.kind === 'SKIP') {
         execution = { outcome: 'PULADO', reason: decision.reason };
+      } else if (reserva !== null) {
+        // v3.5.0: catapultas reservadas para um comando agendado desta aldeia.
+        execution = { outcome: 'PULADO', reason: reserva };
       } else {
         // Ledger ANTES do clique (o passo 2 navega): nunca duplica o envio.
         ctx.storage.set(

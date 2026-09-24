@@ -78,7 +78,9 @@ import type { UnitType } from '../../ext/modules/shared/module-types';
 import { aimIsHot, calibrateClock, clockInfo, serverNowMs, serverOffsetMs } from '../../core/game-clock';
 import { clockSourceLabel } from '../../ext/core/timing/clock-source';
 import { clockLabelMs, travelDurationMs } from '../../ext/core/timing/precise-fire';
-import { createScheduledCommand, UNIT_POPULATION, type NewScheduledCommandInput } from './plugins/command-scheduler';
+import { commandPopulation, createScheduledCommand, learnedSigilPct, UNIT_POPULATION, type NewScheduledCommandInput } from './plugins/command-scheduler';
+import { minimumAttackPopulationFor, worldRules } from './tsh-world-rules';
+import { loadVillageForecast, unitsAt, type Units, type VillageForecast } from './tsh-troop-forecast';
 import { getGroupOptions, getGroupVillages, type GroupVillageRow } from './tsh-groups';
 import { ownVillages, travelMinutes, villageAt, type OwnVillage } from './tsh-game-data';
 import { buildTshModal, tshConfirm, tshNoteBanner } from './tsh-settings-ui';
@@ -1137,12 +1139,15 @@ interface UnitsGridHandle {
   setAllEnabled(on: boolean): void;
   /** Quantas há de cada tropa agora (null = desconhecido) — aparece em "Todas (N)". */
   setAvailable(available: Partial<Record<string, number>> | null): void;
+  /** Previsão no horário do envio (null = sem previsão) — "no envio: N" quando difere. */
+  setForecast(forecast: Partial<Record<string, number>> | null): void;
 }
 
 function buildUnitsGrid(onInput?: () => void, opts?: { allowAll?: boolean }): UnitsGridHandle {
   const grid = document.createElement('div');
   grid.className = 'tsh-record-grid';
-  const inputs: { key: UnitType; input: HTMLInputElement; all: HTMLInputElement | null; allText: Text | null; cell: HTMLDivElement }[] = [];
+  const inputs: { key: UnitType; input: HTMLInputElement; all: HTMLInputElement | null; allText: Text | null; cell: HTMLDivElement; fc: HTMLSpanElement | null }[] = [];
+  let lastAvailable: Partial<Record<string, number>> | null = null;
   const applyAll = (input: HTMLInputElement, all: HTMLInputElement, cell: HTMLDivElement): void => {
     input.disabled = all.checked;
     cell.classList.toggle('is-all', all.checked);
@@ -1197,7 +1202,13 @@ function buildUnitsGrid(onInput?: () => void, opts?: { allowAll?: boolean }): Un
       allLabel.title = `Enviar TODAS as unidades de ${unitLabel(row.key)} que houver na aldeia na hora do envio. Se não houver nenhuma: com "Chegar às" o comando não sai (se ela for a mais lenta); com "Enviar às" ele sai sem essa tropa.`;
       cell.append(allLabel, allCount);
     }
-    inputs.push({ key: row.key, input, all, allText, cell });
+    let fc: HTMLSpanElement | null = null;
+    if (opts?.allowAll === true) {
+      fc = document.createElement('span');
+      fc.className = 'tsh-unit-forecast';
+      cell.appendChild(fc);
+    }
+    inputs.push({ key: row.key, input, all, allText, cell, fc });
     grid.appendChild(cell);
   }
   const readPercent = (): Partial<Record<UnitType, number>> => {
@@ -1221,7 +1232,21 @@ function buildUnitsGrid(onInput?: () => void, opts?: { allowAll?: boolean }): Un
       return units;
     },
     readAll: () => inputs.filter((row) => row.all?.checked === true).map((row) => row.key),
+    setForecast: (forecast) => {
+      for (const row of inputs) {
+        if (row.fc === null) continue;
+        const f = forecast?.[row.key];
+        const agora = lastAvailable?.[row.key];
+        const mostra = forecast !== null && f !== undefined && (agora === undefined || f !== agora);
+        const pedido = row.all?.checked === true ? 0 : parseUnitCount(row.input.value);
+        const falta = mostra && pedido > (f ?? 0);
+        row.fc.textContent = mostra ? (falta ? `no envio: ${f.toLocaleString('pt-BR')} (faltam ${(pedido - (f ?? 0)).toLocaleString('pt-BR')})` : `no envio: ${f.toLocaleString('pt-BR')}`) : '';
+        row.fc.classList.toggle('is-short', falta);
+        row.fc.title = mostra ? 'Previsão para o horário do envio (recalculada ao mudar a hora): em casa agora + voltando (ataques, farm, apoios retirados, coleta) + recrutamento − outros comandos agendados desta aldeia.' : '';
+      }
+    },
     setAvailable: (available) => {
+      lastAvailable = available;
       for (const row of inputs) {
         if (row.allText === null) continue;
         const n = available?.[row.key];
@@ -2506,6 +2531,21 @@ export async function openSchedulerCommands(
   );
   form.appendChild(kindField);
 
+  // ── Sinal de Aflição do alvo (v3.5.0, só apoio) ──
+  const sigilField = document.createElement('div');
+  sigilField.className = 'tsh-field tsh-field--block';
+  const sigilLabel = labelEl(
+    'Sinal de Aflição do alvo (%)',
+    'Com o Sinal de Aflição ativo no ALVO, os apoios chegam mais rápido. Deixe 0 se não souber. Com "Chegar às", no pré-arme o script lê a duração real, calcula a % e reagenda para chegar na hora. Com "Enviar às", ele só corrige a chegada prevista.',
+  );
+  const sigilInput = numberInputEl('0', 0, 300, 1);
+  sigilInput.setAttribute('aria-label', 'Sinal de Aflição do alvo em porcentagem');
+  sigilInput.style.width = '110px';
+  const sigilHelp = helpEl('0 = sem aflição (ou não sei — com "Chegar às" o script confere e reagenda na hora).');
+  sigilField.append(sigilLabel, sigilInput, sigilHelp);
+  form.appendChild(sigilField);
+  const sigilPctNow = (): number => (kindSelect.value === 'support' ? Math.max(0, Math.min(300, Math.floor(Number(sigilInput.value) || 0))) : 0);
+
   // ── Estratégia de envio (Onda 1: direto/snipe/dodge) ──
   const strategyField = document.createElement('div');
   strategyField.className = 'tsh-field tsh-field--block';
@@ -2560,9 +2600,54 @@ export async function openSchedulerCommands(
   // ── Modelos de tropas do jogo (v3.3.0): os MESMOS da Praça, 1 clique ──
   const templatesRow = document.createElement('div');
   templatesRow.className = 'tsh-templates-row';
+  // ── Previsão de tropas no horário do envio (v3.5.0) ──
+  let forecastData: VillageForecast | null = null;
+  let forecastSeq = 0;
+  const refreshForecast = (village: OwnVillage): void => {
+    const seq = ++forecastSeq;
+    forecastData = null;
+    unitsGridHandle.setForecast(null);
+    void loadVillageForecast(village)
+      .then((data) => {
+        if (seq !== forecastSeq) return;
+        forecastData = data;
+        applyForecast();
+      })
+      .catch(() => undefined);
+  };
+  /** Envio planejado no formulário (hora do servidor, ms) — null se incompleto. */
+  const plannedSendServerMs = (): number | null => {
+    const when = readWhen();
+    if (when === null) return null;
+    const arrivalMode = arrivalRadio.checked && !arrivalRadio.disabled;
+    const sendLocal = arrivalMode ? (travelMin !== null ? arrivalToSendAt(when, travelMin) : null) : when;
+    return sendLocal === null ? null : localToServerEpoch(sendLocal, currentServerOffsetMs());
+  };
+  /** Tropas previstas em casa no horário do envio (null = sem dados). */
+  const forecastAtSend = (): Units | null => {
+    const T = plannedSendServerMs();
+    if (forecastData === null || forecastData.home === null || T === null) return null;
+    const leaving = loadSchedulerState(world)
+      .commands.filter(
+        (c) =>
+          c.id !== editingIdRef() &&
+          normalizeVillageId(c.sourceVillageId) === normalizeVillageId(origin.id) &&
+          !c.paused &&
+          !c.events.some((e) => HISTORY_STATUSES.has(e.status) || e.status === 'enviando'),
+      )
+      .map((c) => ({ atMs: Date.parse(c.sendAt), units: c.units, ...(c.allUnits !== undefined ? { all: c.allUnits } : {}) }));
+    return unitsAt(T, forecastData.home, forecastData.arrivals, forecastData.train, leaving);
+  };
+  const applyForecast = (): void => {
+    unitsGridHandle.setForecast(forecastAtSend());
+  };
+  let editingIdRef: () => string | null = () => null;
+
   let templatesSeq = 0;
   const loadTemplatesFor = (villageId: string): void => {
     const seq = ++templatesSeq;
+    const aldeia = villages.find((v) => v.id === villageId);
+    if (aldeia !== undefined) refreshForecast(aldeia);
     templatesRow.replaceChildren(helpEl('Carregando seus modelos de tropas do jogo…'));
     unitsGridHandle.setAvailable(null);
     void loadPlaceData(villageId)
@@ -2869,6 +2954,7 @@ export async function openSchedulerCommands(
     catapultField.style.display = !isCancel && readCatapultCount() > 0 ? '' : 'none';
     trainField.style.display = !isCancel && isNoble ? '' : 'none';
     cancelField.style.display = isCancel ? '' : 'none';
+    sigilField.style.display = kindSelect.value === 'support' ? '' : 'none';
     trainCheck.row.style.display = isNoble ? '' : 'none';
     unitsHelp.textContent = usePercentMode()
       ? 'Percentual das tropas da aldeia de origem NO DISPARO (floor). O motor exige a Praça da aldeia de origem aberta; sem leitura das tropas, o envio é abortado.'
@@ -2896,6 +2982,7 @@ export async function openSchedulerCommands(
   };
 
   const updateSummary = (): void => {
+    applyForecast();
     const parts: string[] = [];
     const when = readWhen();
     const isCancel = kindSelect.value === 'cancel';
@@ -2925,7 +3012,10 @@ export async function openSchedulerCommands(
       if (when !== null && travelMin !== null && kindSelect.value !== 'support' && nightBonus !== null) {
         const chegadaLocal = mode === 'arrival' ? when : sendToArrival(when, travelMin);
         if (inNightBonus(localToServerEpoch(chegadaLocal, currentServerOffsetMs()), nightBonus)) {
-          parts.push(`ATENÇÃO: chega no bônus noturno (${nightBonus.startHour}h–${nightBonus.endHour}h) — a defesa vale o dobro`);
+          parts.push(`ATENÇÃO: chega no bônus noturno (${nightBonus.startHour}h–${nightBonus.endHour % 24}h) — a defesa vale o dobro`);
+        } else if (nightBonus.mode === 'jogador') {
+          const h = new Date(localToServerEpoch(chegadaLocal, currentServerOffsetMs())).getHours();
+          if (h >= 20 || h < 10) parts.push('chegada de madrugada: neste mundo cada jogador escolhe o período do bônus noturno (8 h) — confira o do alvo');
         }
       }
       if (strategy !== 'direto') parts.push(strategy === 'dodge' ? 'dodge' : 'snipe');
@@ -2958,9 +3048,11 @@ export async function openSchedulerCommands(
       updateSummary();
       return;
     }
-    const minutes = await travelMinutes(origin, to, units);
+    const minutesRaw = await travelMinutes(origin, to, units);
     if (seq !== travelSeq) return; // input mais novo venceu — descarta
-    travelMin = minutes;
+    // Aflição do alvo: duração ÷ (1 + %/100) — o jogo arredonda depois.
+    const pct = sigilPctNow();
+    travelMin = minutesRaw !== null && pct > 0 ? minutesRaw / (1 + pct / 100) : minutesRaw;
     applyTravelAvailability();
     updateSummary();
   };
@@ -3029,6 +3121,12 @@ export async function openSchedulerCommands(
         if (found !== null) {
           targetName = found.name;
           targetPoints = found.points;
+          const aprendida = learnedSigilPct(world, parsed);
+          if (aprendida !== null && sigilInput.value === '0') {
+            sigilInput.value = String(aprendida);
+            sigilHelp.textContent = `${aprendida}% aprendido no último apoio a este alvo (Sinal de Aflição). Ajuste se mudou.`;
+            void recomputeTravel();
+          }
           targetInfo.textContent = `${found.name} · ${formatInt(found.points)} pontos`;
           targetInfo.style.color = '';
         } else {
@@ -3062,6 +3160,11 @@ export async function openSchedulerCommands(
       updateSummary();
     });
   }
+  sigilInput.addEventListener('input', () => {
+    clearError();
+    void recomputeTravel();
+    updateSummary();
+  });
   kindSelect.addEventListener('change', () => {
     clearError();
     updateConditionalFields();
@@ -3118,6 +3221,7 @@ export async function openSchedulerCommands(
 
   // ── Edição (v3.3.1): salvar substitui o comando original ──
   let editingId: string | null = null;
+  editingIdRef = () => editingId;
   const editBanner = document.createElement('div');
   editBanner.className = 'tsh-edit-banner';
   editBanner.hidden = true;
@@ -3170,6 +3274,7 @@ export async function openSchedulerCommands(
       unitsGridHandle.set(record.units, record.allUnits ?? []);
     }
     if (record.cancelCount !== undefined) cancelCountSelect.value = String(record.cancelCount);
+    sigilInput.value = String(record.sigilPct ?? 0);
     if (record.catapultTarget !== undefined) catapultSelect.value = record.catapultTarget;
     // Edição mantém o "forçado" do original; um comando novo começa sem ele.
     forcedCheck.input.checked = mode === 'edit' && record.forced === true;
@@ -3335,6 +3440,7 @@ export async function openSchedulerCommands(
       ...(arrivalAt !== undefined ? { arrivalAt } : {}),
       ...(usePercent ? { percentMode: true, unitsPercent: percent } : {}),
       ...(allUnits.length > 0 ? { allUnits } : {}),
+      ...(sigilPctNow() > 0 ? { sigilPct: sigilPctNow() } : {}),
       ...(strategy !== 'direto' && !isCancel ? { timingStrategy: strategy } : {}),
       ...(forced ? { forced: true } : {}),
       ...(catapultTargetValue !== '' ? { catapultTarget: catapultTargetValue } : {}),
@@ -3468,6 +3574,40 @@ export async function openSchedulerCommands(
     if (igual !== undefined) {
       linhas.push(`⚠ Já existe um comando igual na Fila (envio ${formatTimestampMs(serverToLocal(igual.sendAt, offsetNow))}). Agendar mesmo assim?`);
     }
+    // Regras do MUNDO: só AVISAM — quem decide é o jogo (a situação pode mudar
+    // até a hora, e a recusa dele vira o motivo do comando).
+    const regras = await worldRules();
+    if (regras !== null && first.kind !== 'support' && first.kind !== 'cancel' && first.percentMode !== true && (first.allUnits?.length ?? 0) === 0) {
+      const minimo = minimumAttackPopulationFor(origin.points, regras.fakeLimitPct);
+      const pop = commandPopulation(first.units);
+      if (minimo > 0 && pop < minimo) {
+        linhas.push(`⚠ Este mundo exige ${minimo} de população por ataque (${regras.fakeLimitPct}% dos ${formatInt(origin.points)} pontos de ${origin.name}); este tem ${pop} — o jogo deve recusar.`);
+      }
+    }
+    const levaNobre = (first.units.snob ?? 0) > 0 || (first.allUnits ?? []).includes('snob') || first.kind === 'noble';
+    if (regras?.snobMaxDist !== null && regras?.snobMaxDist !== undefined && levaNobre) {
+      const dist = fieldsDistance(origin, first.target);
+      if (dist > regras.snobMaxDist) {
+        linhas.push(`⚠ Nobre a ${formatDecimalPtBr(dist)} campos: o limite deste mundo é ${regras.snobMaxDist} — o jogo deve recusar.`);
+      }
+    }
+    // Previsão de tropas no horário do envio: só AVISA (o jogo decide).
+    const previstas = first.kind === 'cancel' || first.percentMode === true ? null : forecastAtSend();
+    if (previstas !== null) {
+      const faltas: string[] = [];
+      for (const [u, pedido] of Object.entries(first.units)) {
+        const tem = previstas[u as UnitType] ?? 0;
+        if ((pedido ?? 0) > tem) faltas.push(`${unitLabel(u as UnitType)}: ${formatInt(tem)} de ${formatInt(pedido ?? 0)}`);
+      }
+      for (const u of first.allUnits ?? []) if ((previstas[u] ?? 0) === 0) faltas.push(`${unitLabel(u)}: 0 (TODAS)`);
+      if (faltas.length > 0) {
+        linhas.push(`⚠ Previsão no horário do envio — faltam tropas: ${faltas.join(' · ')}. O jogo pode recusar ("tropas insuficientes").`);
+      }
+      if (forecastData !== null && forecastData.missing.length > 0) {
+        linhas.push(`(Previsão sem: ${forecastData.missing.join(', ')}.)`);
+      }
+    }
+    if (first.sigilPct !== undefined) linhas.push(`Aflição do alvo considerada: ${first.sigilPct}% (conferida no pré-arme).`);
     linhas.push('', 'Enter confirma · Esc volta para revisar.');
     const ok = await tshConfirm(shadow, editando !== null ? 'Salvar alterações?' : 'Agendar este comando?', linhas.join('\n'), {
       okLabel: editando !== null ? 'Salvar' : records.length > 1 ? `Agendar ${records.length}` : 'Agendar',

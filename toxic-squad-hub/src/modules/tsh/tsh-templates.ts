@@ -4,12 +4,13 @@
 //    num <script> (id, name, quantidades em TEXTO, `use_all` = unidades que
 //    vão "todas"). Os modelos do jogador ("FULL ATK", "nobre padrao"…) e os
 //    do jogo ("Todas as tropas", "Fake", "Nobre").
-//  - BÔNUS NOTURNO: interface.php?func=get_config → <night><active/>
-//    <start_hour/><end_hour/> (BR142: ativo, 23h–7h).
+//  - BÔNUS NOTURNO: vem das regras do mundo (tsh-world-rules) — fixo no
+//    BR142 (23h–7h), escolhido por jogador no BR143/BR144.
 // Parsers puros (fail-closed: formato estranho = lista vazia/null, nunca chute).
 
 import { pacedGet } from '../../core/net';
 import type { UnitType } from '../../ext/modules/shared/module-types';
+import { cachedWorldRules, worldRules, type NightBonus } from './tsh-world-rules';
 
 const UNITS: readonly UnitType[] = ['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob'];
 
@@ -102,47 +103,15 @@ export async function loadGameTemplates(villageId: string): Promise<GameTemplate
   return (await loadPlaceData(villageId)).templates;
 }
 
-export interface NightBonus {
-  active: boolean;
-  startHour: number;
-  endHour: number;
-}
+// Bônus noturno: regras do mundo (modo fixo OU por jogador) — ver tsh-world-rules.
+export { inNightBonus, parseNightBonus, type NightBonus } from './tsh-world-rules';
 
-/** <night> do get_config (null = não dá para saber). */
-export function parseNightBonus(xml: string): NightBonus | null {
-  const block = /<night>([\s\S]*?)<\/night>/.exec(xml)?.[1];
-  if (block === undefined) return null;
-  const num = (tag: string): number => {
-    const v = new RegExp(`<${tag}>\\s*([^<]*?)\\s*</${tag}>`).exec(block)?.[1];
-    return v === undefined || v === '' ? Number.NaN : Number(v);
-  };
-  const active = num('active');
-  const startHour = num('start_hour');
-  const endHour = num('end_hour');
-  if (![active, startHour, endHour].every(Number.isFinite)) return null;
-  return { active: active === 1, startHour, endHour };
+/** Bônus noturno do mundo atual (null = desconhecido). */
+export async function worldNightBonus(): Promise<NightBonus | null> {
+  return (await worldRules())?.night ?? null;
 }
-
-let nightCache: NightBonus | null | undefined;
 
 /** Bônus noturno já lido (sem rede) — para marcar cartões da Fila. */
 export function cachedNightBonus(): NightBonus | null {
-  return nightCache ?? null;
-}
-
-export async function worldNightBonus(): Promise<NightBonus | null> {
-  if (nightCache !== undefined) return nightCache;
-  try {
-    nightCache = parseNightBonus(await pacedGet('/interface.php?func=get_config'));
-  } catch {
-    nightCache = null;
-  }
-  return nightCache;
-}
-
-/** A hora (relógio do servidor) cai no bônus noturno? Janela pode virar a meia-noite (23h–7h). */
-export function inNightBonus(serverMs: number, nb: NightBonus | null): boolean {
-  if (nb === null || !nb.active) return false;
-  const h = new Date(serverMs).getHours();
-  return nb.startHour > nb.endHour ? h >= nb.startHour || h < nb.endHour : h >= nb.startHour && h < nb.endHour;
+  return cachedWorldRules()?.night ?? null;
 }

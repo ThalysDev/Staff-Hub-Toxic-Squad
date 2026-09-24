@@ -103,8 +103,13 @@ export const PREARM_EVENT_DETAIL = 'Tela de confirmação pré-aberta';
 
 /** Tentativas de pré-arme já registradas nos eventos do comando. */
 export function prearmAttempts(events: readonly { status: string; detail?: string }[]): number {
-  return events.filter((event) => event.status === 'janela' && (event.detail ?? '').startsWith(PREARM_EVENT_DETAIL))
-    .length;
+  // Reagendamento (v3.5.0, duração real na confirmação) reabre o orçamento:
+  // conta só as tentativas DEPOIS do último "Duração real … reagendado".
+  let from = 0;
+  events.forEach((event, i) => {
+    if (event.status === 'agendado' && (event.detail ?? '').startsWith('Duração real') && (event.detail ?? '').includes('reagendado')) from = i + 1;
+  });
+  return events.slice(from).filter((event) => event.status === 'janela' && (event.detail ?? '').startsWith(PREARM_EVENT_DETAIL)).length;
 }
 
 /**
