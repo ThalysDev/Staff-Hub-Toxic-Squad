@@ -73,7 +73,7 @@ function ensureStyles(): void {
         }
         #vanta-cb-ui * { box-sizing: border-box; }
         #vanta-cb-ui .vanta-cb-title {
-            font-size: 11px; font-weight: 700; letter-spacing: 1px;
+            font-size: 11px; font-weight: 700; letter-spacing: 0;
             text-transform: uppercase; color: var(--shs-accent-ink, #8a5a1e);
         }
         #vanta-cb-ui button {
@@ -110,7 +110,7 @@ function ensureStyles(): void {
             border-radius: 12px 12px 0 0;
         }
         .vanta-ccb-title {
-            font-size: 12px; font-weight: 700; letter-spacing: 1px;
+            font-size: 12px; font-weight: 700; letter-spacing: 0;
             text-transform: uppercase; color: var(--shs-accent-ink, #8a5a1e);
         }
         .vanta-ccb-close {

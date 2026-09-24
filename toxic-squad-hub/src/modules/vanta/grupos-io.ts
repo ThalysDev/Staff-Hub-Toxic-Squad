@@ -351,7 +351,7 @@ function ensureStyles(): void {
             padding: 9px 14px; background: var(--shs-bg-head, #efe2ba); border-bottom: 1px solid var(--shs-border, #e0cda0);
         }
         #vanta-gio-header-title {
-            font-size: 12px; font-weight: 700; letter-spacing: 2px;
+            font-size: 12px; font-weight: 700; letter-spacing: 0;
             text-transform: uppercase; color: var(--shs-accent-ink, #8a5a1e);
         }
         #vanta-gio-body { padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 8px; }

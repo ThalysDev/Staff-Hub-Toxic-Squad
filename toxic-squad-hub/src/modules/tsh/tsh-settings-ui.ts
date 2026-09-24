@@ -443,7 +443,7 @@ function renderField(
           // v3.2: ícone oficial no lugar do nome (nome na dica).
           lab.title = unitLabelOrKey(rk.key);
           lab.setAttribute('aria-label', unitLabelOrKey(rk.key));
-          lab.appendChild(unitIcon(rk.key, 22));
+          lab.appendChild(unitIcon(rk.key, 18));
         } else {
           lab.textContent = rk.label;
         }

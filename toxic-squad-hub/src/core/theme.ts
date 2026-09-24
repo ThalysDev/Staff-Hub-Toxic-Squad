@@ -29,12 +29,14 @@ export const THEME_TOKENS = {
   'action-hover': '#255833',
   'action-dark': '#1f4d2c',
   'action-deep': '#1f4d2c',
-  'accent-ink': '#2e6b3e',
+  'accent-ink': '#1b1a17', // títulos das ferramentas no jogo: tinta, não acento
   'switch-off': '#d4d0c7',
   // Mira (âmbar) — só para cravado próximo
   brass: '#9a6512',
   'brass-bright': '#b7791f',
   'brass-soft': '#f3ddb0',
+  'brass-line': '#ebcf98',
+  'brass-wash': '#fffcf6',
   // Estados
   danger: '#b3261e',
   'danger-bg': '#fcebe9',
@@ -76,7 +78,8 @@ export function themeDeclarations(): string {
   return lines.join('\n      ');
 }
 
-/** Hex (minúsculo) → token do tema, para migrar CSS antigo (e testes). */
+/** Hex (minúsculo) → PRIMEIRO token com essa cor (vários tokens compartilham
+ *  valor no Instrumento — ex.: action = ok). Só para testes/migração. */
 export function tokenForHex(hex: string): ThemeToken | null {
   const wanted = hex.toLowerCase();
   for (const [name, value] of Object.entries(THEME_TOKENS)) {

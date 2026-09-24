@@ -1126,7 +1126,7 @@ function buildUnitsGrid(onInput?: () => void): UnitsGridHandle {
     // v3.2: ÍCONE oficial no lugar do nome (mais curto e didático) — o nome
     // fica na dica e no rótulo acessível do campo.
     label.title = unitLabel(row.key);
-    label.appendChild(unitIcon(row.key, 22));
+    label.appendChild(unitIcon(row.key, 18));
     const input = document.createElement('input');
     input.type = 'number';
     input.className = 'tsh-input';
@@ -1530,7 +1530,12 @@ function clockBarEl(onCalibrated: () => void): { bar: HTMLDivElement; tick: () =
   return { bar, tick };
 }
 
-export async function openSchedulerCommands(shadow: ShadowRoot, world: string, rerender: () => void): Promise<void> {
+export async function openSchedulerCommands(
+  shadow: ShadowRoot,
+  world: string,
+  rerender: () => void,
+  focus?: 'form',
+): Promise<void> {
   // Relógio vivo (Onda A): UM interval de 250ms enquanto a tela está aberta —
   // atualiza a hora do servidor e as contagens [data-tsh-eta]; some ao fechar.
   let liveTimer: number | undefined;
@@ -1580,6 +1585,8 @@ export async function openSchedulerCommands(shadow: ShadowRoot, world: string, r
   // ── Formulário "Agendar comando" ──
   const formSection = sectionBoxEl('Agendar comando', 'plus');
   body.appendChild(formSection.box);
+  // "Novo comando": abre direto no formulário (antes caía na lista repetida).
+  if (focus === 'form') requestAnimationFrame(() => formSection.box.scrollIntoView({ block: 'start' }));
   const form = document.createElement('div');
   formSection.body.appendChild(form);
 

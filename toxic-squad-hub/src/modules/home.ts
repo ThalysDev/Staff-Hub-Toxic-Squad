@@ -8,7 +8,8 @@ import { gm } from '../core/storage';
 import { haltLabel, haltState } from '../core/halt';
 import { tryResume } from '../core/halt-bar';
 import { currentWorld } from '../core/page';
-import { openSection } from '../core/shell';
+import { ensureHost, openSection } from '../core/shell';
+import { openSchedulerCommands } from './tsh/tsh-commands-ui';
 import { isVantaEnabled, vantaLaunchers } from './vanta/vanta-registry';
 import { currentVillageId, isTshEnabled, tshArmedUntil, tshAutomations, tshNextRunAt, tshStatus } from './tsh/tsh-runtime';
 import { kindIcon, unitStrip } from './tsh/tsh-units';
@@ -35,7 +36,7 @@ const HOME_CSS = `
   .home-resume { margin-top: 12px; }
   .home-resume-err { margin-top: 8px; color: var(--shs-danger); font-weight: 600; font-size: 13px; }
   .home-hero { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; padding: 20px 22px; }
-  .home-hero--aim { border-color: #ebcf98; background: #fffcf6; }
+  .home-hero--aim { border-color: var(--shs-brass-line); background: var(--shs-brass-wash); }
   .home-hero-main { display: flex; flex-direction: column; gap: 10px; flex: 1 1 320px; min-width: 0; }
   .home-chips { display: flex; gap: 8px; flex-wrap: wrap; }
   .home-count { font-family: var(--shs-font-mono); font-size: 42px; font-weight: 500; letter-spacing: -.02em; line-height: 1;
@@ -270,7 +271,7 @@ function drawHome(container: HTMLElement): void {
   sub.textContent = 'Tudo o que o script está fazendo neste mundo.';
   titles.append(h, sub);
   const info = clockInfo();
-  const clockPill = pill(`Relógio do servidor ±${info.uncertaintyMs} ms`, info.uncertaintyMs <= 60 ? 'shs-pill--ok' : 'shs-pill--warn');
+  const clockPill = pill(`Relógio do servidor ±${info.uncertaintyMs} ms`, info.uncertaintyMs <= 60 ? '' : 'shs-pill--warn');
   clockPill.prepend(icon('clock', 13));
   head.append(titles, clockPill);
   root.appendChild(head);
@@ -292,7 +293,7 @@ function drawHome(container: HTMLElement): void {
     const schedHalt = nextScheduled(world);
     if (schedHalt.soon30 > 0 && schedHalt.nextAt !== null) {
       aviso.appendChild(
-        line('alert', `${schedHalt.soon30} comando(s) nos próximos 30 min (o próximo às ${clockLabelMs(schedHalt.nextAt)}) NÃO saem enquanto estiver pausado, e comando que passa da hora não é reenviado.`),
+        line('alert', `${schedHalt.soon30} comando(s) nos próximos 30 min (o próximo às ${clockLabelMs(schedHalt.nextAt)}) não saem enquanto estiver pausado, e comando que passa da hora não é reenviado.`),
       );
     }
     aviso.appendChild(
@@ -318,12 +319,14 @@ function drawHome(container: HTMLElement): void {
   const sched = nextScheduled(world);
   const hero = document.createElement('section');
   if (sched.nextAt !== null) {
-    hero.className = 'home-card home-hero home-hero--aim';
+    const perto = sched.nextAt - serverNowMs() <= 30 * 60_000;
+    // Âmbar só para cravado PRÓXIMO (≤ 30 min); distante = cartão neutro.
+    hero.className = perto ? 'home-card home-hero home-hero--aim' : 'home-card home-hero';
     const main = document.createElement('div');
     main.className = 'home-hero-main';
     const chips = document.createElement('div');
     chips.className = 'home-chips';
-    const nextChip = pill('Próximo cravado', 'shs-pill--warn');
+    const nextChip = pill(perto ? 'Próximo cravado' : 'Próximo comando', perto ? 'shs-pill--warn' : '');
     nextChip.prepend(icon('clock', 13));
     chips.appendChild(nextChip);
     const src = sched.nextSource;
@@ -373,7 +376,13 @@ function drawHome(container: HTMLElement): void {
     d.className = 'home-stat-hint';
     d.textContent = 'Agende ataques, apoios e nobres pela hora do servidor, com milissegundos.';
     main.append(t, d);
-    hero.append(main, btn('Agendar comando', 'plus', 'shs-btn', () => openSection('comandos')));
+    hero.append(
+      main,
+      btn('Agendar comando', 'plus', 'shs-btn', () => {
+        openSection('comandos');
+        void openSchedulerCommands(ensureHost(), currentWorld(), () => undefined, 'form');
+      }),
+    );
   }
   root.appendChild(hero);
 
@@ -405,7 +414,7 @@ function drawHome(container: HTMLElement): void {
   };
   stats.appendChild(tile('Comandos agendados', String(sched.count), '', sched.soon30 > 0 ? `${sched.soon30} nos próximos 30 min` : 'nenhum nos próximos 30 min'));
   stats.appendChild(
-    tile('Automações ativas', String(ativos.length), ` / ${autos.length}`, precisaArmar.length > 0 ? `${precisaArmar.length} aguardando armar` : 'todas prontas'),
+    tile('Automações ativas', String(ativos.length), ` / ${autos.length}`, ativos.length === 0 ? 'nenhuma ligada' : precisaArmar.length > 0 ? `${precisaArmar.length} esperando sua autorização (armar)` : 'todas prontas'),
   );
   const erro = info.lastArrivalErrorMs;
   stats.appendChild(
@@ -446,23 +455,23 @@ function drawHome(container: HTMLElement): void {
     const needsArm = precisaArmar.includes(auto);
     const dotEl = document.createElement('span');
     dotEl.className = `shs-dot${
-      isScheduleStopped(schedule) ? ' shs-dot--off' : needsArm || status?.kind === 'warn' ? ' shs-dot--err' : auto.id === 'command-scheduler' ? ' shs-dot--warn' : ''
+      isScheduleStopped(schedule) ? ' shs-dot--off' : status?.kind === 'warn' ? ' shs-dot--err' : needsArm ? ' shs-dot--off' : ''
     }`;
     const name = document.createElement('span');
     name.className = 'home-act-name';
     name.textContent = auto.label;
     const msg = document.createElement('span');
     msg.className = 'home-act-msg';
-    msg.textContent = isScheduleStopped(schedule) ? 'Parada programada atingida' : needsArm ? 'Precisa armar para agir' : (status?.message ?? 'Aguardando o primeiro ciclo');
+    msg.textContent = isScheduleStopped(schedule) ? 'Parada programada atingida' : needsArm ? 'Armar para autorizar ações' : (status?.message ?? 'Aguardando o primeiro ciclo');
     if (status !== null) msg.title = status.message;
     row.append(dotEl, name, msg);
     const nextAt = tshNextRunAt(auto.id, world);
     if (nextAt !== null && nextAt > Date.now()) {
       const next = document.createElement('span');
       next.className = 'home-act-next';
-      const d = new Date(nextAt);
+      const falta = Math.max(0, Math.round((nextAt - Date.now()) / 1000));
       const p = (n: number): string => String(n).padStart(2, '0');
-      next.textContent = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+      next.textContent = `em ${p(Math.floor(falta / 60))}:${p(falta % 60)}`;
       next.title = 'Próximo ciclo';
       row.appendChild(next);
     }

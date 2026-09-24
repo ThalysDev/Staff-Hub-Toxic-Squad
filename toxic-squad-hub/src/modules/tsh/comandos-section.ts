@@ -18,6 +18,7 @@ import {
 import { loadSchedulerState, openSchedulerCommands } from './tsh-commands-ui';
 import { kindIcon, unitStrip } from './tsh-units';
 import { currentVillageId, isTshEnabled } from './tsh-runtime';
+import { openSection } from '../../core/shell';
 
 const STYLE_ID = 'tsh-cmd-section-style';
 const STYLES = `
@@ -32,7 +33,8 @@ const STYLES = `
   .tcs-clock-time { font-family: var(--shs-font-mono); font-size: 16px; font-weight: 500; color: var(--shs-ink-strong); font-variant-numeric: tabular-nums; }
   .tcs-clock-time small { font-size: 16px; color: var(--shs-muted); }
   .tcs-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-radius: 10px;
-    background: var(--shs-warn-bg); color: #5e3d0a; font-size: 13px; }
+    background: var(--shs-warn-bg); color: var(--shs-warn); font-size: 13px; }
+  .tcs-banner--danger { background: var(--shs-danger-bg); color: #8f1d17; }
   .tcs-banner-txt { flex: 1 1 260px; }
   .tcs-banner a { text-decoration: none; }
   .tcs-card { background: var(--shs-bg-card); border: 1px solid var(--shs-border); border-radius: 12px; overflow: hidden; }
@@ -54,7 +56,7 @@ const KIND_LABEL: Record<ScheduledCommandRecord['kind'], string> = {
   support: 'Apoio',
   noble: 'Nobre',
   fake: 'Fake',
-  cancel: 'Cancelar',
+  cancel: 'Cancelamento',
 };
 
 const TERMINAL: ReadonlySet<ScheduledCommandViewStatus> = new Set(['enviado', 'incerto', 'falhou', 'removido']);
@@ -128,9 +130,10 @@ function formatCountdown(ms: number): string {
 /** Contador da barra lateral: comandos vivos (agendados ou na janela). */
 export function comandosBadge(): string | null {
   const now = new Date(serverNowMs());
-  const vivos = loadSchedulerState(currentWorld()).commands.filter(
-    (record) => !TERMINAL.has(deriveSchedulerCommandStatus(record, now, SCHEDULER_DEFAULT_WINDOW)),
-  ).length;
+  const vivos = loadSchedulerState(currentWorld()).commands.filter((record) => {
+    const st = deriveSchedulerCommandStatus(record, now, SCHEDULER_DEFAULT_WINDOW);
+    return !TERMINAL.has(st) && st !== 'pausado'; // mesmo critério da Início
+  }).length;
   return vivos > 0 ? String(vivos) : null;
 }
 
@@ -139,8 +142,24 @@ export function renderComandosSection(container: HTMLElement): () => void {
   const world = currentWorld();
   const shadow = container.getRootNode() as ShadowRoot;
   let timer: number | undefined;
+  let disposed = false;
+  // Assinatura do estado (id + estado de cada comando): mudou → redesenha.
+  const signature = (): string => {
+    const t = new Date(serverNowMs());
+    return loadSchedulerState(world)
+      .commands.map((r) => `${r.id}:${deriveSchedulerCommandStatus(r, t, SCHEDULER_DEFAULT_WINDOW)}`)
+      .join('|') + `#${isTshEnabled('command-scheduler') ? 1 : 0}`;
+  };
+  let lastSig = '';
+  let lastSigAt = 0;
 
   const draw = (): void => {
+    // Revisão de código (v3.2): o `draw` também é o rerender da Central — sem
+    // esta guarda ele pintava Comandos por cima de outra seção e deixava um
+    // timer órfão. Mesmo padrão de tsh-panel.ts.
+    if (disposed || !container.isConnected || container.dataset.section !== 'comandos') return;
+    lastSig = signature();
+    lastSigAt = Date.now();
     container.replaceChildren();
     const root = el('div', 'tcs');
 
@@ -151,7 +170,7 @@ export function renderComandosSection(container: HTMLElement): () => void {
     const actions = el('div', 'tcs-actions');
     const clockBox = el('div', 'tcs-clock');
     const clockTime = el('span', 'tcs-clock-time');
-    const clockPill = el('span', 'shs-pill shs-pill--ok');
+    const clockPill = el('span', 'shs-pill');
     const calibrate = button('Calibrar', 'refresh', 'gho');
     calibrate.addEventListener('click', () => {
       calibrate.disabled = true;
@@ -162,7 +181,7 @@ export function renderComandosSection(container: HTMLElement): () => void {
     clockBox.append(el('span', 'tcs-clock-lbl', 'Servidor'), clockTime, clockPill, calibrate);
     const novo = button('Novo comando', 'plus', 'pri');
     novo.addEventListener('click', () => {
-      void openSchedulerCommands(shadow, world, draw);
+      void openSchedulerCommands(shadow, world, draw, 'form');
     });
     actions.append(clockBox, novo);
     head.append(titles, actions);
@@ -176,9 +195,15 @@ export function renderComandosSection(container: HTMLElement): () => void {
       .sort((a, b) => Date.parse(a.record.sendAt) - Date.parse(b.record.sendAt));
 
     // ── Aviso: agendador desligado / origens que precisam de aba ──
-    if (!isTshEnabled('command-scheduler') && vivos.length > 0) {
-      const banner = el('div', 'tcs-banner');
-      banner.append(icon('alert', 16), el('span', 'tcs-banner-txt', 'O Agendador está DESLIGADO: nenhum destes comandos sai. Ligue-o em Automações.'));
+    if (!isTshEnabled('command-scheduler')) {
+      const banner = el('div', 'tcs-banner tcs-banner--danger');
+      const irAuto = button('Ir para Automações', 'zap', 'gho');
+      irAuto.addEventListener('click', () => openSection('tsh'));
+      banner.append(
+        icon('alert', 16),
+        el('span', 'tcs-banner-txt', 'O Agendador está desligado: nenhum comando será enviado. Ligue-o em Automações.'),
+        irAuto,
+      );
       root.appendChild(banner);
     }
     const soon = vivos.filter((item) => Date.parse(item.record.sendAt) - now <= 30 * 60_000);
@@ -215,7 +240,7 @@ export function renderComandosSection(container: HTMLElement): () => void {
       empty.append(icon('crosshair', 22), el('span', undefined, 'Nenhum comando agendado.'));
       const start = button('Agendar o primeiro', 'plus', 'sec');
       start.addEventListener('click', () => {
-        void openSchedulerCommands(shadow, world, draw);
+        void openSchedulerCommands(shadow, world, draw, 'form');
       });
       empty.appendChild(start);
       card.appendChild(empty);
@@ -280,7 +305,15 @@ export function renderComandosSection(container: HTMLElement): () => void {
       const dot = label.lastIndexOf('.');
       clockTime.replaceChildren(document.createTextNode(label.slice(0, dot)), el('small', undefined, label.slice(dot)));
       clockPill.textContent = `±${info.uncertaintyMs} ms`;
-      clockPill.className = info.uncertaintyMs <= 60 ? 'shs-pill shs-pill--ok' : 'shs-pill shs-pill--warn';
+      clockPill.className = info.uncertaintyMs <= 60 ? 'shs-pill' : 'shs-pill shs-pill--warn';
+      // Lista ao vivo: comando enviado/falhou (nesta ou em outra aba) aparece na hora.
+      if (Date.now() - lastSigAt >= 1_000) {
+        lastSigAt = Date.now();
+        if (signature() !== lastSig) {
+          draw();
+          return;
+        }
+      }
       for (const cell of root.querySelectorAll<HTMLElement>('[data-tcs-eta]')) {
         cell.textContent = formatCountdown(Number(cell.dataset.tcsEta) - t);
       }
@@ -292,6 +325,7 @@ export function renderComandosSection(container: HTMLElement): () => void {
 
   draw();
   return () => {
+    disposed = true;
     if (timer !== undefined) window.clearInterval(timer);
   };
 }

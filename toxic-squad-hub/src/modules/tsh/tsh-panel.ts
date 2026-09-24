@@ -93,7 +93,7 @@ function tickCountdown(shadow: ShadowRoot): void {
     if (!Number.isFinite(until)) continue;
     if (now >= until && btn.disabled) {
       btn.disabled = false;
-      labelOf(btn, '.tsh-btn-txt').textContent = 'Armar 30min';
+      labelOf(btn, '.tsh-btn-txt').textContent = 'Armar';
     }
   }
 }
@@ -173,6 +173,30 @@ const GROUPS: readonly TshGroup[] = [
 ];
 
 
+
+/** Nome em português das telas do jogo (o id cru não aparece na interface). */
+const SCREEN_NAMES: Record<string, string> = {
+  place: 'Praça',
+  snob: 'Academia',
+  market: 'Mercado',
+  main: 'Edifício principal',
+  barracks: 'Quartel',
+  stable: 'Estábulo',
+  garage: 'Oficina',
+  statue: 'Estátua',
+  smith: 'Ferreiro',
+  overview_villages: 'Visualizações',
+  overview: 'Visão geral',
+  info_village: 'Informações da aldeia',
+  inventory: 'Inventário',
+  am_farm: 'Assistente de Saque',
+  map: 'Mapa',
+  ally: 'Tribo',
+};
+function screenName(screen: string): string {
+  return SCREEN_NAMES[screen] ?? screen;
+}
+
 // ── Ícone de cada automação (v3.2): prédio/unidade OFICIAL do jogo quando
 //    existe um que a represente; senão um ícone de traço do painel. ──
 type AutoIcon = { unit: string } | { building: string } | { stroke: IconName };
@@ -206,8 +230,8 @@ function automationIconBox(id: string): HTMLSpanElement {
   const box = document.createElement('span');
   box.className = 'tsh-autoic';
   const spec = AUTOMATION_ICONS[id] ?? { stroke: 'zap' as IconName };
-  if ('unit' in spec) box.appendChild(unitIcon(spec.unit, 20));
-  else if ('building' in spec) box.appendChild(buildingIcon(spec.building, 20));
+  if ('unit' in spec) box.appendChild(unitIcon(spec.unit, 18));
+  else if ('building' in spec) box.appendChild(buildingIcon(spec.building, 18));
   else box.appendChild(icon(spec.stroke, 17));
   return box;
 }
@@ -239,7 +263,7 @@ function statusChip(automation: TshAutomation, enabled: boolean, world: string):
     chip.classList.add('tsh-statuschip--wait');
     chip.title = 'Sem ciclo ainda neste mundo.';
     chip.appendChild(icon('clock', 11));
-    chip.appendChild(document.createTextNode('Aguardando'));
+    chip.appendChild(document.createTextNode('Sem ciclo ainda'));
   } else if (status.kind === 'ok') {
     chip.classList.add('tsh-statuschip--ok');
     chip.appendChild(icon('check', 11));
@@ -251,7 +275,7 @@ function statusChip(automation: TshAutomation, enabled: boolean, world: string):
   } else {
     chip.classList.add('tsh-statuschip--wait');
     chip.appendChild(icon('clock', 11));
-    chip.appendChild(document.createTextNode('Agendada'));
+    chip.appendChild(document.createTextNode('Em espera'));
   }
   return chip;
 }
@@ -302,8 +326,9 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   sub.className = 'tsh-row-desc';
   sub.textContent = status !== null && enabled ? `${status.message} · ${fmtAgo(status.at)}` : automation.desc;
   main.title = `${automation.desc}\nCiclo a cada ${cooldownMin} min · ${from !== '' && to !== '' ? `ativa das ${from} às ${to}` : 'ativa o dia todo'}${
-    automation.screen !== null ? ` · roda na tela "${automation.screen}"` : ''
+    automation.screen !== null ? ` · roda na tela ${screenName(automation.screen)}` : ''
   }`;
+  if (status !== null && enabled) sub.title = status.message;
   main.appendChild(sub);
 
   rowEl.appendChild(main);
@@ -321,8 +346,8 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   if (!enabled) {
     proxVal.textContent = '—';
   } else if (next === null) {
-    proxVal.textContent = telaCerta ? 'livre' : 'outra tela';
-    if (!telaCerta) proxVal.title = `Roda quando você abrir a tela "${automation.screen}".`;
+    proxVal.textContent = telaCerta ? `${cooldownMin} min` : 'outra tela';
+    proxVal.title = telaCerta ? `Roda a cada ${cooldownMin} min` : `Roda quando você abrir a tela ${screenName(automation.screen ?? '')}.`;
   } else {
     proxVal.dataset.tshNext = String(next);
     proxVal.textContent = nextLabel(next, Date.now());
@@ -379,7 +404,7 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
       const ok = await tshConfirm(
         shadow,
         'Armar automação',
-        `Armar "${automation.label}" por 30 min? Os ciclos poderão EXECUTAR ações no jogo.`,
+        `Armar "${automation.label}" por 30 min? Os ciclos poderão fazer ações de verdade no jogo.`,
         { danger: true },
       );
       if (!ok) return;
@@ -403,7 +428,7 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   rodar.type = 'button';
   rodar.className = 'tsh-runbtn';
   rodar.classList.add('tsh-tip');
-  rodar.setAttribute('data-tip', 'Rodar agora — executa um ciclo agora (ignora o intervalo; armação e lock continuam valendo)');
+  rodar.setAttribute('data-tip', 'Roda um ciclo agora, sem esperar o intervalo');
   rodar.setAttribute('aria-label', 'Rodar agora');
   rodar.appendChild(icon('play', 12));
   rodar.disabled = !enabled;
@@ -418,11 +443,11 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
 
   const toggle = document.createElement('label');
   toggle.className = 'tsh-switch';
-  toggle.title = 'Ativo';
+  toggle.title = enabled ? `Desligar ${automation.label}` : `Ligar ${automation.label}`;
   const check = document.createElement('input');
   check.type = 'checkbox';
   check.checked = enabled;
-  check.setAttribute('aria-label', 'Ativo');
+  check.setAttribute('aria-label', toggle.title);
   const track = document.createElement('span');
   track.className = 'tsh-switch-track';
   toggle.append(check, track);
@@ -434,8 +459,8 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
     if (ligar && automation.mutating) {
       const aviso =
         automation.armExempt === true
-          ? `Ativar "${automation.label}"? Ativo, ele EXECUTA automaticamente o que estiver agendado.`
-          : `Ativar "${automation.label}"? Armado, os ciclos EXECUTAM ações no jogo.`;
+          ? `Ativar "${automation.label}"? Ligado, ele envia sozinho o que estiver agendado.`
+          : `Ativar "${automation.label}"? Armado, os ciclos fazem ações de verdade no jogo.`;
       if (!(await tshConfirm(shadow, 'Ativar automação', aviso, { danger: true }))) {
         check.checked = false; // confirmação recusada — reverte o checkbox
         return;
@@ -465,7 +490,7 @@ function panelHeader(all: readonly TshAutomation[]): HTMLElement {
   sub.className = 'tsh-head-desc';
   sub.textContent = `${ativas} de ${all.length} ligadas${armadas > 0 ? ` · ${armadas} armada(s)` : ''}${
     licenseState().kind === 'ausente' ? ' · licença inativa' : ''
-  }. Nada roda até você ligar; as que agem no jogo pedem Armar (30 min).`;
+  }. Nada roda até você ligar; as que agem no jogo precisam ser armadas (você autoriza ações reais por 30 min).`;
   head.append(title, sub);
   return head;
 }

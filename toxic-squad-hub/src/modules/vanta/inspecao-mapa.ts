@@ -286,7 +286,7 @@ const WIDGET_STYLES = `
   }
   #vanta-inspecao-header:active { cursor: grabbing; }
   #vanta-inspecao-title {
-    font-size: 11px; font-weight: 700; letter-spacing: 2px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0;
     color: var(--shs-ink-strong, #3c250a); text-transform: uppercase;
   }
   #vanta-inspecao-close {
@@ -316,7 +316,7 @@ const WIDGET_STYLES = `
   }
   #vanta-inspecao-details:empty { display: none; }
   .vanta-inspecao-section {
-    font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    font-size: 10px; font-weight: 700; letter-spacing: 0; text-transform: uppercase;
     color: var(--shs-accent-ink, #8a5a1e); margin-top: 3px;
   }
   .vanta-inspecao-row { display: flex; gap: 6px; font-size: 11px; }

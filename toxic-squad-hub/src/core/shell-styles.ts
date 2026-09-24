@@ -217,7 +217,7 @@ export function shellStyles(): string {
     .shs-btn-ghost:hover:not([disabled]) { background: var(--shs-bg-side); }
     .shs-btn-danger { background: var(--shs-bg-card); color: var(--shs-danger); border-color: var(--shs-border-strong); }
     .shs-btn-danger:hover:not([disabled]) { background: var(--shs-danger-bg); border-color: var(--shs-danger); }
-    .shs-btn-sm { min-height: 30px; padding: 0 10px; font-size: 12.5px; border-radius: 8px; }
+    .shs-btn-sm { min-height: 32px; padding: 0 10px; font-size: 12.5px; border-radius: 8px; }
     .shs-ic { flex-shrink: 0; }
 
     /* ---- Dicas (tooltip) ---- */

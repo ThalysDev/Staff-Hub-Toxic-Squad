@@ -254,7 +254,7 @@ registerVanta({
       // Linha de resumo
       const resumoCells = UNITS.map((u) => `<td id="vanta-ao-resumo-${u}" class="vanta-zero">–</td>`).join('');
       chunks.push(
-        `<tr id="vanta-ao-resumo-row" style="display:none"><td class="vanta-ao-name" id="vanta-ao-resumo-label" style="font-weight:600;color:#7ddb82"></td>${resumoCells}<td id="vanta-ao-resumo-pop" style="font-weight:600;color:#7ddb82">–</td><td></td></tr>`,
+        `<tr id="vanta-ao-resumo-row" style="display:none"><td class="vanta-ao-name" id="vanta-ao-resumo-label" style="font-weight:600;color:var(--shs-ok-ink,#1f4d2c)"></td>${resumoCells}<td id="vanta-ao-resumo-pop" style="font-weight:600;color:var(--shs-ok-ink,#1f4d2c)">–</td><td></td></tr>`,
       );
 
       // Total geral

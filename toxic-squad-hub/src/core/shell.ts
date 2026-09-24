@@ -584,7 +584,7 @@ export function mountShell(): void {
   const licRow = document.createElement('div');
   licRow.className = 'shs-sidefoot-row';
   const licDot = document.createElement('span');
-  licDot.className = `shs-dot${license.kind === 'valida' ? '' : license.kind === 'graca' ? ' shs-dot--warn' : ' shs-dot--err'}`;
+  licDot.className = `shs-dot${license.kind === 'valida' ? '' : license.kind === 'graca' ? ' shs-dot--off' : ' shs-dot--err'}`;
   const licTxt = document.createElement('span');
   licTxt.textContent =
     license.kind === 'valida'
@@ -681,7 +681,12 @@ export function mountShell(): void {
       const labelEl = document.createElement('span');
       labelEl.textContent = section.label;
       item.appendChild(labelEl);
-      const badgeText = section.badge?.() ?? null;
+      let badgeText: string | null = null;
+      try {
+        badgeText = section.badge?.() ?? null;
+      } catch {
+        badgeText = null; // registro estranho no storage não pode derrubar a navegação
+      }
       if (badgeText !== null && badgeText !== '') {
         const count = document.createElement('span');
         count.className = 'shs-navcount';

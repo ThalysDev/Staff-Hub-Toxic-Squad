@@ -247,7 +247,7 @@ const STYLES = `
     padding: 9px 14px; background: var(--shs-bg-head, #efe2ba); border-bottom: 1px solid var(--shs-border, #e0cda0);
   }
   #vanta-bonus-diario-header-title {
-    font-size: 12px; font-weight: 700; letter-spacing: 2px;
+    font-size: 12px; font-weight: 700; letter-spacing: 0;
     color: var(--shs-ink-strong, #3c250a); text-transform: uppercase;
   }
   #vanta-bonus-diario-chip {
@@ -271,7 +271,7 @@ const STYLES = `
     margin: 10px 0 4px; padding-top: 8px; border-top: 1px solid var(--shs-border, #e0cda0);
   }
   #vanta-bonus-diario-hist-title {
-    font-size: 10.5px; font-weight: 700; letter-spacing: 1px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0;
     text-transform: uppercase; color: var(--shs-accent-ink, #8a5a1e);
   }
   #vanta-bonus-diario-limpar {

@@ -602,7 +602,7 @@ const PANEL_STYLES = `
     padding: 9px 14px; background: var(--shs-bg-head, #efe2ba); border-bottom: 1px solid var(--shs-border, #e0cda0);
   }
   #vanta-am-title {
-    font-size: 12px; font-weight: 700; letter-spacing: 2px;
+    font-size: 12px; font-weight: 700; letter-spacing: 0;
     color: var(--shs-ink-strong, #3c250a); text-transform: uppercase;
   }
   #vanta-am-status { margin-left: auto; color: var(--shs-muted, #6f5e40); max-width: 60%; }
@@ -619,7 +619,7 @@ const PANEL_STYLES = `
     padding: 8px 10px; display: flex; flex-direction: column; gap: 8px;
   }
   .vanta-am-section-title {
-    font-size: 10px; font-weight: 700; letter-spacing: 1px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0;
     text-transform: uppercase; color: var(--shs-accent-ink, #8a5a1e);
   }
   .vanta-am-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -688,7 +688,7 @@ const PANEL_STYLES = `
     border-radius: 12px 12px 0 0;
   }
   .vanta-am-modal-title {
-    font-size: 12px; font-weight: 700; letter-spacing: 1px;
+    font-size: 12px; font-weight: 700; letter-spacing: 0;
     text-transform: uppercase; color: var(--shs-accent-ink, #8a5a1e);
   }
   .vanta-am-modal-close {

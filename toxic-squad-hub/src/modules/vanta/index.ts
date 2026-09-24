@@ -152,8 +152,10 @@ const VTS_STYLES = `
   .vts-desc { font-size: 12px; color: var(--shs-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .vts-chip { height: 24px; padding: 0 9px; display: inline-flex; align-items: center; font-size: 12px; font-weight: 500; }
   .vts-chip--here { background: var(--shs-ok-bg); color: var(--shs-ok-ink); }
-  .vts-go { width: 32px; height: 32px; background: var(--shs-action); }
-  .vts-go:hover:not(:disabled) { background: var(--shs-action-hover); }
+  .vts-go { width: 32px; height: 32px; background: transparent; color: var(--shs-ink); border-radius: 9px; }
+  .vts-go:hover:not(:disabled) { background: var(--shs-bg-inset); color: var(--shs-ink-strong); }
+  .vts-row[data-off] .vts-name, .vts-row[data-off] .vts-desc { color: var(--shs-muted); }
+  .vts-chip--here { background: var(--shs-bg-inset); color: var(--shs-ink); }
   .vts-open { width: 32px; height: 32px; border-radius: 9px; }
   .vts-foot { font-size: 12px; }
 `;
@@ -207,10 +209,10 @@ function launcherRow(launcher: VantaLauncher, rerender: () => void): HTMLElement
   const chip = document.createElement('span');
   if (!enabled) {
     chip.className = 'vts-chip vts-chip--off';
-    chip.textContent = 'desligado';
+    chip.textContent = 'Desligada';
   } else {
     chip.className = here ? 'vts-chip vts-chip--here' : 'vts-chip vts-chip--away';
-    chip.textContent = here ? 'nesta página' : 'outra tela';
+    chip.textContent = here ? 'Nesta tela' : 'Outra tela';
   }
   side.appendChild(chip);
 
@@ -220,7 +222,7 @@ function launcherRow(launcher: VantaLauncher, rerender: () => void): HTMLElement
   toggle.className = 'vts-switch';
   toggle.role = 'switch';
   toggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
-  toggle.title = enabled ? 'Desativar módulo' : 'Ativar módulo';
+  toggle.title = enabled ? `Desligar ${launcher.label}` : `Ligar ${launcher.label}`;
   toggle.setAttribute('aria-label', toggle.title);
   toggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
   toggle.addEventListener('click', () => {
@@ -257,9 +259,9 @@ function launcherRow(launcher: VantaLauncher, rerender: () => void): HTMLElement
     const resultado = document.createElement('span');
     resultado.className = montou ? 'vts-chip vts-chip--ok vts-result' : 'vts-chip vts-chip--err vts-result';
     resultado.textContent = montou
-      ? 'montado'
+      ? 'Pronto'
       : resultadoMount.error !== undefined
-        ? `erro: ${resultadoMount.error}`
+        ? `Falhou: ${resultadoMount.error}`
         : 'nada para montar nesta tela';
     side.appendChild(resultado);
     window.setTimeout(() => resultado.remove(), montou ? 2000 : 5000);
@@ -267,11 +269,11 @@ function launcherRow(launcher: VantaLauncher, rerender: () => void): HTMLElement
   if (here) {
     go.className = 'vts-go';
     go.appendChild(icon('play', 12));
-    go.title = 'Montar — injetar na página atual';
+    go.title = 'Abrir nesta tela';
   } else {
     go.className = 'vts-open';
     go.appendChild(icon('arrowRight', 13));
-    go.title = 'Abrir — navegar até a tela do módulo';
+    go.title = 'Ir para a tela da ferramenta';
   }
   go.setAttribute('aria-label', go.title);
   side.appendChild(go);
