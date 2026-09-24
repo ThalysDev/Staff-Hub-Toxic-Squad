@@ -24,7 +24,7 @@ import { currentVillageId, isTshEnabled, tshAgendaBlock, tshTabId } from './tsh-
 import { laneForSchedulerRecord } from '../../ext/core/humanize/humanize-policy';
 import { HUMANIZED_LATE_GRACE_MS } from '../../ext/core/timing/precise-fire';
 import { appendSchedulerEvent, DEFAULT_SETTINGS as SCHEDULER_DEFAULTS } from './plugins/command-scheduler';
-import { FRAME_LEAD_MS, FRAME_MIN_MS, frameAliveFor, frameFailedRecently, hostFramesTick, hostingFrames, setHostTabId, type HostDemand } from './tsh-envio-quadro';
+import { FRAME_MIN_MS, frameAliveFor, frameFailedRecently, hostFramesTick, hostingFrames, markSentinelaAlive, setHostTabId, type HostDemand } from './tsh-envio-quadro';
 
 /** Quanto antes do envio uma aba em 2º plano vai para a Praça. */
 export const NAV_LEAD_MS = 60_000;
@@ -332,8 +332,9 @@ export function conductorBackgroundTick(): void {
     const world = currentWorld();
     const { autoSend, allowLateMs } = schedulerSettings(world);
     setHostTabId(tshTabId());
+    markSentinelaAlive(world);
     markMissed(world, allowLateMs, autoSend);
-    hostTick(world, allowLateMs);
+    hostTick(world, allowLateMs, true);
   } catch {
     /* o próximo tique tenta de novo */
   }
@@ -344,23 +345,26 @@ export function conductorBackgroundTick(): void {
  * origens sem aba pronta. Com a opção desligada (ou o Agendador parado), só
  * fecha o que houver.
  */
-function hostTick(world: string, allowLateMs: number): void {
+function hostTick(world: string, allowLateMs: number, isSentinela = false): void {
   const now = serverNowMs();
   const cov = coverage(world);
   const { backgroundSend, autoSend } = schedulerSettings(world);
   const on = backgroundSend && autoSend && schedulerBlock(world) === null;
   const demands = new Map<string, HostDemand>();
-  const stillNeeded = new Set<string>();
+  const nextSendByVid = new Map<string, number>();
   for (const r of aliveSorted(world, allowLateMs)) {
     const origin = vid(r.sourceVillageId);
     const at = Date.parse(r.sendAt);
     // Opção desligada no meio: os quadros fecham (exceto no meio de um envio).
-    if (on && at - now <= FRAME_LEAD_MS + 30_000) stillNeeded.add(origin);
+    if (on) {
+      const prev = nextSendByVid.get(origin);
+      if (prev === undefined || at < prev) nextSendByVid.set(origin, at);
+    }
     if (cov.get(r.id) !== 'fundo') continue;
     const prev = demands.get(origin);
     if (prev === undefined || at < prev.nextSendAt) demands.set(origin, { vid: origin, nextSendAt: at });
   }
-  hostFramesTick(world, [...demands.values()], stillNeeded, now);
+  hostFramesTick(world, [...demands.values()], nextSendByVid, now, { isSentinela });
 }
 
 /** Avisa/navega para UM comando coberto. null = nada a fazer nesta aba. */

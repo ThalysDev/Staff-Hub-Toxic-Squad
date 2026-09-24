@@ -146,6 +146,25 @@ describe('Envio em 2º plano (quadro invisível)', () => {
     vi.useRealTimers();
   });
 
+  it('Sentinela viva hospeda: a aba comum não abre quadro cedo (a navegação do jogador o mataria)', () => {
+    gm.set('tsh:br142:sentinela-viva', { at: Date.now() });
+    setCommands(command('a', 90_000));
+    conductorTick();
+    expect(createdFrames.length).toBe(0);
+    // Faltando pouco e nada aberto, a aba comum assume (a Sentinela pode ter falhado).
+    setCommands(command('a', 40_000));
+    conductorTick();
+    expect(createdFrames.length).toBe(1);
+  });
+
+  it('o diário registra a abertura do quadro (transparência)', async () => {
+    const { readDiary } = await import('./tsh-envio-quadro');
+    setCommands(command('a', 60_000));
+    conductorTick();
+    const diario = readDiary('br142', '1171', Date.now() - 5_000, Date.now() + 5_000);
+    expect(diario.map((e) => e.kind)).toContain('abriu');
+  });
+
   it('com o 2º plano desligado, volta ao plano B', () => {
     gm.set(SETTINGS, { backgroundSend: false });
     setCommands(command('a', 60_000));

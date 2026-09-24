@@ -1,7 +1,8 @@
 // Fixtures ESTRUTURAIS derivadas da Praça real do BR142 (24/09/2026): o
 // <script> com `TroopTemplates.current` e o <night> do get_config.
 import { describe, expect, it } from 'vitest';
-import { inNightBonus, parseGameTemplates, parseNightBonus } from './tsh-templates';
+import placeUnitsHtml from './__fixtures__/br142-place-units.html?raw';
+import { inNightBonus, parseAvailableUnits, parseGameTemplates, parseNightBonus } from './tsh-templates';
 import { resolveAllUnits } from './plugins/command-scheduler';
 
 const PLACE_SCRIPT = `<html><body><script>
@@ -61,5 +62,22 @@ describe('"Todas" no disparo', () => {
   it('por envio: sai sem a vazia e acusa que a chegada muda; nada disponível aborta', () => {
     expect(resolveAllUnits({}, ['axe', 'ram'], { axe: 100 }, { speeds })).toEqual({ ok: true, units: { axe: 100 }, slowerMissing: ['ram'] });
     expect(resolveAllUnits({}, ['ram'], {}).ok).toBe(false);
+  });
+});
+
+describe('tropas disponíveis na Praça', () => {
+  it('lê data-all-count de cada input.unitsInput (ordem de atributos livre)', () => {
+    const html =
+      '<input id="unit_input_spear" name="spear" type="text" class="unitsInput" data-all-count="200">' +
+      '<input data-all-count="3063" class="unitsInput" name="axe" id="unit_input_axe">' +
+      '<input name="x" id="inputx">';
+    expect(parseAvailableUnits(html)).toEqual({ spear: 200, axe: 3063 });
+    expect(parseAvailableUnits('<input name="x">')).toBeNull();
+    expect(parseAvailableUnits('<input class="unitsInput" data-name="axe" name="spear" data-all-count="5">')).toEqual({ spear: 5 });
+  });
+  it('fixture REAL da Praça do BR142 (aldeia 1171)', () => {
+    expect(parseAvailableUnits(placeUnitsHtml)).toEqual({
+      spear: 0, sword: 0, axe: 3080, archer: 0, spy: 59, light: 1034, marcher: 0, heavy: 0, ram: 300, catapult: 57, knight: 0, snob: 4,
+    });
   });
 });

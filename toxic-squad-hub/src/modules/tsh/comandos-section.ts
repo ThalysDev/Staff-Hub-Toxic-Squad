@@ -20,6 +20,7 @@ import { commandUnitStrip, kindIcon } from './tsh-units';
 import { currentVillageId, isTshEnabled } from './tsh-runtime';
 import { openSection } from '../../core/shell';
 import { goToPlaceOf, NAV_LEAD_MS, originLabel, readinessOf } from './tsh-condutor';
+import { frameAliveFor, hostedFrameVillages } from './tsh-envio-quadro';
 
 const STYLE_ID = 'tsh-cmd-section-style';
 const STYLES = `
@@ -39,6 +40,8 @@ const STYLES = `
   .tcs-banner-txt { flex: 1 1 260px; }
   .tcs-banner a { text-decoration: none; }
   .tcs-more { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tcs-frames { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 10px; font-size: 12.5px;
+    background: var(--shs-bg-side); color: var(--shs-ink); border: 1px dashed var(--shs-border-strong); }
   .tcs-clock .shs-btn { border: 0; min-height: 32px; }
   .tcs-card { background: var(--shs-bg-card); border: 1px solid var(--shs-border); border-radius: 12px; overflow: hidden; }
   .tcs-card table { margin: 0 !important; background: transparent; }
@@ -103,7 +106,10 @@ function statusChip(status: ScheduledCommandViewStatus, otherVillage: boolean, r
   if (record !== undefined && (status === 'janela' || status === 'agendado')) {
     const r = readinessOf(record);
     const perto = Date.parse(record.sendAt) - serverNowMs() <= 30 * 60_000;
-    if (r === 'aqui' || r === 'pronta') return el('span', status === 'janela' ? 'shs-pill shs-pill--warn' : 'shs-pill shs-pill--ok', status === 'janela' ? 'Na mira' : 'Pronta na Praça');
+    if (r === 'aqui' || r === 'pronta') {
+      const noQuadro = r === 'pronta' && frameAliveFor(currentWorld(), record.sourceVillageId.replace(/^n/, ''));
+      return el('span', status === 'janela' ? 'shs-pill shs-pill--warn' : 'shs-pill shs-pill--ok', status === 'janela' ? 'Na mira' : noQuadro ? 'Pronta (2º plano)' : 'Pronta na Praça');
+    }
     if (r === 'fundo') return el('span', status === 'janela' ? 'shs-pill shs-pill--warn' : 'shs-pill', status === 'janela' ? 'Na mira' : 'Sai em 2º plano');
     if (r === 'automatico') return el('span', status === 'janela' ? 'shs-pill shs-pill--warn' : 'shs-pill', status === 'janela' ? 'Indo à Praça' : 'Aba vai à Praça');
     if (perto) return el('span', 'shs-pill shs-pill--error', 'Sem aba na Praça');
@@ -278,6 +284,25 @@ export function renderComandosSection(container: HTMLElement): () => void {
         banner.appendChild(link);
       }
       root.appendChild(banner);
+    }
+
+    // Transparência do 2º plano: quais Praças esta aba mantém abertas (invisíveis).
+    const quadros = hostedFrameVillages();
+    if (quadros.length > 0) {
+      const nomes = quadros.map((vid) => {
+        const rec = vivos.find((item) => item.record.sourceVillageId.replace(/^n/, '') === vid)?.record;
+        return rec?.sourceName ?? `aldeia ${vid}`;
+      });
+      const info = el('div', 'tcs-frames');
+      info.append(
+        icon('eye', 14),
+        el(
+          'span',
+          '',
+          `Envio em 2º plano: ${quadros.length === 1 ? 'a Praça de' : 'as Praças de'} ${nomes.join(', ')} ${quadros.length === 1 ? 'está aberta' : 'estão abertas'} (invisível) nesta aba. Não feche esta aba até o envio.`,
+        ),
+      );
+      root.appendChild(info);
     }
 
     // ── Lista dos próximos ──

@@ -224,6 +224,44 @@ export const TSH_INSTRUMENTO_CSS = `
   .tsh-ccard .tsh-card-head { gap: 8px; flex-wrap: wrap; }
   .tsh-ccard[data-status='janela'] { border-color: var(--shs-warn); }
   .tsh-central-notice { border-color: var(--shs-action) !important; }
+  .tsh-confirm-msg { white-space: pre-line; line-height: 1.55; }
+  .tsh-card-warn { color: var(--shs-warn); font-weight: 500; }
+  .tsh-form-actions.is-editing { border-color: var(--shs-warn); box-shadow: 0 -6px 18px rgba(178,106,0,.14); }
+  /* v3.3.1: formulário de comando — barra de ações fixa, avançadas, ajustes de horário */
+  .tsh-form-actions { position: sticky; bottom: -1px; z-index: 3; display: flex; flex-direction: column; gap: 8px; margin: 14px -4px 0;
+    padding: 10px 12px; border-radius: 12px; border: 1px solid var(--shs-border-strong); background: var(--shs-bg-card);
+    box-shadow: 0 -6px 18px rgba(20,18,14,.08); }
+  .tsh-form-actions .tsh-error { margin: 0; }
+  .tsh-form-actions-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .tsh-form-actions-row > .tsh-status-row, .tsh-form-actions-row > div:first-child { flex: 1 1 320px; margin: 0; min-width: 0; }
+  .tsh-form-actions-row > .tsh-btn { flex: none; }
+  .tsh-form-actions .tsh-add-result { margin-top: 0; }
+  .tsh-advanced { margin: 10px 0 4px; border: 1px solid var(--shs-border); border-radius: 10px; padding: 0 12px; background: var(--shs-bg-card); }
+  .tsh-advanced > summary { cursor: pointer; padding: 10px 0; font-size: 13px; font-weight: 600; color: var(--shs-ink-strong); }
+  .tsh-advanced[open] > summary { border-bottom: 1px solid var(--shs-bg-inset); margin-bottom: 8px; }
+  .tsh-advanced > .tsh-field, .tsh-advanced > .tsh-check-row { margin-bottom: 10px; }
+  .tsh-time-nudges { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+  .tsh-nudge { height: 30px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--shs-border); background: var(--shs-bg-side);
+    color: var(--shs-ink); font: 500 12px var(--shs-font-mono); cursor: pointer; }
+  .tsh-nudge:hover { border-color: var(--shs-action); color: var(--shs-action); }
+  .tsh-unit-avail { display: block; min-height: 14px; text-align: center; font-size: 10.5px; color: var(--shs-muted);
+    font-family: var(--shs-font-mono); line-height: 14px; }
+  .tsh-unit-cell.is-empty .tsh-unit-avail { color: var(--shs-danger); }
+  .tsh-edit-banner { display: flex; align-items: center; gap: 8px; padding: 10px 12px; margin-bottom: 12px; border-radius: 10px;
+    border: 1.5px solid var(--shs-warn); background: color-mix(in srgb, var(--shs-warn) 10%, var(--shs-bg-card)); font-size: 13px; }
+  .tsh-edit-banner[hidden] { display: none; }
+  .tsh-edit-banner span { flex: 1; }
+  .tsh-add-result { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; margin-top: 10px; border-radius: 10px;
+    border: 1.5px solid var(--shs-action); background: color-mix(in srgb, var(--shs-action) 8%, var(--shs-bg-card)); }
+  .tsh-add-result[hidden] { display: none; }
+  .tsh-add-result-msg { flex: 1 1 260px; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--shs-ink-strong); }
+  .tsh-unit-cell.is-empty .tsh-unit-all { opacity: .55; }
+  .tsh-timeline { margin-top: 6px; font-size: 12px; }
+  .tsh-timeline > summary { cursor: pointer; color: var(--shs-muted); width: max-content; }
+  .tsh-timeline-list { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+  .tsh-timeline-list li { display: grid; grid-template-columns: 96px 76px 1fr; gap: 8px; align-items: baseline; }
+  .tsh-timeline-at { font-family: var(--shs-font-mono); color: var(--shs-muted); }
+  .tsh-timeline-tag { font-weight: 600; color: var(--shs-ink-strong); }
   .tsh-time-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; margin-top: 8px; border-radius: 9px;
     background: var(--shs-bg-side); border: 1px solid var(--shs-border); }
   .tsh-time-editor-msg { flex-basis: 100%; font-size: 12px; color: var(--shs-muted); }

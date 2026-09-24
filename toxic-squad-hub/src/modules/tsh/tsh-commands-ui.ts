@@ -84,8 +84,8 @@ import { ownVillages, travelMinutes, villageAt, type OwnVillage } from './tsh-ga
 import { buildTshModal, tshConfirm, tshNoteBanner } from './tsh-settings-ui';
 import { commandUnitStrip, kindIcon, unitIcon, unitStrip, UNIT_LABELS as UNIT_LABELS_SHARED } from './tsh-units';
 import { readinessOf } from './tsh-condutor';
-import { inNightBonus, loadGameTemplates, worldNightBonus, type NightBonus } from './tsh-templates';
-import { frameAliveFor } from './tsh-envio-quadro';
+import { cachedNightBonus, inNightBonus, loadPlaceData, worldNightBonus, type NightBonus } from './tsh-templates';
+import { frameAliveFor, readDiary } from './tsh-envio-quadro';
 import {
   cancelManyCommands,
   cardActionsFor,
@@ -1135,12 +1135,14 @@ interface UnitsGridHandle {
   readAll(): UnitType[];
   /** Mostra/esconde as caixas "Todas" (somem no modo percentual). */
   setAllEnabled(on: boolean): void;
+  /** Quantas há de cada tropa agora (null = desconhecido) — aparece em "Todas (N)". */
+  setAvailable(available: Partial<Record<string, number>> | null): void;
 }
 
 function buildUnitsGrid(onInput?: () => void, opts?: { allowAll?: boolean }): UnitsGridHandle {
   const grid = document.createElement('div');
   grid.className = 'tsh-record-grid';
-  const inputs: { key: UnitType; input: HTMLInputElement; all: HTMLInputElement | null; cell: HTMLDivElement }[] = [];
+  const inputs: { key: UnitType; input: HTMLInputElement; all: HTMLInputElement | null; allText: Text | null; cell: HTMLDivElement }[] = [];
   const applyAll = (input: HTMLInputElement, all: HTMLInputElement, cell: HTMLDivElement): void => {
     input.disabled = all.checked;
     cell.classList.toggle('is-all', all.checked);
@@ -1173,6 +1175,7 @@ function buildUnitsGrid(onInput?: () => void, opts?: { allowAll?: boolean }): Un
     // v3.3.0: "Todas" desta tropa (como o "(200)" da Praça do jogo) — o total
     // é lido na Praça da origem na hora do disparo.
     let all: HTMLInputElement | null = null;
+    let allText: Text | null = null;
     if (opts?.allowAll === true) {
       const allLabel = document.createElement('label');
       allLabel.className = 'tsh-unit-all';
@@ -1184,11 +1187,17 @@ function buildUnitsGrid(onInput?: () => void, opts?: { allowAll?: boolean }): Un
         applyAll(input, allBox, cell);
         onInput?.();
       });
-      allLabel.append(allBox, document.createTextNode('Todas'));
+      allText = document.createTextNode('');
+      const allWord = document.createElement('span');
+      allWord.textContent = 'Todas';
+      const allCount = document.createElement('span');
+      allCount.className = 'tsh-unit-avail';
+      allCount.appendChild(allText);
+      allLabel.append(allBox, allWord);
       allLabel.title = `Enviar TODAS as unidades de ${unitLabel(row.key)} que houver na aldeia na hora do envio. Se não houver nenhuma: com "Chegar às" o comando não sai (se ela for a mais lenta); com "Enviar às" ele sai sem essa tropa.`;
-      cell.appendChild(allLabel);
+      cell.append(allLabel, allCount);
     }
-    inputs.push({ key: row.key, input, all, cell });
+    inputs.push({ key: row.key, input, all, allText, cell });
     grid.appendChild(cell);
   }
   const readPercent = (): Partial<Record<UnitType, number>> => {
@@ -1212,6 +1221,14 @@ function buildUnitsGrid(onInput?: () => void, opts?: { allowAll?: boolean }): Un
       return units;
     },
     readAll: () => inputs.filter((row) => row.all?.checked === true).map((row) => row.key),
+    setAvailable: (available) => {
+      for (const row of inputs) {
+        if (row.allText === null) continue;
+        const n = available?.[row.key];
+        row.allText.textContent = n === undefined ? '' : `na aldeia: ${n.toLocaleString('pt-BR')}`;
+        row.cell.classList.toggle('is-empty', n === 0);
+      }
+    },
     setAllEnabled: (on) => {
       for (const row of inputs) {
         if (row.all === null) continue;
@@ -1245,6 +1262,17 @@ function buildUnitsGrid(onInput?: () => void, opts?: { allowAll?: boolean }): Un
   };
 }
 
+/** Tropas de um comando em texto (confirmação e resultado). */
+function describeUnits(record: Pick<ScheduledCommandRecord, 'units' | 'allUnits' | 'percentMode' | 'unitsPercent' | 'trainUnits'>): string {
+  if (record.percentMode === true) return `${summarizePercentUnits((record.unitsPercent ?? {}) as Partial<Record<UnitType, number>>)} das tropas`;
+  const partes = Object.entries(record.units)
+    .filter(([, n]) => (n ?? 0) > 0)
+    .map(([u, n]) => `${formatInt(n ?? 0)} ${unitLabel(u as UnitType)}`);
+  for (const u of record.allUnits ?? []) partes.push(`TODAS ${unitLabel(u)}`);
+  const base = partes.length > 0 ? partes.join(', ') : '—';
+  return record.trainUnits !== undefined && record.trainUnits.length > 0 ? `${base} + ${record.trainUnits.length} ataque(s) no trem` : base;
+}
+
 /** Resumo curto de um conjunto de tropas em percentual (para o preview). */
 export function summarizePercentUnits(unitsPercent: Partial<Record<UnitType, number>>): string {
   const entries = Object.entries(unitsPercent).filter(([, percent]) => (percent ?? 0) > 0);
@@ -1270,8 +1298,32 @@ interface ListFilters {
 
 /** Ações da Central que precisam de outras partes do modal. */
 interface CentralHooks {
-  /** Leva o comando para a aba "Novo comando", com os campos preenchidos. */
-  reagendar(record: ScheduledCommandRecord): void;
+  /** Leva o comando para a aba "Novo comando", com os campos preenchidos (novo comando). */
+  reagendar(record: ScheduledCommandRecord, mode: 'reuse' | 'duplicate'): void;
+  /** Abre o comando PENDENTE no formulário; salvar substitui o original. */
+  editar(record: ScheduledCommandRecord): void;
+}
+
+/**
+ * Por que um comando pendente NÃO pode mais ser alterado (null = pode):
+ * já saiu, está na mira ou foi pré-armado (a confirmação já está aberta com
+ * o horário/tropas antigos — mexer agora seria no escuro).
+ */
+function notEditableReason(world: string, id: string): string | null {
+  const alvo = loadSchedulerState(world).commands.find((c) => c.id === id);
+  if (alvo === undefined || alvo.events.some((e) => HISTORY_STATUSES.has(e.status) || e.status === 'enviando')) {
+    return 'Este comando já saiu da fila — nada foi alterado.';
+  }
+  const statusAgora = deriveSchedulerCommandStatus(alvo, new Date(serverNowMs()), SCHEDULER_DEFAULT_WINDOW);
+  const prearm = gm.get<{ id?: string; at?: number } | null>(
+    `tsh-auto:${world}:command-scheduler:prearm:${normalizeVillageId(alvo.sourceVillageId)}`,
+    null,
+  );
+  const prearmado = prearm !== null && prearm.id === alvo.id && Date.now() - (prearm.at ?? 0) < 45_000;
+  if ((statusAgora !== 'agendado' && statusAgora !== 'pausado') || prearmado) {
+    return 'Este comando já está na mira (pré-armado) — não dá para alterá-lo agora. Cancele o envio e crie outro.';
+  }
+  return null;
 }
 
 const KIND_FILTER_OPTIONS: readonly { value: KindFilter; label: string }[] = [
@@ -1364,6 +1416,77 @@ function renderHistory(
   }
 }
 
+const EVENT_LABELS: Record<string, string> = {
+  agendado: 'Agendado',
+  janela: 'Pré-arme',
+  enviando: 'Enviando',
+  enviado: 'Enviado',
+  incerto: 'Incerto',
+  falhou: 'Falhou',
+  removido: 'Cancelado',
+};
+const DIARY_LABELS: Record<string, string> = {
+  abriu: 'Praça abriu',
+  pronto: 'Praça pronta',
+  fechou: 'Praça fechou',
+  falhou: '2º plano falhou',
+  'saiu-da-pagina': 'Aba saiu',
+};
+
+/**
+ * "Detalhes": linha do tempo do comando — eventos do motor + o diário do
+ * envio em 2º plano daquela aldeia (quando a Praça invisível abriu/fechou).
+ */
+function timelineEl(record: ScheduledCommandRecord, world: string): HTMLDetailsElement {
+  const details = document.createElement('details');
+  details.className = 'tsh-timeline';
+  const summary = document.createElement('summary');
+  summary.textContent = 'Detalhes';
+  details.appendChild(summary);
+  details.addEventListener(
+    'toggle',
+    () => {
+      if (!details.open || details.dataset.filled === '1') return;
+      details.dataset.filled = '1';
+      const skew = serverNowMs() - Date.now();
+      const sendLocal = Date.parse(record.sendAt) - skew;
+      const rows: { at: number; label: string; text: string }[] = record.events.map((e) => ({
+        at: Date.parse(e.at),
+        label: EVENT_LABELS[e.status] ?? e.status,
+        text: e.detail ?? '',
+      }));
+      // Só o que é DESTE envio: a abertura marcada com este horário (±5 s) e
+      // o que aconteceu com o quadro até 1 min depois dele.
+      const sendServer = Date.parse(record.sendAt);
+      for (const d of readDiary(world, normalizeVillageId(record.sourceVillageId), sendLocal - 3 * 60_000, sendLocal + 60_000)) {
+        if (d.kind === 'abriu' && d.sendAt !== undefined && Math.abs(d.sendAt - sendServer) > 5_000) continue;
+        rows.push({ at: d.at, label: DIARY_LABELS[d.kind] ?? d.kind, text: d.detail });
+      }
+      rows.sort((a, b) => a.at - b.at);
+      const list = document.createElement('ol');
+      list.className = 'tsh-timeline-list';
+      for (const row of rows) {
+        const li = document.createElement('li');
+        const when = document.createElement('span');
+        when.className = 'tsh-timeline-at';
+        when.textContent = Number.isFinite(row.at) ? clockLabelMs(row.at + skew) : '—';
+        const tag = document.createElement('span');
+        tag.className = 'tsh-timeline-tag';
+        tag.textContent = row.label;
+        const text = document.createElement('span');
+        text.textContent = row.text;
+        li.append(when, tag, text);
+        list.appendChild(li);
+      }
+      if (rows.length === 0) list.appendChild(helpEl('Sem registros.'));
+      details.appendChild(list);
+      details.appendChild(helpEl('Registros da Praça invisível podem incluir outro comando da mesma aldeia no mesmo minuto.'));
+    },
+    { once: false },
+  );
+  return details;
+}
+
 /** Selo de QUEM vai enviar um comando pendente (a mesma verdade do Condutor). */
 function readinessBadge(record: ScheduledCommandRecord, world: string): HTMLSpanElement | null {
   const r = readinessOf(record, world);
@@ -1433,23 +1556,13 @@ function openTimeEditor(
         : 'O novo envio precisa ser no futuro (pelo menos 5 s a partir de agora).';
       return;
     }
-    const state = loadSchedulerState(world);
-    const alvo = state.commands.find((c) => c.id === record.id);
-    if (alvo === undefined || alvo.events.some((e) => HISTORY_STATUSES.has(e.status) || e.status === 'enviando')) {
-      msg.textContent = 'Este comando já saiu da fila — nada foi alterado.';
+    const bloqueio = notEditableReason(world, record.id);
+    if (bloqueio !== null) {
+      msg.textContent = bloqueio;
       return;
     }
-    // Já na mira/pré-armado: mexer agora seria no escuro — cancele e recrie.
-    const statusAgora = deriveSchedulerCommandStatus(alvo, new Date(serverNowMs()), SCHEDULER_DEFAULT_WINDOW);
-    const prearm = gm.get<{ id?: string; at?: number } | null>(
-      `tsh-auto:${world}:command-scheduler:prearm:${normalizeVillageId(alvo.sourceVillageId)}`,
-      null,
-    );
-    const prearmado = prearm !== null && prearm.id === alvo.id && Date.now() - (prearm.at ?? 0) < 45_000;
-    if ((statusAgora !== 'agendado' && statusAgora !== 'pausado') || prearmado) {
-      msg.textContent = 'Este comando já está na mira (pré-armado) — não dá para mudar o horário agora. Cancele o envio e crie outro.';
-      return;
-    }
+    const alvo = loadSchedulerState(world).commands.find((c) => c.id === record.id);
+    if (alvo === undefined) return;
     applySchedulerTimes(
       world,
       new Map([
@@ -1558,10 +1671,19 @@ function commandCard(
     const result = sendResultOf(record);
     const ok = document.createElement('div');
     ok.className = 'tsh-card-desc tsh-card-result';
-    if (result?.confirmedAt !== undefined) {
-      const parts = [`Saiu às ${result.confirmedAt}`];
-      if (result.clickDeltaMs !== undefined) parts.push(`${formatDelta(result.clickDeltaMs)} do horário marcado`);
-      if (result.arrivalDeltaMs !== undefined) parts.push(`chegada conferida no jogo: ${formatDelta(result.arrivalDeltaMs)}`);
+    if (result?.confirmedAt !== undefined || result?.arrivalDeltaMs !== undefined) {
+      const parts: string[] = [];
+      if (result.arrivalDeltaMs !== undefined) parts.push(`Chegada conferida no jogo: ${formatDelta(result.arrivalDeltaMs)} do planejado`);
+      if (result.confirmedAt !== undefined) {
+        const d = result.clickDeltaMs;
+        parts.push(
+          d === undefined
+            ? `clique às ${result.confirmedAt}`
+            : d < 0
+              ? `clique às ${result.confirmedAt} (${Math.abs(d)} ms antes, para compensar a latência)`
+              : `clique às ${result.confirmedAt} (${formatDelta(d)} do horário)`,
+        );
+      }
       ok.textContent = parts.join(' · ');
     } else {
       ok.textContent = 'Enviado.';
@@ -1575,11 +1697,22 @@ function commandCard(
       status === 'incerto'
         ? `Incerto: ${reason ?? 'o envio pode ter acontecido'} — confira na Visão de Comandos do jogo.`
         : status === 'removido'
-          ? 'Cancelado antes de sair — nada foi enviado.'
+          ? reason === 'Substituído por edição.'
+            ? 'Substituído por uma edição — a versão nova está na Fila.'
+            : 'Cancelado antes de sair — nada foi enviado.'
           : `Motivo: ${reason ?? 'o horário passou sem envio.'}`;
     card.appendChild(why);
   }
 
+  // Bônus noturno: ataque pendente que chega na janela (defesa em dobro).
+  if (!HISTORY_STATUSES.has(status) && record.kind !== 'support' && record.kind !== 'cancel' && record.arrivalAt !== undefined) {
+    if (inNightBonus(Date.parse(record.arrivalAt), cachedNightBonus())) {
+      const nb = document.createElement('div');
+      nb.className = 'tsh-card-desc tsh-card-warn';
+      nb.textContent = 'Chega no bônus noturno (defesa ×2).';
+      card.appendChild(nb);
+    }
+  }
   // Detalhes que mudam a leitura (estratégia, repetição, catapulta, forçar, trem).
   const extras: string[] = [];
   if (record.timingStrategy !== undefined && record.timingStrategy !== 'direto') extras.push(timingStrategyLabel(record.timingStrategy));
@@ -1605,6 +1738,7 @@ function commandCard(
     card.appendChild(trainLine);
   }
 
+  card.appendChild(timelineEl(record, world));
   // Ações — só as que fazem sentido no estado (enviado não se pausa).
   const acts = cardActionsFor(status);
   if (acts.length > 0) {
@@ -1612,8 +1746,14 @@ function commandCard(
     actions.className = 'tsh-actions';
     if (status === 'agendado' || status === 'pausado') {
       actions.appendChild(actionButton('Mudar horário', 'clock', 'tsh-btn tsh-btn--sm', () => openTimeEditor(card, record, world, rerender, refresh)));
+      // Trem do jogo não se remonta no formulário — só horário/cancelar.
+      if (record.trainUnits === undefined || record.trainUnits.length === 0) {
+        actions.appendChild(
+          actionButton('Editar', 'edit', 'tsh-btn tsh-btn--sm', () => hooks.editar(record), 'Abre este comando no formulário (tropas, alvo, horário). Salvar substitui o original.'),
+        );
+      }
       actions.appendChild(
-        actionButton('Duplicar', 'copy', 'tsh-btn tsh-btn--sm tsh-btn--ghost', () => hooks.reagendar(record), 'Copia origem, alvo e tropas para "Novo comando" (este continua na fila). Confira o horário.'),
+        actionButton('Duplicar', 'copy', 'tsh-btn tsh-btn--sm tsh-btn--ghost', () => hooks.reagendar(record, 'duplicate'), 'Cria OUTRO comando igual a este (este continua na fila). Confira o horário.'),
       );
     }
     for (const act of acts) {
@@ -1633,7 +1773,7 @@ function commandCard(
         );
       } else if (act === 'reagendar') {
         actions.appendChild(
-          actionButton('Usar de novo', 'refresh', 'tsh-btn tsh-btn--sm', () => hooks.reagendar(record), 'Copia origem, alvo e tropas para "Novo comando". Confira o horário.'),
+          actionButton('Usar de novo', 'refresh', 'tsh-btn tsh-btn--sm', () => hooks.reagendar(record, 'reuse'), 'Cria um comando NOVO com a mesma origem, alvo e tropas. Confira o horário.'),
         );
       } else {
         actions.appendChild(
@@ -1966,17 +2106,39 @@ export async function openSchedulerCommands(
 
   const queueFilters: ListFilters = { query: '', kind: 'todos', history: 'todos' };
   const historyFilters: ListFilters = { query: '', kind: 'todos', history: 'todos' };
-  let prefillForm: ((record: ScheduledCommandRecord) => void) | null = null;
+  let prefillForm: ((record: ScheduledCommandRecord, mode: 'reuse' | 'duplicate' | 'edit') => void) | null = null;
+  let formIsDirty: () => boolean = () => false;
   // Aldeias desta conta (para o Importar recusar origens alheias) — carregadas com o formulário.
   let ownIds: ReadonlySet<string> | undefined;
-  const hooks: CentralHooks = {
-    reagendar: (record) => {
+  const openInForm = (record: ScheduledCommandRecord, mode: 'reuse' | 'duplicate' | 'edit'): void => {
+    void (async () => {
       tabs.select('novo');
       if (prefillForm === null) {
         showNotice('O formulário ainda não carregou suas aldeias — espere um instante e clique de novo.');
         return;
       }
-      prefillForm(record);
+      // Não apaga em silêncio o que o jogador já digitou no formulário.
+      if (formIsDirty()) {
+        const ok = await tshConfirm(
+          shadow,
+          'Substituir o formulário?',
+          'Você já preencheu dados em "Novo comando". Substituir pelos dados deste comando?',
+          { okLabel: 'Substituir', cancelLabel: 'Manter o que digitei' },
+        );
+        if (!ok) return;
+      }
+      prefillForm(record, mode);
+    })();
+  };
+  const hooks: CentralHooks = {
+    reagendar: (record, mode) => openInForm(record, mode),
+    editar: (record) => {
+      const bloqueio = notEditableReason(world, record.id);
+      if (bloqueio !== null) {
+        showQueueNote(bloqueio);
+        return;
+      }
+      openInForm(record, 'edit');
     },
   };
 
@@ -2271,11 +2433,13 @@ export async function openSchedulerCommands(
   let travelMin: number | null = null; // último travelMinutes válido do conjunto atual
 
   let errorEl: HTMLDivElement | null = null;
+  // Onde o erro aparece: na barra de ações fixa (criada mais abaixo), à vista.
+  let errorHost: HTMLElement = form;
   const showError = (message: string): void => {
     if (errorEl === null) {
       errorEl = document.createElement('div');
       errorEl.className = 'tsh-error';
-      form.appendChild(errorEl);
+      errorHost.prepend(errorEl);
     }
     errorEl.textContent = message; // sempre textContent — nunca HTML
   };
@@ -2396,10 +2560,16 @@ export async function openSchedulerCommands(
   // ── Modelos de tropas do jogo (v3.3.0): os MESMOS da Praça, 1 clique ──
   const templatesRow = document.createElement('div');
   templatesRow.className = 'tsh-templates-row';
+  let templatesSeq = 0;
   const loadTemplatesFor = (villageId: string): void => {
+    const seq = ++templatesSeq;
     templatesRow.replaceChildren(helpEl('Carregando seus modelos de tropas do jogo…'));
-    void loadGameTemplates(villageId)
-      .then((list) => {
+    unitsGridHandle.setAvailable(null);
+    void loadPlaceData(villageId)
+      .then((place) => {
+        if (seq !== templatesSeq) return; // outra aldeia foi escolhida depois
+        const list = place.templates;
+        unitsGridHandle.setAvailable(place.available);
         templatesRow.replaceChildren();
         if (list.length === 0) {
           templatesRow.appendChild(helpEl('Não achei modelos de tropas nesta aldeia — digite as tropas ou marque "Todas".'));
@@ -2586,6 +2756,29 @@ export async function openSchedulerCommands(
   pasteBtn.appendChild(document.createTextNode('Colar horário'));
   pasteBtn.title = 'Lê a área de transferência (HH:mm:ss ou HH:mm:ss:ms) e preenche HOJE nesse horário — amanhã se já passou.';
   timeRow.append(timeInput, msInput, msSuffix, pasteBtn);
+  // v3.3.1: ajuste rápido do horário (sem redigitar a data inteira).
+  const nudges = document.createElement('div');
+  nudges.className = 'tsh-time-nudges';
+  for (const [label, deltaMs] of [
+    ['−1 min', -60_000],
+    ['+1 min', 60_000],
+    ['+5 min', 5 * 60_000],
+    ['+10 min', 10 * 60_000],
+    ['+1 h', 60 * 60_000],
+  ] as const) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tsh-nudge';
+    b.textContent = label;
+    b.title = deltaMs < 0 ? `Voltar ${label.slice(1)} no horário digitado` : `Adiantar ${label.slice(1)} no horário digitado`;
+    b.addEventListener('click', () => {
+      const base = parseDatetimeLocal(timeInput.value) ?? referenceNow();
+      timeInput.value = toDatetimeLocalValue(new Date(base.getTime() + deltaMs));
+      timeInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    nudges.appendChild(b);
+  }
+  timeRow.appendChild(nudges);
   // Referência do horário digitado (Onda A) — persistida.
   const refRow = document.createElement('div');
   refRow.className = 'tsh-check-row';
@@ -2913,8 +3106,52 @@ export async function openSchedulerCommands(
   applyTravelAvailability();
   updateSummary();
 
-  // ── Reagendar (v3.3.0): o histórico manda um comando para cá ──
-  prefillForm = (record: ScheduledCommandRecord): void => {
+  // ── Formulário "sujo" (há algo digitado que um preenchimento apagaria) ──
+  let dirty = false;
+  form.addEventListener('input', () => {
+    dirty = true;
+  });
+  form.addEventListener('change', () => {
+    dirty = true;
+  });
+  formIsDirty = () => dirty;
+
+  // ── Edição (v3.3.1): salvar substitui o comando original ──
+  let editingId: string | null = null;
+  const editBanner = document.createElement('div');
+  editBanner.className = 'tsh-edit-banner';
+  editBanner.hidden = true;
+  const editText = document.createElement('span');
+  const stopEdit = actionButton('Cancelar edição', 'x', 'tsh-btn tsh-btn--sm tsh-btn--ghost', () => {
+    setEditing(null);
+    // Limpa alvo e tropas: um "Adicionar" depois disso criaria uma CÓPIA do pendente.
+    target = null;
+    targetName = undefined;
+    targetPoints = undefined;
+    targetInput.value = '';
+    unitsGridHandle.reset();
+    travelMin = null;
+    applyTravelAvailability();
+    updateConditionalFields();
+    updateSummary();
+    dirty = false;
+    showNotice('Edição cancelada — o comando original continua na Fila sem mudanças.');
+  });
+  editBanner.append(icon('edit', 14), editText, stopEdit);
+  form.prepend(editBanner);
+  const addLabel = document.createTextNode('Adicionar comando');
+  let actionsBarRef: HTMLElement | null = null;
+  const setEditing = (record: ScheduledCommandRecord | null): void => {
+    editingId = record?.id ?? null;
+    editBanner.hidden = record === null;
+    editText.textContent =
+      record === null ? '' : `Editando: ${commandKindLabel(record.kind)} → ${record.target.x}|${record.target.y}. Ao salvar, o comando original é substituído.`;
+    addLabel.textContent = record === null ? 'Adicionar comando' : 'Salvar alterações (substitui)';
+    actionsBarRef?.classList.toggle('is-editing', record !== null);
+  };
+
+  // ── Reagendar / Duplicar / Editar: um comando vem para o formulário ──
+  prefillForm = (record: ScheduledCommandRecord, mode: 'reuse' | 'duplicate' | 'edit'): void => {
     const village = villages.find((v) => normalizeVillageId(v.id) === normalizeVillageId(record.sourceVillageId));
     if (village !== undefined) {
       origin = village;
@@ -2934,25 +3171,56 @@ export async function openSchedulerCommands(
     }
     if (record.cancelCount !== undefined) cancelCountSelect.value = String(record.cancelCount);
     if (record.catapultTarget !== undefined) catapultSelect.value = record.catapultTarget;
-    forcedCheck.input.checked = false;
+    // Edição mantém o "forçado" do original; um comando novo começa sem ele.
+    forcedCheck.input.checked = mode === 'edit' && record.forced === true;
     trainCheck.input.checked = false;
+    // Um comando vira UM comando (repetir herdado de antes multiplicaria).
+    repeatCountInput.value = '1';
+    if (village !== undefined) loadTemplatesFor(village.id);
     targetInput.value = `${record.target.x}|${record.target.y}`;
     targetInput.dispatchEvent(new Event('input'));
-    // Sempre "Enviar às" daqui a 10 min: com "Chegar às", a partida calculada
-    // podia cair no passado. O jogador ajusta antes de adicionar.
-    arrivalRadio.checked = false;
-    sendRadio.checked = true;
-    timeInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 10 * 60_000));
-    msInput.value = '0';
+    if (mode === 'edit') {
+      // Edição: os horários ORIGINAIS (pela chegada, se foi criado assim).
+      const byArrival = record.timingMode === 'arrival' && record.arrivalAt !== undefined;
+      arrivalRadio.checked = byArrival;
+      sendRadio.checked = !byArrival;
+      const local = serverToLocal(byArrival ? (record.arrivalAt as string) : record.sendAt, currentServerOffsetMs());
+      timeInput.value = toDatetimeLocalValue(local);
+      msInput.value = String(local.getMilliseconds());
+    } else {
+      // Novo comando: "Enviar às" daqui a 10 min (com "Chegar às" a partida
+      // podia cair no passado). O jogador ajusta antes de adicionar.
+      arrivalRadio.checked = false;
+      sendRadio.checked = true;
+      timeInput.value = toDatetimeLocalValue(new Date(referenceNow().getTime() + 10 * 60_000));
+      msInput.value = '0';
+    }
+    setEditing(mode === 'edit' ? record : null);
+    hideResult();
+    syncAdvanced();
     updateConditionalFields();
-    void recomputeTravel();
+    void recomputeTravel().then(() => {
+      // Sem velocidades do mundo o formulário cai para "Enviar às": na edição
+      // pela chegada, troca também o HORÁRIO para o envio original (senão a
+      // chegada digitada viraria envio).
+      if (mode === 'edit' && record.timingMode === 'arrival' && sendRadio.checked) {
+        const envio = serverToLocal(record.sendAt, currentServerOffsetMs());
+        timeInput.value = toDatetimeLocalValue(envio);
+        msInput.value = String(envio.getMilliseconds());
+        showNotice('Velocidades do mundo indisponíveis agora — editando pelo horário de ENVIO original.');
+        updateSummary();
+      }
+    });
     updateSummary();
     clearError();
     showNotice(
-      `Dados de "${commandKindLabel(record.kind)} → ${record.target.x}|${record.target.y}" copiados${
-        record.trainUnits !== undefined && record.trainUnits.length > 0 ? ' (o trem do jogo precisa ser remontado)' : ''
-      }. O horário voltou para ENVIO daqui a 10 min — ajuste antes de clicar em "Adicionar comando".${origemAviso}`,
+      mode === 'edit'
+        ? `Editando o comando das ${formatTimestampMs(serverToLocal(record.sendAt, currentServerOffsetMs()))}. Ajuste e clique em "Salvar alterações".${origemAviso}`
+        : `Dados de "${commandKindLabel(record.kind)} → ${record.target.x}|${record.target.y}" copiados para um comando NOVO${
+            record.trainUnits !== undefined && record.trainUnits.length > 0 ? ' (o trem do jogo precisa ser remontado)' : ''
+          }. O horário voltou para ENVIO daqui a 10 min — ajuste antes de clicar em "Adicionar comando".${origemAviso}`,
     );
+    dirty = false;
     timeInput.focus();
   };
 
@@ -2961,7 +3229,7 @@ export async function openSchedulerCommands(
   addBtn.type = 'button';
   addBtn.className = 'tsh-btn tsh-btn--primary';
   addBtn.appendChild(icon('plus', 13));
-  addBtn.appendChild(document.createTextNode('Adicionar comando'));
+  addBtn.appendChild(addLabel);
   let adding = false;
 
   const handleAdd = async (): Promise<void> => {
@@ -3159,18 +3427,89 @@ export async function openSchedulerCommands(
       records = inputs.map((input) => createScheduledCommand(input));
     }
 
-    appendSchedulerRecords(world, records);
+    // Confirmação com EXATAMENTE o que vai ser agendado (tropas, alvo, horas).
+    const first = records[0];
+    if (first === undefined) return;
+    if (editingId !== null) {
+      const original = loadSchedulerState(world).commands.find((c) => c.id === editingId);
+      if (records.length > 1) {
+        showError('Na edição, um comando continua sendo UM comando — deixe "Repetir" em 1 (para mais cópias, use Duplicar).');
+        return;
+      }
+      if (original !== undefined && normalizeVillageId(original.sourceVillageId) !== normalizeVillageId(origin.id)) {
+        showError('A origem mudou em relação ao comando editado — para sair de outra aldeia, cancele a edição e crie um comando novo.');
+        return;
+      }
+    }
+    const offsetNow = currentServerOffsetMs();
+    const quandoEnvio = formatTimestampMs(serverToLocal(first.sendAt, offsetNow));
+    const quandoChegada = first.arrivalAt !== undefined ? formatTimestampMs(serverToLocal(first.arrivalAt, offsetNow)) : null;
+    const tropasTxt = describeUnits(first);
+    const linhas = [
+      `${commandKindLabel(first.kind)}: ${origin.name} (${origin.x}|${origin.y}) → ${first.target.x}|${first.target.y}${first.targetName !== undefined ? ` (${first.targetName})` : ''}`,
+      first.kind === 'cancel' ? `Cancelar até ${first.cancelCount ?? 1} comando(s) no alvo` : `Tropas: ${tropasTxt}`,
+      `Envio: ${quandoEnvio}${quandoChegada !== null ? ` · Chegada: ${quandoChegada}` : ''} (${timeReference() === 'servidor' ? 'hora do servidor' : 'hora do seu computador'})`,
+    ];
+    if (records.length > 1) linhas.push(`${records.length} comandos no total (o primeiro acima).`);
+    const editando = editingId;
+    if (editando !== null) {
+      linhas.push(records.length > 1 ? `O comando original será SUBSTITUÍDO por estes ${records.length}.` : 'O comando original será SUBSTITUÍDO por este.');
+    }
+    // Detector de duplicata: mesma origem, alvo e envio (±1 s) já na Fila.
+    const igual = loadSchedulerState(world).commands.find(
+      (c) =>
+        c.id !== editando &&
+        !c.events.some((e) => HISTORY_STATUSES.has(e.status)) &&
+        normalizeVillageId(c.sourceVillageId) === normalizeVillageId(first.sourceVillageId) &&
+        c.target.x === first.target.x &&
+        c.target.y === first.target.y &&
+        Math.abs(Date.parse(c.sendAt) - Date.parse(first.sendAt)) <= 1_000,
+    );
+    if (igual !== undefined) {
+      linhas.push(`⚠ Já existe um comando igual na Fila (envio ${formatTimestampMs(serverToLocal(igual.sendAt, offsetNow))}). Agendar mesmo assim?`);
+    }
+    linhas.push('', 'Enter confirma · Esc volta para revisar.');
+    const ok = await tshConfirm(shadow, editando !== null ? 'Salvar alterações?' : 'Agendar este comando?', linhas.join('\n'), {
+      okLabel: editando !== null ? 'Salvar' : records.length > 1 ? `Agendar ${records.length}` : 'Agendar',
+      cancelLabel: 'Revisar',
+    });
+    if (!ok) return;
+    // A janela pode ter ficado aberta um tempo: o horário ainda é futuro?
+    if (!forced && records.some((r) => Date.parse(r.sendAt) <= serverNowMs() + 5_000)) {
+      showError('Enquanto a confirmação estava aberta, o horário de envio chegou (ou ficou a menos de 5 s) — nada foi agendado. Ajuste o horário.');
+      return;
+    }
+    let criados: ScheduledCommandRecord[];
+    if (editando !== null) {
+      const bloqueio = notEditableReason(world, editando);
+      if (bloqueio !== null) {
+        showError(`${bloqueio} Suas alterações NÃO foram salvas.`);
+        return;
+      }
+      // Uma gravação só: original vira "substituído" (fica no histórico) + os novos.
+      const atual = loadSchedulerState(world);
+      const agoraIso = new Date().toISOString();
+      const marcados = atual.commands.map((c) =>
+        c.id === editando
+          ? { ...c, paused: false, events: [...c.events, { status: 'removido' as const, at: agoraIso, detail: 'Substituído por edição.' }] }
+          : c,
+      );
+      criados = dedupeRecordIds(records, marcados.map((c) => c.id));
+      saveSchedulerState(world, { ...atual, commands: [...marcados, ...criados] });
+    } else {
+      criados = appendSchedulerRecords(world, records);
+    }
     rerender();
     refreshList();
-    const first = records[0];
-    if (first !== undefined) {
-      const quando = formatTimestampMs(serverToLocal(first.sendAt, currentServerOffsetMs()));
-      showNotice(
-        records.length === 1
-          ? `Agendado: ${commandKindLabel(first.kind)} → ${first.target.x}|${first.target.y}, envio ${quando}. Está na aba Fila.`
-          : `${records.length} comandos agendados (o primeiro sai ${quando}). Estão na aba Fila.`,
-      );
-    }
+    showResult(
+      editando !== null
+        ? `Alterações salvas: ${commandKindLabel(first.kind)} → ${first.target.x}|${first.target.y} · ${tropasTxt} · envio ${quandoEnvio}.`
+        : records.length === 1
+          ? `Agendado: ${commandKindLabel(first.kind)} → ${first.target.x}|${first.target.y} · ${tropasTxt} · envio ${quandoEnvio}.`
+          : `${records.length} comandos agendados (o primeiro sai ${quandoEnvio}).`,
+      editando !== null ? [] : criados.map((r) => r.id),
+    );
+    setEditing(null);
 
     // Limpa o form (mantém origem, tipo e estratégia — agendar em sequência fica mais rápido).
     target = null;
@@ -3187,11 +3526,86 @@ export async function openSchedulerCommands(
     updateConditionalFields();
     updateSummary();
     markClean(form);
+    dirty = false;
   };
   addBtn.addEventListener('click', () => {
     void handleAdd();
   });
   form.appendChild(addBtn);
+
+  // ── Resultado do último "Adicionar" — ao lado do botão, com Desfazer ──
+  const resultBox = document.createElement('div');
+  resultBox.className = 'tsh-add-result';
+  resultBox.hidden = true;
+  form.appendChild(resultBox);
+
+  // ── Layout (v3.3.1): opções avançadas recolhidas + barra de ações FIXA ──
+  // Antes: resumo/botão/resultado no fim de um formulário longo — o jogador
+  // não via que o comando tinha sido criado e seguia editando um form limpo.
+  const advanced = document.createElement('details');
+  advanced.className = 'tsh-advanced';
+  const advSummary = document.createElement('summary');
+  advSummary.textContent = 'Opções avançadas — estratégia (snipe/dodge), forçar, repetir';
+  advanced.append(advSummary, strategyField, forcedCheck.row, sequentialField);
+  form.insertBefore(advanced, summaryRow);
+  const actionsBar = document.createElement('div');
+  actionsBar.className = 'tsh-form-actions';
+  const actionsRow = document.createElement('div');
+  actionsRow.className = 'tsh-form-actions-row';
+  actionsRow.append(summaryRow, addBtn);
+  actionsBar.append(actionsRow, resultBox);
+  form.appendChild(actionsBar);
+  errorHost = actionsBar;
+  actionsBarRef = actionsBar;
+  // Resultado anterior some quando o jogador começa o próximo comando.
+  form.addEventListener('input', () => {
+    if (!resultBox.hidden) hideResult();
+  });
+  // Estratégia fora do padrão abre as avançadas (ninguém esquece um snipe escondido).
+  const syncAdvanced = (): void => {
+    const ativos: string[] = [];
+    if (strategySelect.value !== 'direto') ativos.push(`${TIMING_STRATEGY_LABELS[strategySelect.value as SchedulerTimingStrategy]} ativo`);
+    if (forcedCheck.input.checked) ativos.push('forçado');
+    const rep = Math.floor(Number(repeatCountInput.value) || 1);
+    if (rep > 1) ativos.push(`repetir ${rep}×`);
+    advSummary.textContent = ativos.length > 0 ? `Opções avançadas (${ativos.join(' · ')})` : 'Opções avançadas — estratégia (snipe/dodge), forçar, repetir';
+    if (ativos.length > 0) advanced.open = true;
+  };
+  strategySelect.addEventListener('change', syncAdvanced);
+  forcedCheck.input.addEventListener('change', syncAdvanced);
+  repeatCountInput.addEventListener('input', syncAdvanced);
+  function hideResult(): void {
+    resultBox.hidden = true;
+    resultBox.replaceChildren();
+  }
+  function showResult(text: string, createdIds: readonly string[]): void {
+    resultBox.replaceChildren();
+    resultBox.hidden = false;
+    const msg = document.createElement('span');
+    msg.className = 'tsh-add-result-msg';
+    msg.append(icon('check', 14), document.createTextNode(` ${text}`));
+    const ver = actionButton('Ver na Fila', 'list', 'tsh-btn tsh-btn--sm', () => tabs.select('fila'));
+    resultBox.append(msg, ver);
+    if (createdIds.length > 0) {
+      const desfazer = actionButton('Desfazer', 'undo', 'tsh-btn tsh-btn--sm tsh-btn--ghost', () => {
+        const ids = new Set(createdIds);
+        const atual = loadSchedulerState(world);
+        // Só desfaz o que ainda não entrou na mira/pré-arme.
+        const presos = atual.commands.filter((c) => ids.has(c.id) && notEditableReason(world, c.id) !== null);
+        saveSchedulerState(world, { ...atual, commands: atual.commands.filter((c) => !ids.has(c.id) || presos.includes(c)) });
+        rerender();
+        refreshList();
+        resultBox.replaceChildren();
+        const done = document.createElement('span');
+        done.className = 'tsh-add-result-msg';
+        done.textContent =
+          presos.length === 0 ? 'Desfeito — nada foi agendado.' : `Desfeito em parte: ${presos.length} já estava(m) na mira e continua(m) na Fila.`;
+        resultBox.appendChild(done);
+      });
+      resultBox.appendChild(desfazer);
+    }
+    resultBox.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
 
   // ── Seções novas (Onda 1): bloco em massa e mapa de operações ──
   const uiContext: SchedulerUiContext = {

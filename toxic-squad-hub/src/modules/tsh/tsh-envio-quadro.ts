@@ -15,6 +15,7 @@ import { gm } from '../../core/storage';
 import { currentWorld } from '../../core/page';
 import { isHalted, tripHalt, pageShowsBotProtection } from '../../core/halt';
 import { licenseState } from '../../core/license';
+import { serverNowMs } from '../../core/game-clock';
 import type { ModuleScope } from '../vanta/vanta-lifecycle';
 import { currentVillageId, restrictTshTo, startTshHeartbeat } from './tsh-runtime';
 
@@ -110,7 +111,7 @@ export function startEnvioFrame(scope: ModuleScope): void {
 // ── Lado da ABA que hospeda ─────────────────────────────────────────────────
 
 /** Quadros que ESTA aba criou, por aldeia. */
-const frames = new Map<string, { el: HTMLIFrameElement; createdAt: number; lastNeededAt: number; everOk: boolean }>();
+const frames = new Map<string, { el: HTMLIFrameElement; createdAt: number; lastNeededAt: number; everOk: boolean; nextSendAt: number | null }>();
 
 let tabIdForHost = '';
 /** A aba informa seu id (evita import circular com o runtime). */
@@ -143,6 +144,7 @@ export function frameFailedRecently(world: string, vid: string): string | null {
 
 function markFailed(world: string, vid: string, reason: string): void {
   gm.set(failKey(world, vid), { at: Date.now(), reason });
+  logDiary(world, vid, 'falhou', `Falhou: ${reason} — plano B por 5 min.`);
 }
 
 /** Limpa a marca de falha (ex.: botão "Tentar de novo"). */
@@ -164,58 +166,125 @@ export interface HostDemand {
   nextSendAt: number;
 }
 
+// ── Diário do envio em 2º plano (transparência: quantas vezes abriu, por quê) ──
+
+export type DiaryKind = 'abriu' | 'pronto' | 'fechou' | 'falhou' | 'saiu-da-pagina';
+
+export interface DiaryEntry {
+  at: number;
+  vid: string;
+  kind: DiaryKind;
+  detail: string;
+  /** Envio (hora do servidor) a que o quadro servia ao abrir. */
+  sendAt?: number;
+}
+
+const DIARY_MAX = 200;
+const diaryKey = (world: string): string => `tsh:${world}:envio-diario`;
+
+function logDiary(world: string, vid: string, kind: DiaryKind, detail: string, sendAt?: number): void {
+  const list = gm.get<DiaryEntry[]>(diaryKey(world), []);
+  const entry: DiaryEntry = { at: Date.now(), vid, kind, detail, ...(sendAt !== undefined ? { sendAt } : {}) };
+  const next = [...(Array.isArray(list) ? list : []), entry];
+  gm.set(diaryKey(world), next.slice(-DIARY_MAX));
+}
+
+/** Entradas do diário de uma aldeia numa janela de tempo (Date.now). */
+export function readDiary(world: string, vid: string, fromMs: number, toMs: number): DiaryEntry[] {
+  const list = gm.get<DiaryEntry[]>(diaryKey(world), []);
+  return (Array.isArray(list) ? list : []).filter((e) => e.vid === vid && e.at >= fromMs && e.at <= toMs);
+}
+
+// ── Sentinela tem a preferência (ela não navega) ──
+
+const sentinelaKey = (world: string): string => `tsh:${world}:sentinela-viva`;
+/** Sinal da Sentinela vale por isso (aba oculta: timers a 1/min). */
+const SENTINELA_TTL_MS = 90_000;
+
+export function markSentinelaAlive(world: string): void {
+  gm.set(sentinelaKey(world), { at: Date.now() });
+}
+
+function sentinelaAlive(world: string): boolean {
+  const s = gm.get<{ at: number } | null>(sentinelaKey(world), null);
+  return s !== null && Date.now() - s.at < SENTINELA_TTL_MS;
+}
+
 /**
  * Um passo do anfitrião: abre quadros para as origens que precisam, mantém a
  * reserva viva, detecta falha e fecha quadros sem uso. `demands` = origens com
- * comando vivo sem aba pronta; `stillNeeded` = origens com comando vivo ou em
- * envio nos próximos minutos (o quadro fica aberto).
+ * comando vivo sem aba pronta; `nextSendByVid` = próximo envio de cada origem
+ * com comando vivo (o quadro fica aberto enquanto houver um perto).
+ * `isSentinela`: a Sentinela não navega — com ela viva, as abas comuns não
+ * abrem quadros novos (a navegação do jogador mataria o quadro).
  */
-export function hostFramesTick(world: string, demands: readonly HostDemand[], stillNeeded: ReadonlySet<string>, nowServer: number): void {
+export function hostFramesTick(
+  world: string,
+  demands: readonly HostDemand[],
+  nextSendByVid: ReadonlyMap<string, number>,
+  nowServer: number,
+  opts?: { isSentinela?: boolean },
+): void {
   const now = Date.now();
-  bindPagehide(world);
+  bindPageExit(world);
   // 1) Manter/fechar/diagnosticar os quadros desta aba — lendo o quadro DIRETO
   // (mesma origem), sem depender do sinal no storage (timers desacelerados).
   for (const [vid, info] of frames) {
-    if (stillNeeded.has(vid)) info.lastNeededAt = now;
+    const next = nextSendByVid.get(vid);
+    info.nextSendAt = next ?? null;
+    if (next !== undefined && next - nowServer <= FRAME_LEAD_MS + 30_000) info.lastNeededAt = now;
     const state = localFrameState(info.el, vid);
-    if (state === 'ok') info.everOk = true;
+    if (state === 'ok' && !info.everOk) {
+      info.everOk = true;
+      logDiary(world, vid, 'pronto', `Praça pronta em ${((now - info.createdAt) / 1000).toFixed(1)} s.`);
+    }
     if (state === 'desafio') {
       // Desafio anti-bot no quadro: pausa TUDO (nunca resolver sozinho).
       if (!isHalted()) tripHalt('captcha', 'O jogo mostrou o desafio anti-bot no envio em 2º plano — abra a Praça numa aba e resolva.');
       markFailed(world, vid, FAIL_REASONS.desafio);
-      closeFrame(world, vid);
+      closeFrame(world, vid, 'desafio anti-bot');
       continue;
     }
     if (state !== 'ok' && state !== 'carregando' && !frameMidSend(info.el)) {
       markFailed(world, vid, FAIL_REASONS[state]);
-      closeFrame(world, vid);
+      closeFrame(world, vid, FAIL_REASONS[state]);
       continue;
     }
     // Prazo de carga só vale ANTES da 1ª vez pronto: depois, "carregando" é a
     // navegação do próprio envio (confirmação/POST) — nunca fecha no meio.
     if (state === 'carregando' && !info.everOk && now - info.createdAt > FRAME_BOOT_TIMEOUT_MS) {
       markFailed(world, vid, 'o quadro não respondeu (a página não carregou a tempo)');
-      closeFrame(world, vid);
+      closeFrame(world, vid, 'não carregou a tempo');
       continue;
     }
     if (now - info.lastNeededAt > FRAME_LINGER_MS && !frameMidSend(info.el)) {
-      closeFrame(world, vid);
+      closeFrame(world, vid, 'sem comando próximo desta aldeia');
       continue;
     }
     gm.set(hostKey(world, vid), { tab: tabIdForHost, at: now });
   }
   // 2) Abrir quadros novos.
+  const deferToSentinela = opts?.isSentinela !== true && sentinelaAlive(world);
   for (const demand of demands) {
     if (frames.size >= MAX_FRAMES) break;
     if (frames.has(demand.vid)) continue;
     const inMs = demand.nextSendAt - nowServer;
     if (inMs > FRAME_LEAD_MS || inMs < FRAME_MIN_MS) continue;
+    // Sentinela viva hospeda; a aba comum só assume se faltar pouco e nada abriu.
+    if (deferToSentinela && inMs > 45_000) continue;
     if (frameFailedRecently(world, demand.vid) !== null) continue;
     const host = gm.get<{ tab: string; at: number } | null>(hostKey(world, demand.vid), null);
     if (host !== null && host.tab !== tabIdForHost && now - host.at < HOST_TTL_MS) continue;
     if (frameAliveFor(world, demand.vid)) continue;
     gm.set(hostKey(world, demand.vid), { tab: tabIdForHost, at: now });
-    openFrame(demand.vid);
+    openFrame(demand.vid, demand.nextSendAt);
+    logDiary(
+      world,
+      demand.vid,
+      'abriu',
+      `Praça aberta num quadro invisível ${opts?.isSentinela === true ? 'na aba Sentinela' : 'numa aba do jogo'}, ${Math.round(inMs / 1000)} s antes do envio.`,
+      demand.nextSendAt,
+    );
   }
 }
 
@@ -237,17 +306,32 @@ function localFrameState(el: HTMLIFrameElement, vid: string): FrameState | 'carr
   }
 }
 
-let pagehideBound = false;
-/** Aba saindo (navegou/fechou): os quadros morrem junto — solta as reservas
- *  e o sinal de vida, para outra aba (ou a próxima página) assumir na hora. */
-function bindPagehide(world: string): void {
-  if (pagehideBound) return;
-  pagehideBound = true;
+/** Com um envio desta aba a menos disso, sair da página pede confirmação. */
+const EXIT_GUARD_MS = 45_000;
+
+let exitBound = false;
+/**
+ * Aba saindo (navegou/fechou): os quadros morrem junto — solta as reservas e
+ * o sinal de vida (outra aba, ou a próxima página, assume na hora) e registra
+ * no diário. Com um envio perto, o navegador pede confirmação antes de sair.
+ */
+function bindPageExit(world: string): void {
+  if (exitBound) return;
+  exitBound = true;
+  window.addEventListener('beforeunload', (event) => {
+    const agora = serverNowMs();
+    const perto = [...frames.values()].some((f) => f.nextSendAt !== null && f.nextSendAt - agora > 0 && f.nextSendAt - agora < EXIT_GUARD_MS);
+    if (!perto) return;
+    event.preventDefault();
+    // Navegadores mostram o aviso padrão ("Sair do site?").
+    event.returnValue = '';
+  });
   window.addEventListener('pagehide', () => {
-    for (const vid of frames.keys()) {
+    for (const [vid, info] of frames) {
       const host = gm.get<{ tab: string; at: number } | null>(hostKey(world, vid), null);
       if (host !== null && host.tab === tabIdForHost) gm.set(hostKey(world, vid), null);
       gm.set(beatKey(world, vid), null);
+      if (info.nextSendAt !== null) logDiary(world, vid, 'saiu-da-pagina', 'A aba que hospedava o quadro mudou de página — o quadro foi fechado (outra aba ou a próxima página reabre).');
     }
   });
 }
@@ -261,7 +345,7 @@ function frameMidSend(el: HTMLIFrameElement): boolean {
   }
 }
 
-function openFrame(vid: string): void {
+function openFrame(vid: string, nextSendAt: number): void {
   const el = document.createElement('iframe');
   el.name = `${FRAME_NAME_PREFIX}${vid}`;
   el.src = `/game.php?village=${encodeURIComponent(vid)}&screen=place`;
@@ -271,15 +355,16 @@ function openFrame(vid: string): void {
   // Invisível, mas NÃO display:none (o navegador poderia congelar o quadro).
   el.style.cssText = 'position:fixed;left:-10000px;top:0;width:900px;height:600px;border:0;opacity:0;pointer-events:none;';
   document.body.appendChild(el);
-  frames.set(vid, { el, createdAt: Date.now(), lastNeededAt: Date.now(), everOk: false });
+  frames.set(vid, { el, createdAt: Date.now(), lastNeededAt: Date.now(), everOk: false, nextSendAt });
 }
 
-function closeFrame(world: string, vid: string): void {
+function closeFrame(world: string, vid: string, reason?: string): void {
   const info = frames.get(vid);
   info?.el.remove();
   frames.delete(vid);
   const host = gm.get<{ tab: string; at: number } | null>(hostKey(world, vid), null);
   if (host !== null && host.tab === tabIdForHost) gm.set(hostKey(world, vid), null);
+  if (info !== undefined && reason !== undefined) logDiary(world, vid, 'fechou', `Quadro fechado: ${reason}.`);
 }
 
 /** Fecha todos os quadros desta aba (testes e desligamento). */
@@ -290,4 +375,9 @@ export function closeAllFrames(world: string): void {
 /** Quantos quadros esta aba mantém agora (para a interface). */
 export function hostedFrameCount(): number {
   return frames.size;
+}
+
+/** Aldeias com quadro aberto NESTA aba (para a interface). */
+export function hostedFrameVillages(): string[] {
+  return [...frames.keys()];
 }

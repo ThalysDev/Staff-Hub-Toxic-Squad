@@ -55,17 +55,51 @@ export function parseGameTemplates(html: string): GameTemplate[] {
   return [...out.filter((t) => !builtin.has(t.id)), ...out.filter((t) => builtin.has(t.id))];
 }
 
-const templatesCache = new Map<string, GameTemplate[]>();
+/**
+ * Tropas disponíveis na Praça: `input.unitsInput[name][data-all-count]`
+ * (ordem dos atributos livre). Nada legível = null (fail-closed).
+ */
+export function parseAvailableUnits(html: string): Partial<Record<UnitType, number>> | null {
+  const out: Partial<Record<UnitType, number>> = {};
+  let found = 0;
+  for (const tag of html.match(/<input\b[^>]*>/g) ?? []) {
+    if (!/\bunitsInput\b/.test(tag)) continue;
+    // (?:^|\s): "name=" de verdade, nunca "data-name=".
+    const name = /(?:^|\s)name="(\w+)"/.exec(tag)?.[1];
+    const count = /(?:^|\s)data-all-count="(\d+)"/.exec(tag)?.[1];
+    if (name === undefined || count === undefined || !UNITS.includes(name as UnitType)) continue;
+    out[name as UnitType] = Number(count);
+    found += 1;
+  }
+  return found > 0 ? out : null;
+}
 
-/** Modelos de tropas da conta (lidos da Praça da aldeia; cache da sessão). */
-export async function loadGameTemplates(villageId: string): Promise<GameTemplate[]> {
+export interface PlaceData {
+  templates: GameTemplate[];
+  /** Tropas na aldeia no momento da leitura (null = ilegível). */
+  available: Partial<Record<UnitType, number>> | null;
+  readAt: number;
+}
+
+const placeCache = new Map<string, PlaceData>();
+/** As tropas mudam: a leitura vale 60 s (os modelos, a sessão toda). */
+const PLACE_TTL_MS = 60_000;
+
+/** Modelos de tropas + tropas disponíveis da aldeia (uma leitura da Praça). */
+export async function loadPlaceData(villageId: string): Promise<PlaceData> {
   const key = villageId.replace(/^n/, '');
-  const hit = templatesCache.get(key);
-  if (hit !== undefined) return hit;
-  const html = await pacedGet(`/game.php?village=${encodeURIComponent(key)}&screen=place`);
-  const list = parseGameTemplates(html);
-  if (list.length > 0) templatesCache.set(key, list);
-  return list;
+  const hit = placeCache.get(key);
+  if (hit !== undefined && Date.now() - hit.readAt < PLACE_TTL_MS) return hit;
+  const html = await pacedGet(`/game.php?village=${encodeURIComponent(key)}&screen=place`, { fresh: true });
+  const data: PlaceData = { templates: parseGameTemplates(html), available: parseAvailableUnits(html), readAt: Date.now() };
+  if (data.templates.length === 0 && hit !== undefined) data.templates = hit.templates;
+  placeCache.set(key, data);
+  return data;
+}
+
+/** Modelos de tropas da conta (lidos da Praça da aldeia). */
+export async function loadGameTemplates(villageId: string): Promise<GameTemplate[]> {
+  return (await loadPlaceData(villageId)).templates;
 }
 
 export interface NightBonus {
@@ -90,6 +124,11 @@ export function parseNightBonus(xml: string): NightBonus | null {
 }
 
 let nightCache: NightBonus | null | undefined;
+
+/** Bônus noturno já lido (sem rede) — para marcar cartões da Fila. */
+export function cachedNightBonus(): NightBonus | null {
+  return nightCache ?? null;
+}
 
 export async function worldNightBonus(): Promise<NightBonus | null> {
   if (nightCache !== undefined) return nightCache;
