@@ -19,6 +19,7 @@ import { loadSchedulerState, openSchedulerCommands } from './tsh-commands-ui';
 import { kindIcon, unitStrip } from './tsh-units';
 import { currentVillageId, isTshEnabled } from './tsh-runtime';
 import { openSection } from '../../core/shell';
+import { goToPlaceOf, NAV_LEAD_MS, originLabel, readinessOf } from './tsh-condutor';
 
 const STYLE_ID = 'tsh-cmd-section-style';
 const STYLES = `
@@ -95,8 +96,17 @@ function kindLabel(record: ScheduledCommandRecord): string {
   return train > 0 ? `${base} ×${train + 1}` : base;
 }
 
-/** Chip de estado: âmbar só na mira; vermelho só em falha; verde enviado. */
-function statusChip(status: ScheduledCommandViewStatus, otherVillage: boolean): HTMLSpanElement {
+/** Chip de estado: âmbar só na mira; vermelho só em falha; verde enviado.
+ *  v3.2.2: "Na mira" só quando existe uma aba PRONTA na Praça de origem. */
+function statusChip(status: ScheduledCommandViewStatus, otherVillage: boolean, record?: ScheduledCommandRecord): HTMLSpanElement {
+  if (record !== undefined && (status === 'janela' || status === 'agendado')) {
+    const r = readinessOf(record);
+    const perto = Date.parse(record.sendAt) - serverNowMs() <= 30 * 60_000;
+    if (r === 'aqui' || r === 'pronta') return el('span', status === 'janela' ? 'shs-pill shs-pill--warn' : 'shs-pill shs-pill--ok', status === 'janela' ? 'Na mira' : 'Pronta na Praça');
+    if (r === 'automatico') return el('span', status === 'janela' ? 'shs-pill shs-pill--warn' : 'shs-pill', status === 'janela' ? 'Indo à Praça' : 'Agendado');
+    if (perto) return el('span', 'shs-pill shs-pill--error', 'Sem aba na Praça');
+    return el('span', 'shs-pill', 'Agendado');
+  }
   const [label, cls] =
     status === 'janela'
       ? otherVillage
@@ -207,20 +217,54 @@ export function renderComandosSection(container: HTMLElement): () => void {
       );
       root.appendChild(banner);
     }
-    const soon = vivos.filter((item) => Date.parse(item.record.sendAt) - now <= 30 * 60_000);
+    // v3.2.2: a verdade sobre o PRÓXIMO comando — quem vai enviá-lo?
+    const proximo = vivos.find(
+      (item) => (item.status === 'agendado' || item.status === 'janela') && Date.parse(item.record.sendAt) - now <= 30 * 60_000,
+    );
+    if (proximo !== undefined && isTshEnabled('command-scheduler')) {
+      const r = readinessOf(proximo.record);
+      if (r === 'automatico' || r === 'manual') {
+        const faltaNav = Math.max(0, Date.parse(proximo.record.sendAt) - now - NAV_LEAD_MS);
+        const banner = el('div', r === 'manual' ? 'tcs-banner tcs-banner--danger' : 'tcs-banner');
+        banner.append(
+          icon(r === 'manual' ? 'alert' : 'arrowRight', 16),
+          el(
+            'span',
+            'tcs-banner-txt',
+            r === 'manual'
+              ? `Nenhuma aba está na Praça de ${originLabel(proximo.record)} e nenhuma vai sozinha: sem ela o comando não sai. Clique em "Ir agora" ou abra essa Praça em outra aba.`
+              : faltaNav > 0
+                ? `Nenhuma aba está na Praça de ${originLabel(proximo.record)} ainda. Em ${formatCountdown(faltaNav)}, uma aba do jogo vai até lá sozinha, envia e volta.`
+                : `Uma aba do jogo deve ir agora à Praça de ${originLabel(proximo.record)}. Se nenhuma outra estiver aberta, clique em "Ir agora".`,
+          ),
+        );
+        const ir = button('Ir agora', 'arrowRight', 'gho');
+        ir.addEventListener('click', () => goToPlaceOf(proximo.record));
+        banner.appendChild(ir);
+        root.appendChild(banner);
+      }
+    }
+    // v3.2.2: só as origens que NINGUÉM vai atender (o Condutor cobre uma por
+    // vez) — as outras ele leva sozinho, então não pede aba para elas.
+    const soon = vivos.filter(
+      (item) =>
+        Date.parse(item.record.sendAt) - now <= 30 * 60_000 &&
+        item.record !== proximo?.record &&
+        readinessOf(item.record) === 'manual',
+    );
     const origens = new Map<string, ScheduledCommandRecord>();
     for (const item of soon) origens.set(item.record.sourceVillageId.replace(/^n/, ''), item.record);
     const outras = [...origens.entries()].filter(([id]) => id !== here);
-    if (origens.size > 1 || outras.length > 0) {
+    if (outras.length > 0) {
       const banner = el('div', 'tcs-banner');
       banner.appendChild(icon('alert', 16));
       banner.appendChild(
         el(
           'span',
           'tcs-banner-txt',
-          origens.size > 1
-            ? `Os próximos 30 min saem de ${origens.size} aldeias. Deixe uma aba na Praça de cada uma.`
-            : 'O próximo comando sai de outra aldeia. Deixe uma aba na Praça dela.',
+          outras.length > 1
+            ? `${outras.length} aldeias de origem nos próximos 30 min não têm aba na Praça nem ida automática (saem coladas em outro envio). Abra a Praça de cada uma em outra aba.`
+            : 'Uma aldeia de origem nos próximos 30 min não tem aba na Praça nem ida automática (sai colada em outro envio). Abra a Praça dela em outra aba.',
         ),
       );
       for (const [id, record] of outras.slice(0, 3)) {
@@ -278,7 +322,7 @@ export function renderComandosSection(container: HTMLElement): () => void {
         const route = el('td', 'tcs-mono tcs-dim', `${coord(record.source)} → ${coord(record.target)}`);
         tr.appendChild(route);
         const stTd = el('td');
-        stTd.appendChild(statusChip(status, record.sourceVillageId.replace(/^n/, '') !== here));
+        stTd.appendChild(statusChip(status, record.sourceVillageId.replace(/^n/, '') !== here, record));
         tr.appendChild(stTd);
         const eta = el('td', 'tcs-mono tcs-dim tcs-right', formatCountdown(sendAt - now));
         eta.dataset.tcsEta = String(sendAt);

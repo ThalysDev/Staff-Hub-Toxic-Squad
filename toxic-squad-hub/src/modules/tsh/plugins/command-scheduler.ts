@@ -149,6 +149,8 @@ const schedulerSettings = z.object({
   prearmLeadMs: z.number().int().min(3000).max(60000).default(8000),
   latencyMode: z.enum(['auto', 'manual']).default('auto'),
   latencyManualMs: z.number().int().min(0).max(400).default(0),
+  // v3.2.2 — Condutor: leva uma aba até a Praça da origem 60 s antes do envio.
+  autoNavigate: z.boolean().default(true),
 });
 
 type SchedulerSettings = z.infer<typeof schedulerSettings>;
@@ -161,6 +163,7 @@ export const DEFAULT_SETTINGS: SchedulerSettings = {
   prearmLeadMs: 8000,
   latencyMode: 'auto',
   latencyManualMs: 0,
+  autoNavigate: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -1606,6 +1609,12 @@ export const commandSchedulerAutomation: TshAutomation = {
       max: 400,
       step: 5,
       help: 'Usada só no modo Manual.',
+    },
+    {
+      key: 'autoNavigate',
+      label: 'Levar uma aba até a Praça sozinho',
+      type: 'boolean',
+      help: 'O envio precisa de uma aba na Praça da aldeia de origem. Ligado: 60 s antes, uma aba do jogo (em qualquer tela, mesmo em segundo plano) vai sozinha até lá, envia e depois volta para onde você estava. Desligado: você mesmo deixa a Praça aberta.',
     },
     {
       key: 'autoSend',

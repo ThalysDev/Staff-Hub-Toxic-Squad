@@ -178,6 +178,7 @@ export const TSH_INSTRUMENTO_CSS = `
     background: var(--shs-bg-inset); color: var(--shs-ink); font-size: 12px; font-weight: 500; }
   .tsh-pill--ok { background: var(--shs-ok-bg); color: var(--shs-ok-ink); }
   .tsh-pill--danger { background: var(--shs-danger-bg); color: #8f1d17; }
+  .tsh-card-why { color: #8f1d17; font-weight: 500; }
   .tsh-check-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--shs-ink-strong); }
   .tsh-check-row > .tsh-select, .tsh-check-row > input.tsh-input:not([style*='width']) { width: auto; flex: 0 1 220px; }
   .tsh-check-row > input.tsh-input[style*='width'] { flex: none; }

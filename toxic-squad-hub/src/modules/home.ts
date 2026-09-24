@@ -11,8 +11,9 @@ import { currentWorld } from '../core/page';
 import { ensureHost, openSection } from '../core/shell';
 import { openSchedulerCommands } from './tsh/tsh-commands-ui';
 import { isVantaEnabled, vantaLaunchers } from './vanta/vanta-registry';
-import { currentVillageId, isTshEnabled, tshArmedUntil, tshAutomations, tshNextRunAt, tshStatus } from './tsh/tsh-runtime';
+import { isTshEnabled, tshArmedUntil, tshAutomations, tshNextRunAt, tshStatus } from './tsh/tsh-runtime';
 import { kindIcon, unitStrip } from './tsh/tsh-units';
+import { nextAliveRecord, readinessOf } from './tsh/tsh-condutor';
 import { loadSchedule, isScheduleStopped } from './tsh/tsh-settings';
 import { tshPanelSignature } from './tsh/tsh-panel';
 import { aimIsHot, clockInfo, serverNowMs } from '../core/game-clock';
@@ -329,10 +330,21 @@ function drawHome(container: HTMLElement): void {
     const nextChip = pill(perto ? 'Próximo cravado' : 'Próximo comando', perto ? 'shs-pill--warn' : '');
     nextChip.prepend(icon('clock', 13));
     chips.appendChild(nextChip);
-    const src = sched.nextSource;
-    const daqui = src === null || src.villageId === currentVillageId();
-    chips.appendChild(pill(daqui ? 'Esta aba envia' : `Sai de ${src.label}: abra a Praça dela`, daqui ? '' : 'shs-pill--warn'));
+    // v3.2.2: quem envia o próximo comando — a mesma verdade do Condutor.
+    const proximo = nextAliveRecord(world);
     if (!isTshEnabled('command-scheduler')) chips.appendChild(pill('Agendador desligado', 'shs-pill--error'));
+    else if (proximo !== undefined) {
+      const r = readinessOf(proximo, world);
+      chips.appendChild(
+        r === 'aqui'
+          ? pill('Esta aba envia', 'shs-pill--ok')
+          : r === 'pronta'
+            ? pill('Pronta na Praça', 'shs-pill--ok')
+            : r === 'automatico'
+              ? pill('Uma aba vai à Praça antes do envio', '')
+              : pill('Sem aba na Praça', perto ? 'shs-pill--error' : ''),
+      );
+    }
     const count = document.createElement('div');
     count.className = 'home-count';
     count.dataset.homeCount = String(sched.nextAt);
@@ -354,6 +366,7 @@ function drawHome(container: HTMLElement): void {
     const kIcon = kindIcon(sched.nextKind ?? '', 18);
     if (kIcon !== null) route.append(kIcon);
     route.append(document.createTextNode(KIND_LABELS[sched.nextKind ?? ''] ?? 'Comando'));
+    const src = sched.nextSource;
     if (src !== null && sched.nextTarget !== null) {
       route.append(m(src.label.replace(/^.*\(([^)]+)\)$/, '$1')), icon('arrowRight', 14), m(sched.nextTarget));
     }

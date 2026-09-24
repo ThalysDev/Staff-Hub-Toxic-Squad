@@ -269,6 +269,20 @@ export function tshNextRunAt(id: string, world?: string): number | null {
  * ter rodado — o "Rodar agora" mostra isso na linha (antes o clique
  * terminava em silêncio e parecia quebrado).
  */
+/**
+ * Travas de agenda que impedem o ciclo em QUALQUER tela (licença, parada
+ * programada, fora do horário ativo) — leitura pura, sem gravar status.
+ * Usado pelo Condutor (v3.2.2): não leva aba nenhuma para a Praça se o
+ * Agendador lá não vai rodar. null = liberado.
+ */
+export function tshAgendaBlock(id: string, worldId: string): string | null {
+  if (!licenseOk()) return 'a licença está inativa';
+  const schedule = loadSchedule(worldId, id);
+  if (isScheduleStopped(schedule)) return 'a parada programada do Agendador foi atingida';
+  if (!withinActiveWindow(schedule)) return 'o Agendador está fora do horário ativo';
+  return null;
+}
+
 export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean }): Promise<string | null> {
   const automation = automations.get(id);
   if (automation === undefined) return 'Automação desconhecida.';

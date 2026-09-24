@@ -1320,6 +1320,14 @@ function commandCard(
       : record.kind === 'cancel'
         ? `Cancelar até ${record.cancelCount ?? 1} comando(s) no alvo`
         : `Tropas: ${summarizeUnits(record.units)}`;
+  // v3.2.2: desfecho com MOTIVO (falhou/incerto) — antes o cartão só dizia "Falhou".
+  const lastTerminal = [...record.events].reverse().find((e) => e.status === 'falhou' || e.status === 'incerto');
+  if ((status === 'falhou' || status === 'incerto') && lastTerminal?.detail !== undefined) {
+    const why = document.createElement('div');
+    why.className = 'tsh-card-desc tsh-card-why';
+    why.textContent = `Motivo: ${lastTerminal.detail}`;
+    card.appendChild(why);
+  }
   // v3.2: tropas como fileira de ÍCONES + quantidade (nome na dica).
   line2.style.display = 'flex';
   line2.style.flexWrap = 'wrap';

@@ -26,7 +26,8 @@ import { renderAjuda } from './modules/ajuda';
 import { createModuleScope, type ModuleScope } from './modules/vanta/vanta-lifecycle';
 import { haltLabel, haltState, pageShowsBotProtection, tripHalt } from './core/halt';
 import { renderHaltBar } from './core/halt-bar';
-import { currentVillageId } from './modules/tsh/tsh-runtime';
+import { conductorTick, nextAliveRecord, readinessOf } from './modules/tsh/tsh-condutor';
+import { renderConductorBar } from './modules/tsh/tsh-condutor-bar';
 
 /** Diálogo de ativação (renderiza dentro do host até a licença validar). */
 function renderActivation(onActivate: () => void): void {
@@ -210,6 +211,9 @@ function startAimWatcher(scope: ModuleScope): void {
   scope.every(() => {
     if (aimIsHot()) return; // reta final do clique: nada de trabalho de UI
     const sched = nextScheduled(currentWorld());
+    // v3.2.2 — Condutor roda SEMPRE (grava o motivo de comando perdido mesmo com
+    // o Agendador desligado ou o script pausado); só navega quando pode.
+    const conductor = conductorTick();
     // Disjuntor aberto vence qualquer outro aviso: escudo VERMELHO + faixa no
     // topo do jogo com o que está em jogo e o botão de retomar.
     const halt = haltState();
@@ -220,23 +224,37 @@ function startAimWatcher(scope: ModuleScope): void {
           ? `${sched.soon30} comando(s) agendado(s) nos próximos 30 min (o próximo às ${clockLabelMs(sched.nextAt)}) NÃO vão sair — e comando que passa da hora não é reenviado.`
           : null;
       renderHaltBar(halt, emJogo);
+      renderConductorBar(null);
       return;
     }
     renderHaltBar(null, null);
     // Agendador desligado não envia nada — sem alerta enganoso.
     if (!isTshEnabled('command-scheduler') || sched.nextAt === null) {
-      setFabAlert(null);
+      renderConductorBar(conductor.bar);
+      setFabAlert(conductor.fabText);
+      return;
+    }
+    // A faixa e o aviso do Condutor (vou/estou indo à Praça) vencem o aviso comum.
+    renderConductorBar(conductor.bar);
+    if (conductor.fabText !== null) {
+      setFabAlert(conductor.fabText);
       return;
     }
     const falta = sched.nextAt - serverNowMs();
-    if (falta > 0 && falta <= 120_000) {
-      // Lock por aldeia: só a aba NA aldeia de origem envia — diga qual.
-      const src = sched.nextSource;
-      const daqui = src === null || src.villageId === currentVillageId();
+    const proximo = nextAliveRecord();
+    if (falta > 0 && falta <= 120_000 && proximo !== undefined) {
+      // Só a aba NA PRAÇA da aldeia de origem envia — diga a verdade.
+      const r = readinessOf(proximo);
+      const nome = sched.nextSource?.label ?? 'origem';
+      const hora = clockLabelMs(sched.nextAt);
       setFabAlert(
-        daqui
-          ? `Comando desta aldeia às ${clockLabelMs(sched.nextAt)} — mantenha esta aba aberta`
-          : `Comando de ${src.label} às ${clockLabelMs(sched.nextAt)} — precisa de uma aba na Praça DESSA aldeia`,
+        r === 'aqui'
+          ? `Comando desta Praça às ${hora} — mantenha esta aba aberta`
+          : r === 'pronta'
+            ? `${nome} às ${hora}: pronta na Praça`
+            : r === 'automatico'
+              ? `${nome} às ${hora}: uma aba vai à Praça antes do envio`
+              : `${nome} às ${hora}: sem aba na Praça — não vai sair`,
       );
     } else {
       setFabAlert(null);
