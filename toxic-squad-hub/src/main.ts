@@ -26,8 +26,9 @@ import { renderAjuda } from './modules/ajuda';
 import { createModuleScope, type ModuleScope } from './modules/vanta/vanta-lifecycle';
 import { haltLabel, haltState, pageShowsBotProtection, tripHalt } from './core/halt';
 import { renderHaltBar } from './core/halt-bar';
-import { conductorTick, nextAliveRecord, readinessOf } from './modules/tsh/tsh-condutor';
+import { conductorBackgroundTick, conductorTick, nextAliveRecord, readinessOf } from './modules/tsh/tsh-condutor';
 import { renderConductorBar } from './modules/tsh/tsh-condutor-bar';
+import { isEnvioFrame, isForeignFrame, startEnvioFrame } from './modules/tsh/tsh-envio-quadro';
 
 /** Diálogo de ativação (renderiza dentro do host até a licença validar). */
 function renderActivation(onActivate: () => void): void {
@@ -252,7 +253,9 @@ function startAimWatcher(scope: ModuleScope): void {
           ? `Comando desta Praça às ${hora} — mantenha esta aba aberta`
           : r === 'pronta'
             ? `${nome} às ${hora}: pronta na Praça`
-            : r === 'automatico'
+            : r === 'fundo'
+              ? `${nome} às ${hora}: sai em 2º plano`
+              : r === 'automatico'
               ? `${nome} às ${hora}: uma aba vai à Praça antes do envio`
               : `${nome} às ${hora}: sem aba na Praça — não vai sair`,
       );
@@ -263,12 +266,21 @@ function startAimWatcher(scope: ModuleScope): void {
 }
 
 function main(): void {
+  // v3.3.0: iframe que NÃO é nosso quadro de envio — o script não roda lá.
+  if (isForeignFrame()) return;
+  // Quadro invisível do envio em 2º plano: só o Agendador desta aldeia.
+  if (isEnvioFrame()) {
+    startEnvioFrame(createModuleScope('tsh-envio-quadro'));
+    return;
+  }
   // Aba Sentinela (Onda 5): aba de fundo do jogo — sem shell/painel (não há UI
   // a montar fora da aba do jogador), só o heartbeat normal + o badge do
   // título com a contagem de automações ativas. O registro das seções nem roda.
   if (isSentinelaTab()) {
     startSentinelaBadge(createModuleScope('tsh-sentinela'));
     startTshHeartbeat(createModuleScope('tsh-heartbeat'));
+    // v3.3.0: a Sentinela também hospeda o envio em 2º plano (sem navegar).
+    createModuleScope('tsh-sentinela-envio').every(conductorBackgroundTick, 1_000);
     return;
   }
 

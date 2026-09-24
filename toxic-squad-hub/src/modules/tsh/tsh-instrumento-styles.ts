@@ -167,6 +167,20 @@ export const TSH_INSTRUMENTO_CSS = `
   .tsh-unit-cell .tsh-record-label { flex-direction: row; justify-content: center; align-items: center; gap: 6px; min-height: 24px; cursor: help; }
   .tsh-unit-cell .tsh-record-label img { display: inline-block; width: 18px; height: 18px; }
   .tsh-unit-cell .tsh-input { text-align: center; }
+  /* v3.3.0: "Todas" por tropa + modelos do jogo */
+  .tsh-unit-all { display: inline-flex; align-items: center; justify-content: center; gap: 4px; font-size: 11.5px; color: var(--shs-muted);
+    cursor: pointer; user-select: none; min-height: 22px; }
+  .tsh-unit-all input { margin: 0; accent-color: var(--shs-action); }
+  .tsh-unit-cell.is-all .tsh-input { background: color-mix(in srgb, var(--shs-action) 10%, var(--shs-bg-card)); border-color: var(--shs-action);
+    color: var(--shs-action); font-weight: 600; }
+  .tsh-unit-cell.is-all .tsh-input::placeholder { color: var(--shs-action); opacity: 1; text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
+  .tsh-unit-cell.is-all .tsh-unit-all { color: var(--shs-action); font-weight: 600; }
+  .tsh-templates-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 8px; }
+  .tsh-templates-title { font-size: 12px; color: var(--shs-muted); margin-right: 2px; }
+  .tsh-template-chip { height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid var(--shs-border-strong); background: var(--shs-bg-card);
+    color: var(--shs-ink-strong); font: 500 12.5px var(--shs-font); cursor: pointer; }
+  .tsh-template-chip:hover { border-color: var(--shs-action); color: var(--shs-action); }
+  .tsh-template-chip:focus-visible { outline: 2px solid var(--shs-action); outline-offset: 1px; }
 
   /* ---------- Central de Comandos: relógio e chips ---------- */
   .tsh-clockbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; padding: 10px 14px;
@@ -179,6 +193,41 @@ export const TSH_INSTRUMENTO_CSS = `
   .tsh-pill--ok { background: var(--shs-ok-bg); color: var(--shs-ok-ink); }
   .tsh-pill--danger { background: var(--shs-danger-bg); color: #8f1d17; }
   .tsh-card-why { color: #8f1d17; font-weight: 500; }
+
+  /* ── Central de comandos em abas (v3.3.0) ── */
+  .tsh-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--shs-border); margin: 4px 0 14px; overflow-x: auto; scrollbar-width: none; }
+  .tsh-tab { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent;
+    background: none; color: var(--shs-muted); font: 500 13px var(--shs-font); cursor: pointer; white-space: nowrap; margin-bottom: -1px; }
+  .tsh-tab:hover { color: var(--shs-ink-strong); }
+  .tsh-tab[aria-selected='true'] { color: var(--shs-ink-strong); border-bottom-color: var(--shs-action); font-weight: 600; }
+  .tsh-tab:focus-visible { outline: 2px solid var(--shs-action); outline-offset: -2px; border-radius: 6px; }
+  .tsh-tab-count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--shs-bg-inset); color: var(--shs-ink);
+    font: 600 11px var(--shs-font-mono); display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+  .tsh-tab[aria-selected='true'] .tsh-tab-count { background: var(--shs-action); color: #fff; }
+  .tsh-tab-panel[hidden] { display: none !important; }
+  .tsh-central-stats { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 2px; }
+  .tsh-stat-chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid var(--shs-border);
+    border-radius: 9px; background: var(--shs-bg-card); font-size: 12.5px; color: var(--shs-muted); }
+  .tsh-stat-chip strong { color: var(--shs-ink-strong); font: 600 13.5px var(--shs-font-mono); font-variant-numeric: tabular-nums; }
+  .tsh-stat-chip--next { margin-left: auto; border-color: var(--shs-action); }
+  .tsh-central-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .tsh-central-search { flex: 1 1 200px; min-width: 160px; }
+  .tsh-central-toolbar > .tsh-select { width: auto; flex: 0 1 170px; }
+  .tsh-central-bulk { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tsh-central-toolbar > .tsh-btn { margin-left: auto; }
+  .tsh-central-import { display: flex; flex-direction: column; gap: 8px; padding: 12px; margin-bottom: 10px; border: 1px dashed var(--shs-border-strong);
+    border-radius: 10px; background: var(--shs-bg-side); }
+  .tsh-central-precision { display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin-bottom: 10px; border-radius: 9px;
+    background: var(--shs-bg-side); color: var(--shs-ink); font-size: 12.5px; }
+  .tsh-card-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+  .tsh-card-result { color: var(--shs-action); font-weight: 500; }
+  .tsh-ccard .tsh-card-head { gap: 8px; flex-wrap: wrap; }
+  .tsh-ccard[data-status='janela'] { border-color: var(--shs-warn); }
+  .tsh-central-notice { border-color: var(--shs-action) !important; }
+  .tsh-time-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; margin-top: 8px; border-radius: 9px;
+    background: var(--shs-bg-side); border: 1px solid var(--shs-border); }
+  .tsh-time-editor-msg { flex-basis: 100%; font-size: 12px; color: var(--shs-muted); }
+  @media (max-width: 560px) { .tsh-tabs { flex-wrap: wrap; } .tsh-stat-chip--next { margin-left: 0; } }
   .tsh-check-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--shs-ink-strong); }
   .tsh-check-row > .tsh-select, .tsh-check-row > input.tsh-input:not([style*='width']) { width: auto; flex: 0 1 220px; }
   .tsh-check-row > input.tsh-input[style*='width'] { flex: none; }

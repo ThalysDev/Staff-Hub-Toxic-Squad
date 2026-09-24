@@ -273,7 +273,7 @@ export function tshConfirm(
   shadow: ShadowRoot,
   titulo: string,
   mensagem: string,
-  opts?: { danger?: boolean },
+  opts?: { danger?: boolean; okLabel?: string; cancelLabel?: string },
 ): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     let settled = false;
@@ -294,13 +294,13 @@ export function tshConfirm(
     cancelBtn.type = 'button';
     cancelBtn.className = 'tsh-btn tsh-btn--cancel';
     cancelBtn.appendChild(icon('x', 12));
-    cancelBtn.appendChild(document.createTextNode('Cancelar'));
+    cancelBtn.appendChild(document.createTextNode(opts?.cancelLabel ?? 'Cancelar'));
     cancelBtn.addEventListener('click', close); // onClose resolve false
     const okBtn = document.createElement('button');
     okBtn.type = 'button';
     okBtn.className = opts?.danger === true ? 'tsh-btn tsh-btn--danger tsh-btn--solid' : 'tsh-btn tsh-btn--primary';
     okBtn.appendChild(icon('check', 12));
-    okBtn.appendChild(document.createTextNode('Confirmar'));
+    okBtn.appendChild(document.createTextNode(opts?.okLabel ?? 'Confirmar'));
     okBtn.addEventListener('click', () => {
       decide(true); // settle ANTES do close — o onClose(false) vira no-op
       close();

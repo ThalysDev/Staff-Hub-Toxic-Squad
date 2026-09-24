@@ -12,7 +12,7 @@ import { ensureHost, openSection } from '../core/shell';
 import { openSchedulerCommands } from './tsh/tsh-commands-ui';
 import { isVantaEnabled, vantaLaunchers } from './vanta/vanta-registry';
 import { isTshEnabled, tshArmedUntil, tshAutomations, tshNextRunAt, tshStatus } from './tsh/tsh-runtime';
-import { kindIcon, unitStrip } from './tsh/tsh-units';
+import { commandUnitStrip, kindIcon, unitStrip } from './tsh/tsh-units';
 import { nextAliveRecord, readinessOf } from './tsh/tsh-condutor';
 import { loadSchedule, isScheduleStopped } from './tsh/tsh-settings';
 import { tshPanelSignature } from './tsh/tsh-panel';
@@ -340,8 +340,10 @@ function drawHome(container: HTMLElement): void {
           ? pill('Esta aba envia', 'shs-pill--ok')
           : r === 'pronta'
             ? pill('Pronta na Praça', 'shs-pill--ok')
-            : r === 'automatico'
-              ? pill('Uma aba vai à Praça antes do envio', '')
+            : r === 'fundo'
+              ? pill('Sai em 2º plano', 'shs-pill--ok')
+              : r === 'automatico'
+              ? pill('Aba vai à Praça', '')
               : pill('Sem aba na Praça', perto ? 'shs-pill--error' : ''),
       );
     }
@@ -373,7 +375,10 @@ function drawHome(container: HTMLElement): void {
     route.append(dot(), document.createTextNode('sai'), m(clockLabelMs(sched.nextAt)));
     if (sched.nextArrivalAt !== null) route.append(dot(), document.createTextNode('chega'), m(clockLabelMs(sched.nextArrivalAt)));
     main.append(chips, count, route);
-    if (Object.values(sched.nextUnits).some((n) => n > 0)) main.appendChild(unitStrip(sched.nextUnits, { size: 18 }));
+    // v3.3.0: tropas do próximo com "Todas" (a faixa pura só via as fixas).
+    const nextRec = nextAliveRecord(world);
+    if (nextRec !== undefined && nextRec.kind !== 'cancel') main.appendChild(commandUnitStrip(nextRec, { size: 18 }));
+    else if (Object.values(sched.nextUnits).some((n) => n > 0)) main.appendChild(unitStrip(sched.nextUnits, { size: 18 }));
     const side = document.createElement('div');
     side.className = 'home-hero-side';
     side.appendChild(btn('Abrir Comandos', 'crosshair', 'shs-btn shs-btn-ghost', () => openSection('comandos')));

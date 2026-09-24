@@ -24,6 +24,7 @@ import { currentVillageId, isTshEnabled, tshAgendaBlock, tshTabId } from './tsh-
 import { laneForSchedulerRecord } from '../../ext/core/humanize/humanize-policy';
 import { HUMANIZED_LATE_GRACE_MS } from '../../ext/core/timing/precise-fire';
 import { appendSchedulerEvent, DEFAULT_SETTINGS as SCHEDULER_DEFAULTS } from './plugins/command-scheduler';
+import { FRAME_LEAD_MS, FRAME_MIN_MS, frameAliveFor, frameFailedRecently, hostFramesTick, hostingFrames, setHostTabId, type HostDemand } from './tsh-envio-quadro';
 
 /** Quanto antes do envio uma aba em 2º plano vai para a Praça. */
 export const NAV_LEAD_MS = 60_000;
@@ -68,9 +69,10 @@ function loadState(world: string): HubSchedulerState {
   return { ...stored, commands: Array.isArray(stored.commands) ? stored.commands : [] } as HubSchedulerState;
 }
 
-function schedulerSettings(world: string): { autoNavigate: boolean; autoSend: boolean; allowLateMs: number } {
+function schedulerSettings(world: string): { backgroundSend: boolean; autoNavigate: boolean; autoSend: boolean; allowLateMs: number } {
   const s = loadSettings(world, 'command-scheduler', SCHEDULER_DEFAULTS as unknown as Record<string, unknown>);
   return {
+    backgroundSend: s.backgroundSend !== false,
     autoNavigate: s.autoNavigate !== false,
     autoSend: s.autoSend !== false,
     allowLateMs: typeof s.allowLateMs === 'number' ? s.allowLateMs : 250,
@@ -111,8 +113,10 @@ function onPlaceOf(villageId: string): boolean {
 export type Readiness =
   /** Esta aba está na Praça da origem: ela envia. */
   | 'aqui'
-  /** Outra aba está pronta na Praça da origem. */
+  /** Outra aba (ou um quadro de 2º plano) está pronta na Praça da origem. */
   | 'pronta'
+  /** Ninguém pronto ainda, mas o envio em 2º plano vai abrir a Praça num quadro invisível. */
+  | 'fundo'
   /** Ninguém pronto, mas o Condutor vai levar uma aba até lá. */
   | 'automatico'
   /** Ninguém pronto e ninguém vai: Condutor desligado, script pausado ou
@@ -134,8 +138,9 @@ function aliveSorted(world: string, allowLateMs: number): ScheduledCommandRecord
  * outro nome).
  */
 function coverage(world: string): Map<string, Readiness> {
-  const { autoNavigate, autoSend, allowLateMs } = schedulerSettings(world);
-  const autoOk = autoNavigate && autoSend && schedulerBlock(world) === null;
+  const { backgroundSend, autoNavigate, autoSend, allowLateMs } = schedulerSettings(world);
+  const runs = autoSend && schedulerBlock(world) === null;
+  const autoOk = autoNavigate && runs;
   const out = new Map<string, Readiness>();
   let last: { at: number; origin: string } | undefined;
   for (const r of aliveSorted(world, allowLateMs)) {
@@ -143,6 +148,14 @@ function coverage(world: string): Map<string, Readiness> {
     const at = Date.parse(r.sendAt);
     if (onPlaceOf(origin)) out.set(r.id, 'aqui');
     else if (tabReadyFor(world, origin)) out.set(r.id, 'pronta');
+    // 2º plano: um quadro por origem — sem limite de "uma origem por vez".
+    else if (
+      backgroundSend &&
+      runs &&
+      frameFailedRecently(world, origin) === null &&
+      (frameAliveFor(world, origin) || at - serverNowMs() >= FRAME_MIN_MS)
+    )
+      out.set(r.id, 'fundo');
     else if (autoOk && (last === undefined || last.origin === origin || at - last.at >= CHAIN_GAP_MS)) {
       out.set(r.id, 'automatico');
       last = { at, origin };
@@ -220,6 +233,7 @@ function declined(record: ScheduledCommandRecord): boolean {
  */
 export function tabBusyReason(): string | null {
   if (/[?&]try=confirm/.test(window.location.search)) return 'há uma confirmação de comando aberta nesta aba';
+  if (hostingFrames()) return 'esta aba está enviando outros comandos em segundo plano';
   const active = document.activeElement;
   if (active !== null && active !== document.body) {
     const tag = active.tagName;
@@ -268,7 +282,9 @@ export function conductorTick(): ConductorStatus {
   try {
     const world = currentWorld();
     const { autoNavigate, autoSend, allowLateMs } = schedulerSettings(world);
+    setHostTabId(tshTabId());
     markMissed(world, allowLateMs, autoSend);
+    hostTick(world, allowLateMs);
     const back = returnIfDone(world, allowLateMs);
     if (back !== null) return back;
     if (!isTshEnabled('command-scheduler') || isHalted()) return NONE;
@@ -278,6 +294,10 @@ export function conductorTick(): ConductorStatus {
     const now = serverNowMs();
     const cov = coverage(world);
     const list = aliveSorted(world, allowLateMs);
+    const falhaFundo = (r: ScheduledCommandRecord): string => {
+      const reason = frameFailedRecently(world, vid(r.sourceVillageId));
+      return reason !== null ? `O envio em 2º plano falhou (${reason}). ` : '';
+    };
 
     // 1) O próximo comando que o Condutor cobre.
     const next = list.find((r) => cov.get(r.id) === 'automatico');
@@ -294,13 +314,53 @@ export function conductorTick(): ConductorStatus {
         : 'Uma aba só atende uma origem por vez e este sai colado em outro. Abra a Praça dessa aldeia em outra aba.';
       return {
         fabText: `${shortLabel(orphan)} às ${hhmmss(orphan)}: sem aba na Praça — não vai sair`,
-        bar: { kind: 'danger', title: `Comando de ${shortLabel(orphan)} às ${hhmmss(orphan)} não vai sair`, body: `Nenhuma aba está na Praça de ${originLabel(orphan)}. ${motivo}`, record: orphan },
+        bar: { kind: 'danger', title: `Comando de ${shortLabel(orphan)} às ${hhmmss(orphan)} não vai sair`, body: `${falhaFundo(orphan)}Nenhuma aba está na Praça de ${originLabel(orphan)}. ${motivo}`, record: orphan },
       };
     }
     return NONE;
   } catch {
     return NONE;
   }
+}
+
+/**
+ * Passo SÓ de 2º plano (aba Sentinela): grava motivos e hospeda os quadros,
+ * mas nunca navega nem mostra faixa. Nunca lança.
+ */
+export function conductorBackgroundTick(): void {
+  try {
+    const world = currentWorld();
+    const { autoSend, allowLateMs } = schedulerSettings(world);
+    setHostTabId(tshTabId());
+    markMissed(world, allowLateMs, autoSend);
+    hostTick(world, allowLateMs);
+  } catch {
+    /* o próximo tique tenta de novo */
+  }
+}
+
+/**
+ * Anfitrião do envio em 2º plano: abre/mantém/fecha os quadros invisíveis das
+ * origens sem aba pronta. Com a opção desligada (ou o Agendador parado), só
+ * fecha o que houver.
+ */
+function hostTick(world: string, allowLateMs: number): void {
+  const now = serverNowMs();
+  const cov = coverage(world);
+  const { backgroundSend, autoSend } = schedulerSettings(world);
+  const on = backgroundSend && autoSend && schedulerBlock(world) === null;
+  const demands = new Map<string, HostDemand>();
+  const stillNeeded = new Set<string>();
+  for (const r of aliveSorted(world, allowLateMs)) {
+    const origin = vid(r.sourceVillageId);
+    const at = Date.parse(r.sendAt);
+    // Opção desligada no meio: os quadros fecham (exceto no meio de um envio).
+    if (on && at - now <= FRAME_LEAD_MS + 30_000) stillNeeded.add(origin);
+    if (cov.get(r.id) !== 'fundo') continue;
+    const prev = demands.get(origin);
+    if (prev === undefined || at < prev.nextSendAt) demands.set(origin, { vid: origin, nextSendAt: at });
+  }
+  hostFramesTick(world, [...demands.values()], stillNeeded, now);
 }
 
 /** Avisa/navega para UM comando coberto. null = nada a fazer nesta aba. */
@@ -380,6 +440,7 @@ function markMissed(world: string, allowLateMs: number, autoSend: boolean): void
     return !(prearm !== null && prearm.id === r.id && Date.now() - prearm.at < 45_000);
   });
   if (missed.length === 0) return;
+  const { backgroundSend } = schedulerSettings(world);
   const block = schedulerBlock(world);
   const motivos = new Map<string, string>();
   for (const r of missed) {
@@ -388,9 +449,13 @@ function markMissed(world: string, allowLateMs: number, autoSend: boolean): void
       r.id,
       block !== null
         ? `Não saiu porque ${block} no horário — nada foi enviado.`
-        : tabReadyFor(world, origin)
-          ? 'A aba na Praça não conseguiu enviar a tempo — nada foi enviado. Confira o histórico do comando.'
-          : `Nenhuma aba estava na Praça de ${originLabel(r)} no horário — nada foi enviado.`,
+        : frameFailedRecently(world, origin) !== null
+          ? `O envio em 2º plano falhou (${frameFailedRecently(world, origin) ?? ''}) e nenhuma aba estava na Praça de ${originLabel(r)} — nada foi enviado.`
+          : tabReadyFor(world, origin)
+            ? 'A Praça estava aberta, mas o envio não conseguiu sair a tempo — nada foi enviado. Confira o histórico do comando.'
+            : backgroundSend
+              ? `Nenhuma aba do jogo estava aberta para enviar de ${originLabel(r)} no horário — nada foi enviado.`
+              : `Nenhuma aba estava na Praça de ${originLabel(r)} no horário — nada foi enviado.`,
     );
   }
   // Relê e aplica SOBRE o estado fresco (outra aba pode ter gravado no meio).

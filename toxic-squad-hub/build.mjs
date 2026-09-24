@@ -46,7 +46,6 @@ const header = `// ==UserScript==
 // @downloadURL  http://74.0.5.75/staffhub/scripts/toxic-squad-hub.user.js
 // @license      Proprietary - Toxic Squad personal use
 // @run-at       document-idle
-// @noframes
 // ==/UserScript==
 `;
 

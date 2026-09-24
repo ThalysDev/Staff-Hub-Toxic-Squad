@@ -165,7 +165,7 @@ describe('badges de tipo e status', () => {
     expect(commandKindLabel('support')).toBe('Apoio');
     expect(commandKindLabel('noble')).toBe('Nobre');
     expect(commandStatusLabel('agendado')).toBe('Agendado');
-    expect(commandStatusLabel('janela')).toBe('Na janela');
+    expect(commandStatusLabel('janela')).toBe('Na mira');
     expect(commandStatusLabel('pausado')).toBe('Pausado');
   });
 

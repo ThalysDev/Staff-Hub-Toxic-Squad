@@ -18,17 +18,41 @@ const page = {
   game_data: { village: { id: 9 } },
   setTimeout,
   clearTimeout,
+  addEventListener: () => undefined,
 };
 vi.stubGlobal('window', page);
 vi.mock('../../core/game-clock', () => ({ serverNowMs: () => Date.now() }));
 vi.mock('../../core/license', () => ({ licenseState: () => ({ kind: 'valida' }) }));
-const doc = { hidden: true, activeElement: null as unknown, body: {}, querySelectorAll: (sel: string) => (sel === 'textarea' ? textareas : []) };
+interface FakeFrame {
+  name: string;
+  src: string;
+  removed: boolean;
+  style: { cssText: string };
+  tabIndex: number;
+  title: string;
+  setAttribute: () => void;
+  remove: () => void;
+  contentWindow: unknown;
+  contentDocument: unknown;
+}
+const createdFrames: FakeFrame[] = [];
+const doc = {
+  hidden: true,
+  activeElement: null as unknown,
+  body: { appendChild: (el: FakeFrame) => createdFrames.push(el) },
+  querySelectorAll: (sel: string) => (sel === 'textarea' ? textareas : []),
+  createElement: (): FakeFrame => {
+    const f: FakeFrame = { name: '', src: '', removed: false, style: { cssText: '' }, tabIndex: 0, title: '', setAttribute: () => undefined, remove: () => { f.removed = true; }, contentWindow: null, contentDocument: null };
+    return f;
+  },
+};
 let textareas: { value: string; defaultValue: string }[] = [];
 vi.stubGlobal('document', doc);
 
 const { gm } = await import('../../core/storage');
 const { setTshEnabled } = await import('./tsh-runtime');
 const { conductorTick, readinessOf, tabReadyFor } = await import('./tsh-condutor');
+const { closeAllFrames } = await import('./tsh-envio-quadro');
 
 const KEY = 'tsh-auto:br142:command-scheduler:scheduler';
 
@@ -57,12 +81,86 @@ function onScreen(screen: string, village: number): void {
   page.location.href = `https://br142.tribalwars.com.br/game.php${page.location.search}`;
 }
 
-describe('Condutor do Agendador', () => {
+const SETTINGS = 'tsh-auto:br142:command-scheduler:settings';
+
+describe('Envio em 2º plano (quadro invisível)', () => {
+  beforeEach(() => {
+    store.clear();
+    session.clear();
+    closeAllFrames('br142');
+    createdFrames.length = 0;
+    onScreen('overview', 9);
+    setTshEnabled('command-scheduler', true);
+  });
+
+  it('origens coladas: TODAS ficam cobertas pelo 2º plano (um quadro por origem)', () => {
+    setCommands(command('a', 60_000), command('b', 61_000, '2222'));
+    const cmds = gm.get<{ commands: never[] }>(KEY, { commands: [] }).commands;
+    expect(readinessOf(cmds[0]!, 'br142')).toBe('fundo');
+    expect(readinessOf(cmds[1]!, 'br142')).toBe('fundo');
+    conductorTick();
+    expect(createdFrames.map((f) => f.name).sort()).toEqual(['tsh-envio:1171', 'tsh-envio:2222']);
+    expect(createdFrames[0]!.src).toContain('screen=place');
+    // Nunca navega a aba do jogador.
+    expect(page.location.href).toContain('screen=overview');
+  });
+
+  it('não abre quadro cedo demais nem em cima da hora', () => {
+    setCommands(command('a', 10 * 60_000), command('b', 5_000, '2222'));
+    conductorTick();
+    expect(createdFrames.length).toBe(0);
+  });
+
+  it('não duplica: outra aba já hospeda o quadro dessa origem', () => {
+    setCommands(command('a', 60_000));
+    gm.set('tsh:br142:envio-host:1171', { tab: 'outra', at: Date.now() });
+    conductorTick();
+    expect(createdFrames.length).toBe(0);
+  });
+
+  it('quadro que acusa problema cai no plano B (e o motivo aparece)', () => {
+    setCommands(command('a', 60_000));
+    conductorTick();
+    expect(createdFrames.length).toBe(1);
+    // O jogo mandou o quadro para a tela de sessão expirada.
+    createdFrames[0]!.contentWindow = { location: { href: 'https://br142.tribalwars.com.br/page/session-expired', pathname: '/page/session-expired', search: '' } };
+    createdFrames[0]!.contentDocument = { readyState: 'complete', querySelector: () => null };
+    conductorTick();
+    expect(createdFrames[0]!.removed).toBe(true);
+    const rec = gm.get<{ commands: never[] }>(KEY, { commands: [] }).commands[0]!;
+    expect(readinessOf(rec, 'br142')).toBe('automatico');
+  });
+
+  it('quadro já pronto NÃO fecha enquanto a confirmação do envio carrega (regressão P0)', () => {
+    setCommands(command('a', 110_000));
+    conductorTick();
+    const f = createdFrames[0]!;
+    f.contentWindow = { location: { href: 'https://br142.tribalwars.com.br/game.php?village=1171&screen=place', pathname: '/game.php', search: '?village=1171&screen=place' }, game_data: { village: { id: 1171 } } };
+    f.contentDocument = { readyState: 'complete', querySelector: () => null };
+    conductorTick(); // fica pronto (everOk)
+    // 60 s depois (bem além do prazo de carga), o POST do pré-arme está carregando.
+    vi.setSystemTime(Date.now() + 60_000);
+    f.contentDocument = { readyState: 'loading', querySelector: () => null };
+    conductorTick();
+    expect(f.removed).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('com o 2º plano desligado, volta ao plano B', () => {
+    gm.set(SETTINGS, { backgroundSend: false });
+    setCommands(command('a', 60_000));
+    const rec = gm.get<{ commands: never[] }>(KEY, { commands: [] }).commands[0]!;
+    expect(readinessOf(rec, 'br142')).toBe('automatico');
+  });
+});
+
+describe('Condutor do Agendador (plano B: levar a aba)', () => {
   beforeEach(() => {
     store.clear();
     session.clear();
     onScreen('overview', 9);
     setTshEnabled('command-scheduler', true);
+    gm.set(SETTINGS, { backgroundSend: false });
     doc.hidden = true;
     textareas = [];
   });
@@ -111,7 +209,7 @@ describe('Condutor do Agendador', () => {
 
   it('com a opção desligada não navega', () => {
     setCommands(command('a', 30_000));
-    gm.set('tsh-auto:br142:command-scheduler:settings', { autoNavigate: false });
+    gm.set(SETTINGS, { backgroundSend: false, autoNavigate: false });
     conductorTick();
     expect(page.location.href).toContain('screen=overview');
   });

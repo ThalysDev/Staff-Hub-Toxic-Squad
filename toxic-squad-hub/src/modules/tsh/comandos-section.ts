@@ -16,7 +16,7 @@ import {
   type ScheduledCommandViewStatus,
 } from '../../ext/core/scheduler-state';
 import { loadSchedulerState, openSchedulerCommands } from './tsh-commands-ui';
-import { kindIcon, unitStrip } from './tsh-units';
+import { commandUnitStrip, kindIcon } from './tsh-units';
 import { currentVillageId, isTshEnabled } from './tsh-runtime';
 import { openSection } from '../../core/shell';
 import { goToPlaceOf, NAV_LEAD_MS, originLabel, readinessOf } from './tsh-condutor';
@@ -38,6 +38,7 @@ const STYLES = `
   .tcs-banner--danger { background: var(--shs-danger-bg); color: #8f1d17; }
   .tcs-banner-txt { flex: 1 1 260px; }
   .tcs-banner a { text-decoration: none; }
+  .tcs-more { display: flex; flex-wrap: wrap; gap: 8px; }
   .tcs-clock .shs-btn { border: 0; min-height: 32px; }
   .tcs-card { background: var(--shs-bg-card); border: 1px solid var(--shs-border); border-radius: 12px; overflow: hidden; }
   .tcs-card table { margin: 0 !important; background: transparent; }
@@ -103,7 +104,8 @@ function statusChip(status: ScheduledCommandViewStatus, otherVillage: boolean, r
     const r = readinessOf(record);
     const perto = Date.parse(record.sendAt) - serverNowMs() <= 30 * 60_000;
     if (r === 'aqui' || r === 'pronta') return el('span', status === 'janela' ? 'shs-pill shs-pill--warn' : 'shs-pill shs-pill--ok', status === 'janela' ? 'Na mira' : 'Pronta na Praça');
-    if (r === 'automatico') return el('span', status === 'janela' ? 'shs-pill shs-pill--warn' : 'shs-pill', status === 'janela' ? 'Indo à Praça' : 'Agendado');
+    if (r === 'fundo') return el('span', status === 'janela' ? 'shs-pill shs-pill--warn' : 'shs-pill', status === 'janela' ? 'Na mira' : 'Sai em 2º plano');
+    if (r === 'automatico') return el('span', status === 'janela' ? 'shs-pill shs-pill--warn' : 'shs-pill', status === 'janela' ? 'Indo à Praça' : 'Aba vai à Praça');
     if (perto) return el('span', 'shs-pill shs-pill--error', 'Sem aba na Praça');
     return el('span', 'shs-pill', 'Agendado');
   }
@@ -263,8 +265,8 @@ export function renderComandosSection(container: HTMLElement): () => void {
           'span',
           'tcs-banner-txt',
           outras.length > 1
-            ? `${outras.length} aldeias de origem nos próximos 30 min não têm aba na Praça nem ida automática (saem coladas em outro envio). Abra a Praça de cada uma em outra aba.`
-            : 'Uma aldeia de origem nos próximos 30 min não tem aba na Praça nem ida automática (sai colada em outro envio). Abra a Praça dela em outra aba.',
+            ? `${outras.length} aldeias de origem nos próximos 30 min não vão enviar sozinhas. Abra a Praça de cada uma em outra aba.`
+            : 'Uma aldeia de origem nos próximos 30 min não vai enviar sozinha. Abra a Praça dela em outra aba.',
         ),
       );
       for (const [id, record] of outras.slice(0, 3)) {
@@ -313,10 +315,7 @@ export function renderComandosSection(container: HTMLElement): () => void {
         troopsTd.appendChild(
           record.kind === 'cancel'
             ? el('span', 'tcs-dim', `até ${record.cancelCount ?? 1}`)
-            : unitStrip(record.percentMode === true ? (record.unitsPercent ?? {}) : record.units, {
-                max: 3,
-                ...(record.percentMode === true ? { suffix: '%' } : {}),
-              }),
+            : commandUnitStrip(record, { max: 3 }),
         );
         tr.appendChild(troopsTd);
         const route = el('td', 'tcs-mono tcs-dim', `${coord(record.source)} → ${coord(record.target)}`);
@@ -334,11 +333,20 @@ export function renderComandosSection(container: HTMLElement): () => void {
     }
     root.appendChild(card);
 
-    const more = button('Central completa: histórico, bloco e mapa', 'layers', 'gho');
-    more.style.alignSelf = 'flex-start';
-    more.addEventListener('click', () => {
-      void openSchedulerCommands(shadow, world, draw);
-    });
+    // v3.3.0: atalhos direto para as abas da Central.
+    const more = el('div', 'tcs-more');
+    for (const [label, ic, tab] of [
+      ['Fila completa', 'list', 'fila'],
+      ['Histórico e precisão', 'clock', 'historico'],
+      ['Agendar em bloco', 'layers', 'bloco'],
+      ['Mapa de operações', 'map', 'mapa'],
+    ] as const) {
+      const b = button(label, ic, 'gho');
+      b.addEventListener('click', () => {
+        void openSchedulerCommands(shadow, world, draw, tab);
+      });
+      more.appendChild(b);
+    }
     root.appendChild(more);
     container.appendChild(root);
 

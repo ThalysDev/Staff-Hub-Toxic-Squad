@@ -85,6 +85,37 @@ export function unitStrip(units: Partial<Record<string, number>>, opts?: { size?
   return strip;
 }
 
+/**
+ * Tropas de um comando para exibição: quantidades fixas + unidades em "Todas"
+ * (ícone + "todas") — v3.3.0.
+ */
+export function commandUnitStrip(
+  record: { units: Partial<Record<string, number>>; allUnits?: ReadonlyArray<string>; percentMode?: boolean; unitsPercent?: Partial<Record<string, number>> },
+  opts?: { size?: number; max?: number },
+): HTMLSpanElement {
+  if (record.percentMode === true) return unitStrip(record.unitsPercent ?? {}, { ...opts, suffix: '%' });
+  const strip = unitStrip(record.units, opts);
+  const all = UNIT_ORDER.filter((key) => record.allUnits?.includes(key) === true);
+  if (all.length === 0) return strip;
+  if (strip.textContent === '—') strip.textContent = '';
+  const size = opts?.size ?? 16;
+  for (const key of all) {
+    const item = document.createElement('span');
+    item.style.cssText = 'display:inline-flex;align-items:center;gap:3px;white-space:nowrap;';
+    const img = unitIcon(key, size);
+    img.setAttribute('aria-hidden', 'true');
+    const tag = document.createElement('span');
+    tag.style.cssText = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.02em;color:var(--shs-action,#2e6b3e);';
+    tag.textContent = 'todas';
+    item.append(img, tag);
+    strip.appendChild(item);
+  }
+  const legenda = [strip.title, ...all.map((key) => `${unitLabelOrKey(key)}: todas`)].filter((t) => t !== '').join(' · ');
+  strip.title = legenda;
+  strip.setAttribute('aria-label', legenda);
+  return strip;
+}
+
 /** <img> do ícone de um PRÉDIO do jogo (`graphic/buildings/<key>.png`). */
 export function buildingIcon(key: string, size = 20): HTMLImageElement {
   const img = document.createElement('img');

@@ -129,6 +129,12 @@ export interface ScheduledCommandRecord {
   /** Percentuais por tipo de tropa (0..100), lidos quando `percentMode` é true. */
   unitsPercent?: Partial<Record<string, number>>;
   /**
+   * v3.3.0 — "Todas": unidades que saem com TUDO o que houver na aldeia no
+   * disparo (caixa "Todas" de cada tropa, como na Praça do jogo). Convive com
+   * as quantidades fixas de `units` (modo misto); lido na Praça no disparo.
+   */
+  allUnits?: ReadonlyArray<UnitType>;
+  /**
    * Onda E — TREM NATIVO do jogo: ataques ADICIONAIS (#2..#5) da tela de
    * confirmação ("Adicionar ataque adicional"). `units` é o ataque #1; o jogo
    * envia todos num único clique, com chegadas espaçadas em 100 ms.
@@ -240,6 +246,7 @@ const scheduledCommandRecordInputSchema = z
     percentMode: z.boolean().optional(),
     // Mesmo elenco do jogo do `units` (typo de UI nunca é gravado), valores 0..100.
     unitsPercent: z.partialRecord(z.enum(SCHEDULER_UNIT_TYPES), z.number().min(0).max(100)).optional(),
+    allUnits: z.array(z.enum(SCHEDULER_UNIT_TYPES)).min(1).max(12).optional(),
     // Onda E: trem nativo — até 4 ataques adicionais (o jogo aceita 5 no total).
     trainUnits: z
       .array(z.partialRecord(z.enum(SCHEDULER_UNIT_TYPES), z.number().int().positive()))
@@ -252,6 +259,17 @@ const scheduledCommandRecordInputSchema = z
     events: z.array(commandEventSchema),
   })
   .superRefine((value, ctx) => {
+    if (value.allUnits !== undefined) {
+      if (value.percentMode === true) {
+        ctx.addIssue({ code: 'custom', path: ['allUnits'], message: '"Todas" não se mistura com tropas em percentual.' });
+      }
+      if (value.trainUnits !== undefined) {
+        ctx.addIssue({ code: 'custom', path: ['allUnits'], message: 'trem nativo não aceita "Todas".' });
+      }
+      if (value.allUnits.some((unit) => (value.units as Partial<Record<string, number>>)[unit] !== undefined)) {
+        ctx.addIssue({ code: 'custom', path: ['allUnits'], message: 'a unidade em "Todas" não pode ter quantidade fixa.' });
+      }
+    }
     if (value.trainUnits !== undefined) {
       if (value.kind !== 'attack' && value.kind !== 'noble') {
         ctx.addIssue({ code: 'custom', path: ['trainUnits'], message: 'trem nativo só vale para ataque/nobre.' });
@@ -300,6 +318,7 @@ const COMMAND_FIELD_LABELS: Record<string, string> = {
   forced: 'forçar envio',
   catapultTarget: 'alvo da catapulta',
   percentMode: 'modo percentual',
+  allUnits: 'tropas em "Todas"',
   unitsPercent: 'percentual de tropas',
   trainUnits: 'ataques adicionais do trem',
   paused: 'pausado',

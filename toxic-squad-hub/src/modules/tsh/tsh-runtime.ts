@@ -265,10 +265,14 @@ export function tshNextRunAt(id: string, world?: string): number | null {
 }
 
 /**
- * Executa um ciclo. Devolve null quando RODOU, ou o motivo (pt-BR) de não
- * ter rodado — o "Rodar agora" mostra isso na linha (antes o clique
- * terminava em silêncio e parecia quebrado).
+ * Restringe esta página a algumas automações (v3.3.0: o quadro invisível do
+ * envio em 2º plano só roda o Agendador — nada de Coleta/Apoio em massa lá).
  */
+let onlyIds: ReadonlySet<string> | null = null;
+export function restrictTshTo(ids: readonly string[]): void {
+  onlyIds = new Set(ids);
+}
+
 /**
  * Travas de agenda que impedem o ciclo em QUALQUER tela (licença, parada
  * programada, fora do horário ativo) — leitura pura, sem gravar status.
@@ -283,6 +287,11 @@ export function tshAgendaBlock(id: string, worldId: string): string | null {
   return null;
 }
 
+/**
+ * Executa um ciclo. Devolve null quando RODOU, ou o motivo (pt-BR) de não
+ * ter rodado — o "Rodar agora" mostra isso na linha (antes o clique
+ * terminava em silêncio e parecia quebrado).
+ */
 export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean }): Promise<string | null> {
   const automation = automations.get(id);
   if (automation === undefined) return 'Automação desconhecida.';
@@ -290,6 +299,7 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
   const worldId = window.location.hostname.split('.')[0] ?? 'mundo';
   const villageId = currentVillageId();
 
+  if (onlyIds !== null && !onlyIds.has(id)) return 'Esta página só roda o Agendador (envio em 2º plano).';
   if (inFlight.has(id)) return 'Já está rodando um ciclo agora.'; // ciclo do mesmo módulo já em voo nesta aba
   if (!isTshEnabled(id)) return 'Está desligada — ligue a chave primeiro.';
   // Disjuntor (Onda 1): captcha/sessão param TODAS as automações até o

@@ -71,6 +71,7 @@ import {
 import type { ScheduledCommand, UnitType } from '../../../ext/modules/shared/module-types';
 import { fnv1a64 } from '../../../ext/modules/shared/canonical-ids';
 import { openSchedulerCommands, resolvePercentUnits } from '../tsh-commands-ui';
+import { unitSpeedsMinutesPerField } from '../tsh-game-data';
 
 // ── Fábrica de comandos (usada pela UI "Comandos"; formato EXATO do motor) ──
 
@@ -96,6 +97,8 @@ export interface NewScheduledCommandInput {
   catapultTarget?: string;
   percentMode?: boolean;
   unitsPercent?: Partial<Record<string, number>>;
+  /** v3.3.0: unidades que saem com TUDO o que houver no disparo. */
+  allUnits?: ReadonlyArray<UnitType>;
   /** Onda E: ataques adicionais do trem nativo (#2..#5). */
   trainUnits?: ReadonlyArray<Partial<Record<UnitType, number>>>;
   /** Texto do primeiro evento (o que o plano pediu — aparece na lista/histórico). */
@@ -110,7 +113,8 @@ export function createScheduledCommand(input: NewScheduledCommandInput): Schedul
   const percentKey = input.percentMode === true ? `|${JSON.stringify(input.unitsPercent ?? {})}` : '';
   // Trem nativo entra no id (mesmo #1 com adicionais diferentes = outro comando).
   const trainKey = input.trainUnits !== undefined ? `|train${JSON.stringify(input.trainUnits)}` : '';
-  const canonical = `${input.kind}|${input.sourceVillageId}|${input.target.x}|${input.target.y}|${input.sendAt}|${JSON.stringify(input.units)}${percentKey}${trainKey}`;
+  const allKey = input.allUnits !== undefined && input.allUnits.length > 0 ? `|all${JSON.stringify([...input.allUnits].sort())}` : '';
+  const canonical = `${input.kind}|${input.sourceVillageId}|${input.target.x}|${input.target.y}|${input.sendAt}|${JSON.stringify(input.units)}${percentKey}${trainKey}${allKey}`;
   const at = new Date().toISOString();
   return {
     ...fields,
@@ -149,7 +153,9 @@ const schedulerSettings = z.object({
   prearmLeadMs: z.number().int().min(3000).max(60000).default(8000),
   latencyMode: z.enum(['auto', 'manual']).default('auto'),
   latencyManualMs: z.number().int().min(0).max(400).default(0),
-  // v3.2.2 — Condutor: leva uma aba até a Praça da origem 60 s antes do envio.
+  // v3.3.0 — envio em 2º plano: a Praça da origem abre num quadro invisível.
+  backgroundSend: z.boolean().default(true),
+  // v3.2.2 — Condutor: leva uma aba até a Praça da origem 60 s antes do envio (plano B).
   autoNavigate: z.boolean().default(true),
 });
 
@@ -163,6 +169,7 @@ export const DEFAULT_SETTINGS: SchedulerSettings = {
   prearmLeadMs: 8000,
   latencyMode: 'auto',
   latencyManualMs: 0,
+  backgroundSend: true,
   autoNavigate: true,
 };
 
@@ -355,12 +362,23 @@ function readAvailableUnits(doc: Document): Partial<Record<UnitType, number>> | 
     }
     const input = doc.querySelector<HTMLInputElement>(`input[name="${unit}"]`);
     if (input === null) continue;
+    // Praça real (BR142, 24/09/2026): `input.unitsInput[data-all-count]` e o
+    // link `#units_entry_all_<unit>` "(200)". `data-all` fica por compatibilidade.
     const row = input.closest('tr') ?? input.parentElement;
-    const entry = row?.querySelector<HTMLElement>('.units-entry-all, [data-unit-count]') ?? null;
+    const entry =
+      doc.querySelector<HTMLElement>(`#units_entry_all_${unit}`) ??
+      row?.querySelector<HTMLElement>('.units-entry-all, [data-unit-count]') ??
+      null;
     const count = Math.max(
+      parseGameInteger(input.getAttribute('data-all-count')),
       parseGameInteger(input.getAttribute('data-all')),
       parseGameInteger(entry?.textContent ?? null),
     );
+    if (input.hasAttribute('data-all-count')) {
+      units[unit] = count;
+      readable += 1;
+      continue;
+    }
     if (count <= 0) continue;
     units[unit] = count;
     readable += 1;
@@ -526,6 +544,60 @@ function earliestDueRecord(
     .sort((left, right) => Date.parse(left.sendAt) - Date.parse(right.sendAt))[0];
 }
 
+/** Comando cujas tropas só se sabem no disparo (percentual ou "Todas"). */
+export function isDynamicUnits(record: Pick<ScheduledCommandRecord, 'percentMode' | 'allUnits'>): boolean {
+  return record.percentMode === true || (record.allUnits !== undefined && record.allUnits.length > 0);
+}
+
+/**
+ * "Todas" no disparo: quantidades fixas + TUDO o que houver das unidades
+ * marcadas. Uma "Todas" vazia só pesa se era a MAIS LENTA (a chegada muda):
+ * comando por CHEGADA aborta (fail-closed); por ENVIO sai sem ela e avisa.
+ * Sem as velocidades do mundo, qualquer "Todas" vazia conta como mais lenta.
+ * Puro/testável.
+ */
+export function resolveAllUnits(
+  fixed: Readonly<Record<string, number>>,
+  allUnits: ReadonlyArray<UnitType>,
+  available: Partial<Record<UnitType, number>>,
+  opts?: { arrivalLocked?: boolean; speeds?: Readonly<Record<string, number>> | null },
+): { ok: true; units: Record<string, number>; slowerMissing: UnitType[] } | { ok: false; message: string } {
+  const units: Record<string, number> = { ...fixed };
+  const empty: UnitType[] = [];
+  for (const unit of allUnits) {
+    const n = Math.floor(Number(available[unit] ?? 0));
+    if (n > 0) units[unit] = n;
+    else empty.push(unit);
+  }
+  if (Object.keys(units).length === 0) return { ok: false, message: 'nenhuma tropa disponível para "Todas"' };
+  const speeds = opts?.speeds ?? null;
+  const slowestGoing = speeds === null ? Number.POSITIVE_INFINITY : Math.max(0, ...Object.keys(units).map((u) => speeds[u] ?? 0));
+  // Mais lenta que tudo o que vai sair = a chegada planejada muda.
+  const slowerMissing = empty.filter((u) => speeds === null || (speeds[u] ?? 0) > slowestGoing);
+  if (slowerMissing.length > 0 && opts?.arrivalLocked === true) {
+    return {
+      ok: false,
+      message: `não há ${slowerMissing.map((u) => UNIT_NAMES_PT[u] ?? u).join(', ')} na aldeia agora — sem ela(s) a chegada mudaria`,
+    };
+  }
+  return { ok: true, units, slowerMissing };
+}
+
+const UNIT_NAMES_PT: Partial<Record<UnitType, string>> = {
+  spear: 'Lanceiro',
+  sword: 'Espadachim',
+  axe: 'Bárbaro',
+  archer: 'Arqueiro',
+  spy: 'Explorador',
+  light: 'Cavalaria leve',
+  marcher: 'Arqueiro a cavalo',
+  heavy: 'Cavalaria pesada',
+  ram: 'Aríete',
+  catapult: 'Catapulta',
+  knight: 'Paladino',
+  snob: 'Nobre',
+};
+
 /**
  * Unidades que o disparo vai enviar. Percentual (`percentMode`) é resolvido
  * AGORA, contra as tropas atuais da aldeia de origem: o comando em % só dispara
@@ -538,10 +610,11 @@ async function resolveFireUnits(
   record: ScheduledCommandRecord,
 ): Promise<Record<string, number> | undefined> {
   const frozen = commandUnitsRecord(record);
-  if (record.percentMode !== true) return frozen;
+  if (!isDynamicUnits(record)) return frozen;
+  const modo = record.percentMode === true ? 'em percentual' : 'com "Todas"';
   if (normalizeVillageId(record.sourceVillageId) !== normalizeVillageId(ctx.villageId)) {
     ctx.status(
-      `Comando ${record.id} em percentual: é preciso estar na aldeia de origem (${record.sourceName ?? record.sourceVillageId}) para ler as tropas — envio abortado.`,
+      `Comando ${record.id} ${modo}: é preciso estar na aldeia de origem (${record.sourceName ?? record.sourceVillageId}) para ler as tropas — envio abortado.`,
       'warn',
     );
     return undefined;
@@ -549,10 +622,27 @@ async function resolveFireUnits(
   const available = readAvailableUnits(document);
   if (available === undefined) {
     ctx.status(
-      `Comando ${record.id} em percentual: não foi possível ler as tropas disponíveis nesta tela (abra a Praça da aldeia de origem) — envio abortado.`,
+      `Comando ${record.id} ${modo}: não foi possível ler as tropas disponíveis nesta tela (abra a Praça da aldeia de origem) — envio abortado.`,
       'warn',
     );
     return undefined;
+  }
+  if (record.percentMode !== true) {
+    const mixed = resolveAllUnits(frozen, record.allUnits ?? [], available, {
+      arrivalLocked: record.timingMode === 'arrival',
+      speeds: await unitSpeedsMinutesPerField(),
+    });
+    if (!mixed.ok) {
+      ctx.status(`Comando ${record.id}: ${mixed.message} — envio abortado.`, 'warn');
+      return undefined;
+    }
+    if (mixed.slowerMissing.length > 0) {
+      ctx.status(
+        `Comando ${record.id} sai sem ${mixed.slowerMissing.map((u) => UNIT_NAMES_PT[u] ?? u).join(', ')} (0 na aldeia) — a chegada real vai mudar.`,
+        'warn',
+      );
+    }
+    return mixed.units;
   }
   const resolved = commandUnitsRecord({ units: resolvePercentUnits(record.unitsPercent ?? {}, available) });
   if (Object.keys(resolved).length === 0) {
@@ -1123,7 +1213,7 @@ async function handlePendingConfirmation(
     prearmedOk && !own.some((record) => record.id === prearmed.id) ? [...own, prearmed] : [...own];
   const screenTrain = readNativeTrainFromScreen();
   const unitsFor = (record: ScheduledCommandRecord): Record<string, number> | null =>
-    record.percentMode === true ? (prearm?.id === record.id ? prearm.units : null) : commandUnitsRecord(record);
+    isDynamicUnits(record) ? (prearm?.id === record.id ? prearm.units : null) : commandUnitsRecord(record);
   const matching = pickConfirmCandidate(
     candidates.filter((record) => record.kind !== 'cancel'),
     prearmedOk ? (prearm?.id ?? null) : null,
@@ -1460,7 +1550,11 @@ async function aimAndConfirm(
     // anti-bot aparecer nesta página. Checagens baratas (GM + seletor).
     const ok = await waitUntilServerMs(
       decision.fireAtMs,
-      () => !aliveRecord(findRecord(ctx, record.id)) || isHalted() || pageShowsBotProtection(),
+      () => {
+        const atual = findRecord(ctx, record.id);
+        // "Mudar horário" durante a mira: o clique NÃO sai no horário velho.
+        return !aliveRecord(atual) || atual?.sendAt !== record.sendAt || isHalted() || pageShowsBotProtection();
+      },
       { precise: opts.lane === 'precisao' },
     );
     if (isHalted() || pageShowsBotProtection()) {
@@ -1468,7 +1562,7 @@ async function aimAndConfirm(
       ctx.status(`Comando ${record.id}: captcha/sessão durante a mira — nada foi enviado (script pausado).`, 'warn');
       return;
     }
-    if (!ok || !aliveRecord(findRecord(ctx, record.id))) {
+    if (!ok || !aliveRecord(findRecord(ctx, record.id)) || findRecord(ctx, record.id)?.sendAt !== record.sendAt) {
       ctx.status(`Comando ${record.id} foi pausado/removido durante a mira — nada foi enviado.`, 'info');
       return;
     }
@@ -1481,7 +1575,7 @@ async function aimAndConfirm(
       ctx.status(`Pausa de humanização ativa — confirmação do fake ${record.id} adiada.`, 'info');
       return;
     }
-    if (!aliveRecord(findRecord(ctx, record.id))) return;
+    if (!aliveRecord(findRecord(ctx, record.id)) || findRecord(ctx, record.id)?.sendAt !== record.sendAt) return;
   }
   // ── Disparo: NADA entre o fim da espera e o clique ──
   const clickedAtServer = serverNowMs();
@@ -1611,10 +1705,16 @@ export const commandSchedulerAutomation: TshAutomation = {
       help: 'Usada só no modo Manual.',
     },
     {
-      key: 'autoNavigate',
-      label: 'Levar uma aba até a Praça sozinho',
+      key: 'backgroundSend',
+      label: 'Enviar em segundo plano',
       type: 'boolean',
-      help: 'O envio precisa de uma aba na Praça da aldeia de origem. Ligado: 60 s antes, uma aba do jogo (em qualquer tela, mesmo em segundo plano) vai sozinha até lá, envia e depois volta para onde você estava. Desligado: você mesmo deixa a Praça aberta.',
+      help: 'Recomendado. 2 min antes, a aba do jogo abre a Praça da aldeia de origem num quadro invisível e o envio sai de lá — sua tela não muda e várias origens podem sair no mesmo minuto. Precisa de uma aba do jogo aberta e do computador acordado.',
+    },
+    {
+      key: 'autoNavigate',
+      label: 'Plano B: levar a aba até a Praça',
+      type: 'boolean',
+      help: 'Se o envio em segundo plano estiver desligado ou falhar, uma aba do jogo vai sozinha até a Praça da origem 60 s antes, envia e volta. Aba em uso nunca é levada.',
     },
     {
       key: 'autoSend',
