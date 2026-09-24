@@ -21,6 +21,7 @@ export const TSH_INSTRUMENTO_CSS = `
 
   .tsh-gcard { background: var(--shs-bg-card); border: 1px solid var(--shs-border); border-radius: 12px; overflow: visible; }
   .tsh-gcard > .tsh-group-title { border-radius: 12px 12px 0 0; }
+  .tsh-gcard > .tsh-group-title:last-child { border-radius: 12px; }
   .tsh-gcard > .tsh-rows > .tsh-row:last-child { border-radius: 0 0 12px 12px; }
   .tsh-row-side [data-tip]:hover::after, .tsh-row-side [data-tip]:focus-visible::after { left: auto; right: 0; transform: none; }
   .tsh-row-side [data-tip]:hover::before, .tsh-row-side [data-tip]:focus-visible::before { left: auto; right: 12px; transform: none; }
@@ -39,7 +40,7 @@ export const TSH_INSTRUMENTO_CSS = `
     border: 0; border-top: 1px solid var(--shs-bg-inset); border-radius: 0; background: transparent; box-shadow: none; }
   .tsh-row + .tsh-row { border-top: 1px solid var(--shs-bg-inset); }
   .tsh-row:hover { background: var(--shs-bg-side); }
-  .tsh-row-desc--warn { color: var(--shs-warn) !important; font-weight: 500; }
+  .tsh-row-desc--warn { color: var(--shs-ink-strong) !important; font-weight: 500; }
   .tsh-row--off .tsh-row-name { color: var(--shs-ink); }
   .tsh-row--off .tsh-row-desc { color: var(--shs-muted); } /* ink-disabled em texto reprovava contraste */
   .tsh-row-main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -89,7 +90,7 @@ export const TSH_INSTRUMENTO_CSS = `
   .tsh-btn--danger:hover:not(:disabled) { background: var(--shs-danger); color: #fff; border-color: var(--shs-danger); }
   /* Confirmação de ação perigosa: vermelho SÓLIDO (distinto do Cancelar). */
   .tsh-btn--solid, .tsh-btn--solid:hover:not(:disabled) { background: var(--shs-danger); color: #fff; border-color: transparent; }
-  .tsh-btn--solid:hover:not(:disabled) { background: #9a1f18; }
+  .tsh-btn--solid:hover:not(:disabled) { background: var(--shs-danger); filter: brightness(.9); }
   .tsh-btn--sm { min-height: 34px; padding: 0 10px; font-size: 12.5px; border-radius: 8px; }
   .tsh-btn:disabled { opacity: .5; cursor: default; }
   .tsh-btn:focus-visible, .tsh-icbtn:focus-visible, .tsh-runbtn:focus-visible { outline: 2px solid var(--shs-action); outline-offset: 2px; }
@@ -178,7 +179,8 @@ export const TSH_INSTRUMENTO_CSS = `
   .tsh-pill--ok { background: var(--shs-ok-bg); color: var(--shs-ok-ink); }
   .tsh-pill--danger { background: var(--shs-danger-bg); color: #8f1d17; }
   .tsh-check-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--shs-ink-strong); }
-  .tsh-check-row > .tsh-select, .tsh-check-row > input.tsh-input { width: auto; flex: 0 1 220px; }
+  .tsh-check-row > .tsh-select, .tsh-check-row > input.tsh-input:not([style*='width']) { width: auto; flex: 0 1 220px; }
+  .tsh-check-row > input.tsh-input[style*='width'] { flex: none; }
   .tsh-modal-body input[type='number'].tsh-input:not(.tsh-record-cell input) { max-width: 180px; }
   .tsh-modal-body .tsh-input--ms { max-width: 96px; }
   button.tsh-section-title { min-height: 40px; width: 100%; padding: 0 4px; border-radius: 8px; cursor: pointer; }

@@ -95,7 +95,7 @@ export function renderAjuda(container: HTMLElement): void {
   const sentinela = card('Modo Sentinela', 'eye');
   item(sentinela.body, 'O botão da Sentinela abre **uma aba de fundo do jogo** que mantém as automações ciclando enquanto você faz outra coisa.');
   item(sentinela.body, 'O cadeado impede duas abas de enviarem a mesma coisa: no **Agendador** ele vale **por aldeia** (uma aba por origem); nas outras automações vale por mundo, e a Sentinela e a aba normal se revezam sem duplicar.');
-  item(sentinela.body, '**Captcha ou sessão expirada pausam tudo** (automações e pedidos ao jogo) no mundo afetado. Resolva no jogo e clique em **Já resolvi, retomar** (faixa vermelha no topo ou aba Início).');
+  item(sentinela.body, '**Captcha ou sessão expirada pausam tudo** (automações e pedidos ao jogo) no mundo afetado. Resolva no jogo e clique em **Já resolvi, retomar** (faixa vermelha acima do escudo ou aba Início).');
   grid.appendChild(sentinela.box);
 
   const seguranca = card('Uso consciente', 'alert');

@@ -12,7 +12,7 @@ const BAR_CLASS = 'tsh-halt-bar';
 const STYLE_ID = 'tsh-halt-bar-style';
 
 const STYLES = `
-  .${BAR_CLASS} { position: fixed; bottom: 68px; left: 50%; transform: translateX(-50%); z-index: 2147483001;
+  .${BAR_CLASS} { position: fixed; bottom: 68px; left: 50%; transform: translateX(-50%); z-index: 2147483200;
     width: min(760px, calc(100vw - 32px)); box-sizing: border-box; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     padding: 12px 14px; border-radius: 12px; border: 1.5px solid var(--shs-danger, #b3261e);
     background: #ffffff; color: var(--shs-ink-strong, #1b1a17);
@@ -48,8 +48,12 @@ export function renderHaltBar(state: HaltState | null, pending: string | null): 
   // v3.2.1: com o painel ABERTO o card da Início já mostra a pausa — a faixa
   // some para não cobrir o cabeçalho do painel nem o menu do jogo.
   const panel = shadow.querySelector<HTMLElement>('.shs-panel');
-  const panelAberto = panel !== null && panel.style.display !== 'none';
-  if (state === null || panelAberto) {
+  const inicioVisivel =
+    panel !== null &&
+    panel.style.display !== 'none' &&
+    !panel.classList.contains('shs-panel--min') &&
+    shadow.querySelector<HTMLElement>('.shs-body')?.dataset.section === 'inicio';
+  if (state === null || inicioVisivel) {
     bar?.remove();
     return;
   }

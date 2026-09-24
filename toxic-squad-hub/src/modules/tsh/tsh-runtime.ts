@@ -223,15 +223,15 @@ interface CycleState {
   lastRunAt?: number;
 }
 
-/** Cooldown efetivo: override do usuário (minutos) > default do módulo > 5min. */
 /** Nome em português das telas do jogo (mensagens do "Rodar agora"). */
 const SCREEN_LABELS: Record<string, string> = {
   place: 'Praça', snob: 'Academia', market: 'Mercado', main: 'Edifício principal', barracks: 'Quartel',
   stable: 'Estábulo', garage: 'Oficina', statue: 'Estátua', smith: 'Ferreiro', overview_villages: 'Visualizações',
   overview: 'Visão geral', info_village: 'Informações da aldeia', inventory: 'Inventário', am_farm: 'Assistente de Saque',
-  map: 'Mapa', ally: 'Tribo',
+  map: 'Mapa', ally: 'Tribo', train: 'Recrutamento', scavenge: 'Coleta',
 };
 
+/** Cooldown efetivo: override do usuário (minutos) > default do módulo > 5min. */
 export function effectiveCooldownMs(automation: TshAutomation, schedule: TshSchedule): number {
   if (schedule.cooldownMinutes !== undefined && Number.isFinite(schedule.cooldownMinutes) && schedule.cooldownMinutes >= 1) {
     return schedule.cooldownMinutes * 60_000;
@@ -264,7 +264,6 @@ export function tshNextRunAt(id: string, world?: string): number | null {
   return state.nextRunAt ?? null;
 }
 
-/** Executa um ciclo de UMA automação respeitando todas as regras. */
 /**
  * Executa um ciclo. Devolve null quando RODOU, ou o motivo (pt-BR) de não
  * ter rodado — o "Rodar agora" mostra isso na linha (antes o clique
@@ -283,8 +282,8 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
   // jogador retomar na Início — nada de tentar de novo a cada ciclo.
   const halt = haltState();
   if (halt !== null) {
-    gm.set<CycleStatus>(statusKey(id, worldId), { message: `${haltLabel(halt)} — pausado. Retome na aba Início do painel (ou na faixa vermelha no topo).`, kind: 'warn', at: Date.now() });
-    return 'Script pausado (captcha/sessão) — retome na Início.';
+    gm.set<CycleStatus>(statusKey(id, worldId), { message: `${haltLabel(halt)} — pausado. Retome na aba Início do painel (ou na faixa vermelha acima do escudo).`, kind: 'warn', at: Date.now() });
+    return `${haltLabel(halt)}: script pausado — retome na Início.`;
   }
   if (!licenseOk()) {
     gm.set<CycleStatus>(statusKey(id, worldId), { message: 'Licença inativa — ciclos pausados.', kind: 'warn', at: Date.now() });
@@ -313,11 +312,13 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
       kind: 'warn',
       at: Date.now(),
     });
-    return `Fora do horário ativo (${schedule.activeFrom ?? ''}–${schedule.activeTo ?? ''}).`;
+    return schedule.activeFrom !== undefined && schedule.activeTo !== undefined
+      ? `Fora do horário ativo (${schedule.activeFrom}–${schedule.activeTo}). Ajuste em Configurar.`
+      : 'Fora do horário ativo. Ajuste em Configurar.';
   }
   if (automation.mutating && automation.armExempt !== true && !isArmed(id)) {
     gm.set<CycleStatus>(statusKey(id, worldId), { message: 'Aguardando armar (módulo muta o jogo).', kind: 'warn', at: Date.now() });
-    return 'Precisa armar antes (autorização de 30 min).';
+    return 'Clique em "Armar" nesta linha e tente de novo.';
   }
   const state = gm.get<CycleState>(stateKey(id, worldId), {});
   const cooldown = effectiveCooldownMs(automation, schedule);

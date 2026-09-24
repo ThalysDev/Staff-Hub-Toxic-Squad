@@ -729,7 +729,7 @@ export function openTshSettingsModal(
     // v3.2.1: o erro fica no fim do corpo com rolagem — traz à vista e foca
     // o primeiro campo marcado como inválido.
     errorEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    body.querySelector<HTMLElement>('.tsh-input--invalid')?.focus();
+    body.querySelector<HTMLElement>('.tsh-input--invalid')?.focus({ preventScroll: true });
   };
 
   // ── Rodapé Nexus: Restaurar à esquerda; Cancelar/Salvar à direita ──

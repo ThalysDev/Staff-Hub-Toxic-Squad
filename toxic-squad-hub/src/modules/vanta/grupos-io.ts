@@ -434,9 +434,9 @@ registerVanta({
     if (anchor === null || anchor.parentNode === null) return;
     anchor.parentNode.insertBefore(scope.owns(card), anchor);
 
-    const exportBtnEl = card.querySelector<HTMLButtonElement>('#vanta-gio-ui #vanta-gio-exportar');
+    const exportBtnEl = card.querySelector<HTMLButtonElement>('#vanta-gio-exportar');
     const importBtnEl = card.querySelector<HTMLButtonElement>('#vanta-gio-importar');
-    const confirmBtnEl = card.querySelector<HTMLButtonElement>('#vanta-gio-ui #vanta-gio-confirmar');
+    const confirmBtnEl = card.querySelector<HTMLButtonElement>('#vanta-gio-confirmar');
     const fileInputEl = card.querySelector<HTMLInputElement>('#vanta-gio-file');
     const statusElEl = card.querySelector<HTMLElement>('#vanta-gio-status');
     const previewElEl = card.querySelector<HTMLElement>('#vanta-gio-preview');

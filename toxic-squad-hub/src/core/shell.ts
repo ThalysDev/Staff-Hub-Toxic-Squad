@@ -554,7 +554,7 @@ export function mountShell(): void {
     head.style.cursor = 'grabbing';
     const onMove = (move: MouseEvent): void => {
       const left = Math.min(Math.max(4, move.clientX - dx), Math.max(4, window.innerWidth - panel.offsetWidth - 4));
-      const top = Math.min(Math.max(4, move.clientY - dy), Math.max(4, window.innerHeight - 48));
+      const top = Math.min(Math.max(4, move.clientY - dy), Math.max(4, window.innerHeight - panel.offsetHeight - 4));
       panel.style.left = `${left}px`;
       panel.style.top = `${top}px`;
     };
@@ -563,7 +563,10 @@ export function mountShell(): void {
       document.removeEventListener('mouseup', onUp);
       head.style.cursor = 'grab';
       const final = panel.getBoundingClientRect();
-      gm.set(POS_KEY, clampPos(Math.round(final.left), Math.round(final.top)));
+      const safe = clampPos(Math.round(final.left), Math.round(final.top));
+      panel.style.left = `${safe.l}px`;
+      panel.style.top = `${safe.t}px`;
+      gm.set(POS_KEY, safe);
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);

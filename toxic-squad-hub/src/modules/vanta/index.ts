@@ -259,8 +259,22 @@ function launcherRow(launcher: VantaLauncher, rerender: () => void): HTMLElement
     go.disabled = false;
     go.replaceChildren(icon('play', 12));
     side.querySelector('.vts-result')?.remove();
-    // v3.2.1: a ferramenta abre NA PÁGINA — fecha o painel para ela não nascer atrás dele.
-    if (montou) closePanel();
+    // v3.2.1: a ferramenta abre NA PÁGINA — fecha o painel para ela não nascer
+    // atrás dele, leva a página até ela e dá um contorno verde breve.
+    if (montou) {
+      closePanel();
+      const novo = Array.from(document.querySelectorAll<HTMLElement>('[id^="vanta-"]')).find((el) => antes.get(el.id) !== el);
+      if (novo !== undefined) {
+        if (getComputedStyle(novo).position !== 'fixed') novo.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        const antigo = novo.style.outline;
+        novo.style.outline = '2px solid var(--shs-action, #2e6b3e)';
+        novo.style.outlineOffset = '2px';
+        window.setTimeout(() => {
+          novo.style.outline = antigo;
+        }, 1_600);
+      }
+      return;
+    }
     const resultado = document.createElement('span');
     resultado.className = montou ? 'vts-chip vts-chip--ok vts-result' : 'vts-chip vts-chip--err vts-result';
     resultado.textContent = montou

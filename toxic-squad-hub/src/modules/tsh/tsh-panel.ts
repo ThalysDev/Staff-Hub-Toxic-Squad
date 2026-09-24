@@ -192,6 +192,8 @@ const SCREEN_NAMES: Record<string, string> = {
   am_farm: 'Assistente de Saque',
   map: 'Mapa',
   ally: 'Tribo',
+  train: 'Recrutamento',
+  scavenge: 'Coleta',
 };
 function screenName(screen: string): string {
   return SCREEN_NAMES[screen] ?? screen;
@@ -405,7 +407,7 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
         shadow,
         'Armar automação',
         `Armar "${automation.label}" por 30 min? Os ciclos poderão fazer ações de verdade no jogo.`,
-        { danger: true },
+        {},
       );
       if (!ok) return;
       armTsh(automation.id);
@@ -438,7 +440,10 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
     // v3.2.1: o clique SEMPRE responde — rodou (redesenha com o status novo)
     // ou mostra na linha o motivo de não ter rodado.
     void runTshCycle(automation.id, { ignoreCooldown: true })
-      .catch((error: unknown) => (error instanceof Error ? error.message : String(error)))
+      .catch((error: unknown) => {
+        console.warn('[toxic-squad-hub] Rodar agora:', error);
+        return 'Erro inesperado — tente de novo; se repetir, recarregue a página.';
+      })
       .then((motivo) => {
         if (motivo === null) {
           rerender();
@@ -473,7 +478,7 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
         automation.armExempt === true
           ? `Ativar "${automation.label}"? Ligado, ele envia sozinho o que estiver agendado.`
           : `Ativar "${automation.label}"? Armado, os ciclos fazem ações de verdade no jogo.`;
-      if (!(await tshConfirm(shadow, 'Ativar automação', aviso, { danger: true }))) {
+      if (!(await tshConfirm(shadow, 'Ativar automação', aviso, {}))) {
         check.checked = false; // confirmação recusada — reverte o checkbox
         return;
       }
@@ -542,6 +547,7 @@ export function renderTshPanel(container: HTMLElement): () => void {
     tickCountdown(shadow);
     const pressionado = pointerDownAt !== 0 && Date.now() - pointerDownAt < 3_000;
     if (pressionado || shadow.querySelector('.tsh-overlay') !== null) return;
+    if (shadow.querySelector('.tsh-row-desc--warn') !== null) return; // "Não rodou: …" na tela
     if (tshPanelSignature(world) !== signature) redraw();
   }, 1000);
   return () => {
