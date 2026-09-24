@@ -32,6 +32,16 @@
 import { z } from 'zod';
 import { registerTsh, type TshAutomation, type TshCycleContext } from '../tsh-runtime';
 import { recruitUnits } from '../tsh-transport';
+import { tripHalt } from '../../../core/halt';
+import { awaitRoutineMutation } from '../tsh-humanize';
+import { postGameForm } from './onda5-form-post';
+import {
+  massRecruitBody,
+  parseMassRecruit,
+  parseTrainScreen,
+  planVillageRecruit,
+  type RecruitUnit,
+} from './recruitment-mass';
 import { pacedGet } from '../../../core/net';
 import { gm } from '../../../core/storage';
 import { getGroupOptions, getGroupVillages } from '../tsh-groups';
@@ -89,6 +99,12 @@ const recruitmentSettings = z.object({
   groupModels: z.string().default(''),
   /** Planeja a pesquisa do Ferreiro (report-only nesta onda). */
   autoResearch: z.boolean().default(false),
+  /** v3.8.0: 'fundo' = todas as aldeias pelo Recrutamento em massa; 'tela' = só com a tela de recrutamento aberta. */
+  execMode: z.enum(['fundo', 'tela']).default('fundo'),
+  /** Recursos que ficam SEMPRE na aldeia (para construir). */
+  keepResources: z.number().int().min(0).default(0),
+  /** No máximo quanto de cada tropa por envio (0 = sem limite) — espalha o recrutamento. */
+  batchMax: z.number().int().min(0).default(0),
 });
 
 type RecruitmentSettings = z.infer<typeof recruitmentSettings>;
@@ -297,59 +313,10 @@ export function recruitmentBlockedByPopulation(maxPopulation: number, bar: Popul
   return bar.current >= maxPopulation;
 }
 
-/** Barra de recursos da página (#wood/#stone/#iron — seletores canônicos). */
-function readResources(doc: Document): Record<ResourceType, number> {
-  const read = (resource: ResourceType): number => {
-    const element = doc.querySelector(`#${resource}, [data-resource="${resource}"], .resource-${resource}`);
-    const text =
-      element instanceof HTMLInputElement || element instanceof HTMLSelectElement
-        ? element.value
-        : element?.textContent;
-    return parseGameInteger(text);
-  };
-  return { wood: read('wood'), stone: read('stone'), iron: read('iron') };
-}
 
-/**
- * Barra de população da tela train: recipiente canônico #pop ("12.345/24.000")
- * com fallback pelo ícone da fazenda (img do jogo) — texto "X/Y" do recipiente.
- * null = ilegível (o modo "manter população" falha fechado).
- */
-function readPopulationBar(doc: Document): PopulationBar | null {
-  const direct = doc.querySelector('#pop, [data-population], .population');
-  const text =
-    direct instanceof HTMLInputElement || direct instanceof HTMLSelectElement ? direct.value : direct?.textContent;
-  const parsed = parsePopulationBar(text);
-  if (parsed !== null) return parsed;
-  for (const icon of Array.from(doc.querySelectorAll<HTMLImageElement>('img[src*="farm"]'))) {
-    const container = icon.closest('td, div, span, p');
-    const parsedContainer = parsePopulationBar(container?.textContent ?? '');
-    if (parsedContainer !== null) return parsedContainer;
-  }
-  return null;
-}
 
-/** Contagem atual da unidade na aldeia (porta do readUnit do page-adapter). */
-function readUnitCount(doc: Document, unit: UnitType): number {
-  const element = doc.querySelector(`[data-unit-count="${unit}"], #unit_count_${unit}, .unit-count-${unit}`);
-  return parseGameInteger(element?.textContent);
-}
 
-/** Fila de recrutamento ativa (porta do readTrainQueue: wrap + lit-item). */
-function hasActiveTrainQueue(doc: Document): boolean {
-  const wrap = doc.querySelector('.trainqueue_wrap');
-  return wrap !== null && wrap.querySelector('.lit-item') !== null;
-}
 
-/** Efetivo atual das 12 unidades (base da resolução dos modelos do grupo). */
-function readCurrentUnits(doc: Document): Partial<Record<UnitType, number>> {
-  const counts: Partial<Record<UnitType, number>> = {};
-  for (const unit of UNIT_TYPES) {
-    const count = readUnitCount(doc, unit);
-    if (count > 0) counts[unit] = count;
-  }
-  return counts;
-}
 
 /**
  * Nota da auto-pesquisa (Onda 5b): LÊ o Ferreiro (pacedGet, cache de 10 min em
@@ -380,200 +347,222 @@ async function researchNote(
   return ` Pesquisa ${candidates.map((unit) => UNIT_LABEL[unit]).join(', ')} disponível — vá à Ferreiro (nada foi enviado).`;
 }
 
-/** Unidades recrutáveis + custo por unidade lidos do formulário da tela train. */
-function readTrainScreen(
-  doc: Document,
-): { trainable: Set<UnitType>; costs: Partial<Record<UnitType, UnitCost>> } {
-  const trainable = new Set<UnitType>();
-  const costs: Partial<Record<UnitType, UnitCost>> = {};
-  const forms = doc.querySelectorAll<HTMLFormElement>(
-    '#train_form, form[action*="screen=train"][action*="action=train"]',
-  );
-  for (const form of Array.from(forms)) {
-    for (const input of Array.from(form.querySelectorAll<HTMLInputElement>('input[name]'))) {
-      const unit = input.name as UnitType;
-      if (!UNIT_TYPES.includes(unit)) continue;
-      trainable.add(unit);
-      costs[unit] = readUnitCost(input);
-    }
-  }
-  return { trainable, costs };
+
+
+/** Modo salvo: quem já usava (settings sem execMode) segue em 'tela' até escolher. */
+function savedRecruitMode(world: string): { mode: 'fundo' | 'tela' | null; legacy: boolean } {
+  const raw = gm.get<Record<string, unknown> | null>(`tsh-auto:${world}:recruitment:settings`, null);
+  if (raw === null || typeof raw !== 'object' || Object.keys(raw).length === 0) return { mode: null, legacy: false };
+  if (raw.execMode === 'fundo' || raw.execMode === 'tela') return { mode: raw.execMode, legacy: raw.legacyTela === true };
+  // Grava a escolha: a tela de Configurar passa a mostrar "Só na tela" (e não o padrão novo).
+  gm.set(`tsh-auto:${world}:recruitment:settings`, { ...raw, execMode: 'tela', legacyTela: true });
+  return { mode: 'tela', legacy: true };
 }
 
-/**
- * Custo por recurso da linha da unidade: ícone do recurso (src do jogo) →
- * número do recipiente mais próximo (span/td "ícone N"). Ícone ausente ou
- * número zero = custo ilegível (sem capa para aquele recurso).
- */
-function readUnitCost(input: HTMLInputElement): UnitCost {
-  const row = input.closest('tr');
-  const cost: UnitCost = {};
-  if (row === null) return cost;
-  for (const resource of RESOURCES) {
-    const icon = row.querySelector(`img[src*="${resource}"]`);
-    if (icon === null) continue;
-    const text = icon.closest('span, td')?.textContent ?? '';
-    const amount = parseGameInteger((text.match(/[\d.,]+/) ?? ['0'])[0]);
-    if (amount > 0) cost[resource] = amount;
+/** Metas por aldeia: globais, ou do modelo do grupo (grupoId:modeloId). */
+async function goalsResolver(
+  ctx: TshCycleContext,
+  settings: RecruitmentSettings,
+  notes: Set<string>,
+): Promise<((vid: string, existing: Partial<Record<UnitType, number>>) => Partial<Record<string, number>>) | null> {
+  const global = Object.fromEntries(Object.entries(settings.goals).filter(([u, n]) => UNIT_TYPES.includes(u as UnitType) && n > 0));
+  if (!settings.useGroupModels || settings.groupModels.trim() === '') {
+    if (settings.useGroupModels) notes.add('Modelos por grupo ligados sem mapeamento — valem as metas por tropa.');
+    return () => global;
   }
-  return cost;
+  const parsed = parseGroupModels(settings.groupModels);
+  if (!parsed.ok) {
+    ctx.status(`Mapeamento de modelos por grupo inválido — nada foi feito (${parsed.reason}).`, 'warn');
+    return null;
+  }
+  const byVillage = new Map<string, TroopModel>();
+  for (const entry of parsed.entries) {
+    const model = modelFromStorage(ctx.world, entry.modelId);
+    if (model === null) {
+      notes.add(`Modelo "${entry.modelId}" não encontrado no cofre de modelos.`);
+      continue;
+    }
+    const villages = await getGroupVillages(entry.groupId);
+    if (villages.length === 0) {
+      // Grupo não lido: as aldeias dele cairiam nas metas gerais (mistura errada de tropas).
+      ctx.status(`Não consegui ler as aldeias do grupo ${entry.groupId} dos modelos por grupo — nada foi recrutado neste ciclo.`, 'warn');
+      return null;
+    }
+    for (const v of villages) if (!byVillage.has(String(v.villageId))) byVillage.set(String(v.villageId), model);
+  }
+  return (vid, existing) => {
+    const model = byVillage.get(vid);
+    return model === undefined ? global : goalsFromModel(model, existing);
+  };
+}
+
+function unitsLabel(units: Partial<Record<string, number>>): string {
+  return Object.entries(units)
+    .filter(([, n]) => (n ?? 0) > 0)
+    .map(([u, n]) => `${n} ${UNIT_LABEL[u as UnitType] ?? u}`)
+    .join(', ');
+}
+
+/** Segundo plano: uma página do Recrutamento em massa por ciclo, 1 envio. */
+async function runBackground(ctx: TshCycleContext, settings: RecruitmentSettings): Promise<void> {
+  const notes = new Set<string>();
+  const goalsFor = await goalsResolver(ctx, settings, notes);
+  if (goalsFor === null) return;
+  const pageNo = ctx.storage.get<number>('massPage', 0);
+  const pagePath = `/game.php?village=${ctx.villageId}&screen=train&mode=mass&page=${pageNo}`;
+  const page = parseMassRecruit(await pacedGet(pagePath, { fresh: true }));
+  if (page === null && pageNo > 0) {
+    ctx.storage.set('massPage', 0); // a página sumiu (menos aldeias?) — recomeça do início
+    ctx.status('A página seguinte do Recrutamento em massa não abriu — recomeço do início no próximo ciclo.', 'info');
+    return;
+  }
+  if (page === null) {
+    ctx.status('Não consegui abrir o Recrutamento em massa — ele só existe com Conta Premium ativa. Nada foi recrutado. Sem Premium, escolha "Só na tela" em Configurar.', 'warn');
+    return;
+  }
+  const next = pageNo < page.lastLinkedPage || page.full ? pageNo + 1 : 0;
+  if (page.groupId !== 0) notes.add(`O jogo está mostrando só um grupo de aldeias no Recrutamento em massa: o recrutamento cobre só essas. Para todas, escolha "todos" no menu de grupos do jogo.`);
+  const plan = new Map<string, Partial<Record<RecruitUnit, number>>>();
+  let noGoals = true;
+  let popCap = 0;
+  let short = 0;
+  for (const v of page.villages) {
+    if (settings.maxPopulation > 0 && v.farm.used >= settings.maxPopulation) {
+      popCap += 1;
+      continue;
+    }
+    const existing = Object.fromEntries(Object.entries(v.units).map(([u, i]) => [u, i?.existing ?? 0])) as Partial<Record<UnitType, number>>;
+    const goals = goalsFor(v.id, existing);
+    if (Object.values(goals).some((n) => (n ?? 0) > 0)) noGoals = false;
+    const units = planVillageRecruit(v, page.costs, { goals, keepResources: settings.keepResources, batchMax: settings.batchMax, popCeiling: settings.maxPopulation });
+    if (Object.keys(units).length > 0) plan.set(v.id, units);
+    else if (Object.entries(goals).some(([u, g]) => (g ?? 0) > (v.units[u as RecruitUnit]?.existing ?? 0) + (v.units[u as RecruitUnit]?.running ?? 0))) short += 1;
+  }
+  ctx.storage.set('massPage', next);
+  const extra = [...notes].slice(0, 1).map((n) => ` ${n}`).join('') + (popCap > 0 ? ` ${popCap} aldeia(s) no teto de população.` : '');
+  if (noGoals) {
+    ctx.status(`Nenhuma meta de recrutamento — abra Configurar e diga quantas tropas cada aldeia deve ter.${extra}`, 'info');
+    return;
+  }
+  if (plan.size === 0) {
+    ctx.status(
+      `${short > 0 ? `Nada a recrutar agora: ${short} aldeia(s) abaixo da meta, mas sem recurso${settings.keepResources > 0 ? ` (respeitando os ${settings.keepResources.toLocaleString('pt-BR')} que ficam em casa)` : ''}, sem fazenda ou o jogo não deixa agora.` : 'Metas atendidas em todas as aldeias lidas (contando a fila).'}${next !== 0 ? ' Sigo nas próximas aldeias em 1 min.' : ''}${extra}`,
+      'info',
+    );
+    return;
+  }
+  if (!(await awaitRoutineMutation('recrutamento'))) {
+    ctx.storage.set('massPage', pageNo); // nada saiu: a mesma página no próximo ciclo
+    ctx.status('Pausa de humanização ativa — o recrutamento fica para o próximo ciclo.', 'info');
+    return;
+  }
+  const body = massRecruitBody(plan);
+  const result = await postGameForm(page.action, Object.fromEntries(body.entries()));
+  if (!result.ok) {
+    if (/captcha/i.test(result.message)) tripHalt('captcha', result.message);
+    ctx.status(result.afterMutation ? `${result.message} Confiro de novo no próximo ciclo (sem repetir às cegas).` : `Recrutamento não enviado: ${result.message}`, 'warn');
+    return;
+  }
+  // Confirmação pelo PRÓPRIO jogo: a fila (data-running) das aldeias enviadas subiu?
+  const after = parseMassRecruit(await pacedGet(pagePath, { fresh: true }).catch(() => ''));
+  const confirmed =
+    after === null
+      ? null
+      : [...plan.keys()].filter((vid) => {
+          const antes = page.villages.find((v) => v.id === vid);
+          const depois = after.villages.find((v) => v.id === vid);
+          if (antes === undefined || depois === undefined) return false;
+          return Object.keys(plan.get(vid) ?? {}).some((u) => (depois.units[u as RecruitUnit]?.running ?? 0) > (antes.units[u as RecruitUnit]?.running ?? 0));
+        }).length;
+  if (next !== 0) ctx.again?.(60_000);
+  const total: Partial<Record<string, number>> = {};
+  for (const units of plan.values()) for (const [u, n] of Object.entries(units)) total[u] = (total[u] ?? 0) + (n ?? 0);
+  if (confirmed === 0) {
+    ctx.status(`O jogo não aceitou o recrutamento (a fila não mudou em nenhuma das ${plan.size} aldeia(s)). Nada foi recrutado — confira os recursos e a fazenda.${extra}`, 'warn');
+    return;
+  }
+  ctx.status(
+    `Recrutamento enviado em ${confirmed ?? plan.size} aldeia(s)${confirmed !== null && confirmed < plan.size ? ` (de ${plan.size} planejadas — o jogo recusou o resto)` : ''}: ${unitsLabel(total)}.${next !== 0 ? ' Ainda faltam aldeias — continuo em 1 min.' : ''}${extra}`,
+    confirmed !== null && confirmed < plan.size ? 'warn' : 'ok',
+  );
+}
+
+/** Só na tela: a aldeia aberta, pelo formulário da tela de recrutamento. */
+async function runScreen(ctx: TshCycleContext, settings: RecruitmentSettings, legacy: boolean): Promise<void> {
+  if (new URLSearchParams(window.location.search).get('screen') !== 'train') {
+    ctx.status(
+      legacy
+        ? 'Novo na 3.8: o Recrutamento pode rodar em TODAS as aldeias sem abrir a tela — escolha "Segundo plano" em Configurar. Por enquanto ele segue só na tela de recrutamento, como antes.'
+        : 'Modo "Só na tela": abra a tela de recrutamento (Quartel/Estábulo/Oficina) para ele agir.',
+      'info',
+    );
+    return;
+  }
+  const notes = new Set<string>();
+  const goalsFor = await goalsResolver(ctx, settings, notes);
+  if (goalsFor === null) return;
+  const screen = parseTrainScreen(document.documentElement.outerHTML);
+  if (screen === null) {
+    ctx.status('Não reconheci a tela de recrutamento — nada foi recrutado.', 'warn');
+    return;
+  }
+  if (settings.maxPopulation > 0 && screen.village.farm.used >= settings.maxPopulation) {
+    ctx.status(`População em ${screen.village.farm.used}/${screen.village.farm.max}: no teto configurado (${settings.maxPopulation}) — nada foi recrutado.`, 'info');
+    return;
+  }
+  const existing = Object.fromEntries(Object.entries(screen.village.units).map(([u, i]) => [u, i?.existing ?? 0])) as Partial<Record<UnitType, number>>;
+  const goals = goalsFor(ctx.villageId, existing);
+  const research = settings.autoResearch ? await researchNote(ctx, Object.keys(goals), Object.keys(screen.village.units) as UnitType[]) : '';
+  const extra = [...notes].slice(0, 1).map((n) => ` ${n}`).join('');
+  if (!Object.values(goals).some((n) => (n ?? 0) > 0)) {
+    ctx.status(`Nenhuma meta de recrutamento — abra Configurar e diga quantas tropas a aldeia deve ter.${extra}`, 'info');
+    return;
+  }
+  const units = planVillageRecruit(screen.village, screen.costs, { goals, keepResources: settings.keepResources, batchMax: settings.batchMax, popCeiling: settings.maxPopulation });
+  if (Object.keys(units).length === 0) {
+    ctx.status(`Nada a recrutar agora: metas atendidas (contando a fila) ou sem recursos/fazenda.${extra}${research}`, 'info');
+    return;
+  }
+  await recruitUnits(units as Record<string, number>);
+  ctx.status(`Recrutamento enviado: ${unitsLabel(units)}.${extra}${research}`, 'ok');
 }
 
 async function runCycle(ctx: TshCycleContext): Promise<void> {
   const parsed = recruitmentSettings.safeParse(ctx.storage.get<unknown>('settings', {}));
   if (!parsed.success) {
-    ctx.status('Configurações de recrutamento inválidas — nada foi feito. Revise as metas por unidade.', 'warn');
+    ctx.status('Configurações de recrutamento inválidas — nada foi feito. Revise em Configurar.', 'warn');
     return;
   }
-  const settings: RecruitmentSettings = parsed.data;
-  // P3 (revisão Onda 8): o formulário grava as 12 unidades (zeros inclusos) —
-  // meta 0 = "não recutar", então conta só metas positivas.
-  let goals = Object.entries(settings.goals).filter(
-    ([unit, amount]) => UNIT_TYPES.includes(unit as UnitType) && amount > 0,
-  );
-  // Modelos por grupo (Onda 5b): metas da aldeia vêm do modelo do SEU grupo.
-  // Sem grupo identificado/modelo/sem regra → metas atuais (com nota no status).
-  let groupNote = '';
-  if (settings.useGroupModels) {
-    if (settings.groupModels.trim() === '') {
-      groupNote = ' Modelos por grupo ligados sem mapeamento "grupoId:modeloId" — usando as metas por unidade.';
-    } else {
-      const parsedModels = parseGroupModels(settings.groupModels);
-      if (!parsedModels.ok) {
-        ctx.status(
-          `Mapeamento de modelos por grupo inválido — nada foi feito (${parsedModels.reason}).`,
-          'warn',
-        );
-        return;
-      }
-      const groupId = await groupIdForVillage(ctx.world, ctx.villageId);
-      const modelId = modelForGroup(parsedModels.entries, groupId);
-      if (modelId === null) {
-        groupNote =
-          groupId === null
-            ? ' Grupo da aldeia não identificado (leitura de grupos vazia/indisponível) — usando as metas por unidade.'
-            : ` Sem modelo para o grupo ${groupId} — usando as metas por unidade.`;
-      } else {
-        const model = modelFromStorage(ctx.world, modelId);
-        if (model === null) {
-          groupNote = ` Modelo "${modelId}" não encontrado no cofre de modelos deste mundo — usando as metas por unidade.`;
-        } else {
-          const modelGoals = goalsFromModel(model, readCurrentUnits(document));
-          goals = Object.entries(modelGoals).filter(
-            ([unit, amount]) => UNIT_TYPES.includes(unit as UnitType) && amount > 0,
-          );
-          groupNote = ` Metas do modelo "${model.name}" (grupo ${groupId}).`;
-        }
-      }
-    }
-  }
-  if (goals.length === 0) {
-    ctx.status(
-      `Nenhuma meta de recrutamento configurada — abra "Configurar" e defina as quantidades-alvo.${groupNote}`,
-      'info',
-    );
-    return;
-  }
-  if (hasActiveTrainQueue(document)) {
-    ctx.status(`Já existe um recrutamento em andamento nesta aldeia.${groupNote}`, 'info');
-    return;
-  }
-  // Modo "manter população" (Onda 15a): 0 = ilimitado. Com teto definido,
-  // bloqueia no teto (ou com a barra ilegível — fail-closed).
-  if (settings.maxPopulation > 0) {
-    const bar = readPopulationBar(document);
-    if (bar === null) {
-      ctx.status(
-        `Modo "manter população" (teto ${settings.maxPopulation}): a barra de população da aldeia não pôde ser lida — nada foi recrutado por segurança.`,
-        'warn',
-      );
-      return;
-    }
-    if (recruitmentBlockedByPopulation(settings.maxPopulation, bar)) {
-      ctx.status(
-        `Modo "manter população": população da aldeia em ${bar.current}/${bar.max} está no teto configurado (${settings.maxPopulation}) — nada foi recrutado neste ciclo.`,
-        'info',
-      );
-      return;
-    }
-  }
-  const screen = readTrainScreen(document);
-  const goalUnits = goals.map(([unit]) => unit);
-  const candidates = goals
-    .map(([unit, goal]) => {
-      const typed = unit as UnitType;
-      return { unit: typed, goal, current: readUnitCount(document, typed), trainable: screen.trainable.has(typed) };
-    })
-    .filter((candidate) => candidate.current < candidate.goal && candidate.trainable)
-    .sort((left, right) => left.current / left.goal - right.current / right.goal);
-  // Auto-pesquisa (Onda 5b): só PLANEJA e reporta — nenhuma mutação aqui.
-  const research = settings.autoResearch
-    ? await researchNote(ctx, goalUnits, [...screen.trainable])
-    : '';
-  if (candidates.length === 0) {
-    const unresearched = goals.filter(([unit]) => !screen.trainable.has(unit as UnitType));
-    ctx.status(
-      `${
-        unresearched.length > 0
-          ? 'Há metas para unidades ainda não pesquisadas no Ferreiro desta aldeia.'
-          : 'Todas as metas de recrutamento estão atendidas.'
-      }${groupNote}${research}`,
-      'info',
-    );
-    return;
-  }
-  const candidate = candidates[0];
-  if (candidate === undefined) return;
-  const deficit = candidate.goal - candidate.current;
-  const amount = capRecruitmentBatch(deficit, readResources(document), screen.costs[candidate.unit] ?? {});
-  if (amount <= 0) {
-    ctx.status(
-      `Recursos insuficientes para recrutar ${candidate.unit} agora (meta ${candidate.goal}, tem ${candidate.current}).${groupNote}${research}`,
-      'info',
-    );
-    return;
-  }
-  // F2: UMA mutação por ciclo — 1 submit com o lote cabível da meta mais carente.
-  await recruitUnits({ [candidate.unit]: amount });
-  ctx.status(
-    `Recrutamento enviado: ${amount} ${candidate.unit} (meta ${candidate.goal}, tinha ${candidate.current}).${groupNote}${research}`,
-    'ok',
-  );
+  const saved = savedRecruitMode(ctx.world);
+  const mode = saved.mode ?? parsed.data.execMode;
+  if (mode === 'fundo') await runBackground(ctx, parsed.data);
+  else await runScreen(ctx, parsed.data, saved.legacy);
 }
 
 export const recruitmentAutomation: TshAutomation = {
   id: 'recruitment',
   label: 'Recrutamento',
-  desc: 'Metas por unidade (ou pelo modelo do grupo da aldeia) na tela do Quartel/Estábulo/Oficina: recruta o lote cabível da unidade mais carente (1 submit por ciclo).',
+  desc: 'Mantém cada aldeia com as tropas-meta: em segundo plano (todas as aldeias, pelo Recrutamento em massa) ou só na tela de recrutamento. Conta a fila, respeita recursos, fazenda e o máximo do jogo.',
   category: 'producao',
-  screen: 'train',
+  screen: null,
   mutating: true,
-  settingsDefaults: { goals: {}, maxPopulation: 0, useGroupModels: false, groupModels: '', autoResearch: false },
+  settingsDefaults: { goals: {}, maxPopulation: 0, useGroupModels: false, groupModels: '', autoResearch: false, execMode: 'fundo', keepResources: 0, batchMax: 0 },
   settingsForm: [
     {
-      key: 'useGroupModels',
-      label: 'Usar modelos de tropa por grupo',
-      type: 'boolean',
-      help: 'Ligado, as metas desta aldeia vêm do modelo do grupo a que ela pertence (mapeamento abaixo) em vez das metas por unidade.',
-    },
-    {
-      key: 'groupModels',
-      label: 'Modelos por grupo (um por linha)',
-      type: 'textarea',
-      placeholder: '182608:preset:ataque\n182622:custom:defesa-5k',
-      help: 'Formato "grupoId:modeloId" (ex.: 182608:preset:ataque). Modelos: preset:dispensar/lanceiro/lanca-com-cl, defesa, ataque ou custom:<nome> do cofre de modelos. Sem grupo identificado (leitura vazia) ou sem modelo para o grupo, valem as metas por unidade — o status avisa.',
-    },
-    {
-      key: 'autoResearch',
-      label: 'Auto-pesquisa (somente planejar)',
-      type: 'boolean',
-      help: 'Após recrutar, lê o Ferreiro (cache de 10 min) e reporta no status "pesquisa X disponível — vá ao Ferreiro". Nesta versão NADA é pesquisado automaticamente (a mutação fica para o transporte futuro).',
+      key: 'execMode',
+      label: 'Onde roda',
+      type: 'select',
+      options: [
+        { value: 'fundo', label: 'Segundo plano — todas as aldeias (precisa de Conta Premium)' },
+        { value: 'tela', label: 'Só na tela de recrutamento (a aldeia aberta)' },
+      ],
+      help: 'Segundo plano: usa o Recrutamento em massa do jogo e recruta em todas as aldeias, em qualquer tela, um bloco de aldeias por vez. Só na tela: age só na aldeia aberta, com a tela de recrutamento aberta. Quem usava a versão antiga segue em "Só na tela" até escolher aqui.',
     },
     {
       key: 'goals',
       label: 'Metas por unidade',
       type: 'record',
-      help: 'Quantidade-alvo de cada unidade nesta aldeia. 0 = não recruta. O ciclo preenche a unidade mais distante da meta que couber nos recursos.',
+      help: 'Quanto cada aldeia deve ter NO TOTAL, contando as tropas em casa, fora e na fila. Ex.: meta 1.000 lanças, tem 800 e 100 na fila → recruta até 100. 0 = não recruta. Paladino e Nobre não entram (são feitos na Estátua e na Academia).',
       recordKeys: [
         { key: 'spear', label: 'Lança', min: 0, step: 10 },
         { key: 'sword', label: 'Espada', min: 0, step: 10 },
@@ -585,18 +574,52 @@ export const recruitmentAutomation: TshAutomation = {
         { key: 'heavy', label: 'Cav. Pesada', min: 0, step: 10 },
         { key: 'ram', label: 'Aríete', min: 0, step: 5 },
         { key: 'catapult', label: 'Catapulta', min: 0, step: 5 },
-        { key: 'knight', label: 'Paladino', min: 0, step: 1 },
-        { key: 'snob', label: 'Nobre', min: 0, step: 1 },
       ],
     },
     {
+      key: 'keepResources',
+      label: 'Recursos que ficam em casa (cada tipo)',
+      type: 'number',
+      min: 0,
+      step: 1000,
+      help: 'Madeira, argila e ferro que o recrutamento nunca usa (ex.: para construir). 0 = pode usar tudo.',
+    },
+    {
+      key: 'batchMax',
+      label: 'Máximo por tropa em cada envio',
+      type: 'number',
+      min: 0,
+      step: 10,
+      help: 'Espalha o recrutamento: no máximo isso de cada tropa por vez. 0 = o que couber.',
+    },
+    {
       key: 'maxPopulation',
-      label: 'Manter população — teto',
+      label: 'Teto de população da aldeia',
       type: 'number',
       min: 0,
       step: 100,
       placeholder: '0',
-      help: 'Modo "manter população": teto de população da aldeia (lido da barra "12.345/24.000" do jogo). Atingido o teto, o ciclo não recruta. 0 = ilimitado.',
+      help: 'Quando a fazenda da aldeia chega nesse número, ela para de recrutar. 0 = sem teto.',
+    },
+
+    {
+      key: 'useGroupModels',
+      label: 'Usar modelos de tropa por grupo',
+      type: 'boolean',
+      help: 'Ligado, as metas desta aldeia vêm do modelo do grupo a que ela pertence (mapeamento abaixo) em vez das metas por unidade.',
+    },
+    {
+      key: 'groupModels',
+      label: 'Modelos por grupo (um por linha)',
+      type: 'textarea',
+      placeholder: '182608:preset:ataque\n182622:custom:defesa-5k',
+      help: 'Cada grupo de aldeias pode seguir um modelo de tropas; sem modelo, valem as Metas acima. Formato por linha: número do grupo:modelo (ex.: 182608:preset:ataque). Modelos prontos: preset:defesa, preset:ataque, preset:lanceiro; os seus: custom:<nome>.',
+    },
+    {
+      key: 'autoResearch',
+      label: 'Avisar pesquisas pendentes no Ferreiro',
+      type: 'boolean',
+      help: 'Só avisa no status quando dá para pesquisar uma tropa das metas (modo "Só na tela"). Não pesquisa nada sozinho.',
     },
   ],
   runCycle,

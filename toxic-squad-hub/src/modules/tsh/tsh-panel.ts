@@ -350,7 +350,7 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
     const vid = currentVillageId();
     ir.href = `/game.php?${vid !== '' ? `village=${encodeURIComponent(vid)}&` : ''}screen=${encodeURIComponent(pagina)}`;
     ir.appendChild(icon('globe', 11));
-    ir.appendChild(document.createTextNode(`Acessar página · ${screenName(pagina)}`));
+    ir.appendChild(document.createTextNode(`Abrir ${screenName(pagina)} →`));
     main.appendChild(ir);
   }
 
@@ -681,12 +681,12 @@ function drawTshPanel(container: HTMLElement, rerender: () => void): void {
     pagina: {
       label: 'Scripts de Página',
       ic: 'globe',
-      help: 'Rodam na página própria do jogo (Praça, Assistente de Saque, Mercado…), para mais foco e controle. Ligue e use "Acessar página".',
+      help: 'Trabalham com a página deles aberta (Praça, Assistente de Saque, Mercado…). Ligue, clique em "Abrir" e deixe a aba aberta.',
     },
     background: {
       label: 'Scripts de Background',
       ic: 'layers',
-      help: 'Rodam sozinhos em qualquer aba do jogo aberta (ou na Sentinela), sem precisar abrir tela nenhuma.',
+      help: 'Rodam em segundo plano, em qualquer aba do jogo aberta (ou na Sentinela), sem precisar abrir tela nenhuma.',
     },
   };
   for (const k of ['pagina', 'background'] as const) {
@@ -700,9 +700,19 @@ function drawTshPanel(container: HTMLElement, rerender: () => void): void {
     b.append(icon(kindInfo[k].ic, 14), document.createTextNode(kindInfo[k].label));
     const c = document.createElement('span');
     c.className = ligados > 0 ? 'tsh-group-count tsh-group-count--on' : 'tsh-group-count';
-    c.textContent = ligados > 0 ? `${ligados}/${lista.length}` : String(lista.length);
+    c.textContent = `${ligados}/${lista.length}`;
     c.title = `${ligados} ligado(s) de ${lista.length}`;
     b.appendChild(c);
+    // Alerta na OUTRA aba não fica escondido: contagem de "pedindo atenção".
+    const alertas = lista.filter((a) => isTshEnabled(a.id) && tshStatus(a.id, world)?.kind === 'warn').length;
+    if (alertas > 0) {
+      const w = document.createElement('span');
+      w.className = 'tsh-kind-warn';
+      w.appendChild(icon('alert', 11));
+      w.appendChild(document.createTextNode(String(alertas)));
+      w.title = `${alertas} automação(ões) pedindo atenção`;
+      b.appendChild(w);
+    }
     b.addEventListener('click', () => {
       gm.set(KIND_KEY, k);
       rerender();

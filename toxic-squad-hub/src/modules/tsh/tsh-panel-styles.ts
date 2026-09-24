@@ -797,6 +797,8 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
     .tsh-row-go { display: inline-flex; align-items: center; gap: 4px; margin-top: 3px; font-size: 11.5px; font-weight: 600;
       color: var(--shs-action, #6d3c14); text-decoration: none; }
     .tsh-row-go:hover { text-decoration: underline; }
+    .tsh-kind-warn { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; padding: 0 6px; border-radius: 99px;
+      background: var(--shs-danger-bg, #fde8e4); color: var(--shs-danger, #b3261e); }
     .tsh-kind-help { font-size: 12px; color: var(--shs-muted, #8a6a44); margin: 0 2px 10px; line-height: 1.45; }
     @media (max-width: 420px) { .tsh-kinds { grid-template-columns: 1fr; } }
     .tsh-seg { display: inline-flex; border: 1px solid var(--shs-border-strong, #cbb384);

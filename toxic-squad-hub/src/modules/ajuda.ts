@@ -116,6 +116,12 @@ export function renderAjuda(container: HTMLElement): void {
   item(coleta.body, '**Desbloquear níveis sozinho:** sem nada para coletar e com recursos, desbloqueia o próximo nível da aldeia (um por ciclo).');
   grid.appendChild(coleta.box);
 
+  const recruta = card('Recrutamento', 'users');
+  item(recruta.body, '**Segundo plano (padrão para quem começa agora):** lê o **Recrutamento em massa** do jogo (Conta Premium) e mantém cada aldeia com as tropas-meta — em qualquer tela, recruta um bloco de aldeias por vez, em sequência. Sem Premium, use **Só na tela** (a aldeia aberta, com a tela de recrutamento aberta).');
+  item(recruta.body, '**A fila conta:** tropa que já está sendo recrutada vale como "tem". O jogo diz quanto cabe (recursos, fazenda, edifício) e o script nunca passa disso.');
+  item(recruta.body, '**Recursos que ficam em casa** protegem o que você quer usar para construir; **máximo por tropa em cada envio** espalha o recrutamento ao longo do dia; o **teto de população** para a aldeia quando a fazenda chega nele.');
+  grid.appendChild(recruta.box);
+
   const farm = card('Central de Farm', 'sword');
   item(farm.body, '**Script de página:** com o Auto Farm ligado, a Central aparece no topo do **Assistente de Saque** (botão "Acessar página" no painel). Aperte **Iniciar**: ela farma de todas as aldeias enquanto a aba estiver aberta, e continua sozinha se a página recarregar.');
   item(farm.body, '**Uma rodada:** lê a lista do Assistente uma vez, as tropas em casa de todas as aldeias e os ataques já a caminho; cada alvo vai para a **sua aldeia mais próxima** que tem a tropa, e o mesmo alvo não recebe dois farms chegando juntos.');
