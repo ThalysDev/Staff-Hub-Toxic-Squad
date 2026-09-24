@@ -43,3 +43,70 @@ export function unitIcon(key: string, size = 18): HTMLImageElement {
   img.style.verticalAlign = 'middle';
   return img;
 }
+
+/** Ordem canônica das unidades no jogo (fileiras sempre na mesma ordem). */
+const UNIT_ORDER = Object.keys(UNIT_LABELS);
+
+/**
+ * Fileira de tropas (v3.2): ÍCONE oficial + quantidade em mono, no lugar de
+ * "Machado ×200, Nobre ×1" — mais curto e reconhecível. O nome fica na dica
+ * (title) e no texto acessível. Estilo inline: funciona no painel (Shadow
+ * DOM) e nas injeções dentro da página do jogo.
+ */
+export function unitStrip(units: Partial<Record<string, number>>, opts?: { size?: number; max?: number; suffix?: string }): HTMLSpanElement {
+  const size = opts?.size ?? 16;
+  const max = opts?.max ?? 12;
+  const strip = document.createElement('span');
+  strip.className = 'tsh-unitstrip';
+  strip.style.cssText = 'display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;vertical-align:middle;';
+  const entries = UNIT_ORDER.filter((key) => (units[key] ?? 0) > 0).map((key) => [key, units[key] ?? 0] as const);
+  const fmt = (n: number): string => n.toLocaleString('pt-BR');
+  const legenda = entries.map(([key, n]) => `${unitLabelOrKey(key)} ${fmt(n)}${opts?.suffix ?? ''}`).join(' · ');
+  strip.title = legenda;
+  strip.setAttribute('aria-label', legenda === '' ? 'sem tropas' : legenda);
+  for (const [key, n] of entries.slice(0, max)) {
+    const item = document.createElement('span');
+    item.style.cssText = 'display:inline-flex;align-items:center;gap:3px;white-space:nowrap;';
+    const img = unitIcon(key, size);
+    img.setAttribute('aria-hidden', 'true');
+    const count = document.createElement('span');
+    count.style.cssText = "font-family:var(--shs-font-mono,Consolas,monospace);font-variant-numeric:tabular-nums;";
+    count.textContent = `${fmt(n)}${opts?.suffix ?? ''}`;
+    item.append(img, count);
+    strip.appendChild(item);
+  }
+  if (entries.length > max) {
+    const more = document.createElement('span');
+    more.textContent = `+${entries.length - max}`;
+    more.style.cssText = 'color:var(--shs-muted,#6b665d);';
+    strip.appendChild(more);
+  }
+  if (entries.length === 0) strip.textContent = '—';
+  return strip;
+}
+
+/** <img> do ícone de um PRÉDIO do jogo (`graphic/buildings/<key>.png`). */
+export function buildingIcon(key: string, size = 20): HTMLImageElement {
+  const img = document.createElement('img');
+  img.src = `graphic/buildings/${key}.png`;
+  img.alt = '';
+  img.draggable = false;
+  img.width = size;
+  img.height = size;
+  img.style.verticalAlign = 'middle';
+  img.setAttribute('aria-hidden', 'true');
+  return img;
+}
+
+/** Tipo de comando → unidade que o representa no jogo (ícone didático). */
+const KIND_UNIT: Record<string, string> = { attack: 'axe', support: 'spear', noble: 'snob', fake: 'ram' };
+
+/** Ícone do TIPO de comando (nobre, ataque, apoio, fake); null = sem ícone de unidade (cancelar). */
+export function kindIcon(kind: string, size = 16): HTMLImageElement | null {
+  const unit = KIND_UNIT[kind];
+  if (unit === undefined) return null;
+  const img = unitIcon(unit, size);
+  img.setAttribute('aria-hidden', 'true');
+  img.title = '';
+  return img;
+}

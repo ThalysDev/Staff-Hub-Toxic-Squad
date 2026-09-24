@@ -23,6 +23,7 @@ import { currentWorld } from '../../core/page';
 import { gm } from '../../core/storage';
 import { ensureTshPanelStyles } from './tsh-panel-styles';
 import { loadSchedule } from './tsh-settings';
+import { buildingIcon, unitIcon } from './tsh-units';
 import { openTshPreviewModal, openTshSettingsModal, tshConfirm } from './tsh-settings-ui';
 import {
   armTsh,
@@ -172,6 +173,45 @@ const GROUPS: readonly TshGroup[] = [
 ];
 
 
+// ── Ícone de cada automação (v3.2): prédio/unidade OFICIAL do jogo quando
+//    existe um que a represente; senão um ícone de traço do painel. ──
+type AutoIcon = { unit: string } | { building: string } | { stroke: IconName };
+const AUTOMATION_ICONS: Record<string, AutoIcon> = {
+  'command-scheduler': { stroke: 'crosshair' },
+  'auto-farm': { unit: 'light' },
+  'map-farm': { stroke: 'map' },
+  'barbarian-cultivator': { unit: 'catapult' },
+  'wall-demolition': { unit: 'ram' },
+  'conquista-livres': { unit: 'snob' },
+  'producao-nobres': { building: 'snob' },
+  'coin-center': { stroke: 'coins' },
+  'auto-mint-nativo': { stroke: 'coins' },
+  collection: { stroke: 'package' },
+  recruitment: { building: 'barracks' },
+  'mega-builder': { building: 'main' },
+  'premium-exchange': { building: 'market' },
+  'resource-balancer': { stroke: 'swap' },
+  'paladin-training': { unit: 'knight' },
+  'paladino-skills': { building: 'statue' },
+  'mass-support': { unit: 'spear' },
+  'support-manager': { unit: 'sword' },
+  'op-generator': { stroke: 'layers' },
+  'abrir-pacotes': { stroke: 'package' },
+  'ativador-itens': { stroke: 'gift' },
+  'doador-prestigio': { stroke: 'crown' },
+  'renomeador-aldeias': { stroke: 'edit' },
+};
+
+function automationIconBox(id: string): HTMLSpanElement {
+  const box = document.createElement('span');
+  box.className = 'tsh-autoic';
+  const spec = AUTOMATION_ICONS[id] ?? { stroke: 'zap' as IconName };
+  if ('unit' in spec) box.appendChild(unitIcon(spec.unit, 20));
+  else if ('building' in spec) box.appendChild(buildingIcon(spec.building, 20));
+  else box.appendChild(icon(spec.stroke, 17));
+  return box;
+}
+
 // ── Prévia: dado publicado pelo plugin via ctx.storage ──
 
 const PREVIEW_KEYS = ['last-plan', 'last-report', 'last-preview'] as const;
@@ -223,6 +263,7 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   const rowEl = document.createElement('div');
   rowEl.className = enabled ? 'tsh-row' : 'tsh-row tsh-row--off';
   rowEl.dataset.searchId = `tsh:${automation.id}`; // alvo da busca rápida (Onda C)
+  rowEl.appendChild(automationIconBox(automation.id));
 
   // ── coluna esquerda (Instrumento): nome (+ armado) e UMA linha de estado ──
   const main = document.createElement('div');
@@ -507,10 +548,10 @@ function drawTshPanel(container: HTMLElement, rerender: () => void): void {
   seg.className = 'tsh-seg';
   seg.setAttribute('role', 'radiogroup');
   seg.setAttribute('aria-label', 'Filtrar automações');
-  const filtros: { value: TshListFilter; label: string }[] = [
-    { value: 'todas', label: 'Todas' },
-    { value: 'ativas', label: 'Ativas' },
-    { value: 'atencao', label: 'Com atenção' },
+  const filtros: { value: TshListFilter; label: string; ic: IconName }[] = [
+    { value: 'todas', label: 'Todas', ic: 'list' },
+    { value: 'ativas', label: 'Ativas', ic: 'zap' },
+    { value: 'atencao', label: 'Com atenção', ic: 'alert' },
   ];
   for (const opt of filtros) {
     const b = document.createElement('button');
@@ -518,7 +559,7 @@ function drawTshPanel(container: HTMLElement, rerender: () => void): void {
     b.className = 'tsh-seg-btn';
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-checked', String(opt.value === filter));
-    b.textContent = opt.label;
+    b.append(icon(opt.ic, 13), document.createTextNode(opt.label));
     b.addEventListener('click', () => {
       gm.set(FILTER_KEY, opt.value);
       rerender();
@@ -584,6 +625,9 @@ function drawTshPanel(container: HTMLElement, rerender: () => void): void {
     groupTitle.className = temAtivos ? 'tsh-group-title tsh-group-title--on' : 'tsh-group-title';
     groupTitle.setAttribute('aria-expanded', String(!fechado));
     groupTitle.appendChild(icon(fechado ? 'arrowRight' : 'chevronDown', 14));
+    const gIcon = icon(group.iconName, 15);
+    gIcon.classList.add('tsh-group-ic');
+    groupTitle.appendChild(gIcon);
     groupTitle.appendChild(document.createTextNode(group.label));
     const count = document.createElement('span');
     count.className = temAtivos ? 'tsh-group-count tsh-group-count--on' : 'tsh-group-count';

@@ -440,11 +440,10 @@ function renderField(
         if (isUnitKey(rk.key)) {
           // Unidade: ícone do jogo + rótulo pt-BR; a key crua fica no title.
           cell.classList.add('tsh-unit-cell');
-          lab.title = rk.key;
-          lab.appendChild(unitIcon(rk.key, 18));
-          const labTxt = document.createElement('span');
-          labTxt.textContent = unitLabelOrKey(rk.key);
-          lab.appendChild(labTxt);
+          // v3.2: ícone oficial no lugar do nome (nome na dica).
+          lab.title = unitLabelOrKey(rk.key);
+          lab.setAttribute('aria-label', unitLabelOrKey(rk.key));
+          lab.appendChild(unitIcon(rk.key, 22));
         } else {
           lab.textContent = rk.label;
         }

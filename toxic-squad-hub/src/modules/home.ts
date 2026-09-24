@@ -11,6 +11,7 @@ import { currentWorld } from '../core/page';
 import { openSection } from '../core/shell';
 import { isVantaEnabled, vantaLaunchers } from './vanta/vanta-registry';
 import { currentVillageId, isTshEnabled, tshArmedUntil, tshAutomations, tshNextRunAt, tshStatus } from './tsh/tsh-runtime';
+import { kindIcon, unitStrip } from './tsh/tsh-units';
 import { loadSchedule, isScheduleStopped } from './tsh/tsh-settings';
 import { tshPanelSignature } from './tsh/tsh-panel';
 import { aimIsHot, clockInfo, serverNowMs } from '../core/game-clock';
@@ -104,6 +105,7 @@ interface CommandRecordLike {
   kind?: unknown;
   target?: unknown;
   arrivalAt?: unknown;
+  units?: unknown;
 }
 
 /** Origem do próximo comando (para dizer QUAL aba precisa estar aberta). */
@@ -128,6 +130,7 @@ export function nextScheduled(world: string): {
   nextKind: string | null;
   nextTarget: string | null;
   nextArrivalAt: number | null;
+  nextUnits: Record<string, number>;
 } {
   const state = gm.get<{ commands?: unknown[] }>(`tsh-auto:${world}:command-scheduler:scheduler`, {});
   const commands = Array.isArray(state.commands) ? state.commands : [];
@@ -167,6 +170,10 @@ export function nextScheduled(world: string): {
     nextKind: first !== undefined && typeof first.c.kind === 'string' ? first.c.kind : null,
     nextTarget: tgt !== undefined && typeof tgt.x === 'number' && typeof tgt.y === 'number' ? `${tgt.x}|${tgt.y}` : null,
     nextArrivalAt: Number.isFinite(arrival) ? arrival : null,
+    nextUnits:
+      first !== undefined && typeof first.c.units === 'object' && first.c.units !== null
+        ? (first.c.units as Record<string, number>)
+        : {},
   };
 }
 
@@ -341,6 +348,8 @@ function drawHome(container: HTMLElement): void {
       el.textContent = '·';
       return el;
     };
+    const kIcon = kindIcon(sched.nextKind ?? '', 18);
+    if (kIcon !== null) route.append(kIcon);
     route.append(document.createTextNode(KIND_LABELS[sched.nextKind ?? ''] ?? 'Comando'));
     if (src !== null && sched.nextTarget !== null) {
       route.append(m(src.label.replace(/^.*\(([^)]+)\)$/, '$1')), icon('arrowRight', 14), m(sched.nextTarget));
@@ -348,6 +357,7 @@ function drawHome(container: HTMLElement): void {
     route.append(dot(), document.createTextNode('sai'), m(clockLabelMs(sched.nextAt)));
     if (sched.nextArrivalAt !== null) route.append(dot(), document.createTextNode('chega'), m(clockLabelMs(sched.nextArrivalAt)));
     main.append(chips, count, route);
+    if (Object.values(sched.nextUnits).some((n) => n > 0)) main.appendChild(unitStrip(sched.nextUnits, { size: 18 }));
     const side = document.createElement('div');
     side.className = 'home-hero-side';
     side.appendChild(btn('Abrir Comandos', 'crosshair', 'shs-btn shs-btn-ghost', () => openSection('comandos')));

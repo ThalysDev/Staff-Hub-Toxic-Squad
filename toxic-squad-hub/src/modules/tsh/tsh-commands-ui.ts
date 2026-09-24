@@ -82,7 +82,7 @@ import { createScheduledCommand, UNIT_POPULATION, type NewScheduledCommandInput 
 import { getGroupOptions, getGroupVillages, type GroupVillageRow } from './tsh-groups';
 import { ownVillages, travelMinutes, villageAt, type OwnVillage } from './tsh-game-data';
 import { buildTshModal, tshConfirm, tshNoteBanner } from './tsh-settings-ui';
-import { unitIcon, UNIT_LABELS as UNIT_LABELS_SHARED } from './tsh-units';
+import { unitIcon, unitStrip, UNIT_LABELS as UNIT_LABELS_SHARED } from './tsh-units';
 
 // ── Partes puras (testadas em tsh-commands-ui.test.ts) ──
 
@@ -1123,14 +1123,14 @@ function buildUnitsGrid(onInput?: () => void): UnitsGridHandle {
     cell.className = 'tsh-record-cell tsh-unit-cell';
     const label = document.createElement('span');
     label.className = 'tsh-record-label';
-    label.title = row.key;
-    label.appendChild(unitIcon(row.key, 18));
-    const labelText = document.createElement('span');
-    labelText.textContent = unitLabel(row.key);
-    label.appendChild(labelText);
+    // v3.2: ÍCONE oficial no lugar do nome (mais curto e didático) — o nome
+    // fica na dica e no rótulo acessível do campo.
+    label.title = unitLabel(row.key);
+    label.appendChild(unitIcon(row.key, 22));
     const input = document.createElement('input');
     input.type = 'number';
     input.className = 'tsh-input';
+    input.setAttribute('aria-label', unitLabel(row.key));
     input.min = '0';
     input.step = String(row.step);
     input.value = '0';
@@ -1320,7 +1320,25 @@ function commandCard(
       : record.kind === 'cancel'
         ? `Cancelar até ${record.cancelCount ?? 1} comando(s) no alvo`
         : `Tropas: ${summarizeUnits(record.units)}`;
-  line2.textContent = `${timing} · ${troopText}`;
+  // v3.2: tropas como fileira de ÍCONES + quantidade (nome na dica).
+  line2.style.display = 'flex';
+  line2.style.flexWrap = 'wrap';
+  line2.style.alignItems = 'center';
+  line2.style.gap = '6px 12px';
+  const timingEl = document.createElement('span');
+  timingEl.textContent = timing;
+  line2.appendChild(timingEl);
+  if (record.kind === 'cancel') {
+    const cancelEl = document.createElement('span');
+    cancelEl.textContent = troopText;
+    line2.appendChild(cancelEl);
+  } else {
+    line2.appendChild(
+      record.percentMode === true
+        ? unitStrip(record.unitsPercent ?? {}, { suffix: '%' })
+        : unitStrip(record.units),
+    );
+  }
   card.appendChild(line2);
   if (!TERMINAL_VIEW_STATUSES.has(status) && status !== 'pausado') {
     const sendAtServer = Date.parse(record.sendAt);
@@ -1345,15 +1363,26 @@ function commandCard(
   }
   if (record.forced === true) extras.push('FORÇADO (mesmo impossível)');
   if (record.trainUnits !== undefined && record.trainUnits.length > 0) {
-    extras.push(
-      `trem do jogo: +${record.trainUnits.length} ataque(s) — ${record.trainUnits.map((row, i) => `#${i + 2} ${summarizeUnits(row)}`).join(' · ')}`,
-    );
+    extras.push(`trem do jogo: +${record.trainUnits.length} ataque(s)`);
   }
   if (extras.length > 0) {
     const line3 = document.createElement('div');
     line3.className = 'tsh-card-desc';
     line3.textContent = extras.join(' · ');
     card.appendChild(line3);
+  }
+  // Trem nativo: cada ataque adicional como fileira de ícones.
+  for (const [i, row] of (record.trainUnits ?? []).entries()) {
+    const trainLine = document.createElement('div');
+    trainLine.className = 'tsh-card-desc';
+    trainLine.style.display = 'flex';
+    trainLine.style.alignItems = 'center';
+    trainLine.style.gap = '8px';
+    const tag = document.createElement('span');
+    tag.textContent = `#${i + 2}`;
+    tag.style.fontFamily = 'var(--shs-font-mono)';
+    trainLine.append(tag, unitStrip(row));
+    card.appendChild(trainLine);
   }
 
   const actions = document.createElement('div');

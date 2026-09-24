@@ -16,6 +16,7 @@ import {
   type ScheduledCommandViewStatus,
 } from '../../ext/core/scheduler-state';
 import { loadSchedulerState, openSchedulerCommands } from './tsh-commands-ui';
+import { kindIcon, unitStrip } from './tsh-units';
 import { currentVillageId, isTshEnabled } from './tsh-runtime';
 
 const STYLE_ID = 'tsh-cmd-section-style';
@@ -43,7 +44,9 @@ const STYLES = `
   .tcs-dim { color: var(--shs-muted); }
   .tcs-right { text-align: right !important; }
   .tcs-empty { padding: 32px 16px; text-align: center; color: var(--shs-muted); display: flex; flex-direction: column; align-items: center; gap: 12px; }
-  .tcs-kind { font-weight: 500; color: var(--shs-ink-strong); }
+  .tcs-kind { font-weight: 500; color: var(--shs-ink-strong); white-space: nowrap; }
+  .tcs-kindwrap { display: inline-flex; align-items: center; gap: 8px; }
+  .tcs-kindwrap .shs-ic { color: var(--shs-muted); }
 `;
 
 const KIND_LABEL: Record<ScheduledCommandRecord['kind'], string> = {
@@ -220,7 +223,7 @@ export function renderComandosSection(container: HTMLElement): () => void {
       const table = el('table');
       const thead = el('thead');
       const hr = el('tr');
-      for (const [label, right] of [['Envio', false], ['Tipo', false], ['Origem → alvo', false], ['Estado', false], ['Falta', true]] as const) {
+      for (const [label, right] of [['Envio', false], ['Tipo', false], ['Tropas', false], ['Origem → alvo', false], ['Estado', false], ['Falta', true]] as const) {
         const th = el('th', right ? 'tcs-right' : undefined, label);
         hr.appendChild(th);
       }
@@ -230,7 +233,22 @@ export function renderComandosSection(container: HTMLElement): () => void {
         const sendAt = Date.parse(record.sendAt);
         const tr = el('tr');
         tr.appendChild(el('td', 'tcs-mono', clockLabelMs(sendAt)));
-        tr.appendChild(el('td', 'tcs-kind', kindLabel(record)));
+        const kindTd = el('td', 'tcs-kind');
+        const kindWrap = el('span', 'tcs-kindwrap');
+        const kIcon = kindIcon(record.kind, 18);
+        kindWrap.append(kIcon ?? icon('x', 15), document.createTextNode(kindLabel(record)));
+        kindTd.appendChild(kindWrap);
+        tr.appendChild(kindTd);
+        const troopsTd = el('td');
+        troopsTd.appendChild(
+          record.kind === 'cancel'
+            ? el('span', 'tcs-dim', `até ${record.cancelCount ?? 1}`)
+            : unitStrip(record.percentMode === true ? (record.unitsPercent ?? {}) : record.units, {
+                max: 3,
+                ...(record.percentMode === true ? { suffix: '%' } : {}),
+              }),
+        );
+        tr.appendChild(troopsTd);
         const route = el('td', 'tcs-mono tcs-dim', `${coord(record.source)} → ${coord(record.target)}`);
         tr.appendChild(route);
         const stTd = el('td');

@@ -42,12 +42,22 @@ export const TSH_INSTRUMENTO_CSS = `
   .tsh-row-desc { margin: 0; font-size: 12px; line-height: 1.4; color: var(--shs-muted);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tsh-row-side { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: nowrap; }
+  /* Ícone da automação (prédio/unidade do jogo ou traço) — v3.2 */
+  .tsh-autoic { width: 34px; height: 34px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 9px; background: var(--shs-bg-inset); color: var(--shs-ink); }
+  .tsh-autoic img { width: 20px; height: 20px; }
+  .tsh-row--off .tsh-autoic { opacity: .55; filter: grayscale(.6); }
+  .tsh-group-ic { color: var(--shs-action) !important; }
+  .tsh-seg-btn { display: inline-flex; align-items: center; gap: 6px; }
+  .tsh-seg-btn .shs-ic { color: var(--shs-muted); }
+  .tsh-seg-btn[aria-checked='true'] .shs-ic { color: var(--shs-action); }
+  /* Chips de estado: o ícone volta (dá leitura rápida sem ler o texto). */
+  .tsh-statuschip .shs-ic { display: inline-block; }
   .tsh-row-next { width: 72px; white-space: nowrap; text-align: right; font-family: var(--shs-font-mono); font-size: 12.5px;
     color: var(--shs-ink); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 
   .tsh-statuschip { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border: 0;
     border-radius: 999px; font-size: 12px; font-weight: 500; text-transform: none; letter-spacing: 0; white-space: nowrap; }
-  .tsh-statuschip .shs-ic { display: none; }
   .tsh-statuschip--ok { background: var(--shs-ok-bg); color: var(--shs-ok-ink); }
   .tsh-statuschip--wait { background: var(--shs-bg-inset); color: var(--shs-ink); }
   .tsh-statuschip--err { background: var(--shs-danger-bg); color: #8f1d17; }
@@ -130,7 +140,7 @@ export const TSH_INSTRUMENTO_CSS = `
   .tsh-input--invalid { border-color: var(--shs-danger) !important; background: var(--shs-danger-bg) !important; }
 
   /* ---------- Grade de tropas: ícone oficial do jogo + campo ---------- */
-  .tsh-record-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+  .tsh-record-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; }
   .tsh-record-cell { display: flex; flex-direction: column; gap: 4px; padding: 0; border: 0; background: none; }
   .tsh-record-label { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 500; color: var(--shs-ink);
     letter-spacing: 0; text-transform: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -138,8 +148,9 @@ export const TSH_INSTRUMENTO_CSS = `
   .tsh-record-cell .tsh-input { min-height: 34px; font-family: var(--shs-font-mono); }
   /* Ícone oficial do jogo AO LADO do nome (o layout antigo empilhava). */
   .tsh-unit-cell { align-items: stretch; }
-  .tsh-unit-cell .tsh-record-label { flex-direction: row; justify-content: flex-start; align-items: center; gap: 6px; text-align: left; }
-  .tsh-unit-cell .tsh-record-label img { display: inline-block; width: 18px; height: 18px; }
+  .tsh-unit-cell .tsh-record-label { flex-direction: row; justify-content: center; align-items: center; gap: 6px; min-height: 24px; cursor: help; }
+  .tsh-unit-cell .tsh-record-label img { display: inline-block; width: 22px; height: 22px; }
+  .tsh-unit-cell .tsh-input { text-align: center; }
 
   /* ---------- Central de Comandos: relógio e chips ---------- */
   .tsh-clockbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; padding: 10px 14px;
