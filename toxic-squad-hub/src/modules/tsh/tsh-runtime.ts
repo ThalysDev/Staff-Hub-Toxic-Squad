@@ -28,6 +28,20 @@ export interface TshCycleContext {
   };
   /** Publica status do ciclo (aparece na aba Automações). */
   status(message: string, kind?: 'info' | 'ok' | 'warn'): void;
+  /**
+   * Pede o próximo ciclo mais cedo (v3.6.0): ainda há trabalho e este ciclo
+   * já fez a SUA mutação (F2 segue: 1 por ciclo). Piso de 60 s.
+   */
+  again?(delayMs: number): void;
+}
+
+/** Tela de configuração própria do módulo (v3.6.0) — substitui "Parâmetros". */
+export interface TshSettingsPanel {
+  el: HTMLElement;
+  /** Resumo que abre a janela (antes da Agenda), opcional. */
+  top?: HTMLElement;
+  /** Valores prontos para salvar, ou o motivo (pt-BR) de não poder salvar. */
+  collect(): { ok: true; values: Record<string, unknown> } | { ok: false; error: string };
 }
 
 export type TshCategory = 'economia' | 'producao' | 'planejamento';
@@ -54,6 +68,8 @@ export interface TshAutomation {
   settingsForm?: SettingsField[];
   /** Defaults dos settings (mesma forma que o plugin lê via ctx.storage). */
   settingsDefaults?: Record<string, unknown>;
+  /** Tela própria de parâmetros (ícones, pré-visualização); o settingsForm segue como contrato. */
+  settingsPanel?(settings: Record<string, unknown>, world: string): TshSettingsPanel;
   /** Ações extras no cartão do painel (ex.: "Comandos" do agendador). */
   extraActions?: TshExtraAction[];
   /**
@@ -352,6 +368,7 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
   // Cooldown gravado ANTES do ciclo (P3 revisão): mutações que navegam podem
   // destruir o contexto antes do finally — o cooldown não pode se perder.
   gm.set<CycleState>(stateKey(id, worldId), { ...state, lastRunAt: Date.now(), nextRunAt: Date.now() + cooldown });
+  let againAt: number | null = null;
   const ctx: TshCycleContext = {
     world: worldId,
     villageId,
@@ -373,6 +390,9 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
     status: (message, kind = 'info'): void => {
       gm.set<CycleStatus>(statusKey(id, worldId), { message, kind, at: Date.now() });
     },
+    again: (delayMs: number): void => {
+      againAt = Date.now() + Math.max(60_000, delayMs);
+    },
   };
 
   try {
@@ -380,6 +400,10 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
   } catch (error) {
     ctx.status(error instanceof Error ? error.message : String(error), 'warn');
   } finally {
+    if (againAt !== null) {
+      const cur = gm.get<CycleState>(stateKey(id, worldId), {});
+      if (cur.nextRunAt === undefined || againAt < cur.nextRunAt) gm.set<CycleState>(stateKey(id, worldId), { ...cur, nextRunAt: againAt });
+    }
     renewLock(id, worldId);
     inFlight.delete(id);
   }

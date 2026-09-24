@@ -24,7 +24,8 @@
 import { enqueue, enqueueUrgent, pacedGet } from '../../core/net';
 import { pageShowsBotProtection, tripHalt } from '../../core/halt';
 import { pageWindow } from '../../core/page';
-import { currentCsrf, currentVillageId } from '../vanta/vanta-net';
+import { callGameAction, type GatewayFailure } from '../../core/game-gateway';
+import { currentVillageId } from '../vanta/vanta-net';
 import { awaitRoutineMutation } from './tsh-humanize';
 import type { TimingLane } from '../../ext/core/humanize/humanize-policy';
 
@@ -128,7 +129,7 @@ export function flattenGameApiBody(body: Record<string, unknown>, prefix = ''): 
 
 export type GameApiResult =
   | { ok: true; result: unknown }
-  | { ok: false; error: string; afterMutation: boolean };
+  | { ok: false; error: string; afterMutation: boolean; code: GatewayFailure };
 
 /**
  * POST numa API interna do jogo via TribalWars.post (gateway da página),
@@ -138,59 +139,19 @@ export type GameApiResult =
  * afterMutation (inconclusivo). Desvio: todos os campos vão no corpo do POST
  * (o gateway do userscript recebe um único payload; o jogo lê via $_REQUEST).
  */
-async function postGameApi(screen: string, action: string, body: Record<string, unknown>): Promise<GameApiResult> {
-  const params = new URLSearchParams({ ...flattenGameApiBody(body), h: currentCsrf() });
-  return enqueue(
-    () =>
-      new Promise<GameApiResult>((resolve) => {
-        const gateway = pageWindow().TribalWars;
-        if (typeof gateway?.post !== 'function') {
-          resolve({
-            ok: false,
-            error: 'O gateway do jogo (TribalWars.post) não está disponível nesta página.',
-            afterMutation: false,
-          });
-          return;
-        }
-        let settled = false;
-        // Timeout após o dispatch: o POST pode ter chegado ao jogo — tratar
-        // como mutação inconclusiva, nunca como "não aconteceu" (origem game-api.ts).
-        const timer = setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          resolve({ ok: false, error: 'Tempo esgotado aguardando a resposta da API do jogo.', afterMutation: true });
-        }, GAME_API_TIMEOUT_MS);
-        try {
-          void gateway.post(screen, action, params).then(
-            (result: unknown) => {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timer);
-              resolve({ ok: true, result });
-            },
-            (error: unknown) => {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timer);
-              resolve({
-                ok: false,
-                error: error instanceof Error ? error.message : 'A API do jogo recusou a operação.',
-                afterMutation: true,
-              });
-            },
-          );
-        } catch (error) {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          resolve({
-            ok: false,
-            error: error instanceof Error ? error.message : 'Falha ao chamar a API do jogo.',
-            afterMutation: true,
-          });
-        }
-      }),
-  );
+async function postGameApi(
+  screen: string,
+  action: string,
+  body: Record<string, unknown>,
+  opts?: { village?: string },
+): Promise<GameApiResult> {
+  // v3.6.0: gateway correto (ação em objeto, resultado por callbacks) — ver core/game-gateway.
+  return enqueue(async () => {
+    const result = await callGameAction(screen, action, flattenGameApiBody(body), GAME_API_TIMEOUT_MS * 2, opts);
+    return result.ok
+      ? { ok: true, result: result.response }
+      : { ok: false, error: result.error, afterMutation: result.afterMutation, code: result.code };
+  });
 }
 
 /** Soneca efêmera DENTRO da promise da chamada (sempre sob um deadline). */
@@ -901,13 +862,19 @@ export async function sendResources(villageId: string, payload: SendResourcesPay
   const sourceId = normalizeVillageId(villageId) || normalizeVillageId(currentVillageId());
   const receiverId = typeof payload.receiverId === 'string' ? normalizeVillageId(payload.receiverId) : '';
   if (receiverId !== '') {
-    const api = await postGameApi('market', 'map_send', {
-      village: sourceId,
-      target_id: receiverId,
-      wood: integerAmount(payload.wood),
-      stone: integerAmount(payload.stone),
-      iron: integerAmount(payload.iron),
-    });
+    // v3.6.0: a aldeia de ORIGEM vai na URL (params.village do buildURL do
+    // jogo), como a própria tela do Mercado faz — no corpo ela era ignorada.
+    const api = await postGameApi(
+      'market',
+      'map_send',
+      {
+        target_id: receiverId,
+        wood: integerAmount(payload.wood),
+        stone: integerAmount(payload.stone),
+        iron: integerAmount(payload.iron),
+      },
+      { village: sourceId },
+    );
     if (api.ok) return;
     if (api.afterMutation)
       throw transportError(
@@ -915,6 +882,9 @@ export async function sendResources(villageId: string, payload: SendResourcesPay
         'RESULT_UNCERTAIN',
         true,
       );
+    // Recusa do PRÓPRIO jogo (sem mercadores, recursos…): o formulário recusaria
+    // igual — e seria uma 2ª mutação no ciclo. Plano B só sem o gateway.
+    if (api.code !== 'indisponivel') throw transportError(`O jogo recusou o envio: ${api.error}`, 'GAME_REFUSED');
   }
   await enqueue(async () => {
     assertMutablePage(document);
@@ -962,6 +932,65 @@ function sanitizedUnitCounts(units: Record<string, number>): Record<string, numb
  * registra o valor no change) + gatilho <a> com o rótulo do botão-oculto
  * .free_send_button ("Começar") da opção — uma esquadrilha por tela.
  */
+/** Erros por grupo na resposta do send_squads (vazio = todos aceitos). Puro. */
+export function scavengeSquadErrors(response: unknown): string[] {
+  const list = (response as { squad_responses?: unknown } | null)?.squad_responses;
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((r): r is { success?: unknown; error?: unknown } => typeof r === 'object' && r !== null)
+    .filter((r) => r.success === false)
+    .map((r) => (typeof r.error === 'string' && r.error !== '' ? r.error.replace(/<[^>]+>/g, '') : 'grupo recusado'));
+}
+
+/** Grupo de coleta de QUALQUER aldeia (coleta em 2º plano, v3.6.0). */
+export interface ScavengeBatchRequest {
+  villageId: string;
+  levelId: number;
+  units: Record<string, number>;
+}
+
+/** Até 50 grupos por pedido (mesmo teto da tela Coleta em massa do jogo). */
+export const SCAVENGE_BATCH_MAX = 50;
+
+/**
+ * Coleta em 2º plano (v3.6.0): UM pedido scavenge_api/send_squads com grupos
+ * de várias aldeias — é exatamente o que a tela "Coleta em massa" do jogo
+ * faz. Sem tela, sem plano B via DOM. Devolve quantos grupos o jogo aceitou e
+ * as recusas (mensagem do jogo). Recusa total = erro GAME_REFUSED.
+ */
+export async function sendScavengeBatch(requests: readonly ScavengeBatchRequest[]): Promise<{ accepted: number; refused: string[] }> {
+  await gateRoutine('coleta');
+  if (requests.length === 0) throw transportError('Nenhum grupo de coleta foi informado.', 'PLAN_INVALID');
+  if (requests.length > SCAVENGE_BATCH_MAX) throw transportError(`No máximo ${SCAVENGE_BATCH_MAX} grupos por envio.`, 'PLAN_INVALID');
+  const api = await postGameApi('scavenge_api', 'send_squads', {
+    squad_requests: requests.map((r) => ({
+      village_id: normalizeVillageId(r.villageId),
+      candidate_squad: { unit_counts: sanitizedUnitCounts(r.units), carry_max: 9_999_999_999 },
+      option_id: r.levelId,
+      use_premium: false,
+    })),
+  });
+  if (!api.ok) {
+    if (api.afterMutation) {
+      throw transportError(`Coleta inconclusiva: ${api.error} — o próximo ciclo relê o jogo antes de mandar de novo.`, 'RESULT_UNCERTAIN', true);
+    }
+    throw transportError(api.code === 'indisponivel' ? api.error : `O jogo recusou a coleta: ${api.error}`, 'GAME_REFUSED');
+  }
+  const refused = scavengeSquadErrors(api.result);
+  if (refused.length >= requests.length) throw transportError(`O jogo recusou a coleta: ${[...new Set(refused)].join(' · ')}`, 'GAME_REFUSED');
+  return { accepted: requests.length - refused.length, refused };
+}
+
+/** Desbloqueio de nível de coleta (scavenge_api/start_unlock) — 1 mutação. */
+export async function unlockScavengeLevel(villageId: string, levelId: number): Promise<void> {
+  await gateRoutine('coleta');
+  const api = await postGameApi('scavenge_api', 'start_unlock', { village_id: normalizeVillageId(villageId), option_id: levelId });
+  if (!api.ok) {
+    if (api.afterMutation) throw transportError(`Desbloqueio inconclusivo: ${api.error}`, 'RESULT_UNCERTAIN', true);
+    throw transportError(`O jogo recusou o desbloqueio: ${api.error}`, 'GAME_REFUSED');
+  }
+}
+
 export async function sendScavengingSquads(villageId: string, squads: ScavengeSquad[]): Promise<void> {
   await gateRoutine('coleta');
   if (squads.length === 0) throw transportError('Nenhuma esquadrilha de coleta foi informada.', 'PLAN_INVALID');
@@ -974,13 +1003,22 @@ export async function sendScavengingSquads(villageId: string, squads: ScavengeSq
       use_premium: false,
     })),
   });
-  if (api.ok) return;
+  if (api.ok) {
+    // O jogo responde por grupo (squad_responses: {success, error}).
+    const falhas = scavengeSquadErrors(api.result);
+    if (falhas.length > 0 && falhas.length >= squads.length) {
+      throw transportError(`O jogo recusou a coleta: ${falhas.join(' · ')}`, 'GAME_REFUSED');
+    }
+    return;
+  }
   if (api.afterMutation)
     throw transportError(
       `Coleta por API inconclusiva: ${api.error} — releia o jogo antes de nova tentativa.`,
       'RESULT_UNCERTAIN',
       true,
     );
+  // Recusa do PRÓPRIO jogo (regra): a tela recusaria igual — sem plano B.
+  if (api.code !== 'indisponivel') throw transportError(`O jogo recusou a coleta: ${api.error}`, 'GAME_REFUSED');
   if (squads.length > 1)
     throw transportError(
       'O envio DOM de coleta suporta apenas uma opção por tela — use o caminho da API (TribalWars.post) para múltiplas esquadrilhas.',

@@ -633,6 +633,10 @@ export function openTshSettingsModal(
   const schedule = loadSchedule(world, automation.id);
   const bindings: FieldBinding[] = [];
 
+  // Tela própria do módulo (v3.6.0): o resumo dela abre a janela.
+  const panel = automation.settingsPanel?.(merged, world) ?? null;
+  if (panel?.top !== undefined) body.appendChild(panel.top);
+
   // ── Agenda (seção-caixa) ──
   const agenda = sectionBox('Agenda', 'calendar');
   body.appendChild(agenda.box);
@@ -711,8 +715,12 @@ export function openTshSettingsModal(
   stopField.append(stopSide, stopCtl);
   agenda.body.appendChild(stopField);
 
-  // ── Parâmetros (seção-caixa) ──
-  if (form.length > 0) {
+  // ── Parâmetros: tela própria do módulo (v3.6.0) ou campos declarativos ──
+  if (panel !== null) {
+    body.appendChild(panel.el);
+    body.appendChild(agenda.box); // tela própria: o resumo descreve o painel logo abaixo; Agenda vai para o fim
+  }
+  else if (form.length > 0) {
     const params = sectionBox('Parâmetros', 'list');
     body.appendChild(params.box);
     for (const field of form) params.body.appendChild(renderField(field, merged, defaults, bindings));
@@ -793,6 +801,14 @@ export function openTshSettingsModal(
     }
     const values: Record<string, unknown> = {};
     for (const binding of bindings) collectFieldValue(binding, values);
+    if (panel !== null) {
+      const got = panel.collect();
+      if (!got.ok) {
+        showError(got.error);
+        return;
+      }
+      Object.assign(values, got.values);
+    }
     saveSchedule(world, automation.id, nextSchedule);
     saveSettings(world, automation.id, values);
     applyScheduleChange(automation.id, world); // intervalo novo vale já, não após o antigo

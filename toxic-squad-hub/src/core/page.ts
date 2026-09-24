@@ -11,7 +11,19 @@ export interface GameData {
 }
 
 export interface TribalWarsGateway {
-  post?: (screen: string, action: string, payload: URLSearchParams | FormData) => Promise<unknown>;
+  /**
+   * Assinatura REAL (lida no BR142, 24/09/2026): params é OBJETO
+   * ({ ajaxaction }), o resultado vem pelos callbacks e o retorno é void.
+   * Use core/game-gateway (callGameAction) — nunca chame direto.
+   */
+  post?: (
+    screen: string,
+    params: Record<string, string>,
+    data: Record<string, string>,
+    onSuccess: (response: unknown) => void,
+    onError: (reason?: unknown) => void,
+    noLoading?: boolean,
+  ) => void;
 }
 
 export interface PageWindow {

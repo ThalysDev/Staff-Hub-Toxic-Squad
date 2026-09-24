@@ -107,6 +107,15 @@ export function renderAjuda(container: HTMLElement): void {
   item(apoios.body, 'O botão **Avançado** controla a distribuição: mínimo/máximo/pacotes por aldeia, mais perto/mais longe, tropas reservadas e conflitos de ms.');
   grid.appendChild(apoios.box);
 
+  const coleta = card('Coleta', 'layers');
+  item(coleta.body, '**Roda em segundo plano, em todas as aldeias:** com o jogo aberto em qualquer tela, lê a Coleta em massa e envia até 50 grupos por vez. Sobrou aldeia? O próximo envio vem em 1 minuto, até passar por todas as páginas.');
+  item(coleta.body, '**Equilibrada (padrão):** divide as tropas entre todos os níveis livres para voltarem juntas: mais recursos por hora. Também dá para usar **um nível só** ou um **lote fixo** por tropa.');
+  item(coleta.body, '**Tempo-alvo:** diga em quantas horas a coleta deve voltar, separado para aldeias **ofensivas** e **defensivas**. Vai só a tropa necessária; o resto fica em casa. Sem limite = manda tudo.');
+  item(coleta.body, '**Tropas:** desligue as que nunca coletam e diga quantas **ficam em casa**. As tropas de comandos do Agendador ficam em casa sozinhas até o comando sair.');
+  item(coleta.body, '**Regras por grupo:** escolha o grupo pelo nome e como ele coleta (Equilibrada, um nível ou **Não coletar**), com tempo-alvo e tropas próprias. Aldeia em dois grupos segue o primeiro cartão.');
+  item(coleta.body, '**Desbloquear níveis sozinho:** sem nada para coletar e com recursos, desbloqueia o próximo nível da aldeia (um por ciclo).');
+  grid.appendChild(coleta.box);
+
   const sentinela = card('Modo Sentinela', 'eye');
   item(sentinela.body, 'O botão da Sentinela abre **uma aba de fundo do jogo** que mantém as automações ciclando enquanto você faz outra coisa.');
   item(sentinela.body, 'O cadeado impede duas abas de enviarem a mesma coisa: no **Agendador** ele vale **por aldeia** (uma aba por origem); nas outras automações vale por mundo, e a Sentinela e a aba normal se revezam sem duplicar.');

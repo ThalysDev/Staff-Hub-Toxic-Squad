@@ -33,6 +33,31 @@ import {
   type ScavengeDuration,
 } from '../tsh-transport';
 import { groupIdForVillage } from './recruitment';
+import { DEFAULT_LOOT_FACTOR, readScavengeLevels, splitEquilibrada } from './collection-levels';
+import {
+  freeLevelIds,
+  isOffensive,
+  parseScavengeMassPage,
+  planVillage,
+  squadSeconds,
+  unlockCandidate,
+  usableUnits,
+  type MassPage,
+  type MassRequest,
+} from './collection-mass';
+import { buildCollectionPanel } from './collection-panel';
+import { levelForMode, profileByVillage, profilesFromLegacy, readProfiles, savedExecMode, type GroupProfile } from './collection-groups';
+import { getGroupVillages } from '../tsh-groups';
+import { pacedGet } from '../../../core/net';
+import { SCAVENGE_BATCH_MAX, sendScavengeBatch, unlockScavengeLevel } from '../tsh-transport';
+
+const DURATION_BY_LEVEL: Record<number, ScavengeDuration> = { 1: 'pequena', 2: 'media', 3: 'grande', 4: 'extrema' };
+const DURATION_LABEL: Record<number, string> = { 1: 'Pequena', 2: 'Média', 3: 'Grande', 4: 'Extrema' };
+
+/** "HH:MM" (relógio do computador) de um epoch em segundos. */
+function horaLocal(unixSec: number): string {
+  return new Date(unixSec * 1000).toTimeString().slice(0, 5);
+}
 import { estimateScavengeSeconds, readScavengeOptionCfg, reservationForVillage, reservationNote, subtractReservation } from '../tsh-reserva';
 import { serverNowMs } from '../../../core/game-clock';
 import type { UnitType } from '../../../ext/modules/shared/module-types';
@@ -56,11 +81,20 @@ const collectionSettings = z.object({
   duration: z.enum(['pequena', 'media', 'grande', 'extrema']).default('media'),
   minUnits: z.number().int().min(1).default(10),
   /** 'fixo' = lote por unidade (como hoje); 'tudo' = todas as disponíveis na tela. */
-  lotMode: z.enum(['fixo', 'tudo']).default('fixo'),
+  lotMode: z.enum(['fixo', 'tudo', 'equilibrada']).default('equilibrada'),
   units: z.record(z.string(), z.number().int().nonnegative()).default({}),
   autoUnlock: z.boolean().default(false),
-  /** Regras por grupo: "grupoId:duração:lote:min" por linha (Onda 5b). */
+  /** v3.6.0: 'fundo' = todas as aldeias pela API (sem tela); 'tela' = só com a Coleta aberta. */
+  execMode: z.enum(['fundo', 'tela']).default('fundo'),
+  /** Tempo-alvo (h) das aldeias ofensivas/defensivas; 0 = sem alvo (manda tudo). */
+  targetHoursOff: z.number().min(0).max(48).default(0),
+  targetHoursDef: z.number().min(0).max(48).default(0),
+  /** Tropas que NUNCA coletam (desligadas na tela de configuração). */
+  skipUnits: z.array(z.string()).default([]),
+  /** LEGADO (Onda 5b): "grupoId:duração:lote:min" por linha — a tela nova converte em groupProfiles. */
   groupRules: z.string().default(''),
+  /** v3.6.0: regras por grupo em cartões (grupo pelo nome, como coletar, tempo-alvo, tropas). */
+  groupProfiles: z.array(z.unknown()).default([]),
   /** Reservas por unidade (0..12 chaves): tropas que NUNCA entram no lote. */
   reserveByUnit: z.record(z.string(), z.number().int().nonnegative()).default({}),
 });
@@ -71,85 +105,21 @@ type CollectionSettings = z.infer<typeof collectionSettings>;
 export const DEFAULT_SETTINGS: CollectionSettings = {
   duration: 'media',
   minUnits: 10,
-  lotMode: 'fixo',
+  lotMode: 'equilibrada',
   units: {},
   autoUnlock: false,
+  execMode: 'fundo',
+  targetHoursOff: 0,
+  targetHoursDef: 0,
+  skipUnits: [],
   groupRules: '',
+  groupProfiles: [],
   reserveByUnit: {},
 };
 
-// ── Regras por grupo (puras — testáveis) ────────────────────────────────────
-
-/** Lote da regra: número fixo por unidade ou 'tudo' (todas as disponíveis). */
-export type GroupRuleLot = number | 'tudo';
-
-export interface CollectionGroupRule {
-  groupId: number;
-  duration: ScavengeDuration;
-  lot: GroupRuleLot;
-  minUnits: number;
-}
-
-const DURATION_ALIASES: Readonly<Record<string, ScavengeDuration>> = {
-  pequena: 'pequena',
-  media: 'media',
-  média: 'media',
-  grande: 'grande',
-  extrema: 'extrema',
-};
-
-/**
- * Parser PURO das regras por grupo (Onda 5b): uma regra por linha, no formato
- * "grupoId:duração:lote:min" (ex.: "182608:grande:200:50" ou
- * "182608:media:tudo:10"). Duração aceita pequena/média/grande/extrema
- * (acento opcional); lote é inteiro ≥ 1 (quantidade FIXA por unidade) ou a
- * palavra 'tudo'; min é inteiro ≥ 1. Linhas vazias são ignoradas; grupo
- * repetido é inválido (a última regra venceria em silêncio). Qualquer linha
- * ruim derruba o parse INTEIRO com o motivo da primeira — o chamador segue
- * com os settings atuais (fail-closed: uma regra malformada não pode rotear a
- * aldeia errada para uma coleta diferente).
- */
-export function parseGroupRules(
-  text: string,
-): { ok: true; rules: CollectionGroupRule[] } | { ok: false; reason: string } {
-  const rules: CollectionGroupRule[] = [];
-  const seen = new Set<number>();
-  for (const [index, rawLine] of text.split(/\r?\n/).entries()) {
-    const line = rawLine.trim();
-    if (line === '') continue;
-    const parts = line.split(':').map((part) => part.trim());
-    const bad = (detail: string): { ok: false; reason: string } => ({
-      ok: false,
-      reason: `linha ${index + 1} ("${line}") ${detail} — use "grupoId:duração:lote:min" (ex.: 182608:grande:200:50).`,
-    });
-    if (parts.length !== 4) return bad('não tem os 4 campos');
-    const [rawGroup, rawDuration, rawLot, rawMin] = parts;
-    const groupId = Number(rawGroup);
-    if (!Number.isInteger(groupId) || groupId <= 0) return bad('tem grupo inválido');
-    const duration = DURATION_ALIASES[(rawDuration ?? '').toLowerCase()];
-    if (duration === undefined) return bad('tem duração inválida (pequena/média/grande/extrema)');
-    let lot: GroupRuleLot;
-    if ((rawLot ?? '').toLowerCase() === 'tudo') {
-      lot = 'tudo';
-    } else {
-      const parsedLot = Number(rawLot);
-      if (!Number.isInteger(parsedLot) || parsedLot < 1) return bad("tem lote inválido (inteiro ≥ 1 ou 'tudo')");
-      lot = parsedLot;
-    }
-    const minUnits = Number(rawMin);
-    if (!Number.isInteger(minUnits) || minUnits < 1) return bad('tem mínimo inválido (inteiro ≥ 1)');
-    if (seen.has(groupId)) return bad(`repete o grupo ${groupId}`);
-    seen.add(groupId);
-    rules.push({ groupId, duration, lot, minUnits });
-  }
-  return { ok: true, rules };
-}
-
-/** Regra do grupo da aldeia (null = nenhuma regra para ela). */
-export function ruleForGroup(rules: CollectionGroupRule[], groupId: number | null): CollectionGroupRule | null {
-  if (groupId === null) return null;
-  return rules.find((rule) => rule.groupId === groupId) ?? null;
-}
+// Regras por grupo antigas (texto): ver collection-rules.ts.
+export { parseGroupRules, ruleForGroup, type CollectionGroupRule, type GroupRuleLot } from './collection-rules';
+import { parseGroupRules, ruleForGroup } from './collection-rules';
 
 /**
  * Disponíveis da tela MENOS as reservas por unidade (PURA): unidade reservada
@@ -173,7 +143,7 @@ export function applyUnitReserves(
 
 // ── Decisão do lote (pura — testável) ───────────────────────────────────────
 
-export type CollectionLotMode = 'fixo' | 'tudo';
+export type CollectionLotMode = 'fixo' | 'tudo' | 'equilibrada';
 
 export type CollectionLotDecision =
   | Readonly<{ kind: 'send'; units: Record<string, number> }>
@@ -223,6 +193,19 @@ export function decideCollectionLot(
 
 const SETTINGS_FORM: SettingsField[] = [
   {
+    key: 'execMode',
+    label: 'Como rodar',
+    type: 'select',
+    options: [
+      { value: 'fundo', label: 'Segundo plano (todas as aldeias)' },
+      { value: 'tela', label: 'Só na tela de Coleta' },
+    ],
+    help: 'Segundo plano: lê a Coleta em massa pela API e envia em todas as aldeias, em qualquer tela. Tela: só age com a Coleta aberta, na aldeia atual.',
+  },
+  { key: 'targetHoursOff', label: 'Tempo-alvo — ofensivas (h)', type: 'number', min: 0, max: 48, step: 0.5, help: '0 = sem alvo (manda todas as tropas).' },
+  { key: 'targetHoursDef', label: 'Tempo-alvo — defensivas (h)', type: 'number', min: 0, max: 48, step: 0.5, help: '0 = sem alvo (manda todas as tropas).' },
+  { key: 'autoUnlock', label: 'Desbloquear níveis sozinho', type: 'boolean', help: 'Desbloqueia o próximo nível quando a aldeia tem os recursos (1 por ciclo).' },
+  {
     key: 'duration',
     label: 'Duração da coleta',
     type: 'select',
@@ -250,8 +233,9 @@ const SETTINGS_FORM: SettingsField[] = [
     options: [
       { value: 'fixo', label: 'Fixo (lote por unidade)' },
       { value: 'tudo', label: 'Tudo (todas as tropas da tela)' },
+      { value: 'equilibrada', label: 'Equilibrada (todos os níveis livres, voltam juntos)' },
     ],
-    help: 'Fixo: usa o lote por unidade abaixo — vazio = envia todas as disponíveis (como hoje). Tudo: envia TODAS as tropas disponíveis da tela, respeitando o mínimo.',
+    help: 'Fixo: usa o lote por unidade abaixo — vazio = envia todas as disponíveis. Tudo: envia TODAS as tropas no nível da duração escolhida. Equilibrada: divide as tropas entre TODOS os níveis livres para voltarem ao mesmo tempo (a duração escolhida é ignorada) — mais recursos por hora.',
   },
   {
     key: 'units',
@@ -386,7 +370,7 @@ function readScavengeUnitsFromRows(doc: Document): Partial<Record<UnitType, numb
   return troops;
 }
 
-async function runCycle(ctx: TshCycleContext): Promise<void> {
+async function runScreenCycle(ctx: TshCycleContext): Promise<void> {
   const mode = new URLSearchParams(window.location.search).get('mode');
   if (mode !== 'scavenge' && mode !== 'scavenge_mass') {
     ctx.status('Abra a tela de Coleta na Praça de Reunião (Coletar recursos) para este módulo agir.', 'info');
@@ -407,7 +391,23 @@ async function runCycle(ctx: TshCycleContext): Promise<void> {
     mode === 'scavenge_mass' && mine !== undefined
       ? { unlocked: mine.hasRallyPoint && mine.unlockedOptions > 0, activeSlots: 0, maxSlots: Math.max(1, mine.unlockedOptions) }
       : readCollectionSlots(document);
-  if (collection === undefined || !collection.unlocked || collection.activeSlots >= collection.maxSlots) {
+  // v3.6.0: estado REAL dos níveis (objeto `village` da tela): bloqueado,
+  // em coleta (com a volta) ou livre. Antes: `.timer` no DOM — nível
+  // bloqueado contava como livre e o jogo recusava o envio.
+  const scriptsText = Array.from(document.scripts).map((el) => el.textContent ?? '').join('\n');
+  const levels = mode === 'scavenge' ? readScavengeLevels(scriptsText) : null;
+  const freeLevels = levels?.filter((l) => !l.locked && l.returnUnix === null) ?? null;
+  if (freeLevels !== null && levels !== null && freeLevels.length === 0) {
+    const proxima = levels.filter((l) => l.returnUnix !== null).sort((a, b) => (a.returnUnix ?? 0) - (b.returnUnix ?? 0))[0];
+    ctx.status(
+      proxima !== undefined
+        ? `Todos os níveis estão em coleta ou bloqueados — o próximo volta às ${horaLocal(proxima.returnUnix ?? 0)}.`
+        : 'Nenhum nível de coleta desbloqueado nesta aldeia.',
+      'info',
+    );
+    return;
+  }
+  if (freeLevels === null && (collection === undefined || !collection.unlocked || collection.activeSlots >= collection.maxSlots)) {
     ctx.status('Nenhum slot de coleta elegível.', 'info');
     return;
   }
@@ -415,7 +415,11 @@ async function runCycle(ctx: TshCycleContext): Promise<void> {
   const available: Partial<Record<UnitType, number>> =
     mine !== undefined ? mine.troops : readScavengeUnitsFromRows(document);
   // Reservas por unidade (Onda 5b): o lote nunca toca as tropas reservadas.
-  const usable = applyUnitReserves(available, settings.reserveByUnit);
+  // Tropas desligadas na Configurar (v3.6.0) não coletam em modo nenhum.
+  const usable = applyUnitReserves(
+    Object.fromEntries(Object.entries(available).filter(([u]) => !settings.skipUnits.includes(u))),
+    settings.reserveByUnit,
+  );
 
   // Regras por grupo (Onda 5b): texto preenchido e VÁLIDO tem prioridade; a
   // aldeia atual usa a regra do SEU grupo. Grupo não lido/não encontrado ou
@@ -427,7 +431,25 @@ async function runCycle(ctx: TshCycleContext): Promise<void> {
     units: settings.units,
   };
   let groupNote = '';
-  if (settings.groupRules.trim() !== '') {
+  if (readProfiles(settings.groupProfiles).length > 0) {
+    const profile = (await loadProfiles(settings, new Set())).get(normalizeVillageId(ctx.villageId));
+    if (profile !== undefined) {
+      const lvl = levelForMode(profile.mode);
+      if (lvl === null) {
+        ctx.status(`Esta aldeia está no grupo "${profile.groupName || profile.groupId}", que tem a regra "Não coletar".`, 'info');
+        return;
+      }
+      if (lvl !== undefined) {
+        effective = {
+          ...effective,
+          lotMode: lvl === 'equilibrada' ? 'equilibrada' : 'tudo',
+          duration: lvl === 'equilibrada' ? effective.duration : (DURATION_BY_LEVEL[lvl] ?? effective.duration),
+          units: {},
+        };
+      }
+      groupNote = ` Regra do grupo "${profile.groupName || profile.groupId}".`;
+    }
+  } else if (settings.groupRules.trim() !== '') {
     const parsedRules = parseGroupRules(settings.groupRules);
     if (!parsedRules.ok) {
       ctx.status(
@@ -474,8 +496,7 @@ async function runCycle(ctx: TshCycleContext): Promise<void> {
   let reserveNote = '';
   const draft = decideCollectionLot(usable, effective.units, lotOpts);
   if (draft.kind !== 'skip') {
-    const scripts = Array.from(document.scripts).map((el) => el.textContent ?? '').join('\n');
-    const cfg = readScavengeOptionCfg(scripts)?.[String(scavengeOptionId(effective.duration))];
+    const cfg = readScavengeOptionCfg(scriptsText)?.[String(scavengeOptionId(effective.duration))];
     const estSec = cfg !== undefined ? estimateScavengeSeconds(draft.units, cfg) * 1.1 : 24 * 3600;
     const res = reservationForVillage(ctx.world, ctx.villageId, serverNowMs() + estSec * 1000);
     if (res.commands.length > 0) {
@@ -495,7 +516,41 @@ async function runCycle(ctx: TshCycleContext): Promise<void> {
   }
   const units = decision.units;
 
+  // v3.6.0 — Coleta EQUILIBRADA: todos os níveis livres, voltando juntos
+  // (uma única requisição com vários grupos — 1 mutação por ciclo).
+  if (effective.lotMode === 'equilibrada' && mode === 'scavenge' && freeLevels !== null) {
+    const cfgs = readScavengeOptionCfg(scriptsText);
+    const lootFactor = (id: number): number => cfgs?.[String(id)]?.loot_factor ?? DEFAULT_LOOT_FACTOR[id] ?? 0.1;
+    const squads = splitEquilibrada(units, freeLevels.map((l) => l.id), lootFactor, effective.minUnits);
+    if (squads.length === 0) {
+      ctx.status(`Coleta equilibrada: tropas insuficientes para o mínimo por nível.${groupNote}${reserveNote}`, 'info');
+      return;
+    }
+    await sendScavengingSquads(
+      ctx.villageId,
+      squads.map((sq) => ({ duration: DURATION_BY_LEVEL[sq.levelId] ?? 'pequena', units: sq.units as Record<string, number> })),
+    );
+    const total = squads.reduce((a, sq) => a + Object.values(sq.units).reduce((x, y) => x + (y ?? 0), 0), 0);
+    ctx.status(
+      `Coleta equilibrada enviada: ${total} unidades em ${squads.length} nível(is) (${squads.map((sq) => DURATION_LABEL[sq.levelId] ?? sq.levelId).join(', ')}), voltando juntas.${groupNote}${reserveNote}`,
+      'ok',
+    );
+    return;
+  }
+
   const duration = effective.duration as ScavengeDuration;
+  // v3.6.0: o nível escolhido está livre? (mensagem clara em vez de o jogo recusar)
+  if (levels !== null) {
+    const nivel = levels.find((l) => l.id === scavengeOptionId(duration));
+    if (nivel?.locked === true) {
+      ctx.status(`O nível ${DURATION_LABEL[nivel.id] ?? duration} está bloqueado nesta aldeia — desbloqueie no jogo ou escolha outra duração (ou o modo Equilibrada).`, 'warn');
+      return;
+    }
+    if (nivel !== undefined && nivel.returnUnix !== null) {
+      ctx.status(`O nível ${DURATION_LABEL[nivel.id] ?? duration} está em coleta até ${horaLocal(nivel.returnUnix)} — próximo envio depois disso (ou use o modo Equilibrada para aproveitar os outros níveis).`, 'info');
+      return;
+    }
+  }
   // F2: UM envio por ciclo. Tela em massa = gatilhos de nível; individual =
   // esquadrilha da aldeia atual (API-first com o villageId do ctx).
   if (mode === 'scavenge_mass') {
@@ -507,12 +562,223 @@ async function runCycle(ctx: TshCycleContext): Promise<void> {
   ctx.status(`Coleta enviada (${duration}): ${total} unidades em ${Object.keys(units).length} tipo(s).${groupNote}${reserveNote}`, 'ok');
 }
 
+// ── Coleta em SEGUNDO PLANO (v3.6.0) ────────────────────────────────────────
+// Mesmo caminho da tela "Coleta em massa" do jogo: lê as páginas
+// (screen=place&mode=scavenge_mass&page=N) e manda até 50 grupos num único
+// scavenge_api/send_squads — 1 mutação por ciclo (F2). Sobrou trabalho? O
+// próximo ciclo vem em 1 min (ctx.again), com cursor de página no storage.
+
+/** Páginas da Coleta em massa lidas por ciclo, no máximo (leituras com pacing). */
+const PAGES_PER_CYCLE = 4;
+
+interface BackgroundPlan {
+  requests: MassRequest[];
+  /** Aldeias desta página que ficaram para o próximo lote (teto de 50 grupos). */
+  leftover: boolean;
+  reserved: number;
+  unlock: { villageId: string; levelId: number; name: string } | null;
+  notes: string[];
+}
+
+/** Planeja UMA página: tempo-alvo off/def, fica-em-casa, reserva do Agendador, regras por grupo. */
+function planPage(
+  ctx: TshCycleContext,
+  page: MassPage,
+  settings: CollectionSettings,
+  room: number,
+  profiles: ReadonlyMap<string, GroupProfile>,
+): BackgroundPlan {
+  const plan: BackgroundPlan = { requests: [], leftover: false, reserved: 0, unlock: null, notes: [] };
+  for (const village of page.villages) {
+    const vid = String(village.village_id);
+    const profile = profiles.get(vid);
+    const profileLevel = profile === undefined ? undefined : levelForMode(profile.mode);
+    if (profileLevel === null) continue; // regra do grupo: não coletar
+    if (freeLevelIds(village).length === 0) {
+      if (settings.autoUnlock && plan.unlock === null) {
+        const lv = unlockCandidate(village, page.levels);
+        if (lv !== null) plan.unlock = { villageId: vid, levelId: lv, name: village.village_name };
+      }
+      continue;
+    }
+    // Regra do grupo (se houver) manda no nível, no tempo-alvo e nas tropas; lote fixo não vale nela.
+    const level: 'equilibrada' | number =
+      profileLevel ?? (settings.lotMode === 'equilibrada' ? 'equilibrada' : scavengeOptionId(settings.duration));
+    const fixedCaps: Record<string, number> | null =
+      profileLevel === undefined && settings.lotMode === 'fixo' && Object.values(settings.units).some((n) => n > 0) ? settings.units : null;
+    const skipUnits = profile?.skipUnits ?? settings.skipUnits;
+    const usable = usableUnits(village, { keepHome: settings.reserveByUnit, skipUnits, fixedCaps });
+    const ofensiva = isOffensive(village.unit_counts_home);
+    const targetHours = ofensiva
+      ? (profile?.hoursOff ?? settings.targetHoursOff)
+      : (profile?.hoursDef ?? settings.targetHoursDef);
+    const opts = { targetHours, minUnits: settings.minUnits, level };
+    let reqs = planVillage(village, page, usable, opts);
+    if (reqs.length > 0) {
+      // Reserva dos comandos agendados até a VOLTA do grupo mais longo (+10%).
+      const longest = Math.max(
+        ...reqs.map((r) => {
+          const cfg = page.levels[String(r.levelId)];
+          return cfg === undefined ? 24 * 3600 : squadSeconds(r.units, page.carry, village.unit_carry_factor, cfg);
+        }),
+      );
+      const horizonSec = Number.isFinite(longest) && longest > 0 ? longest * 1.1 : 24 * 3600;
+      const res = reservationForVillage(ctx.world, vid, serverNowMs() + horizonSec * 1000);
+      if (res.commands.length > 0) {
+        plan.reserved += 1;
+        reqs = planVillage(village, page, subtractReservation(usable, res), opts);
+      }
+    }
+    if (reqs.length > 0) {
+      if (plan.requests.length + reqs.length > room) {
+        plan.leftover = true;
+        break;
+      }
+      plan.requests.push(...reqs);
+    } else if (settings.autoUnlock && plan.unlock === null) {
+      const lv = unlockCandidate(village, page.levels);
+      if (lv !== null) plan.unlock = { villageId: vid, levelId: lv, name: village.village_name };
+    }
+  }
+  return plan;
+}
+
+/** Só o 1º aviso vai inteiro na linha do status (o resto vira "+N avisos"). */
+function notesText(notes: ReadonlySet<string>): string {
+  const list = [...notes];
+  if (list.length === 0) return '';
+  return ` ${list[0] ?? ''}${list.length > 1 ? ` (+${list.length - 1} aviso(s))` : ''}`;
+}
+
+function unitsTotal(reqs: readonly MassRequest[]): number {
+  return reqs.reduce((a, r) => a + Object.values(r.units).reduce((x, y) => x + (y ?? 0), 0), 0);
+}
+
+/** Aldeia → regra do grupo, lendo as aldeias de cada grupo das regras (cache de 5 min). */
+async function loadProfiles(settings: CollectionSettings, notes: Set<string>): Promise<Map<string, GroupProfile>> {
+  let profiles = readProfiles(settings.groupProfiles);
+  if (profiles.length === 0 && settings.groupRules.trim() !== '') {
+    const legacy = parseGroupRules(settings.groupRules);
+    if (!legacy.ok) throw new Error(`Regras por grupo antigas inválidas — nada foi enviado (${legacy.reason}). Abra Configurar e refaça as regras nos cartões.`);
+    profiles = profilesFromLegacy(settings.groupRules);
+    if (profiles.length > 0) notes.add('Regras por grupo no formato antigo: abra Configurar e salve para ver os cartões novos.');
+  }
+  if (profiles.length === 0) return new Map();
+  const byGroup = new Map<number, number[]>();
+  for (const p of profiles) {
+    const villages = await getGroupVillages(p.groupId);
+    if (villages.length === 0) notes.add(`Grupo "${p.groupName || p.groupId}" sem aldeias (ou não lido): a regra dele não valeu agora.`);
+    byGroup.set(p.groupId, villages.map((v) => v.villageId));
+  }
+  return profileByVillage(profiles, byGroup);
+}
+
+async function runBackground(ctx: TshCycleContext, settings: CollectionSettings): Promise<void> {
+  const start = ctx.storage.get<number>('massPage', 0);
+  let pageNo = start;
+  let lastPage = 0;
+  let unlock: BackgroundPlan['unlock'] = null;
+  const notes = new Set<string>();
+  const profiles = await loadProfiles(settings, notes);
+  for (let read = 0; read < PAGES_PER_CYCLE; read++) {
+    const html = await pacedGet(`/game.php?village=${ctx.villageId}&screen=place&mode=scavenge_mass&page=${pageNo}`, { fresh: true });
+    const page = parseScavengeMassPage(html);
+    if (page === null) {
+      ctx.status('Não consegui ler a Coleta em massa do jogo — nada foi enviado. Tento de novo no próximo ciclo; se repetir, use "Só na tela" em Configurar.', 'warn');
+      return;
+    }
+    lastPage = page.lastPage;
+    const plan = planPage(ctx, page, settings, SCAVENGE_BATCH_MAX, profiles);
+    for (const n of plan.notes) notes.add(n);
+    if (unlock === null) unlock = plan.unlock;
+    if (page.groupId !== 0) {
+      notes.add(`O jogo está mostrando só o grupo "${page.groupName || page.groupId}" na Coleta em massa: a coleta cobre só essas aldeias. Para todas, escolha "todos" no menu de grupos do jogo.`);
+    }
+    if (plan.requests.length > 0) {
+      let result: { accepted: number; refused: string[] };
+      try {
+        result = await sendScavengeBatch(
+          plan.requests.map((r) => ({ villageId: r.villageId, levelId: r.levelId, units: r.units as Record<string, number> })),
+        );
+      } catch (error) {
+        // Recusa TOTAL do jogo: segue para as próximas aldeias (senão o mesmo
+        // lote seria recusado a cada ciclo e as outras páginas nunca sairiam).
+        if ((error as { code?: string }).code === 'GAME_REFUSED') {
+          ctx.storage.set('massPage', pageNo >= lastPage ? 0 : pageNo + 1);
+          ctx.again?.(60_000);
+        }
+        throw error;
+      }
+      const { accepted, refused } = result;
+      const aldeias = new Set(plan.requests.map((r) => r.villageId)).size;
+      const tropas = unitsTotal(plan.requests);
+      // Mesma página de novo se sobrou aldeia (teto de 50 grupos); senão, a próxima.
+      const next = plan.leftover ? pageNo : pageNo >= lastPage ? 0 : pageNo + 1;
+      ctx.storage.set('massPage', next);
+      if (plan.leftover || next !== 0) ctx.again?.(60_000);
+      ctx.storage.set('lastBatch', { at: Date.now(), villages: aldeias, squads: accepted, units: tropas });
+      const reservaTxt = plan.reserved > 0 ? ` ${plan.reserved} aldeia(s) guardaram tropas para comandos do Agendador.` : '';
+      const seguir = plan.leftover || next !== 0 ? ' Ainda faltam aldeias — continuo em 1 min.' : ' Todas as aldeias conferidas; a próxima rodada vem no próximo ciclo.';
+      ctx.status(
+        `Coleta enviada: ${accepted} coleta(s) em ${aldeias} aldeia(s) (${tropas.toLocaleString('pt-BR')} tropas).` +
+          seguir +
+          (refused.length > 0 ? ` O jogo recusou ${refused.length}: ${[...new Set(refused)].join(' · ')}. As outras saíram; as recusadas entram na próxima rodada.` : '') +
+          reservaTxt +
+          notesText(notes),
+        refused.length > 0 ? 'warn' : 'ok',
+      );
+      return;
+    }
+    pageNo = pageNo >= lastPage ? 0 : pageNo + 1;
+    if (pageNo === start) break; // deu a volta em todas as páginas
+  }
+  ctx.storage.set('massPage', pageNo);
+  if (unlock !== null) {
+    await unlockScavengeLevel(unlock.villageId, unlock.levelId);
+    ctx.status(`Nada para coletar agora — pedi o desbloqueio da ${DURATION_LABEL[unlock.levelId] ?? unlock.levelId} Coleta em ${unlock.name} (o jogo aceitou).`, 'ok');
+    return;
+  }
+  const continua = pageNo !== start && pageNo !== 0;
+  if (continua) ctx.again?.(60_000);
+  ctx.status(
+    `Nada a enviar agora: níveis ocupados, tropas abaixo do mínimo ou grupos em "Não coletar".${continua ? ' Sigo conferindo as outras aldeias em 1 min.' : ' Confiro de novo no próximo ciclo.'}` +
+      notesText(notes),
+    'info',
+  );
+}
+
+async function runCycle(ctx: TshCycleContext): Promise<void> {
+  const parsed = collectionSettings.safeParse(ctx.storage.get('settings', DEFAULT_SETTINGS));
+  if (!parsed.success) {
+    ctx.status('Configurações de coleta inválidas — nada foi feito. Revise em Configurar.', 'warn');
+    return;
+  }
+  const saved = savedExecMode(ctx.world);
+  const execMode = saved.mode ?? parsed.data.execMode;
+  if (execMode === 'fundo') {
+    await runBackground(ctx, parsed.data);
+    return;
+  }
+  if (new URLSearchParams(window.location.search).get('screen') !== 'place') {
+    ctx.status(
+      saved.legacy
+        ? 'Novo na 3.6: a Coleta pode rodar em TODAS as aldeias sem abrir a tela — escolha "Segundo plano" em Configurar. Por enquanto ela segue só na tela de Coleta, como antes.'
+        : 'Modo "Só na tela": abra Praça → Coletar recursos para a Coleta agir (ou escolha "Segundo plano" em Configurar).',
+      'info',
+    );
+    return;
+  }
+  await runScreenCycle(ctx);
+}
+
 export const collectionAutomation: TshAutomation = {
   id: 'collection',
   label: 'Coleta',
-  desc: 'Envia tropas para coletar recursos (Praça → Coletar recursos): 1 envio por ciclo na duração configurada (ou na regra do grupo da aldeia).',
+  desc: 'Coleta automática: divide as tropas pelos níveis livres (em todas as aldeias, em segundo plano, ou só na tela de Coleta), respeita o que fica em casa e os comandos do Agendador.',
   category: 'producao',
-  screen: 'place',
+  screen: null,
+  cooldownMs: 10 * 60_000,
+  settingsPanel: (settings, world) => buildCollectionPanel(settings, world),
   mutating: true,
   settingsForm: SETTINGS_FORM,
   settingsDefaults: DEFAULT_SETTINGS,

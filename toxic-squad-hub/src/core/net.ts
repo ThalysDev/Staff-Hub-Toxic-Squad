@@ -10,7 +10,6 @@
 //   cravado em segundos; cada cadeia mantém o gap de ≥200ms dentro de si.
 
 import { assertNotHalted, tripHalt } from './halt';
-import { pageWindow } from './page';
 
 export class CaptchaDetectedError extends Error {
   constructor() {
@@ -175,23 +174,3 @@ export function csrfToken(): string {
   return value;
 }
 
-/**
- * MUTAÇÃO in-game via gateway canônico do jogo (TribalWars.post). 1 tentativa,
- * SEM retry cego. `payload` é FormData-campos; o jogo injeta o csrf.
- */
-export async function gamePost(screen: string, action: string, fields: Record<string, string>): Promise<string> {
-  const payload = new URLSearchParams({ ...fields, h: csrfToken() });
-  return enqueue(async () => {
-    const tribalWars = pageWindow().TribalWars;
-    if (tribalWars?.post === undefined) {
-      throw new Error('Gateway do jogo indisponível (TribalWars.post) — atualize a página.');
-    }
-    const result = (await tribalWars.post(screen, action, payload)) as { response?: unknown } | undefined;
-    const text =
-      typeof result === 'object' && result !== null && 'response' in result
-        ? String((result as { response: unknown }).response ?? '')
-        : '';
-    assertGameBody(text);
-    return text;
-  });
-}
