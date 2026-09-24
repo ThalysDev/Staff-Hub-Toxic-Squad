@@ -22,7 +22,7 @@
 //   submit DOM que navega) é enfileirado individualmente.
 
 import { enqueue, enqueueUrgent, pacedGet } from '../../core/net';
-import { tripHalt } from '../../core/halt';
+import { pageShowsBotProtection, tripHalt } from '../../core/halt';
 import { pageWindow } from '../../core/page';
 import { currentCsrf, currentVillageId } from '../vanta/vanta-net';
 import { awaitRoutineMutation } from './tsh-humanize';
@@ -209,12 +209,20 @@ async function pollUntil<T>(probe: () => T | null, timeoutMs: number): Promise<T
   }
 }
 
-function isChallengePage(doc: Document): boolean {
-  const body = doc.body?.textContent?.toLocaleLowerCase('pt-BR') || '';
+/** Marca ESTRUTURAL do desafio (id/classe/iframe) — é o que abre o disjuntor. */
+function hasChallengeMarkup(doc: Document): boolean {
   return (
-    Boolean(doc.querySelector('[id*="captcha"], [class*="captcha"], iframe[src*="captcha"]')) ||
-    body.includes('captcha')
+    pageShowsBotProtection(doc) || Boolean(doc.querySelector('[class*="captcha"]'))
   );
+}
+
+/**
+ * "captcha" só no TEXTO (sem marca estrutural): pode ser o nome de uma aldeia
+ * no destino/lista — falha só este envio, sem pausar o script inteiro
+ * (revisão de código da Onda 1, P1).
+ */
+function mentionsCaptcha(doc: Document): boolean {
+  return (doc.body?.textContent?.toLocaleLowerCase('pt-BR') ?? '').includes('captcha');
 }
 
 function isSessionPage(doc: Document): boolean {
@@ -223,9 +231,12 @@ function isSessionPage(doc: Document): boolean {
 
 /** Gates de página da origem (assertMutable, sem o flag "armed" — transporte stateless). */
 function assertMutablePage(doc: Document): void {
-  if (isChallengePage(doc)) {
+  if (hasChallengeMarkup(doc)) {
     tripHalt('captcha', 'A página do jogo mostrou o desafio anti-bot antes de um envio.');
     throw transportError('Captcha detectado; a automação foi pausada para intervenção manual.', 'CAPTCHA_DETECTED');
+  }
+  if (mentionsCaptcha(doc)) {
+    throw transportError('A página cita "captcha" — por segurança este envio não foi feito. Confira a tela no jogo.', 'CAPTCHA_DETECTED');
   }
   if (isSessionPage(doc)) {
     tripHalt('sessao', 'A página do jogo pediu login antes de um envio.');

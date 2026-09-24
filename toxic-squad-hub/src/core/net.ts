@@ -123,7 +123,9 @@ function assertGameBody(body: string): void {
     tripHalt('sessao', 'Uma leitura do jogo devolveu a tela de login.');
     throw new SessionRequiredError();
   }
-  if (head.includes('captcha')) {
+  // Só MARCA estrutural (id/classe/src com captcha): a palavra solta no
+  // topo da página pode ser o nome da aldeia no <title> (revisão Onda 1).
+  if (/\b(?:id|class|src)\s*=\s*["'][^"']*(?:captcha|bot_check|botprotection)/.test(head)) {
     tripHalt('captcha', 'Uma leitura do jogo devolveu o desafio anti-bot.');
     throw new CaptchaDetectedError();
   }

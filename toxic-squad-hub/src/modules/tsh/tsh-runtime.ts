@@ -100,8 +100,16 @@ export function tshAutomations(): TshAutomation[] {
 }
 
 const enabledKey = (id: string): string => `tsh-auto:${id}:enabled`;
-const stateKey = (id: string, world: string): string => `tsh-auto:${world}:${id}:state`;
-const statusKey = (id: string, world: string): string => `tsh-auto:${world}:${id}:status`;
+/**
+ * Escopo por ALDEIA (`lockPerVillage`): lock, cooldown e status andam JUNTOS.
+ * Revisão de código da Onda 1 (P0): só o lock era por aldeia — o cooldown
+ * (nextRunAt) ficava por mundo e, com duas abas de origem, a primeira a rodar
+ * empurrava a outra para fora de TODOS os ciclos (só rodava no boot).
+ */
+const villageScope = (id: string): string =>
+  automations.get(id)?.lockPerVillage === true ? `:v${currentVillageId()}` : '';
+const stateKey = (id: string, world: string): string => `tsh-auto:${world}:${id}${villageScope(id)}:state`;
+const statusKey = (id: string, world: string): string => `tsh-auto:${world}:${id}${villageScope(id)}:status`;
 const armKey = (id: string): string => `tsh-auto:${id}:armed-until`;
 /**
  * Aldeia desta página: `game_data` do jogo primeiro (a URL pode não trazer
@@ -120,10 +128,7 @@ export function currentVillageId(): string {
  * várias origens cada aba (uma por aldeia) precisa rodar ao mesmo tempo — o
  * lock por mundo deixava só UMA aba viva e as outras origens nunca enviavam.
  */
-const lockKey = (id: string, world: string): string => {
-  const perVillage = automations.get(id)?.lockPerVillage === true;
-  return perVillage ? `tsh-auto:${world}:${id}:v${currentVillageId()}:lock` : `tsh-auto:${world}:${id}:lock`;
-};
+const lockKey = (id: string, world: string): string => `tsh-auto:${world}:${id}${villageScope(id)}:lock`;
 
 export function isTshEnabled(id: string): boolean {
   return gm.get<boolean>(enabledKey(id), false); // OPT-IN: nada muta por padrão.

@@ -6,11 +6,13 @@ const store = new Map<string, unknown>();
 vi.stubGlobal('GM_getValue', (key: string, fallback: unknown) => (store.has(key) ? store.get(key) : fallback));
 vi.stubGlobal('GM_setValue', (key: string, value: unknown) => store.set(key, value));
 vi.stubGlobal('GM_deleteValue', (key: string) => store.delete(key));
-const location = { hostname: 'br142.tribalwars.com.br' };
-vi.stubGlobal('window', { location });
+const location = { hostname: 'br142.tribalwars.com.br', origin: 'https://br142.tribalwars.com.br' };
+vi.stubGlobal('window', { location, setTimeout, clearTimeout });
+let nextBody = '';
+vi.stubGlobal('fetch', async () => ({ ok: true, status: 200, text: async () => nextBody }));
 
 const { clearHalt, haltState, isHalted, tripHalt, HaltedError } = await import('./halt');
-const { enqueue, enqueueUrgent } = await import('./net');
+const { enqueue, enqueueUrgent, pacedGet, CaptchaDetectedError } = await import('./net');
 
 describe('disjuntor de captcha/sessão', () => {
   beforeEach(() => store.clear());
@@ -47,5 +49,14 @@ describe('disjuntor de captcha/sessão', () => {
     tripHalt('captcha', 'x');
     clearHalt();
     await expect(enqueue(async () => 42)).resolves.toBe(42);
+  });
+
+  it('aldeia chamada "Captcha" no <title> NÃO pausa; a marca do desafio pausa', async () => {
+    nextBody = '<html><head><title>Captcha da Silva (500|500) - Tribal Wars</title></head><body>ok</body></html>';
+    await expect(pacedGet('/game.php?screen=overview&t=1')).resolves.toContain('ok');
+    expect(isHalted()).toBe(false);
+    nextBody = '<html><body><div id="bot_check">Proteção</div></body></html>';
+    await expect(pacedGet('/game.php?screen=overview&t=2')).rejects.toBeInstanceOf(CaptchaDetectedError);
+    expect(haltState()?.reason).toBe('captcha');
   });
 });

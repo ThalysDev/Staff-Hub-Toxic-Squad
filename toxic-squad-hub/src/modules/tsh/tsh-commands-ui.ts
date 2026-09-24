@@ -631,11 +631,17 @@ export function buildBlockRecords(input: BlockRecordInput): BlockRecordsResult {
       );
       continue;
     }
-    lastDepartureByOrigin.set(originKey, departure);
     const arrival = departure + command.travelMinutes * 60_000;
     // Revisão de produto (Onda 1): partida empurrada pelo espaço mínimo muda
     // a CHEGADA — o jogador precisa ver isso antes de agendar.
     const wanted = desiredDeparture.get(command.index);
+    if (input.timing.mode === 'window' && wanted !== undefined && departure > wanted && arrival > input.timing.toMs) {
+      warnings.push(
+        `Partida de ${originKey} → ${targetKey} empurrada para fora da janela: chegaria às ${clockLabelMs(arrival)}, depois do fim (${clockLabelMs(input.timing.toMs)}) — comando ignorado. Alargue a janela ou desmarque "Evitar conflito de ms".`,
+      );
+      continue;
+    }
+    lastDepartureByOrigin.set(originKey, departure);
     if (wanted !== undefined && departure > wanted) {
       warnings.push(
         `Partida de ${originKey} → ${targetKey} empurrada +${Math.round((departure - wanted) / 1000)} s (mesma aldeia precisa de ${VIEWER_CONFLICT_WINDOW_MS / 1000} s entre envios) — chega às ${clockLabelMs(arrival)}. Para chegadas coladas da mesma aldeia, use o Trem do jogo.`,

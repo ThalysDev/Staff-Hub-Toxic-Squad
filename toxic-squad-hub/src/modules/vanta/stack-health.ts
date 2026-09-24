@@ -298,7 +298,7 @@ registerVanta({
             <h4 class="head with-button">Saúde do Stack: <span class="vanta-sh-loading">não calculada</span></h4>
             <div class="widget_content" style="display:block">
                 <table style="width:100%"><tbody id="vanta-sh-body">
-                    <tr><td><a id="vanta-sh-calc" href="#">Calcular agora</a> <small>(lê apoios e roda o simulador)</small></td></tr>
+                    <tr><td><a class="vanta-sh-recalc" href="#">Calcular agora</a> <small>(lê apoios e roda o simulador)</small></td></tr>
                 </tbody></table>
                 <div style="margin-top:4px">
                     <a id="vanta-sh-settings-toggle" href="#" style="font-size:10px">Configurações ▶</a>
@@ -448,27 +448,27 @@ registerVanta({
                         <td><strong class="${health.cssClass}">${health.surplus}</strong> fulls</td>
                     </tr>` : ''}
                     ${incomings.nobles > 0 ? `<tr><td>Nobres:</td><td><strong>${incomings.nobles}</strong></td></tr>` : ''}
-                    <tr><td colspan="2"><small><a href="${escAttr(sim.url)}" target="_blank">Resultados do Simulador</a></small></td></tr>`;
+                    <tr><td colspan="2"><small><a href="${escAttr(sim.url)}" target="_blank">Resultados do Simulador</a> · <a class="vanta-sh-recalc" href="#">Recalcular</a></small></td></tr>`;
       } catch {
         headerSpan.className = 'vanta-sh-nok';
         headerSpan.textContent = 'Erro';
-        bodyEl.innerHTML = '<tr><td style="color:#c04038">Erro ao carregar simulador</td></tr>';
+        bodyEl.innerHTML = '<tr><td style="color:#c04038">Erro ao carregar simulador — <a class="vanta-sh-recalc" href="#">tentar de novo</a></td></tr>';
       }
     }
 
     // Onda 1: sob demanda. Antes calculava em TODA visita à Visão geral
     // (info_village fresco + N detalhes de comando + simulador) — rede e CPU
     // gastos a cada clique na aldeia, mesmo sem ninguém olhar o widget.
-    const calcLink = document.getElementById('vanta-sh-calc');
-    if (calcLink !== null) {
-      scope.on(calcLink, 'click', (event) => {
-        event.preventDefault();
-        headerSpan.className = 'vanta-sh-loading';
-        headerSpan.textContent = 'calculando...';
-        bodyEl.innerHTML = '<tr><td class="vanta-sh-loading">Calculando...</td></tr>';
-        void calculate();
-      });
-    }
+    // Delegação no corpo: o link (Calcular/Recalcular/tentar de novo) é
+    // recriado a cada resultado — o listener fica no container estável.
+    scope.on(bodyEl, 'click', (event) => {
+      if (!(event.target instanceof Element) || event.target.closest('.vanta-sh-recalc') === null) return;
+      event.preventDefault();
+      headerSpan.className = 'vanta-sh-loading';
+      headerSpan.textContent = 'calculando...';
+      bodyEl.innerHTML = '<tr><td class="vanta-sh-loading">Calculando...</td></tr>';
+      void calculate();
+    });
 
     // Salvar configurações e recalcular (porta do original 5795-5828).
     scope.on(saveBtn, 'click', () => {

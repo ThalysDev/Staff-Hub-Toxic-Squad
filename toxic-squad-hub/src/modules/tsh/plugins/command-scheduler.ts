@@ -22,6 +22,7 @@
 //   confirmação recém-aberta mira na hora) chama o ciclo; as miras dormem
 //   DENTRO da promise (teto < TTL do lock) revalidando pausa/terminal.
 
+import { isHalted, pageShowsBotProtection, tripHalt } from '../../../core/halt';
 import { z } from 'zod';
 import { alert } from '../tsh-alerts';
 import { registerTsh, releaseTshLock, renewTshLock, tshTabId, type TshAutomation, type TshCycleContext } from '../tsh-runtime';
@@ -583,6 +584,9 @@ interface CancelPreread {
 }
 
 let cancelPreread: CancelPreread | null = null;
+/** Pré-leitura EM ANDAMENTO (revisão Onda 1, P2-1): o disparo espera por ela
+ *  em vez de baixar a mesma página de novo atrás dela na fila. */
+let cancelPrereadPending: { target: string; promise: Promise<void> } | null = null;
 const CANCEL_PREREAD_TTL_MS = 45_000;
 
 function freshCancelPreread(target: string, nowMs: number): string | undefined {
@@ -591,7 +595,16 @@ function freshCancelPreread(target: string, nowMs: number): string | undefined {
 }
 
 /** Pré-leitura otimista: falha silenciosa — o transporte busca no disparo. */
-async function prereadCancelPage(ctx: TshCycleContext, target: string): Promise<void> {
+function prereadCancelPage(ctx: TshCycleContext, target: string): Promise<void> {
+  if (cancelPrereadPending !== null && cancelPrereadPending.target === target) return cancelPrereadPending.promise;
+  const promise = doPrereadCancelPage(ctx, target).finally(() => {
+    if (cancelPrereadPending?.promise === promise) cancelPrereadPending = null;
+  });
+  cancelPrereadPending = { target, promise };
+  return promise;
+}
+
+async function doPrereadCancelPage(ctx: TshCycleContext, target: string): Promise<void> {
   try {
     const html = await pacedGet(
       `/game.php?village=${normalizeVillageId(ctx.villageId)}&screen=overview_villages&mode=commands&page=-1`,
@@ -616,7 +629,11 @@ async function fireCancelCommand(ctx: TshCycleContext, record: ScheduledCommandR
     ),
   );
   try {
-    const preparsedHtml = freshCancelPreread(target, Date.now());
+    let preparsedHtml = freshCancelPreread(target, Date.now());
+    if (preparsedHtml === undefined && cancelPrereadPending !== null && cancelPrereadPending.target === target) {
+      await Promise.race([cancelPrereadPending.promise, new Promise<void>((resolve) => setTimeout(resolve, 2_500))]);
+      preparsedHtml = freshCancelPreread(target, Date.now());
+    }
     const result = await cancelGameCommandsAtTarget(target, count, preparsedHtml);
     // Pré-canário: NENHUM cancelamento feito (cancelled 0) com falha de POST é
     // fato terminal 'falhou' — gravar 'enviado' aqui era um selo que mentia.
@@ -1221,15 +1238,42 @@ function queueArrivalCheck(ctx: TshCycleContext, record: ScheduledCommandRecord,
  * disputar a rede com a mira. Resultado: amostra de autocalibração + evento
  * informativo no registro ("chegada real … (+X ms)").
  */
+/** Uma aba por MUNDO confere chegadas (as abas de origem rodam em paralelo). */
+const VERIFY_LOCK_KEY = 'verify-lock';
+const VERIFY_LOCK_TTL_MS = 60_000;
+
 async function verifyArrivals(ctx: TshCycleContext, nextOwnSendAt: number | undefined): Promise<void> {
   const nowLocal = Date.now();
   const checks = ctx.storage
     .get<ArrivalCheck[]>(VERIFY_STORAGE_KEY, [])
     .filter((check) => nowLocal - check.queuedAt < VERIFY_MAX_AGE_MS && check.attempts < VERIFY_MAX_ATTEMPTS);
   if (checks.length === 0) return;
-  if (nextOwnSendAt !== undefined && nextOwnSendAt - serverNowMs() < 120_000) return;
+  // Revisão de código (Onda 1, P1-3): com o lock por aldeia, várias abas
+  // rodam o agendador — a conferência (download de vários MB) só roda longe
+  // de QUALQUER cravado do mundo, não só dos desta aldeia.
+  const nowServer = serverNowMs();
+  const nextAnySendAt = readSchedulerState(ctx)
+    .commands.filter((command) => aliveRecord(command))
+    .map((command) => Date.parse(command.sendAt))
+    .filter((sendAt) => Number.isFinite(sendAt) && sendAt >= nowServer)
+    .sort((left, right) => left - right)[0];
+  const guard = nextAnySendAt ?? nextOwnSendAt;
+  if (guard !== undefined && guard - nowServer < 120_000) return;
   const ready = checks.filter((check) => nowLocal - check.queuedAt > 3_000);
   if (ready.length === 0) return;
+  // … e UMA aba por vez: duas abas achando o mesmo check gravavam a amostra
+  // de calibração em dobro e o evento "Chegada real" duas vezes.
+  const lock = ctx.storage.get<{ tab: string; at: number } | null>(VERIFY_LOCK_KEY, null);
+  if (lock !== null && lock.tab !== tshTabId() && nowLocal - lock.at < VERIFY_LOCK_TTL_MS) return;
+  ctx.storage.set(VERIFY_LOCK_KEY, { tab: tshTabId(), at: nowLocal });
+  try {
+    await verifyArrivalsLocked(ctx, checks, ready);
+  } finally {
+    ctx.storage.set(VERIFY_LOCK_KEY, null);
+  }
+}
+
+async function verifyArrivalsLocked(ctx: TshCycleContext, checks: ArrivalCheck[], ready: ArrivalCheck[]): Promise<void> {
   const kind = ready[0]?.kind ?? 'attack';
   let html: string;
   try {
@@ -1268,7 +1312,10 @@ async function verifyArrivals(ctx: TshCycleContext, nextOwnSendAt: number | unde
       remaining.push(check);
       continue;
     }
-    if (!aliveOrSent(readSchedulerState(ctx).commands.find((command) => command.id === check.id))) continue;
+    const current = readSchedulerState(ctx).commands.find((command) => command.id === check.id);
+    if (!aliveOrSent(current)) continue;
+    // Já conferido (outra aba / ciclo anterior): não duplica a amostra.
+    if (current?.events.some((event) => (event.detail ?? '').startsWith('Chegada real')) === true) continue;
     const real = matchArrival(rows, {
       target: check.target,
       ...(check.origin !== undefined ? { origin: check.origin } : {}),
@@ -1297,7 +1344,12 @@ async function verifyArrivals(ctx: TshCycleContext, nextOwnSendAt: number | unde
     );
     ctx.status(`Chegada conferida: ${errorMs >= 0 ? '+' : ''}${errorMs} ms do planejado.`, 'ok');
   }
-  ctx.storage.set(VERIFY_STORAGE_KEY, remaining);
+  // Relê antes de gravar: checks enfileirados por OUTRA aba durante o
+  // download não podem ser apagados (merge por id).
+  const known = new Set(checks.map((check) => check.id));
+  const latest = ctx.storage.get<ArrivalCheck[]>(VERIFY_STORAGE_KEY, []);
+  const added = latest.filter((check) => !known.has(check.id));
+  ctx.storage.set(VERIFY_STORAGE_KEY, [...remaining, ...added].slice(-10));
 }
 
 function hiddenTabNote(): string {
@@ -1400,9 +1452,19 @@ async function aimAndConfirm(
     // do clique sobra só a conferência leve do formulário.
     assertCommandPageSafe();
     markAimHot(decision.fireAtMs);
-    const ok = await waitUntilServerMs(decision.fireAtMs, () => !aliveRecord(findRecord(ctx, record.id)), {
-      precise: opts.lane === 'precisao',
-    });
+    // Revisão de código (Onda 1, P1): o clique mirado não reconfere a página
+    // — então a ESPERA aborta se o disjuntor abrir (outra aba) ou o desafio
+    // anti-bot aparecer nesta página. Checagens baratas (GM + seletor).
+    const ok = await waitUntilServerMs(
+      decision.fireAtMs,
+      () => !aliveRecord(findRecord(ctx, record.id)) || isHalted() || pageShowsBotProtection(),
+      { precise: opts.lane === 'precisao' },
+    );
+    if (isHalted() || pageShowsBotProtection()) {
+      tripHalt('captcha', 'O desafio anti-bot apareceu durante a mira de um cravado.');
+      ctx.status(`Comando ${record.id}: captcha/sessão durante a mira — nada foi enviado (script pausado).`, 'warn');
+      return;
+    }
     if (!ok || !aliveRecord(findRecord(ctx, record.id))) {
       ctx.status(`Comando ${record.id} foi pausado/removido durante a mira — nada foi enviado.`, 'info');
       return;
@@ -1426,7 +1488,10 @@ async function aimAndConfirm(
     // travada e o próximo cravado da mesma aldeia podia ser perdido (Onda E).
     // Se o clique falhar, o `finally` do runtime renova o lock.
     releaseTshLock('command-scheduler', ctx.world);
-    clickCommandConfirmNow(target, units, opts, record.trainUnits ?? [], aimed);
+    // Só o cravado de PRECISÃO pula a varredura (foi feita antes da mira e a
+    // espera vigiou o disjuntor); a faixa humanizada pode ter esperado muito.
+    if (isHalted()) throw new Error('Script pausado (captcha/sessão) — nada foi confirmado.');
+    clickCommandConfirmNow(target, units, opts, record.trainUnits ?? [], aimed && opts.lane === 'precisao');
   } catch (error) {
     renewTshLock('command-scheduler', ctx.world); // nada navegou: a aba retoma o lock
     if (isUncertainMutationError(error)) {
