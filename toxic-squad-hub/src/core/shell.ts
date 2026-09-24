@@ -33,6 +33,12 @@ export function registerSection(section: SectionDef): void {
   sections.push(section);
 }
 
+/** Fecha o painel a partir do conteúdo (ex.: ferramenta aberta na página). */
+let panelCloser: (() => void) | null = null;
+export function closePanel(): void {
+  panelCloser?.();
+}
+
 /** Troca de seção a partir do CONTEÚDO (ex.: "Abrir Comandos" na Início). */
 let sectionSwitcher: ((sectionId: string) => void) | null = null;
 export function openSection(sectionId: string): void {
@@ -230,7 +236,8 @@ export function mountShell(): void {
     const width = panel.offsetWidth || Math.min(1060, window.innerWidth - 24);
     return {
       l: Math.min(Math.max(4, left), Math.max(4, window.innerWidth - width - 4)),
-      t: Math.min(Math.max(4, top), Math.max(4, window.innerHeight - 60)),
+      // v3.2.1: a janela inteira cabe (antes só 60 px ficavam garantidos).
+      t: Math.min(Math.max(4, top), Math.max(4, window.innerHeight - (panel.offsetHeight || 720) - 4)),
     };
   };
   const restorePanelPos = (): void => {
@@ -409,6 +416,7 @@ export function mountShell(): void {
       disposeSection(); // painel fechado: nenhum timer de seção fica rodando
     }
   };
+  panelCloser = (): void => setPanelOpen(false);
 
   const closeSearch = (): void => {
     searchPop.replaceChildren();
@@ -427,6 +435,13 @@ export function mountShell(): void {
         const haystack = normalizeSearch(`${entry.label} ${entry.hint ?? ''} ${entry.keywords ?? ''}`);
         return haystack.includes(needle);
       })
+      // v3.2.1: nome que COMEÇA com o termo > nome que contém > só descrição.
+      .map((entry) => {
+        const nome = normalizeSearch(entry.label);
+        return { entry, rank: nome.startsWith(needle) ? 0 : nome.includes(needle) ? 1 : 2 };
+      })
+      .sort((a, b) => a.rank - b.rank)
+      .map(({ entry }) => entry)
       .slice(0, 12);
     searchPop.replaceChildren();
     if (matches.length === 0) {

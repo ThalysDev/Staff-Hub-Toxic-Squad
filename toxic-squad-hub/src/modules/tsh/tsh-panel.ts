@@ -435,9 +435,21 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   rodar.addEventListener('click', () => {
     // Desabilitado até a promise resolver — cliques repetidos nunca sobrepõem ciclos.
     rodar.disabled = true;
+    // v3.2.1: o clique SEMPRE responde — rodou (redesenha com o status novo)
+    // ou mostra na linha o motivo de não ter rodado.
     void runTshCycle(automation.id, { ignoreCooldown: true })
-      .catch(() => undefined)
-      .finally(rerender);
+      .catch((error: unknown) => (error instanceof Error ? error.message : String(error)))
+      .then((motivo) => {
+        if (motivo === null) {
+          rerender();
+          return;
+        }
+        sub.textContent = `Não rodou: ${motivo}`;
+        sub.title = motivo;
+        sub.classList.add('tsh-row-desc--warn');
+        rodar.disabled = false;
+        window.setTimeout(rerender, 5_000);
+      });
   });
   side.appendChild(rodar);
 

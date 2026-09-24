@@ -124,14 +124,14 @@ registerVanta({
       if (on) {
         runCunhar();
       } else {
-        setStatus('#5a3a16', 'Desativado.');
+        setStatus('var(--shs-ink, #34312c)', 'Desativado.');
       }
     });
 
     function scheduleReload(): void {
       if (!toggle.checked) return;
       const secs = gm.get<number>(INTERVAL_KEY, 30);
-      setStatus('#5a3a16', `Próxima cunhagem em ${secs} segundo${secs !== 1 ? 's' : ''}...`);
+      setStatus('var(--shs-ink, #34312c)', `Próxima cunhagem em ${secs} segundo${secs !== 1 ? 's' : ''}...`);
       scope.after(() => {
         if (isEnabled() && !isHalted()) window.location.reload(); // disjuntor: não recarrega em loop com captcha aberto
       }, secs * 1000);
@@ -152,7 +152,7 @@ registerVanta({
       // ponto de milhar); o input recebe String do número parseado.
       const maxNum = parsePtBrInt((maxEl.textContent ?? '').replace(/[()]/g, ''));
       if (maxNum <= 0) {
-        setStatus('#5a3a16', 'Nenhuma moeda disponível para cunhar.');
+        setStatus('var(--shs-ink, #34312c)', 'Nenhuma moeda disponível para cunhar.');
         scheduleReload();
         return;
       }

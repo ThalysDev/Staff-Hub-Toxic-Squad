@@ -283,6 +283,9 @@ export function tshConfirm(
       resolve(valor);
     };
     const { body, foot, close } = buildTshModal(shadow, titulo, 'alert', { onClose: () => decide(false) });
+    // v3.2.1: confirmação é uma frase — janela estreita.
+    const modalEl = body.parentElement;
+    if (modalEl !== null) modalEl.style.width = 'min(440px, calc(100vw - 32px))';
     const msg = document.createElement('div');
     msg.className = 'tsh-confirm-msg';
     msg.textContent = mensagem; // sempre textContent — nunca HTML
@@ -295,7 +298,7 @@ export function tshConfirm(
     cancelBtn.addEventListener('click', close); // onClose resolve false
     const okBtn = document.createElement('button');
     okBtn.type = 'button';
-    okBtn.className = opts?.danger === true ? 'tsh-btn tsh-btn--danger' : 'tsh-btn tsh-btn--primary';
+    okBtn.className = opts?.danger === true ? 'tsh-btn tsh-btn--danger tsh-btn--solid' : 'tsh-btn tsh-btn--primary';
     okBtn.appendChild(icon('check', 12));
     okBtn.appendChild(document.createTextNode('Confirmar'));
     okBtn.addEventListener('click', () => {
@@ -684,19 +687,28 @@ export function openTshSettingsModal(
   stopField.className = 'tsh-field';
   const stopSide = document.createElement('div');
   stopSide.className = 'tsh-field-side';
+  // v3.2.1: mesma chave liga/desliga das outras opções (era caixinha nativa).
   const stopToggle = document.createElement('input');
   stopToggle.type = 'checkbox';
-  stopToggle.className = 'tsh-check';
   stopToggle.checked = schedule.stopEnabled === true;
+  stopToggle.setAttribute('aria-label', 'Parada programada');
+  const stopSwitch = document.createElement('label');
+  stopSwitch.className = 'tsh-switch';
+  const stopTrack = document.createElement('span');
+  stopTrack.className = 'tsh-switch-track';
+  stopSwitch.append(stopToggle, stopTrack);
   const stopInput = document.createElement('input');
   stopInput.type = 'datetime-local';
-  stopInput.className = 'tsh-input tsh-input--num';
+  stopInput.className = 'tsh-input tsh-input--dt';
   if (schedule.stopAt !== undefined && schedule.stopAt !== '') stopInput.value = schedule.stopAt;
   const stopHelp =
     'Quando ligada e o horário passar, esta automação para de rodar até você desligar a parada aqui.';
   stopSide.appendChild(fieldLabel('Parada programada'));
   appendHelp(stopSide, stopHelp);
-  stopField.append(stopToggle, stopSide, stopInput);
+  const stopCtl = document.createElement('div');
+  stopCtl.className = 'tsh-field-ctl';
+  stopCtl.append(stopInput, stopSwitch);
+  stopField.append(stopSide, stopCtl);
   agenda.body.appendChild(stopField);
 
   // ── Parâmetros (seção-caixa) ──
@@ -714,6 +726,10 @@ export function openTshSettingsModal(
       body.appendChild(errorEl);
     }
     errorEl.textContent = message; // sempre textContent — nunca HTML
+    // v3.2.1: o erro fica no fim do corpo com rolagem — traz à vista e foca
+    // o primeiro campo marcado como inválido.
+    errorEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    body.querySelector<HTMLElement>('.tsh-input--invalid')?.focus();
   };
 
   // ── Rodapé Nexus: Restaurar à esquerda; Cancelar/Salvar à direita ──

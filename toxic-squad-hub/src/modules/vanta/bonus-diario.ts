@@ -262,7 +262,7 @@ const STYLES = `
     background: var(--shs-action, #6d3c14); color: #fff; border: 1px solid var(--shs-action-deep, #5a3110);
     border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 12px; font-weight: 600;
   }
-  #vanta-bonus-diario-coletar:hover { background: #7d4720; }
+  #vanta-bonus-diario-coletar:hover { background: var(--shs-action-hover, #255833); }
   #vanta-bonus-diario-auto-row {
     display: flex; align-items: center; gap: 6px; margin-top: 6px; cursor: pointer;
   }
@@ -396,7 +396,7 @@ registerVanta({
           // Sem o controle nesta tela: abre a tela do bônus com a coleta armada
           // 1× (o mount de lá coleta sem exigir um segundo clique).
           armOnceCollect();
-          setStatus('#5a3a16', 'Abrindo a tela do bônus diário para coletar…');
+          setStatus('var(--shs-ink, #34312c)', 'Abrindo a tela do bônus diário para coletar…');
           scope.after(() => {
             window.location.href = BONUS_URL;
           }, PAUSE_MS);
@@ -405,7 +405,7 @@ registerVanta({
         scope.on(clearEl, 'click', () => {
           gm.set(HISTORY_KEY, []);
           paintHistory();
-          setStatus('#5a3a16', 'Histórico limpo.');
+          setStatus('var(--shs-ink, #34312c)', 'Histórico limpo.');
         });
 
         scope.on(toggleNode, 'change', () => {
@@ -425,7 +425,7 @@ registerVanta({
           if (on) {
             autoRun();
           } else {
-            setStatus('#5a3a16', 'Automático desligado.');
+            setStatus('var(--shs-ink, #34312c)', 'Automático desligado.');
           }
           paintChip();
         });
@@ -442,7 +442,7 @@ registerVanta({
       if (chip === null) return;
       const on = gm.get<boolean>(ENABLED_KEY, false);
       chip.textContent = on ? 'automático ligado' : 'automático desligado';
-      chip.style.color = on ? '#3f8f43' : '#5a3a16';
+      chip.style.color = on ? '#3f8f43' : 'var(--shs-ink, #34312c)';
     }
 
     function paintHistory(): void {
@@ -472,7 +472,7 @@ registerVanta({
 
     function paintIdleStatus(): void {
       if (findBonusButton() !== null) {
-        setStatus('#5a3a16', 'Bônus disponível nesta tela — pode coletar agora.');
+        setStatus('var(--shs-ink, #34312c)', 'Bônus disponível nesta tela — pode coletar agora.');
         return;
       }
       if (collectedToday()) {
@@ -480,11 +480,11 @@ registerVanta({
         return;
       }
       if (isBonusScreen()) {
-        setStatus('#5a3a16', 'Bônus não encontrado nesta tela — nada foi clicado.');
+        setStatus('var(--shs-ink, #34312c)', 'Bônus não encontrado nesta tela — nada foi clicado.');
         return;
       }
       setStatus(
-        '#5a3a16',
+        'var(--shs-ink, #34312c)',
         'Esta tela não tem o botão do bônus. "Coletar bônus diário agora" abre a tela do bônus e coleta lá.',
       );
     }
@@ -504,7 +504,7 @@ registerVanta({
       if (coletando) return; // clique duplo não vira POST duplo
       const button = findBonusButton();
       if (button === null) {
-        setStatus('#5a3a16', 'Bônus não encontrado nesta tela — nada foi clicado.');
+        setStatus('var(--shs-ink, #34312c)', 'Bônus não encontrado nesta tela — nada foi clicado.');
         return;
       }
       // Histórico ANTES do clique: o POST pode recarregar a página e levar o
@@ -537,7 +537,7 @@ registerVanta({
             return;
           }
           setStatus(
-            '#5a3a16',
+            'var(--shs-ink, #34312c)',
             'Solicitação enviada — o jogo ainda mostra o botão de coleta. Confira na tela antes de repetir.',
           );
           paintHistory();
@@ -554,13 +554,13 @@ registerVanta({
       }
       if (!isBonusScreen() && shouldAutoOpen()) {
         registerAutoOpen();
-        setStatus('#5a3a16', 'Sem o botão nesta tela — abrindo a tela do bônus diário para verificar…');
+        setStatus('var(--shs-ink, #34312c)', 'Sem o botão nesta tela — abrindo a tela do bônus diário para verificar…');
         scope.after(() => {
           window.location.href = BONUS_URL;
         }, PAUSE_MS);
         return;
       }
-      setStatus('#5a3a16', 'Bônus não encontrado nesta tela — nada foi clicado.');
+      setStatus('var(--shs-ink, #34312c)', 'Bônus não encontrado nesta tela — nada foi clicado.');
     }
 
     // Confirmação por ausência de uma coleta anterior (o clique navegou antes de

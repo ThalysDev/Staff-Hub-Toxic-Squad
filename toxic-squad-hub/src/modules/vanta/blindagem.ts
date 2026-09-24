@@ -36,7 +36,7 @@ export function showModuleError(scope: ModuleScope, anchorEl: HTMLElement, msg: 
   el.id = 'vanta-module-error';
   el.textContent = msg;
   el.style.cssText = `
-            position: fixed; z-index: 100001;
+            position: fixed; z-index: 2147483100;
             background: var(--shs-danger-bg, #fceaea); border: 1px solid var(--shs-danger, #c04038); border-radius: 8px;
             color: var(--shs-danger, #c04038); font-size: 11px; font-family: var(--shs-font, Verdana, sans-serif);
             padding: 7px 12px; pointer-events: none;

@@ -27,7 +27,7 @@ const STYLES = `
   .tcs-title { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.015em; color: var(--shs-ink-strong); }
   .tcs-sub { font-size: 13px; color: var(--shs-muted); margin-top: 4px; }
   .tcs-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .tcs-clock { display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; border: 1px solid var(--shs-border);
+  .tcs-clock { display: flex; align-items: center; gap: 10px; padding: 0 0 0 12px; min-height: 34px; box-sizing: border-box; border: 1px solid var(--shs-border);
     border-radius: 10px; background: var(--shs-bg-card); }
   .tcs-clock-lbl { font-size: 12px; color: var(--shs-muted); font-weight: 500; }
   .tcs-clock-time { font-family: var(--shs-font-mono); font-size: 16px; font-weight: 500; color: var(--shs-ink-strong); font-variant-numeric: tabular-nums; }
@@ -37,6 +37,7 @@ const STYLES = `
   .tcs-banner--danger { background: var(--shs-danger-bg); color: #8f1d17; }
   .tcs-banner-txt { flex: 1 1 260px; }
   .tcs-banner a { text-decoration: none; }
+  .tcs-clock .shs-btn { border: 0; min-height: 32px; }
   .tcs-card { background: var(--shs-bg-card); border: 1px solid var(--shs-border); border-radius: 12px; overflow: hidden; }
   .tcs-card table { margin: 0 !important; background: transparent; }
   .tcs-card th { padding: 12px 14px 8px !important; }

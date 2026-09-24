@@ -910,7 +910,7 @@ registerVanta({
         addBtn.disabled = true;
         removeBtn.disabled = true;
         progressEl.style.display = 'block';
-        progressEl.style.color = '#5a3a16';
+        progressEl.style.color = 'var(--shs-ink, #34312c)';
         progressEl.textContent = 'Resolvendo coordenadas...';
 
         const selection = await resolveSelection(progressEl, addBtn, removeBtn);

@@ -239,7 +239,7 @@ const STYLE_ID = 'vanta-previa-styles';
 const MODAL_ID = 'vanta-previa-modal';
 const PREVIA_STYLES = `
   #vanta-previa-widget {
-    position: fixed; z-index: 99999; width: 250px;
+    position: fixed; z-index: 2147483100; width: 250px;
     background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border-strong, #cbb384); border-radius: 12px;
     box-shadow: 0 12px 40px rgba(60,37,10,0.18);
     font-family: var(--shs-font, Verdana, sans-serif); font-size: 12px; color: var(--shs-ink, #5a3a16);
@@ -268,7 +268,7 @@ const PREVIA_STYLES = `
   }
   #vanta-previa-status { font-size: 11px; color: var(--shs-muted, #6f5e40); }
   #vanta-previa-modal {
-    position: fixed; inset: 0; z-index: 100000;
+    position: fixed; inset: 0; z-index: 2147483100;
     background: rgba(60,37,10,0.35);
     display: flex; align-items: center; justify-content: center;
     font-family: var(--shs-font, Verdana, sans-serif);

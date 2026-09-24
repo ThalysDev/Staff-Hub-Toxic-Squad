@@ -385,7 +385,7 @@ export function ensureVantaStyles(): void {
         /* ── Coletor e Alocador widget ── */
         #vanta-coletor-widget {
             position: fixed;
-            z-index: 99999;
+            z-index: 2147483100;
             width: 260px;
             background: var(--shs-bg-card, #fffdf3);
             border: 1px solid var(--shs-border-strong, #cbb384);

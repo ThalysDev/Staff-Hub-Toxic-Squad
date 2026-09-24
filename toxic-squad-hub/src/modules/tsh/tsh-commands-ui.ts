@@ -2478,6 +2478,8 @@ function appendBlockSection(parent: HTMLElement, ctx: SchedulerUiContext): void 
     const msg = statusMsgOf(statusEl);
     msg.textContent = message;
     msg.style.color = danger ? 'var(--shs-danger)' : '';
+    // v3.2.1: o botão fica no fim de uma seção longa — a mensagem vem à vista.
+    statusEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
 
   // ── Origens (grupo do jogo OU coordenadas digitadas) ──
@@ -2931,6 +2933,8 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
     const msg = statusMsgOf(statusEl);
     msg.textContent = message;
     msg.style.color = danger ? 'var(--shs-danger)' : '';
+    // v3.2.1: o botão fica no fim de uma seção longa — a mensagem vem à vista.
+    statusEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
 
   // ── Filtros ──

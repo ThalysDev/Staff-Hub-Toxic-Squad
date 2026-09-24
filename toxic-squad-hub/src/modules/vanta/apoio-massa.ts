@@ -671,7 +671,7 @@ const PANEL_STYLES = `
   .vanta-am-warn-list { color: var(--shs-danger, #c04038); margin: 0; padding-left: 16px; }
   .vanta-am-note { color: var(--shs-muted, #6f5e40); font-size: 10.5px; }
   .vanta-am-overlay {
-    position: fixed; inset: 0; z-index: 100000;
+    position: fixed; inset: 0; z-index: 2147483100;
     display: flex; align-items: center; justify-content: center;
     background: rgba(60, 37, 10, 0.45);
   }

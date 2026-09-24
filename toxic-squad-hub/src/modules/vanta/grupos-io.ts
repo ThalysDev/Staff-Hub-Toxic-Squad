@@ -364,10 +364,10 @@ function ensureStyles(): void {
         }
         #vanta-gio-ui button:hover:not(:disabled) { background: var(--shs-bg-head, #efe2ba); border-color: var(--shs-action-hover, #834a1a); color: var(--shs-action-hover, #834a1a); }
         #vanta-gio-ui button:disabled { opacity: 0.4; cursor: default; }
-        #vanta-gio-exportar { background: var(--shs-action, #6d3c14); border-color: var(--shs-action-deep, #5a3110); color: #fff; font-weight: 600; }
-        #vanta-gio-exportar:hover:not(:disabled) { background: var(--shs-action-hover, #834a1a); color: #fff; }
-        #vanta-gio-confirmar { background: var(--shs-info, #2f66c0); border-color: #27549f; color: #fff; font-weight: 600; }
-        #vanta-gio-confirmar:hover:not(:disabled) { background: #4473cd; color: #fff; }
+        #vanta-gio-ui #vanta-gio-exportar { background: var(--shs-action, #6d3c14); border-color: var(--shs-action-deep, #5a3110); color: #fff; font-weight: 600; }
+        #vanta-gio-ui #vanta-gio-exportar:hover:not(:disabled) { background: var(--shs-action-hover, #834a1a); color: #fff; }
+        #vanta-gio-ui #vanta-gio-confirmar { background: var(--shs-info, #2f66c0); border-color: #27549f; color: #fff; font-weight: 600; }
+        #vanta-gio-ui #vanta-gio-confirmar:hover:not(:disabled) { background: #4473cd; color: #fff; }
         #vanta-gio-status { font-size: 11px; color: var(--shs-muted, #6f5e40); line-height: 1.4; min-height: 14px; }
         #vanta-gio-status.vanta-gio-status--erro { color: var(--shs-danger, #c04038); }
         #vanta-gio-status.vanta-gio-status--ok { color: var(--shs-ok, #3f8f43); font-weight: 600; }
@@ -434,9 +434,9 @@ registerVanta({
     if (anchor === null || anchor.parentNode === null) return;
     anchor.parentNode.insertBefore(scope.owns(card), anchor);
 
-    const exportBtnEl = card.querySelector<HTMLButtonElement>('#vanta-gio-exportar');
+    const exportBtnEl = card.querySelector<HTMLButtonElement>('#vanta-gio-ui #vanta-gio-exportar');
     const importBtnEl = card.querySelector<HTMLButtonElement>('#vanta-gio-importar');
-    const confirmBtnEl = card.querySelector<HTMLButtonElement>('#vanta-gio-confirmar');
+    const confirmBtnEl = card.querySelector<HTMLButtonElement>('#vanta-gio-ui #vanta-gio-confirmar');
     const fileInputEl = card.querySelector<HTMLInputElement>('#vanta-gio-file');
     const statusElEl = card.querySelector<HTMLElement>('#vanta-gio-status');
     const previewElEl = card.querySelector<HTMLElement>('#vanta-gio-preview');

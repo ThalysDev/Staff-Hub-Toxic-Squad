@@ -101,7 +101,7 @@ export function countMapaEnxutoTargets(): number {
 
 const WIDGET_STYLES = `
   #vanta-mapa-enxuto-ui {
-    position: fixed; left: 10px; bottom: 10px; z-index: 9999;
+    position: fixed; left: 10px; bottom: 64px; z-index: 9999;
     width: 210px; background: var(--shs-bg-card, #fffdf3); border: 1px solid var(--shs-border, #e0cda0);
     border-radius: 10px; overflow: hidden;
     box-shadow: 0 2px 8px rgba(60, 37, 10, .25);

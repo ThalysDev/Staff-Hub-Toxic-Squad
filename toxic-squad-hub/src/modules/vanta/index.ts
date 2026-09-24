@@ -5,6 +5,7 @@
 // de página (tela certa ou flag de navegação do launcher).
 
 import { icon, type IconName } from '../../core/icons';
+import { closePanel } from '../../core/shell';
 import { spinner } from '../../core/ui';
 import {
   groupLabel,
@@ -154,6 +155,8 @@ const VTS_STYLES = `
   .vts-chip--here { background: var(--shs-ok-bg); color: var(--shs-ok-ink); }
   .vts-go { width: 32px; height: 32px; background: transparent; color: var(--shs-ink); border-radius: 9px; }
   .vts-go:hover:not(:disabled) { background: var(--shs-bg-inset); color: var(--shs-ink-strong); }
+  .vts-go:disabled, .vts-open:disabled { background: transparent; color: var(--shs-ink-disabled); opacity: .6; }
+  .vts-go--loading:disabled { background: transparent; color: var(--shs-ink); opacity: 1; }
   .vts-row[data-off] .vts-name, .vts-row[data-off] .vts-desc { color: var(--shs-muted); }
   .vts-chip--here { background: var(--shs-bg-inset); color: var(--shs-ink); }
   .vts-open { width: 32px; height: 32px; border-radius: 9px; }
@@ -256,13 +259,15 @@ function launcherRow(launcher: VantaLauncher, rerender: () => void): HTMLElement
     go.disabled = false;
     go.replaceChildren(icon('play', 12));
     side.querySelector('.vts-result')?.remove();
+    // v3.2.1: a ferramenta abre NA PÁGINA — fecha o painel para ela não nascer atrás dele.
+    if (montou) closePanel();
     const resultado = document.createElement('span');
     resultado.className = montou ? 'vts-chip vts-chip--ok vts-result' : 'vts-chip vts-chip--err vts-result';
     resultado.textContent = montou
       ? 'Pronto'
       : resultadoMount.error !== undefined
         ? `Falhou: ${resultadoMount.error}`
-        : 'nada para montar nesta tela';
+        : 'Esta tela do jogo não tem onde abrir a ferramenta';
     side.appendChild(resultado);
     window.setTimeout(() => resultado.remove(), montou ? 2000 : 5000);
   });

@@ -201,13 +201,13 @@ registerVanta({
       if (on) {
         runEtiquetador();
       } else {
-        setStatus('#5a3a16', 'Desativado.');
+        setStatus('var(--shs-ink, #34312c)', 'Desativado.');
       }
     });
 
     function scheduleReload(ms: number, label: string): void {
       if (!toggle.checked) return;
-      setStatus('#5a3a16', label);
+      setStatus('var(--shs-ink, #34312c)', label);
       scope.after(() => {
         if (isEnabled() && !isHalted()) window.location.reload(); // disjuntor: não recarrega em loop com captcha aberto
       }, ms);
@@ -270,7 +270,7 @@ registerVanta({
           scheduleReload(60_000, 'Etiquetado. Próxima verificação em 60 segundos...');
         }, 2000);
       } else {
-        setStatus('#5a3a16', 'Nenhum ataque novo para etiquetar.');
+        setStatus('var(--shs-ink, #34312c)', 'Nenhum ataque novo para etiquetar.');
         scheduleIntervalReload();
       }
     }

@@ -94,6 +94,7 @@ export function shellStyles(): string {
     @keyframes shs-flash { 0%, 100% { box-shadow: 0 0 0 0 rgba(46,107,62,0); }
       30% { box-shadow: 0 0 0 3px rgba(46,107,62,.45); } }
     .shs-flash { animation: shs-flash 1.6s ease-in-out 2; border-radius: 10px; }
+    .tsh-gcard .shs-flash, .vts-rows .shs-flash { animation: none; outline: 2px solid var(--shs-action); outline-offset: -3px; }
 
     /* Busca rápida (Ctrl+K) */
     .shs-searchwrap { position: relative; margin-left: auto; }
@@ -149,6 +150,8 @@ export function shellStyles(): string {
     .shs-sidefoot-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .shs-sidefoot-row span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .shs-sidefoot-muted { color: var(--shs-muted); }
+    .shs-sidefoot [data-tip]:hover::after, .shs-sidefoot [data-tip]:focus-visible::after { left: 0; transform: none; }
+    .shs-sidefoot [data-tip]:hover::before, .shs-sidefoot [data-tip]:focus-visible::before { left: 16px; transform: none; }
     .shs-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--shs-ok); display: inline-block; }
     .shs-dot--warn { background: var(--shs-brass); }
     .shs-dot--err { background: var(--shs-danger); }
@@ -157,7 +160,8 @@ export function shellStyles(): string {
     /* ---- Conteúdo ---- */
     .shs-main { flex: 1; min-width: 0; min-height: 0; display: flex;
       flex-direction: column; background: var(--shs-bg); }
-    .shs-body { flex: 1; min-height: 0; overflow-y: auto; padding: 24px 28px;
+    /* overflow-x: as dicas invisíveis do CSS antigo não podem criar rolagem lateral. */
+    .shs-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 24px 28px;
       overscroll-behavior: contain; }
     .shs-body::-webkit-scrollbar, .shs-tablewrap::-webkit-scrollbar { width: 10px; height: 10px; }
     .shs-body::-webkit-scrollbar-thumb, .shs-tablewrap::-webkit-scrollbar-thumb {
@@ -217,7 +221,7 @@ export function shellStyles(): string {
     .shs-btn-ghost:hover:not([disabled]) { background: var(--shs-bg-side); }
     .shs-btn-danger { background: var(--shs-bg-card); color: var(--shs-danger); border-color: var(--shs-border-strong); }
     .shs-btn-danger:hover:not([disabled]) { background: var(--shs-danger-bg); border-color: var(--shs-danger); }
-    .shs-btn-sm { min-height: 32px; padding: 0 10px; font-size: 12.5px; border-radius: 8px; }
+    .shs-btn-sm { min-height: 34px; padding: 0 10px; font-size: 12.5px; border-radius: 8px; }
     .shs-ic { flex-shrink: 0; }
 
     /* ---- Dicas (tooltip) ---- */

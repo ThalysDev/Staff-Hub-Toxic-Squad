@@ -224,6 +224,14 @@ interface CycleState {
 }
 
 /** Cooldown efetivo: override do usuário (minutos) > default do módulo > 5min. */
+/** Nome em português das telas do jogo (mensagens do "Rodar agora"). */
+const SCREEN_LABELS: Record<string, string> = {
+  place: 'Praça', snob: 'Academia', market: 'Mercado', main: 'Edifício principal', barracks: 'Quartel',
+  stable: 'Estábulo', garage: 'Oficina', statue: 'Estátua', smith: 'Ferreiro', overview_villages: 'Visualizações',
+  overview: 'Visão geral', info_village: 'Informações da aldeia', inventory: 'Inventário', am_farm: 'Assistente de Saque',
+  map: 'Mapa', ally: 'Tribo',
+};
+
 export function effectiveCooldownMs(automation: TshAutomation, schedule: TshSchedule): number {
   if (schedule.cooldownMinutes !== undefined && Number.isFinite(schedule.cooldownMinutes) && schedule.cooldownMinutes >= 1) {
     return schedule.cooldownMinutes * 60_000;
@@ -257,25 +265,30 @@ export function tshNextRunAt(id: string, world?: string): number | null {
 }
 
 /** Executa um ciclo de UMA automação respeitando todas as regras. */
-export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean }): Promise<void> {
+/**
+ * Executa um ciclo. Devolve null quando RODOU, ou o motivo (pt-BR) de não
+ * ter rodado — o "Rodar agora" mostra isso na linha (antes o clique
+ * terminava em silêncio e parecia quebrado).
+ */
+export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean }): Promise<string | null> {
   const automation = automations.get(id);
-  if (automation === undefined) return;
+  if (automation === undefined) return 'Automação desconhecida.';
   // Mundo = subdomínio (br144.tribalwars.com.br → br144); aldeia da URL.
   const worldId = window.location.hostname.split('.')[0] ?? 'mundo';
   const villageId = currentVillageId();
 
-  if (inFlight.has(id)) return; // ciclo do mesmo módulo já em voo nesta aba
-  if (!isTshEnabled(id)) return;
+  if (inFlight.has(id)) return 'Já está rodando um ciclo agora.'; // ciclo do mesmo módulo já em voo nesta aba
+  if (!isTshEnabled(id)) return 'Está desligada — ligue a chave primeiro.';
   // Disjuntor (Onda 1): captcha/sessão param TODAS as automações até o
   // jogador retomar na Início — nada de tentar de novo a cada ciclo.
   const halt = haltState();
   if (halt !== null) {
     gm.set<CycleStatus>(statusKey(id, worldId), { message: `${haltLabel(halt)} — pausado. Retome na aba Início do painel (ou na faixa vermelha no topo).`, kind: 'warn', at: Date.now() });
-    return;
+    return 'Script pausado (captcha/sessão) — retome na Início.';
   }
   if (!licenseOk()) {
     gm.set<CycleStatus>(statusKey(id, worldId), { message: 'Licença inativa — ciclos pausados.', kind: 'warn', at: Date.now() });
-    return;
+    return 'Licença inativa.';
   }
   const screen = currentScreen();
   // Parada programada ANTES do gate de tela (P2-2 revisão Onda 0): o status de
@@ -288,9 +301,11 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
       kind: 'warn',
       at: Date.now(),
     });
-    return;
+    return 'Parada programada atingida — desligue a parada em Configurar.';
   }
-  if (automation.screen !== null && screen !== automation.screen) return; // não é a tela dele
+  if (automation.screen !== null && screen !== automation.screen) {
+    return `Só roda na tela ${SCREEN_LABELS[automation.screen] ?? automation.screen} — abra essa tela do jogo.`; // não é a tela dele
+  }
   // Agenda do usuário: fora da janela ativa o ciclo NÃO roda (status claro).
   if (!withinActiveWindow(schedule)) {
     gm.set<CycleStatus>(statusKey(id, worldId), {
@@ -298,16 +313,16 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
       kind: 'warn',
       at: Date.now(),
     });
-    return;
+    return `Fora do horário ativo (${schedule.activeFrom ?? ''}–${schedule.activeTo ?? ''}).`;
   }
   if (automation.mutating && automation.armExempt !== true && !isArmed(id)) {
     gm.set<CycleStatus>(statusKey(id, worldId), { message: 'Aguardando armar (módulo muta o jogo).', kind: 'warn', at: Date.now() });
-    return;
+    return 'Precisa armar antes (autorização de 30 min).';
   }
   const state = gm.get<CycleState>(stateKey(id, worldId), {});
   const cooldown = effectiveCooldownMs(automation, schedule);
-  if (!opts?.ignoreCooldown && state.nextRunAt !== undefined && Date.now() < state.nextRunAt) return;
-  if (!acquireLock(id, worldId)) return; // outra aba está com o módulo
+  if (!opts?.ignoreCooldown && state.nextRunAt !== undefined && Date.now() < state.nextRunAt) return 'Aguardando o intervalo entre ciclos.';
+  if (!acquireLock(id, worldId)) return 'Outra aba do jogo está rodando esta automação.'; // outra aba está com o módulo
   inFlight.add(id);
   // Cooldown gravado ANTES do ciclo (P3 revisão): mutações que navegam podem
   // destruir o contexto antes do finally — o cooldown não pode se perder.
@@ -343,6 +358,7 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
     renewLock(id, worldId);
     inFlight.delete(id);
   }
+  return null;
 }
 
 /**
