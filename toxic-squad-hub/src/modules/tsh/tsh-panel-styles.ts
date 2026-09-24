@@ -788,6 +788,17 @@ export function ensureTshPanelStyles(shadow: ShadowRoot): void {
     .tsh-history { margin-top: 10px; }
     /* Onda C: barra de filtro/ações em massa e grupos recolhíveis. */
     .tsh-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 2px; }
+    .tsh-kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0 6px; }
+    .tsh-kind { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 10px; border-radius: 10px; cursor: pointer;
+      border: 1px solid var(--shs-border-strong, #cbb384); background: var(--shs-bg-card, #fffdf3); color: var(--shs-ink, #5a3a16);
+      font: 600 13px var(--shs-font); }
+    .tsh-kind[aria-selected='true'] { border-color: var(--shs-action, #6d3c14); box-shadow: inset 0 0 0 1px var(--shs-action, #6d3c14); color: var(--shs-ink-strong, #3c250a); }
+    .tsh-kind:focus-visible { outline: 2px solid var(--shs-brass, #b8860b); outline-offset: 1px; }
+    .tsh-row-go { display: inline-flex; align-items: center; gap: 4px; margin-top: 3px; font-size: 11.5px; font-weight: 600;
+      color: var(--shs-action, #6d3c14); text-decoration: none; }
+    .tsh-row-go:hover { text-decoration: underline; }
+    .tsh-kind-help { font-size: 12px; color: var(--shs-muted, #8a6a44); margin: 0 2px 10px; line-height: 1.45; }
+    @media (max-width: 420px) { .tsh-kinds { grid-template-columns: 1fr; } }
     .tsh-seg { display: inline-flex; border: 1px solid var(--shs-border-strong, #cbb384);
       border-radius: 8px; overflow: hidden; }
     .tsh-seg-btn { border: none; background: transparent; padding: 4px 10px; cursor: pointer;

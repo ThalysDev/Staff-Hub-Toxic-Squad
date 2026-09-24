@@ -27,6 +27,8 @@ import { buildingIcon, unitIcon } from './tsh-units';
 import { openTshPreviewModal, openTshSettingsModal, tshConfirm } from './tsh-settings-ui';
 import {
   armTsh,
+  currentVillageId,
+  tshPageScreen,
   disarmTsh,
   effectiveCooldownMs,
   isTshEnabled,
@@ -125,6 +127,12 @@ export function tshPanelSignature(world: string): string {
 
 export type TshListFilter = 'todas' | 'ativas' | 'atencao';
 const FILTER_KEY = 'tsh-ui:auto-filter';
+/** v3.7.1: aba do painel — scripts de página ou de background. */
+const KIND_KEY = 'tsh-ui:auto-kind';
+type TshKindTab = 'pagina' | 'background';
+function currentKind(): TshKindTab {
+  return gm.get<string>(KIND_KEY, 'pagina') === 'background' ? 'background' : 'pagina';
+}
 const COLLAPSED_KEY = 'tsh-ui:auto-collapsed';
 
 function currentFilter(): TshListFilter {
@@ -148,6 +156,7 @@ export function revealTshAutomation(id: string): void {
   const atual = collapsedGroups();
   atual.delete(automation.category ?? 'outros');
   gm.set(COLLAPSED_KEY, [...atual]);
+  gm.set(KIND_KEY, tshPageScreen(automation) !== null ? 'pagina' : 'background');
 }
 
 /** A automação aparece com este filtro? (puro — status/ligado vêm por parâmetro) */
@@ -332,6 +341,18 @@ function automationRow(automation: TshAutomation, shadow: ShadowRoot, world: str
   }`;
   if (status !== null && enabled) sub.title = status.message;
   main.appendChild(sub);
+
+  // v3.7.1 — script de página: link para a página dele (na aldeia atual).
+  const pagina = tshPageScreen(automation);
+  if (pagina !== null && new URLSearchParams(window.location.search).get('screen') !== pagina) {
+    const ir = document.createElement('a');
+    ir.className = 'tsh-row-go';
+    const vid = currentVillageId();
+    ir.href = `/game.php?${vid !== '' ? `village=${encodeURIComponent(vid)}&` : ''}screen=${encodeURIComponent(pagina)}`;
+    ir.appendChild(icon('globe', 11));
+    ir.appendChild(document.createTextNode(`Acessar página · ${screenName(pagina)}`));
+    main.appendChild(ir);
+  }
 
   rowEl.appendChild(main);
 
@@ -651,10 +672,54 @@ function drawTshPanel(container: HTMLElement, rerender: () => void): void {
   }
   cardEl.appendChild(toolbar);
 
+  // ── v3.7.1: Scripts de Página × Scripts de Background ──
+  const kind = currentKind();
+  const kinds = document.createElement('div');
+  kinds.className = 'tsh-kinds';
+  kinds.setAttribute('role', 'tablist');
+  const kindInfo: Record<TshKindTab, { label: string; ic: IconName; help: string }> = {
+    pagina: {
+      label: 'Scripts de Página',
+      ic: 'globe',
+      help: 'Rodam na página própria do jogo (Praça, Assistente de Saque, Mercado…), para mais foco e controle. Ligue e use "Acessar página".',
+    },
+    background: {
+      label: 'Scripts de Background',
+      ic: 'layers',
+      help: 'Rodam sozinhos em qualquer aba do jogo aberta (ou na Sentinela), sem precisar abrir tela nenhuma.',
+    },
+  };
+  for (const k of ['pagina', 'background'] as const) {
+    const lista = all.filter((a) => (tshPageScreen(a) !== null) === (k === 'pagina'));
+    const ligados = lista.filter((a) => isTshEnabled(a.id)).length;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tsh-kind';
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', String(k === kind));
+    b.append(icon(kindInfo[k].ic, 14), document.createTextNode(kindInfo[k].label));
+    const c = document.createElement('span');
+    c.className = ligados > 0 ? 'tsh-group-count tsh-group-count--on' : 'tsh-group-count';
+    c.textContent = ligados > 0 ? `${ligados}/${lista.length}` : String(lista.length);
+    c.title = `${ligados} ligado(s) de ${lista.length}`;
+    b.appendChild(c);
+    b.addEventListener('click', () => {
+      gm.set(KIND_KEY, k);
+      rerender();
+    });
+    kinds.appendChild(b);
+  }
+  cardEl.appendChild(kinds);
+  const kindHelp = document.createElement('div');
+  kindHelp.className = 'tsh-kind-help';
+  kindHelp.textContent = kindInfo[kind].help;
+  cardEl.appendChild(kindHelp);
+  const ofKind = all.filter((a) => (tshPageScreen(a) !== null) === (kind === 'pagina'));
+
   const collapsed = collapsedGroups();
   let visiveis = 0;
   for (const group of GROUPS) {
-    const items = all
+    const items = ofKind
       .filter((a) => a.category === group.category)
       .filter((a) => passesTshFilter(filter, isTshEnabled(a.id), tshStatus(a.id, world)?.kind ?? null));
     if (items.length === 0) continue;

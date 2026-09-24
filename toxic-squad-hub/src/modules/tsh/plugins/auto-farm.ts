@@ -987,19 +987,12 @@ registerTsh({
   desc: 'Script de página: com ele ligado, a Central de Farm aparece no Assistente de Saque — aperte Iniciar e ela farma de todas as aldeias (A, B ou C conforme o relatório), cada alvo pela aldeia mais próxima.',
   category: 'planejamento',
   screen: null,
+  pageScreen: 'am_farm',
   // v3.7.0: quem envia é a Central de Farm (script de página, botão Iniciar
   // na tela do Assistente) — o ciclo daqui só mostra o estado dela.
   mutating: false,
   settingsDefaults: { ...DEFAULT_SETTINGS, farm: DEFAULT_FARM_CONFIG },
   settingsPanel: (settings) => buildFarmConfigPanel(settings),
-  extraActions: [
-    {
-      label: 'Acessar página',
-      open: () => {
-        window.location.href = '/game.php?screen=am_farm';
-      },
-    },
-  ],
   // Ficam FORA do formulário: villages é chave de storage SEPARADA ('villages',
   // IDs numéricos — não parte do objeto settings), targetBlacklist é lista e o
   // templateC é a estrutura da composição própria (defaults do módulo).

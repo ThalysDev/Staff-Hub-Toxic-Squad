@@ -56,6 +56,11 @@ export interface TshAutomation {
   category?: TshCategory;
   /** Tela (screen=) onde o ciclo roda; null = qualquer tela (API-driven). */
   screen: string | null;
+  /**
+   * v3.7.1 — script de PÁGINA cujo ciclo roda em qualquer tela mas que vive
+   * numa página do jogo (ex.: Auto Farm → Assistente de Saque).
+   */
+  pageScreen?: string;
   /** Mínimo entre ciclos (ms) — DEFAULT; o usuário sobrepõe em MINUTOS nas configurações. */
   cooldownMs?: number;
   /** Mutação de jogo? Exige "armar" (autorização com validade). */
@@ -111,6 +116,11 @@ const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
 
 export function registerTsh(automation: TshAutomation): void {
   automations.set(automation.id, automation);
+}
+
+/** Página do jogo de um script de página (null = script de background). */
+export function tshPageScreen(automation: Pick<TshAutomation, 'pageScreen' | 'screen'>): string | null {
+  return automation.pageScreen ?? automation.screen;
 }
 
 export function tshAutomations(): TshAutomation[] {
