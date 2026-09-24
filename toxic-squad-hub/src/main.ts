@@ -24,6 +24,14 @@ import { aimIsHot, serverNowMs } from './core/game-clock';
 import { clockLabelMs } from './ext/core/timing/precise-fire';
 import { renderAjuda } from './modules/ajuda';
 import { createModuleScope, type ModuleScope } from './modules/vanta/vanta-lifecycle';
+import { mountFarmCentral } from './modules/tsh/farm/farm-central';
+
+/** v3.7.0 — scripts de página: a Central de Farm vive no Assistente de Saque. */
+function mountPageScripts(): void {
+  if (new URLSearchParams(window.location.search).get('screen') === 'am_farm') {
+    mountFarmCentral(createModuleScope('tsh-farm-central'), window.location.hostname.split('.')[0] ?? 'mundo');
+  }
+}
 import { haltLabel, haltState, pageShowsBotProtection, tripHalt } from './core/halt';
 import { renderHaltBar } from './core/halt-bar';
 import { conductorBackgroundTick, conductorTick, nextAliveRecord, readinessOf } from './modules/tsh/tsh-condutor';
@@ -349,6 +357,7 @@ function main(): void {
       startTshHeartbeat(createModuleScope('tsh-heartbeat'));
       mountSentinelaLauncher();
       startAimWatcher(createModuleScope('tsh-aim-watcher'));
+      mountPageScripts();
     });
     return;
   }
@@ -358,6 +367,7 @@ function main(): void {
   startTshHeartbeat(createModuleScope('tsh-heartbeat'));
   mountSentinelaLauncher();
   startAimWatcher(createModuleScope('tsh-aim-watcher'));
+  mountPageScripts();
   void logout;
   void licenseState;
 }

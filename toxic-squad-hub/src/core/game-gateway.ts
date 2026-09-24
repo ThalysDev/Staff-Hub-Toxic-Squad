@@ -47,7 +47,7 @@ export function callGameAction(
   action: string,
   data: Record<string, string>,
   timeoutMs = 8_000,
-  opts?: { village?: string },
+  opts?: { village?: string; params?: Record<string, string> },
 ): Promise<GatewayResult> {
   return new Promise<GatewayResult>((resolve) => {
     const gateway = pageWindow().TribalWars;
@@ -70,7 +70,7 @@ export function callGameAction(
     );
     // Aldeia da URL: o buildURL do jogo usa params.village (e o tira dos
     // params) — é assim que a própria tela do Mercado diz de onde sai o envio.
-    const params: Record<string, string> = { ajaxaction: action };
+    const params: Record<string, string> = { ...(opts?.params ?? {}), ajaxaction: action };
     if (opts?.village !== undefined && opts.village !== '') params.village = opts.village;
     try {
       post.call(

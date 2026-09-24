@@ -942,6 +942,42 @@ export function scavengeSquadErrors(response: unknown): string[] {
     .map((r) => (typeof r.error === 'string' && r.error !== '' ? r.error.replace(/<[^>]+>/g, '') : 'grupo recusado'));
 }
 
+/**
+ * Farm pelo Assistente de Saque (v3.7.0) — o MESMO pedido dos botões A/B/C
+ * da tela do jogo (Accountmanager.farm.sendUnits / sendUnitsFromReport):
+ * screen=am_farm&mode=farm&ajaxaction=farm|farm_from_report&json=1, com a
+ * aldeia de origem na URL. Uma chamada = um ataque. Nunca repete: recusa do
+ * jogo vira GAME_REFUSED (com a mensagem dele), dúvida vira RESULT_UNCERTAIN.
+ * Devolve as tropas que o jogo diz que ficaram em casa (quando ele manda).
+ */
+export async function sendFarmAttack(
+  sourceId: string,
+  send: { kind: 'template'; targetId: string; templateId: string } | { kind: 'report'; reportId: string },
+): Promise<{ currentUnits: Record<string, number> | null }> {
+  const source = normalizeVillageId(sourceId);
+  const action = send.kind === 'template' ? 'farm' : 'farm_from_report';
+  const data: Record<string, string> =
+    send.kind === 'template'
+      ? { target: send.targetId, template_id: send.templateId, source }
+      : { report_id: send.reportId };
+  const result = await enqueue(() =>
+    callGameAction('am_farm', action, data, GAME_API_TIMEOUT_MS * 2, { village: source, params: { mode: 'farm', json: '1' } }),
+  );
+  if (!result.ok) {
+    if (result.afterMutation) throw transportError(`Farm inconclusivo: ${result.error}`, 'RESULT_UNCERTAIN', true);
+    if (result.code === 'indisponivel' || result.code === 'lancou') throw transportError(`Farm não enviado: ${result.error}`, 'GATEWAY_UNAVAILABLE');
+    throw transportError(result.code === 'recusado' ? result.error : `Farm não enviado: ${result.error}`, 'GAME_REFUSED');
+  }
+  const raw = (result.response as { current_units?: unknown } | null)?.current_units;
+  if (raw === null || typeof raw !== 'object') return { currentUnits: null };
+  const currentUnits: Record<string, number> = {};
+  for (const [u, v] of Object.entries(raw as Record<string, unknown>)) {
+    const n = Number(v);
+    if (Number.isFinite(n)) currentUnits[u] = n;
+  }
+  return { currentUnits };
+}
+
 /** Grupo de coleta de QUALQUER aldeia (coleta em 2º plano, v3.6.0). */
 export interface ScavengeBatchRequest {
   villageId: string;

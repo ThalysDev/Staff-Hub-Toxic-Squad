@@ -373,6 +373,17 @@ function getWorkerTimer(): WorkerTimer | null {
   return workerTimer;
 }
 
+/**
+ * Espera que NÃO é estrangulada em aba de fundo (Web Worker; queda para
+ * setTimeout). Usada pelo pacing da Central de Farm — o Chrome reduz os
+ * timers de abas ocultas a 1 por minuto.
+ */
+export function backgroundSleep(ms: number): Promise<void> {
+  const timer = getWorkerTimer();
+  if (timer !== null) return timer.sleep(ms);
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
 function coarseSleep(ms: number): Promise<void> {
   const timer = getWorkerTimer();
   return timer !== null ? timer.sleep(ms) : sleep(ms);

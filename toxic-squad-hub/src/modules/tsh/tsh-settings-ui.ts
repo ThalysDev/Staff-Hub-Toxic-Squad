@@ -716,6 +716,7 @@ export function openTshSettingsModal(
   agenda.body.appendChild(stopField);
 
   // ── Parâmetros: tela própria do módulo (v3.6.0) ou campos declarativos ──
+  if (panel?.hideCooldown === true) cooldownField.style.display = 'none';
   if (panel !== null) {
     body.appendChild(panel.el);
     body.appendChild(agenda.box); // tela própria: o resumo descreve o painel logo abaixo; Agenda vai para o fim

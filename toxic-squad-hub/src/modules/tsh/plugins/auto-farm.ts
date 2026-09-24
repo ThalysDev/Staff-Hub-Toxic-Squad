@@ -22,7 +22,10 @@
 // fila/pacing/cache de 60s que o resto do userscript).
 
 import { z } from 'zod';
-import { registerTsh } from '../tsh-runtime';
+import { registerTsh, type TshAutomation } from '../tsh-runtime';
+import { buildFarmConfigPanel } from '../farm/farm-config-panel';
+import { loadFarmState } from '../farm/farm-engine';
+import { DEFAULT_FARM_CONFIG } from '../farm/farm-plan';
 import { pacedGet } from '../../../core/net';
 import { gm } from '../../../core/storage';
 import { ownVillages } from '../tsh-game-data';
@@ -981,14 +984,22 @@ export async function resolveAutoFarmRotation(configured: string[], currentVilla
 registerTsh({
   id: 'auto-farm',
   label: 'Auto Farm',
-  desc: 'Lê o Assistente de Saque das aldeias da rodada (lista configurada; vazia = TODAS as SUAS aldeias) e mantém a prévia. No modo EXECUTAR (com o módulo armado) envia 1 comando de farm por ciclo pela Praça de Reunião, na faixa humanizada.',
+  desc: 'Script de página: com ele ligado, a Central de Farm aparece no Assistente de Saque — aperte Iniciar e ela farma de todas as aldeias (A, B ou C conforme o relatório), cada alvo pela aldeia mais próxima.',
   category: 'planejamento',
   screen: null,
-  // Onda 4: o módulo MUTA o jogo no modo EXECUTAR — o runtime exige opt-in +
-  // armar 30min. A prévia segue rodando em qualquer tela; a execução só sai
-  // com a Praça de Reunião aberta na aldeia do ciclo.
-  mutating: true,
-  settingsDefaults: DEFAULT_SETTINGS,
+  // v3.7.0: quem envia é a Central de Farm (script de página, botão Iniciar
+  // na tela do Assistente) — o ciclo daqui só mostra o estado dela.
+  mutating: false,
+  settingsDefaults: { ...DEFAULT_SETTINGS, farm: DEFAULT_FARM_CONFIG },
+  settingsPanel: (settings) => buildFarmConfigPanel(settings),
+  extraActions: [
+    {
+      label: 'Acessar página',
+      open: () => {
+        window.location.href = '/game.php?screen=am_farm';
+      },
+    },
+  ],
   // Ficam FORA do formulário: villages é chave de storage SEPARADA ('villages',
   // IDs numéricos — não parte do objeto settings), targetBlacklist é lista e o
   // templateC é a estrutura da composição própria (defaults do módulo).
@@ -1050,7 +1061,24 @@ registerTsh({
     { key: 'ignoreScheduledTargets', label: 'Ignorar alvos agendados', type: 'boolean' },
     { key: 'ignoreTargetsInFlight', label: 'Ignorar alvos com comando a caminho', type: 'boolean' },
   ],
-  async runCycle(ctx): Promise<void> {
+  runCycle: async (ctx): Promise<void> => {
+    const s = loadFarmState(ctx.world);
+    const total = s.sent.A + s.sent.B + s.sent.C;
+    ctx.status(
+      s.running
+        ? `Central de Farm rodando: ${total.toLocaleString('pt-BR')} farm(s) hoje (A ${s.sent.A} · B ${s.sent.B} · C ${s.sent.C}). ${s.detail}`
+        : 'Abra o Assistente de Saque ("Acessar página") e aperte Iniciar na Central de Farm.',
+      s.running ? 'ok' : 'info',
+    );
+  },
+});
+
+/**
+ * Ciclo ANTERIOR à Central (prévia + 1 comando pela Praça). Mantido para a
+ * prévia/relatório e os testes; a execução real agora é da Central de Farm.
+ */
+export async function runAutoFarmPreviewCycle(ctx: Parameters<TshAutomation['runCycle']>[0]): Promise<void> {
+  {
     let settings: AutoFarmPluginSettings;
     try {
       settings = parseAutoFarmSettings(ctx.storage.get<unknown>('settings', DEFAULT_SETTINGS));
@@ -1186,5 +1214,5 @@ registerTsh({
     ctx.storage.set('last-report', report);
     const status = autoFarmStatusMessage(report, rotation, { mode: settings.mode, execution, templateC });
     ctx.status(`${status.message}${lastFarmReserveNote}`, status.kind);
-  },
-});
+  }
+}

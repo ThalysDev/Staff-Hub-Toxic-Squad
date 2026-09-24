@@ -40,6 +40,8 @@ export interface TshSettingsPanel {
   el: HTMLElement;
   /** Resumo que abre a janela (antes da Agenda), opcional. */
   top?: HTMLElement;
+  /** Esconde o "Intervalo entre ciclos" da Agenda (o ritmo real mora na tela própria). */
+  hideCooldown?: boolean;
   /** Valores prontos para salvar, ou o motivo (pt-BR) de não poder salvar. */
   collect(): { ok: true; values: Record<string, unknown> } | { ok: false; error: string };
 }
@@ -300,6 +302,31 @@ export function tshAgendaBlock(id: string, worldId: string): string | null {
   const schedule = loadSchedule(worldId, id);
   if (isScheduleStopped(schedule)) return 'a parada programada do Agendador foi atingida';
   if (!withinActiveWindow(schedule)) return 'o Agendador está fora do horário ativo';
+  return null;
+}
+
+/**
+ * v3.7.0 — travas de uma automação que roda FORA do ciclo (script de página,
+ * ex.: Central de Farm): desligada, script pausado (captcha/sessão), licença,
+ * parada programada, fora do horário ativo. null = liberada.
+ */
+export interface TshRunBlock {
+  /** 'janela' = só esperar (volta sozinho quando o horário abrir). */
+  kind: 'desligado' | 'pausado' | 'licenca' | 'parada' | 'janela';
+  /** Frase completa em PT-BR. */
+  text: string;
+}
+
+export function tshRunBlock(id: string, worldId: string): TshRunBlock | null {
+  if (!isTshEnabled(id)) return { kind: 'desligado', text: 'Parou: a automação foi desligada no painel.' };
+  const halt = haltState();
+  if (halt !== null) return { kind: 'pausado', text: `Pausado: ${haltLabel(halt)}. Resolva no jogo e retome na aba Início do painel.` };
+  if (!licenseOk()) return { kind: 'licenca', text: 'Parou: sua licença está inativa.' };
+  const schedule = loadSchedule(worldId, id);
+  if (isScheduleStopped(schedule)) return { kind: 'parada', text: 'Parou: a parada programada foi atingida (desligue em Configurar → Agenda).' };
+  if (!withinActiveWindow(schedule)) {
+    return { kind: 'janela', text: `Fora do horário ativo (${schedule.activeFrom ?? ''}–${schedule.activeTo ?? ''}) — volta sozinho quando o horário abrir.` };
+  }
   return null;
 }
 

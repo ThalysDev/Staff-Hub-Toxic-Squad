@@ -116,6 +116,15 @@ export function renderAjuda(container: HTMLElement): void {
   item(coleta.body, '**Desbloquear níveis sozinho:** sem nada para coletar e com recursos, desbloqueia o próximo nível da aldeia (um por ciclo).');
   grid.appendChild(coleta.box);
 
+  const farm = card('Central de Farm', 'sword');
+  item(farm.body, '**Script de página:** com o Auto Farm ligado, a Central aparece no topo do **Assistente de Saque** (botão "Acessar página" no painel). Aperte **Iniciar**: ela farma de todas as aldeias enquanto a aba estiver aberta, e continua sozinha se a página recarregar.');
+  item(farm.body, '**Uma rodada:** lê a lista do Assistente uma vez, as tropas em casa de todas as aldeias e os ataques já a caminho; cada alvo vai para a **sua aldeia mais próxima** que tem a tropa, e o mesmo alvo não recebe dois farms chegando juntos.');
+  item(farm.body, '**O que fazer com cada relatório:** escolha A, B, C ou "Não atacar" para cada cor do relatório (vitória, perdas, explorado, derrota) e se o saque veio cheio. O **C** é o do próprio jogo: calcula as tropas pelo último relatório de exploradores e usa só as tropas marcadas em "Disponibilidade".');
+  item(farm.body, '**Antes de começar**, a Central mostra de onde vai sair e avisa se o C pode levar tropa de ataque. Use **"Deixar em casa"** para proteger seu full. Por padrão só farma **bárbaras**; aldeias de jogadores só com a opção ligada.');
+  item(farm.body, '**Muralha alta** não é farmada: o alvo aparece em "Muralhas para quebrar", com link para a Praça. **Comandos do Agendador vêm primeiro** e o que você marcar em "Fica em casa" nunca sai.');
+  item(farm.body, '**Ritmo humano:** pausa entre ataques (o jogo aceita no mínimo 200 ms), pausa ao trocar de aldeia e variação. Captcha, sessão ou parada programada **param na hora**; fora do horário ativo ela **espera** e volta sozinha. Recusa do jogo fica no diário e ela segue; envio sem confirmação bloqueia o alvo por 1 h (nunca reenvia às cegas).');
+  grid.appendChild(farm.box);
+
   const sentinela = card('Modo Sentinela', 'eye');
   item(sentinela.body, 'O botão da Sentinela abre **uma aba de fundo do jogo** que mantém as automações ciclando enquanto você faz outra coisa.');
   item(sentinela.body, 'O cadeado impede duas abas de enviarem a mesma coisa: no **Agendador** ele vale **por aldeia** (uma aba por origem); nas outras automações vale por mundo, e a Sentinela e a aba normal se revezam sem duplicar.');
