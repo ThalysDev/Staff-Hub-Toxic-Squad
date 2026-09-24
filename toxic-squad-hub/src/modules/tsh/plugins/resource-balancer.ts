@@ -28,16 +28,14 @@
 //   modo define a proporção desejada de recursos nas receptoras.
 
 import { registerTsh } from '../tsh-runtime';
+import { gm } from '../../../core/storage';
+import { BALANCER_DEFAULTS, runSuperBalancer } from './super-balancer';
+import { buildBalancerPanel } from './balancer-panel';
 import { villageAt } from '../tsh-game-data';
 import type { SettingsField } from '../tsh-settings';
-import { sendResources, type SendResourcesPayload } from '../tsh-transport';
-import { pacedDoc } from '../../vanta/vanta-net';
 import { parsePtBrInt } from '../../vanta/vanta-utils';
-import { parseCoordinateLines } from './op-generator';
 import {
   correctedAverage,
-  defaultBalancePolicy,
-  planBalanceTransfers,
   type BalanceTransferCandidate,
   type BalanceVillage,
 } from '../../../ext/modules/features/resource-balancer/resource-planner';
@@ -45,7 +43,6 @@ import {
 export type BalanceResource = 'wood' | 'stone' | 'iron';
 const RESOURCES: readonly BalanceResource[] = ['wood', 'stone', 'iron'];
 
-const RESOURCE_LABEL: Record<BalanceResource, string> = { wood: 'madeira', stone: 'argila', iron: 'ferro' };
 
 /** Modos do balanceador (Onda 5b): pesos da proporção desejada por recurso. */
 export const BALANCE_MODES = Object.freeze(['media', 'cunhagem', 'igual'] as const);
@@ -92,82 +89,11 @@ export const DEFAULT_SETTINGS: BalanceSettings = {
   mode: 'media',
 };
 
-const SETTINGS_FORM: SettingsField[] = [
-  {
-    key: 'reserveMerchants',
-    label: 'Mercadores reservados',
-    type: 'number',
-    min: 0,
-    max: 999,
-    step: 1,
-    help: 'Mercadores que ficam em casa em cada aldeia antes de um envio ser planejado.',
-  },
-  {
-    key: 'maxDistance',
-    label: 'Distância máxima (campos)',
-    type: 'number',
-    min: 1,
-    max: 500,
-    step: 1,
-    help: 'Distância máxima, em campos do mapa, entre a aldeia doadora e a receptora.',
-  },
-  {
-    key: 'minTransfer',
-    label: 'Transferência mínima',
-    type: 'number',
-    min: 1,
-    max: 1_000_000,
-    step: 100,
-    help: 'Modo aldeia única: só envia quando o excedente total atinge este mínimo de recursos.',
-  },
-  {
-    key: 'receiverX',
-    label: 'Aldeia receptora — X',
-    type: 'number',
-    min: 0,
-    max: 999,
-    step: 1,
-    help: 'Coordenada X da receptora do modo aldeia única (0|0 = não configurado).',
-  },
-  {
-    key: 'receiverY',
-    label: 'Aldeia receptora — Y',
-    type: 'number',
-    min: 0,
-    max: 999,
-    step: 1,
-    help: 'Coordenada Y da receptora do modo aldeia única (0|0 = não configurado).',
-  },
-  {
-    key: 'mode',
-    label: 'Modo de pesos',
-    type: 'select',
-    options: [
-      { value: 'media', label: 'Média (comportamento de sempre)' },
-      { value: 'cunhagem', label: 'Cunhagem (28/30/25 por moeda)' },
-      { value: 'igual', label: 'Igual (1/1/1)' },
-    ],
-    help: 'Proporção desejada de recursos nas receptoras: Média usa a média corrigida da engine; Cunhagem prepara o armazém na proporção do custo da moeda (28/30/25); Igual equilibra os três recursos. Vale principalmente com as coordenadas-alvo abaixo.',
-  },
-  {
-    key: 'targetCoordsText',
-    label: 'Coordenadas-alvo (x|y por linha)',
-    type: 'textarea',
-    placeholder: '512|478\n534|551',
-    help: 'Preenchido, o ciclo balanceia EM DIREÇÃO a essas aldeias (têm de ser aldeias suas lidas na Visualização) em vez da média. Linha inválida é ignorada com nota no status; coordenada que não for aldeia sua não recebe nada.',
-  },
-  {
-    key: 'reserve',
-    label: 'Reserva por recurso (nas doadoras)',
-    type: 'record',
-    help: 'Quantidade de cada recurso que FICA na aldeia (vale no modo aldeia única com receptora configurada; o modo multi-aldeias usa a política padrão da engine). 0 = sem reserva.',
-    recordKeys: [
-      { key: 'wood', label: 'Madeira', min: 0, step: 1000 },
-      { key: 'stone', label: 'Argila', min: 0, step: 1000 },
-      { key: 'iron', label: 'Ferro', min: 0, step: 1000 },
-    ],
-  },
+const SUPER_FORM: SettingsField[] = [
+  { key: 'focus', label: 'Foco: construção (%)', type: 'number', min: 0, max: 100, step: 5, help: '100 = só a fila do Construtor; 0 = só igualar os armazéns.' },
+  { key: 'maxDistance', label: 'Distância máxima (campos)', type: 'number', min: 1, max: 999, step: 1, help: 'Nunca envia de mais longe que isto.' },
 ];
+
 
 export interface OverviewVillage {
   id: string;
@@ -228,34 +154,8 @@ export function parseOverviewVillages(doc: Document): OverviewVillage[] {
   return villages;
 }
 
-/** Recursos do header da página; undefined quando o header não é legível. */
-function readLiveResources(doc: Document): Record<BalanceResource, number> | undefined {
-  if (doc.querySelector('#wood, [data-resource="wood"], .resource-wood') === null) return undefined;
-  return {
-    wood: readResourceValue(doc, 'wood'),
-    stone: readResourceValue(doc, 'stone'),
-    iron: readResourceValue(doc, 'iron'),
-  };
-}
 
-function readResourceValue(doc: Document, resource: BalanceResource): number {
-  const element = doc.querySelector<HTMLElement>(`#${resource}, [data-resource="${resource}"], .resource-${resource}`);
-  if (element === null) return 0;
-  const text =
-    element instanceof HTMLInputElement || element instanceof HTMLSelectElement
-      ? element.value
-      : (element.textContent ?? '');
-  return parsePtBrInt(text);
-}
 
-/** Mercadores do Mercado (porta do readMerchants do page-adapter). */
-function readPageMerchants(doc: Document): { available: number; capacity: number } | undefined {
-  const available = parsePtBrInt(doc.querySelector('#market_merchant_available_count')?.textContent ?? null);
-  const total = parsePtBrInt(doc.querySelector('#market_merchant_total_count')?.textContent ?? null);
-  const maxTransport = parsePtBrInt(doc.querySelector('#market_merchant_max_transport')?.textContent ?? null);
-  if (total <= 0) return undefined;
-  return { available, capacity: maxTransport > 0 ? Math.floor(maxTransport / total) : 1000 };
-}
 
 /** Total de recursos de uma transferência (carência atendida). */
 export function transferTotal(transfer: BalanceTransferCandidate): number {
@@ -291,9 +191,6 @@ export function planFallbackTransfer(
   ) as Record<BalanceResource, number>;
 }
 
-function resourcesLabel(resources: Record<BalanceResource, number>): string {
-  return RESOURCES.map((resource) => `${RESOURCE_LABEL[resource]} ${resources[resource]}`).join(', ');
-}
 
 /** Aldeia própria recomendada como receptora (abaixo da média de recursos). */
 export interface ReceiverSuggestion {
@@ -563,217 +460,26 @@ export function buildTargetedTransfers(
   return { transfers: planned, unresolved };
 }
 
+// v3.11.0: o módulo passa a ser o SUPER BALANCEADOR (super-balancer.ts). As
+// funções acima seguem exportadas (Mercado Premium, Produção de Nobres, testes).
 registerTsh({
   id: 'resource-balancer',
   label: 'Balanceador',
-  desc: 'Distribui recursos entre doadoras e receptoras respeitando reservas (prévia sempre; máx. 1 envio por ciclo).',
+  desc: 'Equilibra os recursos entre todas as aldeias (ou abastece as escolhidas), em segundo plano, pelo "Pedido" do Mercado: vizinhas primeiro, recursos a caminho descontados, pequenas com prioridade.',
   category: 'economia',
-  screen: 'market',
+  screen: null,
   mutating: true,
-  cooldownMs: 5 * 60_000,
-  settingsForm: SETTINGS_FORM,
-  settingsDefaults: DEFAULT_SETTINGS,
+  cooldownMs: 30 * 60_000,
+  settingsForm: SUPER_FORM,
+  settingsDefaults: BALANCER_DEFAULTS,
+  settingsPanel: (settings) => buildBalancerPanel(settings),
   async runCycle(ctx) {
-    const settings = ctx.storage.get('settings', DEFAULT_SETTINGS);
-    const currentId = ctx.villageId.replace(/^n/, '');
-    const liveResources = readLiveResources(document);
-    const pageMerchants = readPageMerchants(document);
-
-    let villages: OverviewVillage[] = [];
-    try {
-      villages = parseOverviewVillages(
-        await pacedDoc(`/game.php?village=${encodeURIComponent(ctx.villageId)}&screen=overview_villages`),
-      );
-    } catch {
-      // Visualização ilegível: segue só com a aldeia atual (ramo fallback).
-    }
-
-    // Sobreposição da aldeia atual pelos valores vivos da página (mais frescos
-    // que a Visualização em cache de 60s).
-    const currentIndex = villages.findIndex((village) => village.id === currentId);
-    if (currentIndex >= 0) {
-      const stored = villages[currentIndex];
-      if (stored !== undefined) {
-        villages[currentIndex] = {
-          ...stored,
-          ...(liveResources !== undefined ? { resources: liveResources } : {}),
-          ...(pageMerchants !== undefined ? { merchants: pageMerchants } : {}),
-        };
-      }
-    } else if (liveResources !== undefined) {
-      villages.push({ id: currentId, name: 'Aldeia atual', resources: liveResources });
-    }
-    const current = villages.find((village) => village.id === currentId);
-    const currentVillageName = current?.name ?? 'aldeia atual';
-    const currentResources = liveResources ?? current?.resources ?? { wood: 0, stone: 0, iron: 0 };
-    const currentMerchants = current?.merchants;
-    const merchantCapacity = (currentMerchants?.capacity ?? 0) >= 100 ? (currentMerchants?.capacity ?? 0) : 1_000;
-    // Modo higienizado (storage sujo não pode virar peso indefinido).
-    const mode: BalanceMode = BALANCE_MODES.includes(settings.mode as BalanceMode)
-      ? (settings.mode as BalanceMode)
-      : 'media';
-
-    // Alvos por coordenada (Onda 5b): preenchido, balanceia EM DIREÇÃO a essas
-    // aldeias em vez da média. Linha inválida é ignorada com nota (parser do
-    // op-generator); coordenada que não é aldeia própria lida não recebe nada.
-    const targetCoords = typeof settings.targetCoordsText === 'string' ? settings.targetCoordsText.trim() : '';
-    if (targetCoords !== '') {
-      const parsedTargets = parseCoordinateLines(targetCoords);
-      const targeted = buildTargetedTransfers(villages, parsedTargets.targets, {
-        mode,
-        reserveMerchants: settings.reserveMerchants,
-        merchantCapacity,
-        maxDistance: settings.maxDistance,
-        minTransfer: settings.minTransfer,
-      });
-      const notes: string[] = [];
-      if (parsedTargets.invalidLines.length > 0) {
-        notes.push(`linha(s) inválida(s) ignorada(s): ${parsedTargets.invalidLines.slice(0, 5).join(', ')}`);
-      }
-      if (targeted.unresolved.length > 0) {
-        notes.push(`coordenada(s) que não são aldeias suas lidas: ${targeted.unresolved.join(', ')}`);
-      }
-      const note = notes.length > 0 ? ` (${notes.join('; ')})` : '';
-      if (targeted.transfers.length === 0) {
-        ctx.status(`Alvos por coordenada: nenhuma transferência planejada neste ciclo${note}.`, 'info');
-        return;
-      }
-      const chosen = pickLargestTransfer(targeted.transfers, currentId);
-      if (chosen === undefined) {
-        ctx.status(
-          `Alvos por coordenada: ${targeted.transfers.length} transferência(s) planejada(s), nenhuma partindo desta aldeia${note}.`,
-          'info',
-        );
-        return;
-      }
-      const receiver = villages.find((village) => village.id === chosen.receiverId);
-      const destino = receiverTargetLabel({
-        x: receiver?.x ?? 0,
-        y: receiver?.y ?? 0,
-        ...(receiver?.name !== undefined && receiver.name !== '' ? { name: receiver.name } : {}),
-      });
-      const carga = { wood: chosen.wood, stone: chosen.stone, iron: chosen.iron };
-      ctx.status(
-        `Alvos por coordenada (modo ${mode}): ${currentVillageName} → ${destino}: ${resourcesLabel(carga)}${note}…`,
-        'info',
-      );
-      const payload: SendResourcesPayload = {
-        wood: chosen.wood,
-        stone: chosen.stone,
-        iron: chosen.iron,
-        receiverId: chosen.receiverId,
-        ...(receiver?.x !== undefined && receiver.y !== undefined ? { target: { x: receiver.x, y: receiver.y } } : {}),
-      };
-      await sendResources(currentId, payload);
-      ctx.status(`Envio executado: ${currentVillageName} → ${destino}: ${resourcesLabel(carga)}${note}.`, 'ok');
+    // Envio em massa: só depois de o dono abrir Configurar e salvar (opt-in explícito).
+    const raw = gm.get<Record<string, unknown> | null>(`tsh-auto:${ctx.world}:resource-balancer:settings`, null);
+    if (raw === null || raw.v311 !== true) {
+      ctx.status('O Balanceador ainda não está ativo. Abra Configurar, escolha o que ele deve fazer e clique em Salvar — até lá nenhum recurso é enviado.', 'info');
       return;
     }
-
-    // Ramo engine da origem: >= 2 aldeias com mercadores/armazém conhecidos.
-    const known = villages.filter((village) => village.merchants !== undefined || village.storage !== undefined);
-    if (known.length >= 2) {
-      const balances: BalanceVillage[] = villages.map((village) => ({
-        id: village.id,
-        resources: village.resources,
-        storage: village.storage ?? Math.max(village.resources.wood, village.resources.stone, village.resources.iron, 1_000),
-        // Pontos por aldeia não vinham no snapshot deste ramo na origem →
-        // default 5.000 do plan() (perfil médio: alvo = média corrigida).
-        points: 5_000,
-        merchantsAvailable: village.merchants?.available ?? 0,
-        ...(village.x !== undefined && village.y !== undefined ? { x: village.x, y: village.y } : {}),
-      }));
-      const transfers = planBalanceTransfers(balances, {
-        ...defaultBalancePolicy,
-        reserveMerchants: settings.reserveMerchants,
-        merchantCapacity,
-        maxDistance: settings.maxDistance,
-      });
-      const totalPlanned = transfers.reduce((sum, transfer) => sum + transferTotal(transfer), 0);
-      const preview =
-        transfers.length === 0
-          ? 'Prévia: aldeias equilibradas — nenhuma transferência necessária.'
-          : `Prévia: ${transfers.length} transferência(s) planejada(s), ${totalPlanned} recursos no total.`;
-      const chosen = pickLargestTransfer(transfers, currentId);
-      if (chosen === undefined) {
-        ctx.status(`${preview} Nenhuma transferência parte desta aldeia neste ciclo.`, 'info');
-        return;
-      }
-      const donorName = currentVillageName; // no ramo engine, a doadora é sempre a aldeia atual
-      const receiver = villages.find((village) => village.id === chosen.receiverId);
-      const target = await resolveReceiverTarget(receiver, settings);
-      if (!target.ok) {
-        if (target.reason === 'nao-configurada') {
-          const suggestion = recommendReceiverBelowAverage(villages, currentId);
-          ctx.status(
-            suggestion === undefined
-              ? 'A aldeia receptora planejada não tem coordenadas conhecidas (Visualizações ainda não leram).'
-              : `A aldeia receptora planejada não tem coordenadas conhecidas. Sugestão (nada é enviado): usar ${receiverSuggestionLabel(suggestion)} como receptora — é a aldeia própria com menos recursos (${suggestion.total.toLocaleString('pt-BR')}) abaixo da média.`,
-            'info',
-          );
-        } else {
-          ctx.status(target.message, 'warn');
-        }
-        return;
-      }
-      const destino = receiverTargetLabel(target);
-      const carga = { wood: chosen.wood, stone: chosen.stone, iron: chosen.iron };
-      ctx.status(
-        `${preview} Maior défice: ${donorName} → ${destino}: ${resourcesLabel(carga)}…`,
-        'info',
-      );
-      const payload: SendResourcesPayload = {
-        wood: chosen.wood,
-        stone: chosen.stone,
-        iron: chosen.iron,
-        receiverId: chosen.receiverId,
-        target: { x: target.x, y: target.y },
-      };
-      await sendResources(currentId, payload);
-      ctx.status(
-        `Envio executado: ${donorName} → ${destino}: ${resourcesLabel(carga)}. ${preview}`,
-        'ok',
-      );
-      return;
-    }
-
-    // Ramo fallback da origem: receptora única por coordenadas configuradas.
-    if (settings.receiverX === 0 && settings.receiverY === 0) {
-      // 0|0 = não configurado: sugere outra aldeia própria abaixo da média
-      // (apenas recomendação no status — NUNCA envia sem coordenada configurada).
-      const suggestion = recommendReceiverBelowAverage(villages, currentId);
-      ctx.status(
-        suggestion === undefined
-          ? 'As coordenadas da aldeia receptora não estão configuradas.'
-          : `As coordenadas da aldeia receptora não estão configuradas (0|0). Sugestão (nada é enviado): ${receiverSuggestionLabel(suggestion)} — aldeia própria com menos recursos (${suggestion.total.toLocaleString('pt-BR')}) abaixo da média.`,
-        'info',
-      );
-      return;
-    }
-    const merchants = currentMerchants?.available ?? 0;
-    if (merchants < 1) {
-      ctx.status('Nenhum mercador disponível nesta aldeia.', 'info');
-      return;
-    }
-    const transferable = planFallbackTransfer(currentResources, merchants, merchantCapacity, settings);
-    const total = RESOURCES.reduce((sum, resource) => sum + transferable[resource], 0);
-    if (total < settings.minTransfer) {
-      ctx.status('Nenhum excedente atinge a transferência mínima.', 'info');
-      return;
-    }
-    // Coordenada manual do usuário: validada no mapa antes de qualquer envio.
-    const target = await resolveReceiverTarget(undefined, settings);
-    if (!target.ok) {
-      ctx.status(target.reason === 'nao-configurada' ? 'As coordenadas da aldeia receptora não estão configuradas.' : target.message, 'warn');
-      return;
-    }
-    const destino = receiverTargetLabel(target);
-    ctx.status(`Prévia: enviar ${resourcesLabel(transferable)} de ${currentVillageName} → ${destino}…`, 'info');
-    await sendResources(currentId, {
-      wood: transferable.wood,
-      stone: transferable.stone,
-      iron: transferable.iron,
-      target: { x: target.x, y: target.y },
-    });
-    ctx.status(`Envio executado: ${currentVillageName} → ${destino}: ${resourcesLabel(transferable)}.`, 'ok');
+    await runSuperBalancer(ctx);
   },
 });

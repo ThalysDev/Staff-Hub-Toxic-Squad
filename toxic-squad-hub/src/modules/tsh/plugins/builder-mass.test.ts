@@ -27,7 +27,7 @@ describe('leitura', () => {
     expect(b!.queue).toEqual([]);
   });
   it('Visão de Produção: recursos, armazém e fazenda', () => {
-    expect(prod[0]).toEqual({ id: '238755', res: { wood: 143506, stone: 68906, iron: 357000 }, storage: 400000, farm: { used: 24000, max: 24000 } });
+    expect(prod[0]).toMatchObject({ id: '238755', res: { wood: 143506, stone: 68906, iron: 357000 }, storage: 400000, farm: { used: 24000, max: 24000 } });
   });
   it('telas inesperadas: null', () => {
     expect(parseBuildingInfo('<x/>')).toBeNull();

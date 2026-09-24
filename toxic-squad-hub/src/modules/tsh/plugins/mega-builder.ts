@@ -643,7 +643,7 @@ function resolveTargets(
  * grupo > modelo padrão (sem nenhum = a aldeia não constrói). Sem modelos: a
  * fila em texto/template GC de antes vale para todas.
  */
-interface VillageTargets {
+export interface VillageTargets {
   forVillage(v: { id: string; x?: number; y?: number }): { targets: BuildTarget[]; model?: string } | null;
   templateName?: string;
   farmThreshold?: number;
@@ -695,9 +695,21 @@ async function villageTargets(ctx: TshCycleContext, settings: BuilderSettings): 
   };
 }
 
+/**
+ * Filas por aldeia para OUTROS módulos (v3.11.0 — o Balanceador no foco
+ * "Construção"): mesmas regras do ciclo, sem status. null = Construtor sem fila.
+ */
+export async function builderTargetsForWorld(world: string, villageId: string): Promise<VillageTargets | null> {
+  const raw = gm.get<Record<string, unknown> | null>(`tsh-auto:${world}:mega-builder:settings`, null) ?? {};
+  const parsed = builderSettings.safeParse({ ...DEFAULT_SETTINGS, ...raw });
+  if (!parsed.success) return null;
+  const shim = { world, villageId, storage: { get: <T,>(_k: string, d: T): T => d, set: () => undefined }, status: () => undefined } as unknown as TshCycleContext;
+  return villageTargets(shim, parsed.data);
+}
+
 /** Custos-base do mundo (get_building_info), lidos uma vez por sessão. */
 let buildingInfoCache: Partial<Record<BuildingId, BuildingInfo>> | null = null;
-async function buildingInfo(): Promise<Partial<Record<BuildingId, BuildingInfo>> | null> {
+export async function buildingInfo(): Promise<Partial<Record<BuildingId, BuildingInfo>> | null> {
   if (buildingInfoCache === null) buildingInfoCache = parseBuildingInfo(await pacedGet('/interface.php?func=get_building_info'));
   return buildingInfoCache;
 }

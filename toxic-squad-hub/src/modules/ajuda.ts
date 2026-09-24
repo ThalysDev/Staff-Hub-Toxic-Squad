@@ -135,6 +135,12 @@ export function renderAjuda(container: HTMLElement): void {
   item(cunhagem.body, '**Cunhagem em massa:** cunha de uma vez em todas as aldeias pela "Cunhar moedas de ouro" do jogo (Conta Premium), deixando em casa uma **reserva fixa** ou um **% do armazém**. O jogo confirma quantas moedas saíram em cada aldeia. Por padrão ela pula as aldeias que já estão com a cunhagem nativa ligada.');
   grid.appendChild(cunhagem.box);
 
+  const balanceador = card('Balanceador', 'swap');
+  item(balanceador.body, '**Equilibrar:** tira de quem sobra e leva para quem falta, em todas as aldeias, em segundo plano. Cada aldeia que recebe ganha **um "Pedido" do Mercado** puxando das vizinhas (as mais perto primeiro), em mercadores cheios. O que já está **a caminho** é descontado — nada vai em dobro.');
+  item(balanceador.body, '**Foco Construção ↔ Armazém:** no lado Construção, cada aldeia recebe o que falta para o próximo passo do **Construtor** (fila parada vem primeiro); no lado Armazém, os armazéns se aproximam da média. Aldeias **pequenas** podem ter prioridade e as **prontas** (fazenda cheia) guardam só uma fatia.');
+  item(balanceador.body, '**Abastecer aldeias:** enche as aldeias escolhidas (por coordenada ou grupo) até um % do armazém — com opção na **proporção da moeda** para aldeia de cunhagem. Um grupo pode ficar **fora do balanceamento**. Ele só começa a enviar depois que você salva a tela de Configurar.');
+  grid.appendChild(balanceador.box);
+
   const farm = card('Central de Farm', 'sword');
   item(farm.body, '**Script de página:** com o Auto Farm ligado, a Central aparece no topo do **Assistente de Saque** (botão "Acessar página" no painel). Aperte **Iniciar**: ela farma de todas as aldeias enquanto a aba estiver aberta, e continua sozinha se a página recarregar.');
   item(farm.body, '**Uma rodada:** lê a lista do Assistente uma vez, as tropas em casa de todas as aldeias e os ataques já a caminho; cada alvo vai para a **sua aldeia mais próxima** que tem a tropa, e o mesmo alvo não recebe dois farms chegando juntos.');

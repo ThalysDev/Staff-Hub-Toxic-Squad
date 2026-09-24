@@ -131,6 +131,12 @@ export interface ProdVillage {
   res: { wood: number; stone: number; iron: number };
   storage: number;
   farm: { used: number; max: number };
+  /** v3.11.0 (Balanceador): nome, coordenada, pontos e mercadores livres/total. */
+  name?: string;
+  x?: number;
+  y?: number;
+  points?: number;
+  merchants?: { free: number; total: number };
 }
 
 /** Visão de Produção. null = tabela ausente/inesperada. */
@@ -147,7 +153,20 @@ export function parseProdOverview(html: string): ProdVillage[] | null {
     const storage = /<\/td> <td>(\d+)<\/td> <td><a href="[^"]*screen=market">/.exec(row)?.[1];
     const farm = /<td class="[^"]*">(\d+)\/(\d+)<\/td>/.exec(row);
     if (id === undefined || wood === undefined || stone === undefined || iron === undefined || storage === undefined || farm === null) return null;
-    out.push({ id, res: { wood: num(wood), stone: num(stone), iron: num(iron) }, storage: Number(storage), farm: { used: Number(farm[1]), max: Number(farm[2]) } });
+    const label = /data-text="([^"]*)"/.exec(row)?.[1] ?? '';
+    const coords = /\((\d{1,3})\|(\d{1,3})\)\s*K\d+/.exec(row);
+    const points = /<\/span>\s*<\/td>\s*<td>([\d<>\/="a-z .]+?)<\/td>\s*<td><span class="res wood">/.exec(row)?.[1];
+    const merch = /screen=market">(\d+)\/(\d+)<\/a>/.exec(row);
+    out.push({
+      id,
+      res: { wood: num(wood), stone: num(stone), iron: num(iron) },
+      storage: Number(storage),
+      farm: { used: Number(farm[1]), max: Number(farm[2]) },
+      name: label.replace(/&amp;/g, '&'),
+      ...(coords !== null ? { x: Number(coords[1]), y: Number(coords[2]) } : {}),
+      ...(points !== undefined ? { points: num(points) } : {}),
+      ...(merch !== null ? { merchants: { free: Number(merch[1]), total: Number(merch[2]) } } : {}),
+    });
   }
   return out;
 }
@@ -314,4 +333,27 @@ export function parseMainScreen(html: string, villageId: string): { village: Bui
       farm: { used: span('pop_current_label'), max: farmMax },
     },
   };
+}
+
+/**
+ * Custo do PRÓXIMO passo da fila do Construtor nesta aldeia (v3.11.0, usado
+ * pelo Balanceador no foco "Construção"): o primeiro alvo pendente cujo
+ * pré-requisito já está construído e que não passou do máximo. null = nada a
+ * pedir (fila concluída/bloqueada).
+ */
+export function nextStepCost(
+  village: BuildVillage,
+  targets: readonly BuildTarget[],
+  info: Partial<Record<BuildingId, BuildingInfo>>,
+): { wood: number; stone: number; iron: number } | null {
+  for (const t of targets) {
+    const i = info[t.building];
+    if (i === undefined) continue;
+    const next = effectiveLevel(village, t.building) + 1;
+    if (next > t.level || next > i.maxLevel) continue;
+    const req = PREREQS[t.building] ?? {};
+    if (!Object.entries(req).every(([rb, rl]) => (village.levels[rb as BuildingId] ?? 0) >= (rl ?? 0))) continue;
+    return costAt(i, next);
+  }
+  return null;
 }

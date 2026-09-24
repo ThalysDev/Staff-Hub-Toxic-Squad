@@ -879,6 +879,31 @@ export async function mintCoinsMultiApi(villages: Record<string, number>): Promi
   throw transportError(result.error, 'GAME_REFUSED');
 }
 
+/**
+ * "Pedido" do Mercado (v3.11.0, verificado no BR142 com ação real): a aldeia
+ * DESTINO pede de várias origens num POST só — market&ajaxaction=call com
+ * resource[<origem>][<recurso>]. Devolve a resposta do jogo (success +
+ * transport_info por origem) para o chamador confirmar.
+ */
+export async function requestResourcesApi(
+  targetId: string,
+  origins: readonly { from: string; res: { wood: number; stone: number; iron: number } }[],
+): Promise<unknown> {
+  await gateRoutine('mercado');
+  const target = normalizeVillageId(targetId);
+  const data: Record<string, string> = {};
+  for (const o of origins) {
+    const from = normalizeVillageId(o.from);
+    for (const k of ['wood', 'stone', 'iron'] as const) data[`resource[${from}][${k}]`] = String(Math.max(0, Math.floor(o.res[k])));
+  }
+  const result = await enqueue(() => callGameAction('market', 'call', data, GAME_API_TIMEOUT_MS * 2, { village: target }));
+  if (result.ok) return result.response;
+  if (result.afterMutation) throw transportError(`Pedido de recursos inconclusivo: ${result.error}`, 'RESULT_UNCERTAIN', true);
+  if (result.code === 'anti-bot') throw transportError(result.error, 'CAPTCHA_DETECTED');
+  if (result.code === 'indisponivel' || result.code === 'lancou') throw transportError(`Pedido não enviado: ${result.error}`, 'GATEWAY_UNAVAILABLE');
+  throw transportError(result.error, 'GAME_REFUSED');
+}
+
 export interface SendResourcesPayload {
   wood: number;
   stone: number;
