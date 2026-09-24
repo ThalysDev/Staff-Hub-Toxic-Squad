@@ -839,6 +839,29 @@ export async function upgradeBuilding(buildingId: string): Promise<void> {
   });
 }
 
+/**
+ * Ampliação pelo MESMO pedido do botão "Nível N" do Edifício principal
+ * (BuildingMain.build, verificado no BR142): screen=main&ajaxaction=
+ * upgrade_building com {id, force: 1, destroy: 0, source} e a aldeia na URL.
+ * Uma chamada = uma ampliação. Recusa do jogo (recursos, fila cheia…) =
+ * GAME_REFUSED com a mensagem dele; dúvida = RESULT_UNCERTAIN (sem repetir).
+ */
+export async function upgradeBuildingApi(villageId: string, building: string, opts?: { cheap?: boolean }): Promise<void> {
+  await gateRoutine('construcao');
+  const village = normalizeVillageId(villageId);
+  const result = await enqueue(() =>
+    callGameAction('main', 'upgrade_building', { id: building, force: '1', destroy: '0', source: village, ...(opts?.cheap === true ? { cheap: '1' } : {}) }, GAME_API_TIMEOUT_MS * 2, {
+      village,
+      params: { type: building },
+    }),
+  );
+  if (result.ok) return;
+  if (result.afterMutation) throw transportError(`Construção inconclusiva: ${result.error}`, 'RESULT_UNCERTAIN', true);
+  if (result.code === 'anti-bot') throw transportError(result.error, 'CAPTCHA_DETECTED');
+  if (result.code === 'indisponivel' || result.code === 'lancou') throw transportError(`Construção não enviada: ${result.error}`, 'GATEWAY_UNAVAILABLE');
+  throw transportError(result.error, 'GAME_REFUSED');
+}
+
 export interface SendResourcesPayload {
   wood: number;
   stone: number;

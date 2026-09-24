@@ -353,9 +353,12 @@ async function researchNote(
 function savedRecruitMode(world: string): { mode: 'fundo' | 'tela' | null; legacy: boolean } {
   const raw = gm.get<Record<string, unknown> | null>(`tsh-auto:${world}:recruitment:settings`, null);
   if (raw === null || typeof raw !== 'object' || Object.keys(raw).length === 0) return { mode: null, legacy: false };
-  if (raw.execMode === 'fundo' || raw.execMode === 'tela') return { mode: raw.execMode, legacy: raw.legacyTela === true };
-  // Grava a escolha: a tela de Configurar passa a mostrar "Só na tela" (e não o padrão novo).
-  gm.set(`tsh-auto:${world}:recruitment:settings`, { ...raw, execMode: 'tela', legacyTela: true });
+  if (raw.execMode === 'fundo' || raw.execMode === 'tela') {
+    const since = typeof raw.legacyTela === 'number' ? raw.legacyTela : 0;
+    return { mode: raw.execMode, legacy: raw.execMode === 'tela' && Date.now() - since < 7 * 24 * 60 * 60_000 };
+  }
+  // Grava a escolha: a tela de Configurar passa a mostrar "Só na tela" (e não o padrão novo). Aviso por 7 dias.
+  gm.set(`tsh-auto:${world}:recruitment:settings`, { ...raw, execMode: 'tela', legacyTela: Date.now() });
   return { mode: 'tela', legacy: true };
 }
 

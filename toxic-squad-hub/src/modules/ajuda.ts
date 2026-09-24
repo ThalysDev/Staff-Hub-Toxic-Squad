@@ -122,6 +122,14 @@ export function renderAjuda(container: HTMLElement): void {
   item(recruta.body, '**Recursos que ficam em casa** protegem o que você quer usar para construir; **máximo por tropa em cada envio** espalha o recrutamento ao longo do dia; o **teto de população** para a aldeia quando a fazenda chega nele.');
   grid.appendChild(recruta.box);
 
+  const construtor = card('Construtor', 'home');
+  item(construtor.body, '**Segundo plano (padrão para quem começa agora):** lê as Visões de **Edifícios** e de **Produção** (Conta Premium) e completa a fila de construção de todas as aldeias, em qualquer tela — até N ampliações por ciclo, com pausa humana entre elas. Sem Premium, use **Só na tela** (o Edifício principal aberto).');
+  item(construtor.body, '**Modelos:** filas com nome, montadas clicando nos ícones dos edifícios, na ordem em que devem subir — ou comece de um modelo pronto (Pacote inicial, Recursos, Ofensiva, Defensiva, Academia). Quem tinha fila em texto ou template GC ganha um modelo com ela automaticamente.');
+  item(construtor.body, '**Aldeias:** escolha o modelo das aldeias sem regra e, se quiser, ligue outro modelo a um **grupo** do jogo ou a **coordenadas**. Coordenada vence grupo; entre grupos, vale a regra mais acima.');
+  item(construtor.body, 'O script conta o que já está na fila do jogo (por **itens** ou por **horas**), calcula o custo de cada nível pelo próprio mundo, respeita pré-requisitos, população e as reservas de recursos. O **−20%** do jogo gasta Pontos Premium e fica de fora por enquanto.');
+  item(construtor.body, '**Fazenda primeiro** quando a população livre cai abaixo do limite; **armazém primeiro** quando ele está cheio ou pequeno demais para o próximo custo. Recusa do jogo aparece no status e aquele item espera 30 min; nada é repetido às cegas.');
+  grid.appendChild(construtor.box);
+
   const farm = card('Central de Farm', 'sword');
   item(farm.body, '**Script de página:** com o Auto Farm ligado, a Central aparece no topo do **Assistente de Saque** (botão "Acessar página" no painel). Aperte **Iniciar**: ela farma de todas as aldeias enquanto a aba estiver aberta, e continua sozinha se a página recarregar.');
   item(farm.body, '**Uma rodada:** lê a lista do Assistente uma vez, as tropas em casa de todas as aldeias e os ataques já a caminho; cada alvo vai para a **sua aldeia mais próxima** que tem a tropa, e o mesmo alvo não recebe dois farms chegando juntos.');
