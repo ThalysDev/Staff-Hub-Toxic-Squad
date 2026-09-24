@@ -70,7 +70,8 @@ export async function vantaPostJson(path: string, body: Record<string, string>):
       });
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
-        throw new Error(`Sem resposta do jogo em ${POST_TIMEOUT_MS / 1000}s (${path}) — confira no jogo se a ação foi feita antes de repetir.`);
+        console.warn(`[toxic-squad-hub] POST sem resposta: ${path}`);
+        throw new Error(`O jogo não respondeu em ${POST_TIMEOUT_MS / 1000} s. Confira no jogo se a ação foi feita antes de tentar de novo.`);
       }
       throw error;
     } finally {

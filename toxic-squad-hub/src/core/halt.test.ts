@@ -6,6 +6,8 @@ const store = new Map<string, unknown>();
 vi.stubGlobal('GM_getValue', (key: string, fallback: unknown) => (store.has(key) ? store.get(key) : fallback));
 vi.stubGlobal('GM_setValue', (key: string, value: unknown) => store.set(key, value));
 vi.stubGlobal('GM_deleteValue', (key: string) => store.delete(key));
+const location = { hostname: 'br142.tribalwars.com.br' };
+vi.stubGlobal('window', { location });
 
 const { clearHalt, haltState, isHalted, tripHalt, HaltedError } = await import('./halt');
 const { enqueue, enqueueUrgent } = await import('./net');
@@ -29,6 +31,16 @@ describe('disjuntor de captcha/sessão', () => {
     await expect(enqueue(operation)).rejects.toBeInstanceOf(HaltedError);
     await expect(enqueueUrgent(operation)).rejects.toBeInstanceOf(HaltedError);
     expect(operation).not.toHaveBeenCalled();
+  });
+
+  it('vale POR MUNDO: captcha no br141 não pausa o br142', () => {
+    location.hostname = 'br141.tribalwars.com.br';
+    tripHalt('captcha', 'x');
+    location.hostname = 'br142.tribalwars.com.br';
+    expect(isHalted()).toBe(false);
+    location.hostname = 'br141.tribalwars.com.br';
+    expect(isHalted()).toBe(true);
+    location.hostname = 'br142.tribalwars.com.br';
   });
 
   it('fechado, a fila volta a rodar normalmente', async () => {

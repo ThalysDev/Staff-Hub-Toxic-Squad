@@ -8,6 +8,7 @@ import { gameContextFrom, pageWindow } from './page';
 import { gm } from './storage';
 import { icon, type IconName } from './icons';
 import { themeDeclarations } from './theme';
+import { isHalted } from './halt';
 
 export interface SectionDef {
   id: string;
@@ -112,12 +113,14 @@ function isolateKeyboard(host: HTMLElement): void {
  * Onda C — alerta no botão flutuante: com texto, o escudo pulsa em latão e o
  * rótulo acessível/tooltip dizem o motivo (ex.: cravado chegando); null limpa.
  */
-export function setFabAlert(text: string | null): void {
+export function setFabAlert(text: string | null, kind: 'aim' | 'halt' = 'aim'): void {
   const fab = document.getElementById(TSH_HOST_ID)?.shadowRoot?.querySelector<HTMLButtonElement>('.shs-fab');
   if (fab === null || fab === undefined) return;
   // Só escreve quando muda (leitores de tela não re-anunciam a cada segundo).
-  if ((fab.getAttribute('data-tip') ?? null) === text) return;
-  fab.classList.toggle('shs-fab--alert', text !== null);
+  if ((fab.getAttribute('data-tip') ?? null) === text && fab.classList.contains('shs-fab--halt') === (kind === 'halt')) return;
+  fab.classList.toggle('shs-fab--alert', text !== null && kind === 'aim');
+  // Pausa (disjuntor) em VERMELHO: nunca confundir com o aviso dourado de cravado.
+  fab.classList.toggle('shs-fab--halt', text !== null && kind === 'halt');
   if (text !== null) {
     fab.setAttribute('data-tip', text);
     fab.setAttribute('aria-label', `Abrir Toxic Squad Hub — ${text}`);
@@ -167,6 +170,10 @@ function styles(): string {
     @keyframes shs-fab-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(217,165,32,.0), 0 3px 10px rgba(40,24,6,.45); }
       50% { box-shadow: 0 0 0 6px rgba(217,165,32,.55), 0 3px 10px rgba(40,24,6,.45); } }
     .shs-fab--alert { border-color: var(--shs-brass-bright); animation: shs-fab-pulse 1.2s ease-in-out infinite; }
+    @keyframes shs-fab-halt { 0%, 100% { box-shadow: 0 0 0 0 rgba(192,64,56,0), 0 3px 10px rgba(40,24,6,.45); }
+      50% { box-shadow: 0 0 0 7px rgba(192,64,56,.6), 0 3px 10px rgba(40,24,6,.45); } }
+    .shs-fab--halt { border-color: var(--shs-danger, #c04038); background: var(--shs-danger, #c04038);
+      animation: shs-fab-halt 1s ease-in-out infinite; }
     .shs-fab[data-tip]:hover::after { left: 0; transform: none; bottom: calc(100% + 8px); }
     .shs-fab[data-tip]:hover::before { left: 16px; transform: none; }
 
@@ -964,7 +971,8 @@ export function mountShell(): void {
     const atualValida = available.some((section) => section.id === body.dataset.section);
     if (body.dataset.section === '' || body.dataset.section === undefined || !atualValida) {
       // Onda B: volta para a última seção usada (se disponível nesta tela).
-      const lembrada = gm.get<string>(LAST_SECTION_KEY, '');
+      // Pausa (disjuntor) aberta: abre SEMPRE na Início, onde está o retomar.
+      const lembrada = isHalted() ? 'inicio' : gm.get<string>(LAST_SECTION_KEY, '');
       const escolhida = available.find((section) => section.id === lembrada) ?? available[0];
       if (escolhida !== undefined) body.dataset.section = escolhida.id;
     }

@@ -265,7 +265,7 @@ export async function runTshCycle(id: string, opts?: { ignoreCooldown?: boolean 
   // jogador retomar na Início — nada de tentar de novo a cada ciclo.
   const halt = haltState();
   if (halt !== null) {
-    gm.set<CycleStatus>(statusKey(id, worldId), { message: `${haltLabel(halt)} — pausado até você retomar na Início.`, kind: 'warn', at: Date.now() });
+    gm.set<CycleStatus>(statusKey(id, worldId), { message: `${haltLabel(halt)} — pausado. Retome na aba Início do painel (ou na faixa vermelha no topo).`, kind: 'warn', at: Date.now() });
     return;
   }
   if (!licenseOk()) {

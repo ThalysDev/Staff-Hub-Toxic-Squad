@@ -78,7 +78,9 @@ export function renderAjuda(container: HTMLElement): void {
   item(agendador.body, '**Cravado = precisão máxima.** Comandos agendados (ataques de OP, nobres, snipes, cancelamentos) saem no milissegundo planejado — nada os atrasa.');
   item(agendador.body, '**Como ele crava:** alguns segundos antes (a "antecipação do pré-arme", padrão 8s) o script abre a tela de confirmação na Praça; o clique final sai no **ms exato**, já descontando o tempo de resposta da sua internet. Se a confirmação atrasar além da tolerância, o comando **não sai atrasado** — fica marcado como falhou, com o motivo.');
   item(agendador.body, '**Relógio:** a tela Comandos mostra a hora do servidor com milissegundos e a precisão medida (ex.: ±20 ms). "Calibrar relógio" mede de novo. Digite os horários na **Hora do servidor** (padrão) ou mude para a hora do seu computador.');
-  item(agendador.body, 'Deixe a **Praça da aldeia de origem aberta** na hora do envio. Com um comando chegando em até 2 minutos, o escudo flutuante **pulsa** — não feche a aba.');
+  item(agendador.body, '**Uma aba por aldeia de origem.** Cada aba só envia os comandos da aldeia que está aberta nela. Numa OP com ataques saindo de 5 aldeias, deixe **5 abas abertas, cada uma na Praça de uma dessas aldeias**, desde alguns minutos antes. Aldeia sem aba aberta = comando que não sai.');
+  item(agendador.body, 'Com um comando chegando em até 2 minutos, o escudo flutuante **pulsa em dourado** e diz de qual aldeia ele sai — não feche a aba dessa aldeia. Escudo **vermelho** = script pausado (captcha ou sessão): nada sai até você retomar.');
+  item(agendador.body, 'Da **mesma aldeia**, deixe pelo menos **5 s entre partidas** (cada envio abre a própria confirmação). Para nobres colados (100 ms), use o **Trem do jogo**.');
   item(agendador.body, '**Fakes e rotinas são humanizados**: intervalos, variação e pausas configuráveis para não parecer robô.');
   item(agendador.body, 'A **Sequência de Nobres (2-5)** monta o trem com gap calibrado; o **Cancelamento Cronometrado** cancela de 1 a 20 comandos no alvo na hora marcada.');
   item(agendador.body, 'O **Mapa de Operações** filtra, detecta conflitos de milissegundos e edita horários em massa.');
@@ -92,7 +94,8 @@ export function renderAjuda(container: HTMLElement): void {
 
   const sentinela = card('Modo Sentinela', 'eye');
   item(sentinela.body, 'O botão da Sentinela abre **uma aba de fundo do jogo** que mantém as automações ciclando enquanto você faz outra coisa.');
-  item(sentinela.body, 'O cadeado por mundo impede duas abas de agirem juntas — a Sentinela e a aba normal se alternam sem duplicar.');
+  item(sentinela.body, 'O cadeado impede duas abas de enviarem a mesma coisa: no **Agendador** ele vale **por aldeia** (uma aba por origem); nas outras automações vale por mundo, e a Sentinela e a aba normal se revezam sem duplicar.');
+  item(sentinela.body, '**Captcha ou sessão expirada pausam tudo** (automações e pedidos ao jogo) no mundo afetado. Resolva no jogo e clique em **Já resolvi — retomar** (faixa vermelha no topo ou aba Início).');
   grid.appendChild(sentinela.box);
 
   const seguranca = card('Uso consciente', 'alert');

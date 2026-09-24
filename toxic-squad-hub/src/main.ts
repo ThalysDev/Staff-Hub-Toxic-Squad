@@ -24,6 +24,8 @@ import { clockLabelMs } from './ext/core/timing/precise-fire';
 import { renderAjuda } from './modules/ajuda';
 import { createModuleScope, type ModuleScope } from './modules/vanta/vanta-lifecycle';
 import { haltLabel, haltState, pageShowsBotProtection, tripHalt } from './core/halt';
+import { renderHaltBar } from './core/halt-bar';
+import { currentVillageId } from './modules/tsh/tsh-runtime';
 
 /** Diálogo de ativação (renderiza dentro do host até a licença validar). */
 function renderActivation(onActivate: () => void): void {
@@ -206,25 +208,35 @@ function startAimWatcher(scope: ModuleScope): void {
   // Timer RASTREADO (regra do projeto: nada de setInterval cru nos módulos).
   scope.every(() => {
     if (aimIsHot()) return; // reta final do clique: nada de trabalho de UI
-    // Disjuntor aberto vence qualquer outro aviso: o jogador precisa agir.
+    const sched = nextScheduled(currentWorld());
+    // Disjuntor aberto vence qualquer outro aviso: escudo VERMELHO + faixa no
+    // topo do jogo com o que está em jogo e o botão de retomar.
     const halt = haltState();
     if (halt !== null) {
-      setFabAlert(`${haltLabel(halt)} — script pausado; abra a Início para retomar`);
+      setFabAlert(`${haltLabel(halt)} — script PAUSADO; nenhum comando sai até você retomar`, 'halt');
+      const emJogo =
+        sched.soon30 > 0 && sched.nextAt !== null
+          ? `${sched.soon30} comando(s) agendado(s) nos próximos 30 min (o próximo às ${clockLabelMs(sched.nextAt)}) NÃO vão sair — e comando que passa da hora não é reenviado.`
+          : null;
+      renderHaltBar(halt, emJogo);
       return;
     }
+    renderHaltBar(null, null);
     // Agendador desligado não envia nada — sem alerta enganoso.
-    if (!isTshEnabled('command-scheduler')) {
+    if (!isTshEnabled('command-scheduler') || sched.nextAt === null) {
       setFabAlert(null);
       return;
     }
-    const { nextAt } = nextScheduled(currentWorld());
-    if (nextAt === null) {
-      setFabAlert(null);
-      return;
-    }
-    const falta = nextAt - serverNowMs();
+    const falta = sched.nextAt - serverNowMs();
     if (falta > 0 && falta <= 120_000) {
-      setFabAlert(`Comando agendado às ${clockLabelMs(nextAt)} — mantenha esta aba aberta`);
+      // Lock por aldeia: só a aba NA aldeia de origem envia — diga qual.
+      const src = sched.nextSource;
+      const daqui = src === null || src.villageId === currentVillageId();
+      setFabAlert(
+        daqui
+          ? `Comando desta aldeia às ${clockLabelMs(sched.nextAt)} — mantenha esta aba aberta`
+          : `Comando de ${src.label} às ${clockLabelMs(sched.nextAt)} — precisa de uma aba na Praça DESSA aldeia`,
+      );
     } else {
       setFabAlert(null);
     }

@@ -633,6 +633,14 @@ export function buildBlockRecords(input: BlockRecordInput): BlockRecordsResult {
     }
     lastDepartureByOrigin.set(originKey, departure);
     const arrival = departure + command.travelMinutes * 60_000;
+    // Revisão de produto (Onda 1): partida empurrada pelo espaço mínimo muda
+    // a CHEGADA — o jogador precisa ver isso antes de agendar.
+    const wanted = desiredDeparture.get(command.index);
+    if (wanted !== undefined && departure > wanted) {
+      warnings.push(
+        `Partida de ${originKey} → ${targetKey} empurrada +${Math.round((departure - wanted) / 1000)} s (mesma aldeia precisa de ${VIEWER_CONFLICT_WINDOW_MS / 1000} s entre envios) — chega às ${clockLabelMs(arrival)}. Para chegadas coladas da mesma aldeia, use o Trem do jogo.`,
+      );
+    }
     const targetInfo = input.targetInfoFor?.(command.target);
     records.push(
       createScheduledCommand({
@@ -2904,7 +2912,7 @@ function appendMapSection(parent: HTMLElement, ctx: SchedulerUiContext): void {
   const statusSelect = selectEl(VIEWER_STATUS_ROWS.map((row) => ({ value: row.value, label: row.label })));
   const sortSelect = selectEl(VIEWER_SORT_ROWS.map((row) => ({ value: row.value, label: row.label })));
   const groupSelect = selectEl([{ value: '', label: '— todos —' }]);
-  const conflictsCheck = checkboxEl('Só conflitos de ms', `Comandos da MESMA origem com partidas a menos de ${VIEWER_CONFLICT_WINDOW_MS / 1000} s entre si (a aba não consegue enviar os dois).`);
+  const conflictsCheck = checkboxEl(`Só conflitos de partida (< ${VIEWER_CONFLICT_WINDOW_MS / 1000} s)`, `Comandos da MESMA origem com partidas a menos de ${VIEWER_CONFLICT_WINDOW_MS / 1000} s entre si (a aba não consegue enviar os dois).`);
   const kindChecks = VIEWER_KINDS.map((kind) => {
     const check = checkboxEl(VIEWER_KIND_LABELS[kind]);
     check.input.checked = true;

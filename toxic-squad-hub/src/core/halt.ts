@@ -3,9 +3,16 @@
 // o jogador resolver no próprio navegador e clicar em "Já resolvi — retomar".
 // Antes cada módulo só lançava erro e tentava de novo no ciclo seguinte
 // (inclusive a Sentinela), martelando o jogo com a proteção aberta.
-// Estado em GM storage: vale para TODAS as abas do jogo ao mesmo tempo.
+// Estado em GM storage POR MUNDO: vale para todas as abas daquele mundo.
 
 import { gm } from './storage';
+
+/** Mundo desta página (subdomínio). A pausa vale POR MUNDO: captcha no BR141
+ *  não pode parar a OP do BR142 (revisão de produto da Onda 1). */
+function worldOf(): string {
+  if (typeof window === 'undefined') return 'mundo'; // testes em node
+  return window.location.hostname.split('.')[0] ?? 'mundo';
+}
 
 export type HaltReason = 'captcha' | 'sessao';
 
@@ -15,18 +22,18 @@ export interface HaltState {
   detail: string;
 }
 
-const HALT_KEY = 'tsh:halt';
+const haltKey = (): string => `tsh:${worldOf()}:halt`;
 
 /** Lançado por quem tenta usar a rede com o disjuntor aberto. */
 export class HaltedError extends Error {
   constructor(state: HaltState) {
-    super(`${haltLabel(state)} — o script está pausado até você resolver no jogo e clicar em "Já resolvi — retomar".`);
+    super(`${haltLabel(state)} — o script está pausado. Resolva no jogo e clique em "Já resolvi — retomar" na aba Início do painel.`);
     this.name = 'HaltedError';
   }
 }
 
 export function haltState(): HaltState | null {
-  return gm.get<HaltState | null>(HALT_KEY, null);
+  return gm.get<HaltState | null>(haltKey(), null);
 }
 
 export function isHalted(): boolean {
@@ -36,12 +43,12 @@ export function isHalted(): boolean {
 /** Abre o disjuntor (idempotente: o primeiro motivo fica registrado). */
 export function tripHalt(reason: HaltReason, detail: string): void {
   if (isHalted()) return;
-  gm.set<HaltState>(HALT_KEY, { reason, at: Date.now(), detail });
+  gm.set<HaltState>(haltKey(), { reason, at: Date.now(), detail });
 }
 
 /** Só o jogador fecha o disjuntor (botão na Início). */
 export function clearHalt(): void {
-  gm.set<HaltState | null>(HALT_KEY, null);
+  gm.set<HaltState | null>(haltKey(), null);
 }
 
 export function haltLabel(state: HaltState): string {

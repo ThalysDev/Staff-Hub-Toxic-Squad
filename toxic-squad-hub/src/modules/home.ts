@@ -5,7 +5,8 @@
 
 import { icon, type IconName } from '../core/icons';
 import { gm } from '../core/storage';
-import { clearHalt, haltLabel, haltState } from '../core/halt';
+import { haltLabel, haltState } from '../core/halt';
+import { tryResume } from '../core/halt-bar';
 import { licenseState } from '../core/license';
 import { currentWorld, pageWindow } from '../core/page';
 import { gameContext } from '../core/shell';
@@ -29,6 +30,7 @@ const HOME_CSS = `
     border: 1px solid var(--shs-action-dark, #4a2708); background: var(--shs-action, #6d3c14); color: var(--shs-on-dark, #f5ecd0);
     font-weight: 700; cursor: pointer; }
   .home-resume:hover { filter: brightness(1.1); }
+  .home-resume-err { margin-top: 6px; color: var(--shs-danger, #c04038); font-weight: 600; }
   /* [8] O kicker virou TÍTULO do card: heading legítimo (h3) 16px/700, sem
      estilo de eyebrow (nada de uppercase minúsculo sobre um heading). */
   .home-kicker { display: flex; align-items: center; gap: 7px; margin: 0 0 10px;
@@ -111,6 +113,15 @@ interface CommandRecordLike {
   sendAt?: unknown;
   paused?: unknown;
   events?: unknown;
+  sourceVillageId?: unknown;
+  sourceName?: unknown;
+  source?: unknown;
+}
+
+/** Origem do próximo comando (para dizer QUAL aba precisa estar aberta). */
+export interface NextSource {
+  villageId: string;
+  label: string;
 }
 
 /**
@@ -118,9 +129,15 @@ interface CommandRecordLike {
  * [1] Conta só registros VIVOS: `paused !== true` e o ÚLTIMO evento de
  * `events` sem status terminal — o histórico (enviado/incerto/falhou/removido)
  * e os pausados deixaram de inflar o número. nextAt = menor sendAt futuro
- * ENTRE os vivos.
+ * ENTRE os vivos. Onda 1: devolve também a ORIGEM do próximo (o lock é por
+ * aldeia — cada origem precisa da própria aba) e quantos saem em 30 min.
  */
-export function nextScheduled(world: string): { count: number; nextAt: number | null } {
+export function nextScheduled(world: string): {
+  count: number;
+  nextAt: number | null;
+  nextSource: NextSource | null;
+  soon30: number;
+} {
   const state = gm.get<{ commands?: unknown[] }>(`tsh-auto:${world}:command-scheduler:scheduler`, {});
   const commands = Array.isArray(state.commands) ? state.commands : [];
   const vivos = commands.filter((raw): raw is CommandRecordLike => {
@@ -134,10 +151,22 @@ export function nextScheduled(world: string): { count: number; nextAt: number | 
   // Onda C: sendAt está no relógio do SERVIDOR — compara com o "agora" dele.
   const agora = serverNowMs();
   const future = vivos
-    .map((c) => Date.parse(typeof c.sendAt === 'string' ? c.sendAt : ''))
-    .filter((t) => Number.isFinite(t) && t > agora)
-    .sort((a, b) => a - b);
-  return { count: vivos.length, nextAt: future[0] ?? null };
+    .map((c) => ({ c, t: Date.parse(typeof c.sendAt === 'string' ? c.sendAt : '') }))
+    .filter((x) => Number.isFinite(x.t) && x.t > agora)
+    .sort((a, b) => a.t - b.t);
+  const first = future[0];
+  let nextSource: NextSource | null = null;
+  if (first !== undefined && typeof first.c.sourceVillageId === 'string') {
+    const src = first.c.source as { x?: unknown; y?: unknown } | undefined;
+    const coord = src !== undefined && typeof src.x === 'number' && typeof src.y === 'number' ? `${src.x}|${src.y}` : '';
+    const name = typeof first.c.sourceName === 'string' ? first.c.sourceName : '';
+    nextSource = {
+      villageId: first.c.sourceVillageId.replace(/^n/, ''),
+      label: name !== '' && coord !== '' ? `${name} (${coord})` : name !== '' ? name : coord !== '' ? coord : `aldeia ${first.c.sourceVillageId}`,
+    };
+  }
+  const soon30 = future.filter((x) => x.t - agora <= 30 * 60_000).length;
+  return { count: vivos.length, nextAt: first?.t ?? null, nextSource, soon30 };
 }
 
 /** Assinatura do que a Início mostra (muda → redesenha; Onda B "ao vivo"). */
@@ -189,11 +218,20 @@ function drawHome(container: HTMLElement): void {
         `Desde ${new Date(halt.at).toLocaleTimeString('pt-BR')} — ${halt.detail} Nenhuma automação roda e nenhum pedido sai para o jogo enquanto isto estiver aqui.`,
       ),
     );
+    const sched = nextScheduled(currentWorld());
+    if (sched.soon30 > 0 && sched.nextAt !== null) {
+      aviso.body.appendChild(
+        line(
+          'alert',
+          `Atenção: ${sched.soon30} comando(s) agendado(s) nos próximos 30 min — o próximo às ${clockLabelMs(sched.nextAt)}. Enquanto estiver pausado eles NÃO saem, e comando que passa da hora não é reenviado.`,
+        ),
+      );
+    }
     aviso.body.appendChild(
       line(
         'info',
         halt.reason === 'captcha'
-          ? 'Resolva o desafio na janela do jogo (recarregue a página se precisar) e depois clique abaixo.'
+          ? 'Aperte F5: o jogo vai mostrar o desafio. Resolva-o e depois clique abaixo.'
           : 'Faça login de novo no jogo e depois clique abaixo.',
       ),
     );
@@ -202,11 +240,19 @@ function drawHome(container: HTMLElement): void {
     retomar.className = 'home-resume';
     retomar.appendChild(icon('check', 13));
     retomar.appendChild(document.createTextNode('Já resolvi — retomar'));
+    const recusa = document.createElement('div');
+    recusa.className = 'home-resume-err';
+    recusa.hidden = true;
     retomar.addEventListener('click', () => {
-      clearHalt();
-      drawHome(container);
+      const motivo = tryResume();
+      if (motivo === null) {
+        drawHome(container);
+        return;
+      }
+      recusa.textContent = motivo;
+      recusa.hidden = false;
     });
-    aviso.body.appendChild(retomar);
+    aviso.body.append(retomar, recusa);
     grid.appendChild(aviso.box);
   }
 

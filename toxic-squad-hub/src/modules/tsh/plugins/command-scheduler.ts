@@ -841,7 +841,12 @@ async function runCycleGuarded(ctx: TshCycleContext): Promise<void> {
     }
     if (due === undefined) {
       if (anyVillageDue) {
-        ctx.status('Um comando de OUTRA aldeia está na janela — abra a Praça da aldeia de origem para enviá-lo.', 'info');
+        const outro = records.find((record) => recordInSendWindow(record, now.getTime(), windowCfg));
+        const origem =
+          outro === undefined
+            ? 'da aldeia de origem'
+            : `de ${outro.sourceName ?? 'origem'}${outro.source !== undefined ? ` (${outro.source.x}|${outro.source.y})` : ''}`;
+        ctx.status(`Um comando de OUTRA aldeia está na janela — abra a Praça ${origem} em outra aba: o envio sai de lá.`, 'info');
       } else {
         ctx.status(
           nextSendAt === undefined
